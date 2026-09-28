@@ -225,12 +225,21 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     if hold:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
+        if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
+            # C-26.9: FIFO on a lease; nothing holds it, an older turn is waiting for it.
+            template = "a lease this job needs is kept for an older turn that is waiting for it: {queued}"
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                      "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold)}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "lease-held" and hold.get("queued_behind"):
+                # C-26.9: FIFO on a lease; a lease an older turn waits for is kept for it.
+                lines.append("Queued behind: " + ", ".join(hold["queued_behind"])
+                             + " (an older turn waiting for " + ", ".join(hold.get("queued") or ["the same lease"])
+                             + " takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")
     else:

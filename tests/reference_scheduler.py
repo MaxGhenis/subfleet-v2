@@ -66,8 +66,9 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
     chain = list(dict.fromkeys(chain))
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
-    # `conversations.turn_slots_per_lane` per lane. Neither kind waits for the
-    # other's slots; an attended turn never waits behind background work.
+    # `conversations.turn_slots_per_lane` per lane, where a missing key or null
+    # is no cap. Neither kind waits for the other's slots; an attended turn never
+    # waits behind background work.
     is_turn = _row(job).get("kind") == "turn"
     conversation_caps = policy.get("conversations") or {}
     key = "in_flight_turns" if is_turn else "in_flight"
@@ -81,7 +82,8 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
     if is_turn:
-        if sum(in_flight.values()) >= int(conversation_caps.get("max_active_turns", 3)):
+        fleet_turns = conversation_caps.get("max_active_turns")
+        if fleet_turns is not None and sum(in_flight.values()) >= int(fleet_turns):
             capacity_blocks.append("fleet")
     elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
@@ -138,12 +140,14 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                            if row["lane_id"] == identity)
             lane_measured = any(row["lane_id"] == identity and fresh_provider(
                 row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
-            slot_cap = (int(conversation_caps.get("turn_slots_per_lane", 1)) if is_turn else
+            lane_turns = conversation_caps.get("turn_slots_per_lane")
+            slot_cap = ((None if lane_turns is None else int(lane_turns)) if is_turn else
                         caps["max_in_flight_per_lane"] if lane_measured else
                         min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
             if identity in view.get("unavailable_lanes", {}):
                 detail["slot_block"] = view["unavailable_lanes"][identity]
-            if capacity_blocks or in_flight.get(identity, 0) >= slot_cap or detail.get("slot_block"):
+            if (capacity_blocks or (slot_cap is not None and in_flight.get(identity, 0) >= slot_cap)
+                    or detail.get("slot_block")):
                 reasons.append("no-slot")
             if any(row["utilization"] >= 1 - floor for row in measured_readings):
                 reasons.append("below-floor")

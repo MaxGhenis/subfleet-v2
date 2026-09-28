@@ -48,7 +48,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
+from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model, turn_cap
 from .retention import maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
@@ -3236,11 +3236,31 @@ class Daemon:
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
+        # C-26.9: FIFO on a lease. A turn held waiting for a lease (a writable checkout,
+        # a conversation, a native session) queues for it here, oldest first, and no
+        # later turn of this pass takes it: without this, a lease released after the
+        # pass began went to whichever turn looked next, and with no turn cap nothing
+        # else keeps a later turn behind an older one (review of 1b38d641).
+        lease_queue: dict[str, str] = {}
+
+        def queue_for(keys, job_id):
+            # A lane slot is never queued for: each turn takes the lowest free one.
+            for key in keys:
+                if not key.startswith("lane:"):
+                    lease_queue.setdefault(key, job_id)
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
-        # holds back only its own kind.
+        # holds back only its own kind. The turn pool has no cap unless the policy
+        # sets `conversations.max_active_turns`: then it is never full.
         saturated: dict[str, bool] = {}
-        turn_cap = int((self.policy.get("conversations") or {}).get("max_active_turns", 3))
+        turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
+        # C-6.9's FIFO exists so a later job cannot take the slot an older one waits
+        # for. With neither turn cap set (the default) a turn waits for no slot, so
+        # no turn is held behind another: an older turn that cannot be placed (its
+        # lane closed, its checkout leased) would otherwise keep every later turn
+        # waiting while lanes were free.
+        turns_ordered = turns_cap is not None or turn_cap(self.policy.get("conversations"),
+                                                          "turn_slots_per_lane") is not None
         for job in scheduler.ordered_jobs(self.policy, queued):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
@@ -3291,10 +3311,11 @@ class Daemon:
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
             models = scheduler.demand_models(self.policy, job if let_go else retry or job)
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
-            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                           if scheduler.competes(models, theirs, lanes, their_lanes)), None)
             pool = "turn" if job["kind"] == "turn" else "detached"
-            pool_cap = turn_cap if pool == "turn" else cap
+            pool_cap = turns_cap if pool == "turn" else cap
+            ordered = pool == "detached" or turns_ordered
+            behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
+                           if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
@@ -3315,6 +3336,9 @@ class Daemon:
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                if pool == "turn" and known and known["hold"].get("reason") == "lease-held":
+                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
+                              job["job_id"])
                 holds[job["job_id"]] = {**(known["hold"] if known else {"reason": job["wait_reason"] or "waiting"}),
                                         "next_check_at": job["next_check_at"]}
                 continue
@@ -3373,7 +3397,7 @@ class Daemon:
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None)
+                                   if scheduler.competes(models, theirs, lanes, their_lanes)), None) if ordered else None
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
@@ -3484,12 +3508,14 @@ class Daemon:
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
                                           "WHERE a.state IN ('reserved','starting','running','finalizing') "
                                           "AND (j.kind = 'turn') = ?", (pool == "turn",)).fetchone()[0]
-                        saturated[pool] = live >= pool_cap
+                        saturated[pool] = pool_cap is not None and live >= pool_cap
                         # A job that passes an older waiting job of its tier leaves one
                         # active slot free, so the older job can start the moment its
                         # capacity appears instead of waiting out the jobs that passed it.
-                        limit = pool_cap - 1 if waiters.get(tier) else pool_cap
-                        if not decision.chosen_lane or live >= limit:
+                        # An uncapped pool (C-26.9) has no last slot to keep.
+                        limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
+                        at_limit = limit is not None and live >= limit
+                        if not decision.chosen_lane or at_limit:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
@@ -3501,13 +3527,13 @@ class Daemon:
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = "fleet-full" if live >= pool_cap else "slot-kept"
+                                label = "fleet-full" if saturated[pool] else "slot-kept"
                             hold = {"reason": label,
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
                             rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{live >= limit}", hold)
+                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
@@ -3578,10 +3604,18 @@ class Daemon:
                             leases.append((revive_key, job["job_id"]))
                         contested = [key for key, holder in leases
                                      if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
-                        if contested:
+                        queued = [key for key, _ in leases if key not in contested
+                                  and lease_queue.get(key, job["job_id"]) != job["job_id"]] if pool == "turn" else []
+                        if contested or queued:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
-                            hold = {"reason": "lease-held", "leases": contested}
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested)), hold)
+                            # `leases` are held by another job; `queued` are free but kept for
+                            # an older turn waiting for them (C-26.9), named by `queued_behind`.
+                            hold = {"reason": "lease-held", "leases": contested,
+                                    **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
+                                       if queued else {})}
+                            if pool == "turn":
+                                queue_for(contested + queued, job["job_id"])
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}

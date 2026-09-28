@@ -31,6 +31,7 @@ from ..contracts import (
     OutcomeClass, Reading, ReadingLabel,
 )
 from ..sessions import transcripts
+from ..state_files import open_state
 
 GUESSED_S = 3600
 CODEX_WINDOWS = {300: "five_hour", 10080: "seven_day"}
@@ -53,7 +54,8 @@ def _epoch_iso(value: Any) -> str | None:
 
 def read_turn(attempt_dir: Path) -> dict | None:
     try:
-        return json.loads(transcripts.read_regular(Path(attempt_dir) / "turn.json"))
+        with open_state(Path(attempt_dir) / "turn.json") as stream:
+            return json.load(stream)
     except (OSError, ValueError):
         return None
 
@@ -137,7 +139,8 @@ def codex_readings(stdout: Path, *, lane_id: str, attempt_id: str | None) -> tup
     last: dict | None = None
     observed = _iso(_now())
     try:
-        lines = transcripts.read_regular(stdout).splitlines()
+        with open_state(stdout) as stream:
+            lines = stream.read().splitlines()
     except OSError:
         return [], None
     for raw in lines:

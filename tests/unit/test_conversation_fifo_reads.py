@@ -116,6 +116,15 @@ READERS = {
         report(value=result is not None and len(result) == 2)
         """, {"value": True}),
     # --- the service's own reads and writes -------------------------------------------
+    "service.admission_hold, manifest.json a FIFO": ("""
+        from types import SimpleNamespace
+        from subfleet.conversations import service
+        fifo(tmp / "jobs" / "queued-turn" / "manifest.json")
+        print("reading admission manifest", flush=True)
+        hold = service.ConversationService.admission_hold(SimpleNamespace(root=tmp), {"job_id": "queued-turn"})
+        report(**hold)
+        """, {"reason": "conversation-blocked", "conversation_id": None,
+               "error_type": "NotRegularFile", "error": "its turn manifest cannot be read"}),
     "service._read_json": ("""
         from subfleet.conversations import service
         report(**outcome(lambda: service._read_json(fifo(tmp / "a1" / "start.json"))))
@@ -167,18 +176,24 @@ READERS = {
                             on_outcome=lambda r: None, on_contain=lambda a: None, clocks=Clocks())
         report(**outcome(runner._read_stdout))
         """, {"error": "NotRegularFile"}),
-    "runner._read_attachment": ("""
+    "runner._read_attachment": (f"""
+        from subfleet.conversations import attachments
         from subfleet.conversations.runner import Clocks, TurnRunner
         from subfleet.conversations.store import ConversationStore
-        from subfleet.conversations.turn import TurnSpec
+        from subfleet.conversations.turn import Image, TurnSpec
         store = ConversationStore(tmp / "state")
+        (tmp / "image.png").write_bytes({PNG})
+        digest = attachments.add(store, str(tmp / "image.png"))["sha256"]
+        path = store.attachment(digest)["path"]
+        fifo(path)
         spec = TurnSpec(provider="claude", message_id=str(uuid.uuid4()), text="hi", model_id="opus",
-                        permission="ask", native_session_id=None, new_session_id=str(uuid.uuid4()))
+                        permission="ask", native_session_id=None, new_session_id=str(uuid.uuid4()),
+                        images=(Image(digest, "image/png", path),))
         (tmp / "a1").mkdir()
-        runner = TurnRunner(store=store, attempt={"attempt_id": "job/a1", "lane_id": "claude-1"}, spec=spec,
+        runner = TurnRunner(store=store, attempt={{"attempt_id": "job/a1", "lane_id": "claude-1"}}, spec=spec,
                             conversation_id="cv-x", attempt_dir=tmp / "a1", control_socket=str(tmp / "none.sock"),
                             on_outcome=lambda r: None, on_contain=lambda a: None, clocks=Clocks())
-        report(**outcome(lambda: runner._read_attachment(str(fifo(tmp / "image.png")))))
+        report(**outcome(lambda: runner._read_attachment(path)))
         """, {"error": "NotRegularFile"}),
     "relay.read_log": ("""
         from subfleet import relay

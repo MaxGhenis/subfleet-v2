@@ -53,6 +53,7 @@ from typing import Any, Callable
 
 from ..relay import read_log
 from ..sessions import transcripts
+from ..state_files import open_state
 from .store import LEGACY_OWNER
 from .turn import COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, WAITING
 
@@ -63,6 +64,9 @@ UNKNOWN = "delivery-unknown"
 # The tag both drivers give the message frame (`claude_turn.py` `_control_response`,
 # `codex_turn.py` `_thread`).
 USER_FRAME = "user-message"
+#: Claude's `get_settings`, asked right after the message so the turn records the
+#: effort the provider applied (C-26.8).
+SETTINGS_FRAME = "settings"
 
 # Refusals before the message was sent that another admission may get past (review
 # IR-23: Fast on another account; an external writer that has gone; a provider or
@@ -236,7 +240,8 @@ def frame_status(attempt_dir: Path) -> str:
     `read_log`); a log it stopped reading early is `unreadable`."""
     path = Path(attempt_dir) / "stdin.jsonl"
     try:
-        data = transcripts.read_regular(path)
+        with open_state(path) as stream:
+            data = stream.read()
     except FileNotFoundError:
         return "absent"                     # the relay never logged a frame
     except OSError:
@@ -353,7 +358,8 @@ def _same_file(a: str, b: str) -> bool:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        value = json.loads(transcripts.read_regular(path))
+        with open_state(path) as stream:
+            value = json.load(stream)
     except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None

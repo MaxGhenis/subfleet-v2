@@ -292,6 +292,48 @@ def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy
                                                 after_result_s=4.0, approval_wait_s=3600.0)
 
 
+def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path, policy_data):
+    """C-26.9: a policy that does not set the turn caps has none (null); null and a
+    positive whole number are both kept; `turn_cap` reads a missing key as no cap."""
+    from subfleet.policy import TURN_CAPS, turn_cap
+
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert {key: loaded["conversations"][key] for key in TURN_CAPS} == {
+        "max_active_turns": None, "turn_slots_per_lane": None}
+    del policy_data["conversations"]
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["conversations"]["max_active_turns"] is None
+    assert turn_cap(loaded["conversations"], "turn_slots_per_lane") is None
+    policy_data["conversations"] = {"max_active_turns": 4, "turn_slots_per_lane": None}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert turn_cap(loaded["conversations"], "max_active_turns") == 4
+    assert turn_cap(loaded["conversations"], "turn_slots_per_lane") is None
+    assert turn_cap({}, "max_active_turns") is None and turn_cap(None, "turn_slots_per_lane") is None
+    with pytest.raises(KeyError):
+        turn_cap({"compact_per_tick": 20}, "compact_per_tick")
+
+
+@pytest.mark.parametrize("section,error_key", [
+    ({"max_active_turns": 0}, "conversations.max_active_turns"),
+    ({"max_active_turns": -1}, "conversations.max_active_turns"),
+    ({"max_active_turns": True}, "conversations.max_active_turns"),
+    ({"max_active_turns": "3"}, "conversations.max_active_turns"),
+    ({"turn_slots_per_lane": 1.5}, "conversations.turn_slots_per_lane"),
+    ({"turn_slots_per_lane": float("inf")}, "conversations.turn_slots_per_lane"),
+    # Null means "no cap" for the two turn caps only.
+    ({"compact_per_tick": None}, "conversations.compact_per_tick"),
+    ({"approval_wait_s": None}, "conversations.approval_wait_s"),
+])
+def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_key):
+    """C-26.9, C-11.1: a turn cap is null or a positive whole number; nothing else is."""
+    policy_data["conversations"] = section
+    path = tmp_path / "custom-policy.json"
+    path.write_text(json.dumps(policy_data), encoding="utf-8")
+    with pytest.raises(PolicyError) as caught:
+        load_policy(path)
+    assert caught.value.key == error_key
+
+
 @pytest.mark.parametrize("section,error_key", [
     ([], "conversations"),
     ({"stop_sigint_after_s": 0}, "conversations.stop_sigint_after_s"),
