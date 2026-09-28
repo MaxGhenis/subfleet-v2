@@ -137,7 +137,7 @@ def _request(request_id: int | str, method: str, params: dict) -> str:
 
 class CodexTurn(SteerTracking):
     def __init__(self, spec: TurnSpec, *, frame_recorded: Callable[[str], bool] = lambda tag: False,
-                 image_path: Callable[[str], str] = lambda path: path):
+                 image_path: Callable[[Image], str] = lambda image: image.path):
         if spec.permission not in POLICY:
             raise ValueError(f"unknown permission {spec.permission!r}")
         self.spec = spec
@@ -212,8 +212,11 @@ class CodexTurn(SteerTracking):
             return Step()
         if not self.steerable:
             return self.drop_steer(message_id, "not-steerable")
+        # Built before the steer is tracked: an image that cannot be published
+        # raises, and the runner sends the steer back to the queue (`TurnRunner._steer`).
+        content = self._input(text, images)
         self.restore_steer(message_id, "unsent")
-        self._held_steers[message_id] = self._input(text, images)
+        self._held_steers[message_id] = content
         return self._send_steers()
 
     def drop_steer(self, message_id: str, detail: str) -> Step:
@@ -446,7 +449,7 @@ class CodexTurn(SteerTracking):
         if text:
             items.append({"type": "text", "text": text})
         for image in self.spec.images if images is None else images:
-            items.append({"type": "localImage", "path": self._image_path(image.path)})
+            items.append({"type": "localImage", "path": self._image_path(image)})
         return items
 
     def _accept(self, turn_id: str, source: "_Sources") -> Step:

@@ -166,7 +166,7 @@ def _line(value: dict) -> str:
 
 
 class ClaudeTurn(SteerTracking):
-    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes],
+    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[Image], bytes],
                  frame_recorded: Callable[[str], bool] = lambda tag: False):
         self.spec = spec
         self._read_bytes = read_bytes
@@ -244,10 +244,13 @@ class ClaudeTurn(SteerTracking):
             return Step()
         if not self.steerable:
             return self.drop_steer(message_id, "not-steerable")
+        # Built before the steer is tracked: an image that cannot be read raises,
+        # and the runner sends the steer back to the queue (`TurnRunner._steer`).
+        content = self._content(text, images)
         self.restore_steer(message_id, "unsent")
         message = {"type": "user", "uuid": message_id, "priority": "next", "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,
-                   "message": {"role": "user", "content": self._content(text, images)}}
+                   "message": {"role": "user", "content": content}}
         return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message))],
                     events=[Event("steer.sent", {"message_id": message_id}, f"cmd:steer:{message_id}")])
 
@@ -484,7 +487,7 @@ class ClaudeTurn(SteerTracking):
         if text:
             content.append({"type": "text", "text": text})
         for image in self.spec.images if images is None else images:
-            data = base64.b64encode(self._read_bytes(image.path)).decode("ascii")
+            data = base64.b64encode(self._read_bytes(image)).decode("ascii")
             content.append({"type": "image", "source": {"type": "base64", "media_type": image.media_type,
                                                         "data": data}})
         return content

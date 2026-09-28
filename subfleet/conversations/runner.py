@@ -80,9 +80,9 @@ class Clocks:
                    approval_wait_s=float(section["approval_wait_s"]))
 
 
-def make_driver(spec: TurnSpec, read_bytes: Callable[[str], bytes], *,
+def make_driver(spec: TurnSpec, read_bytes: Callable[[Image], bytes], *,
                 frame_recorded: Callable[[str], bool] = lambda tag: False,
-                image_path: Callable[[str], str] = lambda path: path):
+                image_path: Callable[[Image], str] = lambda image: image.path):
     return (ClaudeTurn(spec, read_bytes=read_bytes, frame_recorded=frame_recorded) if spec.provider == "claude"
             else CodexTurn(spec, frame_recorded=frame_recorded, image_path=image_path))
 
@@ -476,8 +476,15 @@ class TurnRunner:
                 path, media = attachment_store.check(self.store, sha)
                 images.append(Image(sha, media, path))
             step = self.driver.steer(message_id, self.store.message_text(row), tuple(images))
-        except (OSError, ValueError, ConversationError) as exc:
-            self._miss_steer(message_id, f"input-unavailable: {exc}")
+        except Exception as exc:
+            # C-24.9: whatever fails in building or taking a steer (its text or an
+            # image unreadable, a driver defect) sends that steer back to the queue.
+            # It never takes its host's runner down: Stop, Esc and the queue behind
+            # the host all go through this thread.
+            if self.log and not isinstance(exc, (OSError, ValueError, ConversationError)):
+                self.log.warning("steer %s on %s failed: %s: %s", message_id, self.attempt_id,
+                                 type(exc).__name__, exc)
+            self._miss_steer(message_id, f"input-unavailable: {str(exc) or type(exc).__name__}")
             return
         self._apply(step)
 
@@ -937,14 +944,15 @@ class TurnRunner:
                 fact["frame"] = "written"
         return facts
 
-    def _read_attachment(self, path: str) -> bytes:
-        image = next(image for image in self.spec.images if image.path == path)
-        # The digest is the identity; a persisted manifest's absolute path may
-        # predate a move of the state root. Verify and use bytes from one descriptor.
+    def _read_attachment(self, image: Image) -> bytes:
+        # The digest is the identity, for the host's images and a steer's alike (a
+        # steered message's images are not in the host's spec), and a persisted
+        # manifest's absolute path may predate a move of the state root. Verify
+        # and use bytes from one descriptor.
         return attachment_store.read_verified(self.store, image.sha256)[0]
 
-    def _attachment_path(self, path: str) -> str:
-        image = next(image for image in self.spec.images if image.path == path)
+    def _attachment_path(self, image: Image) -> str:
+        """A private copy of the image, by its digest, under the attempt directory."""
         data, ext = attachment_store.read_verified(self.store, image.sha256)
         with self.store.writing():
             # Publish directly under the existing attempt directory. Accepting

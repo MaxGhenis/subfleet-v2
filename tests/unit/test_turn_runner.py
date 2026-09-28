@@ -1055,3 +1055,159 @@ def test_reclaiming_a_previously_missed_steer_requeues_promptly_instead_of_waiti
     runner._drain_commands()
     assert runner.store.message(STEER_MID)["state"] == "queued"
     assert f"steer:{STEER_MID}" not in logged(adir)
+
+
+# --- a steer's images (C-24.9, C-28.1): by digest; a steer never ends its host's runner -----
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"a screenshot pasted mid-turn"
+
+
+def stored_image(runner, tmp_path, data=PNG) -> str:
+    from subfleet.conversations import attachments
+    original = tmp_path / f"pasted-{len(data)}.png"
+    original.write_bytes(data)
+    return attachments.add(runner.store, str(original))["sha256"]
+
+
+def claim_image_steer(runner, sha, *, message_id=STEER_MID, text="look at this"):
+    host = runner.store.message(MID)
+    runner.store.submit_message(conversation_id=runner.conversation_id, message_id=message_id,
+                                after_message_id=MID, text=text, attachments=[sha], settings=host["settings"])
+    runner.store.set_state(message_id, "steering", reason=f"steer:{MID}", expect=("queued",))
+    return message_id
+
+
+def steer_payload(adir, mid) -> dict:
+    [record] = [r for r in read_log(adir / "stdin.jsonl") if r["tag"] == f"steer:{mid}"]
+    return json.loads(record["line"])
+
+
+def remove_stored_copy(runner, sha) -> None:
+    Path(runner.store.attachment(sha)["path"]).unlink()
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_steer_carries_an_image_its_host_does_not_have(relayed, tmp_path, provider):
+    """The blocker of the 2026-09-28 steer review: a steer's images were looked up in the
+    host's own spec (StopIteration), which ended the runner thread. They resolve by digest."""
+    import base64
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    ready_to_steer(runner, tmp_path)
+    assert runner.spec.images == ()                  # the host carries no image at all
+    sha = stored_image(runner, tmp_path)
+    claim_image_steer(runner, sha)
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+    assert logged(adir).count(f"steer:{STEER_MID}") == 1
+    payload = steer_payload(adir, STEER_MID)
+    if provider == "claude":
+        image = payload["message"]["content"][1]
+        assert image["source"] == {"type": "base64", "media_type": "image/png",
+                                   "data": base64.b64encode(PNG).decode("ascii")}
+    else:
+        image = payload["params"]["input"][1]
+        assert image == {"type": "localImage", "path": str(adir / f"image-{sha}.png")}
+        assert (adir / f"image-{sha}.png").read_bytes() == PNG
+    assert runner.store.message(STEER_MID)["state"] == "steering"
+    assert runner.steer_facts()[STEER_MID] == {"frame": "written", "fate": "unknown", "detail": None}
+    assert runner.steerable
+
+
+def break_steer(runner, tmp_path, broken: str) -> str:
+    """Claim a steer whose input cannot be built, in one of three ways."""
+    if broken == "missing-image":
+        sha = stored_image(runner, tmp_path)
+        remove_stored_copy(runner, sha)             # gone from the state root after it was attached
+        return claim_image_steer(runner, sha)
+    if broken == "changed-image":
+        sha = stored_image(runner, tmp_path)
+        Path(runner.store.attachment(sha)["path"]).write_bytes(PNG + b"damaged")   # other bytes than its digest
+        return claim_image_steer(runner, sha)
+    claim_steer(runner)                              # a driver defect: any exception, not only I/O
+
+    def defect(*args, **kwargs):
+        raise StopIteration
+    runner.driver.steer = defect
+    return STEER_MID
+
+
+@pytest.mark.parametrize("broken", ["missing-image", "changed-image", "driver-defect"])
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_steer_whose_input_fails_goes_back_to_the_queue_and_the_host_runs_on(relayed, tmp_path, provider, broken):
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    ready_to_steer(runner, tmp_path)
+    mid = break_steer(runner, tmp_path, broken)
+    seq = runner.store.message(mid)["seq"]
+    runner.steer(mid)
+    runner._drain_commands()                        # raised StopIteration before the fix
+    row = runner.store.message(mid)
+    assert row["state"] == "queued" and row["seq"] == seq
+    assert row["state_reason"].startswith("steer-missed: input-unavailable: ")
+    assert f"steer:{mid}" not in logged(adir)
+    assert runner.steer_facts()[mid]["frame"] == "unsent" and runner.steer_facts()[mid]["fate"] == "refused"
+    runner._flush()
+    kinds = [r["kind"] for r in runner.store.query("SELECT kind FROM events WHERE message_id=?", (MID,))]
+    assert kinds.count("steer.missed") == 1
+    # The host is untouched: it still takes steers, and a stop still reaches it.
+    assert runner.driver.outcome is None and runner.steerable
+    if broken == "driver-defect":
+        del runner.driver.steer                     # the instance attribute: the class's steer again
+    later = "7f1c9a0e-3333-4222-8333-444455556666"
+    runner.store.submit_message(conversation_id=runner.conversation_id, message_id=later, after_message_id=mid,
+                                text="and this", attachments=[], settings=runner.store.message(MID)["settings"])
+    runner.store.set_state(later, "steering", reason=f"steer:{MID}", expect=("queued",))
+    runner.steer(later)
+    runner._drain_commands()
+    assert logged(adir).count(f"steer:{later}") == 1
+    runner.interrupt()
+    runner._drain_commands()
+    runner._send_outbox()
+    assert "interrupt" in logged(adir)
+
+
+def provider_stdout(provider: str, cwd: str) -> list[str]:
+    """What the provider printed up to a running, steerable turn."""
+    if provider == "claude":
+        return [INIT_OK, STEER_CAPS]
+    return [*codex_replies(cwd), json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}})]
+
+
+def wait_until(predicate, timeout=60.0):
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    raise AssertionError("condition not met in time")
+
+
+@pytest.mark.parametrize("image", ["not-the-host-s", "missing"])
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_the_runner_thread_survives_an_image_steer_and_stop_still_reaches_the_turn(relayed, tmp_path, provider,
+                                                                                    image):
+    """The real loop (`TurnRunner._run`): the thread is alive after the steer, the steer
+    is delivered or back in the queue, and Stop still writes the provider's interrupt."""
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    (adir / "stdout").write_text("".join(line + "\n" for line in provider_stdout(provider, str(tmp_path))))
+    sha = stored_image(runner, tmp_path)
+    if image == "missing":
+        remove_stored_copy(runner, sha)
+    runner.start()
+    try:
+        wait_until(lambda: runner.steerable)
+        claim_image_steer(runner, sha)
+        runner.steer(STEER_MID)
+        if image == "missing":
+            wait_until(lambda: runner.store.message(STEER_MID)["state"] == "queued")
+            assert f"steer:{STEER_MID}" not in logged(adir)
+        else:
+            wait_until(lambda: f"steer:{STEER_MID}" in logged(adir))
+            assert runner.store.message(STEER_MID)["state"] == "steering"
+        assert runner._thread.is_alive() and not runner.finished.is_set()
+        runner.interrupt()
+        wait_until(lambda: "interrupt" in logged(adir))
+        assert runner._thread.is_alive() and not runner.finished.is_set()
+    finally:
+        runner.stop()
+        assert runner.join(30)
