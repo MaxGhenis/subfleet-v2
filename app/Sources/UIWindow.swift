@@ -9,7 +9,6 @@ struct MainWindow: View {
     @ObservedObject var model: UIModel
     @State private var selection: String?
     @State private var search = ""
-    @State private var showNew = false
 
     var body: some View {
         NavigationSplitView {
@@ -20,7 +19,9 @@ struct MainWindow: View {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
                 }
-                if let locked = model.lockedEntry {
+                if model.newDraft.isPresented {
+                    NewConversationDraftView(model: model)
+                } else if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
                     ConversationView(model: model, conversation: conversation)
@@ -28,7 +29,7 @@ struct MainWindow: View {
                     VStack(spacing: 12) {
                         Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
                         Text("Choose a conversation or start a new one").foregroundStyle(.secondary)
-                        Button("New conversation") { showNew = true }.keyboardShortcut("n")
+                        Button("New conversation") { model.openNewDraft() }.keyboardShortcut("n")
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 if let problem = model.problem {
@@ -62,13 +63,13 @@ struct MainWindow: View {
                     Text("Claude").tag("claude")
                     Text("Codex").tag("codex")
                 }.pickerStyle(.segmented)
-                Button { showNew = true } label: { Label("New conversation", systemImage: "square.and.pencil") }
+                Button { model.openNewDraft() } label: { Label("New", systemImage: "plus") }
                     .keyboardShortcut("n")
             }
         }
-        .sheet(isPresented: $showNew) { NewConversationSheet(model: model, isPresented: $showNew) }
+        .onChange(of: model.newDraft.isPresented) { _, visible in if visible { selection = nil } }
         .onAppear { model.start() }
-        .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in showNew = true }
+        .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in model.openNewDraft() }
     }
 }
 
@@ -218,6 +219,8 @@ struct ConversationView: View {
     /// Whether the end of the timeline is on screen: streamed text is followed
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
+    @State private var renaming = false
+    @State private var renamedTitle = ""
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
@@ -311,6 +314,12 @@ struct ConversationView: View {
                 ApprovalSheet(model: model, card: approval.card, approvalID: approval.id) { self.approval = nil }
             }
         }
+        .alert("Rename conversation", isPresented: $renaming) {
+            TextField("Title", text: $renamedTitle)
+            Button("Rename") { model.renameConversation(conversation.conversation_id, title: renamedTitle) }
+                .disabled(renamedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        }
         .inspector(isPresented: Binding(get: { model.changesScope?.conversationID == conversation.conversation_id },
                                         set: { if !$0 { model.changesScope = nil } })) {
             if let scope = model.changesScope {
@@ -331,9 +340,20 @@ struct ConversationView: View {
             ProviderBadge(provider: conversation.provider)
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.state.conversationTitle(conversation)).font(.headline).lineLimit(1)
+                    .contextMenu {
+                        Button("Rename…") {
+                            renamedTitle = model.state.conversationTitle(conversation)
+                            renaming = true
+                        }
+                    }
                 Text(abbreviatedPath(conversation.workspace)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            Button {
+                renamedTitle = model.state.conversationTitle(conversation)
+                renaming = true
+            } label: { Image(systemName: "pencil") }
+                .buttonStyle(.borderless).help("Rename conversation")
             if model.canShowChanges {
                 Button { model.showChanges(.conversation(conversation.conversation_id)) } label: {
                     Label("Changes", systemImage: "plus.forwardslash.minus")
@@ -1028,114 +1048,4 @@ struct ApprovalSheet: View {
     }
 }
 
-// MARK: - New conversation
-
-struct NewConversationSheet: View {
-    @ObservedObject var model: UIModel
-    @Binding var isPresented: Bool
-    @AppStorage("lastWorkspace") private var workspace = NSHomeDirectory()
-    /// "auto", "claude" or "codex"; Auto takes whichever has more lanes ready.
-    @AppStorage("providerChoice") private var providerChoice = "auto"
-    @AppStorage("lastModel.claude") private var claudeModel = ""
-    @AppStorage("lastModel.codex") private var codexModel = ""
-    @AppStorage("lastPermission") private var lastPermission = PermissionPolicy.ask.rawValue
-    @State private var permission = PermissionPolicy.ask.rawValue
-    @State private var title = ""
-    @State private var message = ""
-    @State private var confirmWiden = false
-    @State private var capacity: [String: Int] = [:]
-
-    private var provider: String { providerChoice == "auto" ? autoProvider(capacity) : providerChoice }
-    private var modelValue: Binding<String> { provider == "codex" ? $codexModel : $claudeModel }
-
-    var body: some View {
-        let models = model.state.models[provider] ?? []
-        let writableCodex = model.state.availability.capabilities?.codex_writable == true
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New conversation").font(.title3.bold())
-            HStack {
-                TextField("Folder", text: $workspace)
-                Menu("Recent") {
-                    ForEach(model.recentWorkspaces(), id: \.self) { path in
-                        Button(abbreviatedPath(path)) { workspace = path }
-                    }
-                }
-                .fixedSize()
-                Button("Choose…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.directoryURL = URL(fileURLWithPath: workspace)
-                    if panel.runModal() == .OK, let url = panel.url { workspace = url.path }
-                }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Picker("Provider", selection: $providerChoice) {
-                    Text("Auto").tag("auto")
-                    Text("Claude").tag("claude")
-                    Text("Codex").tag("codex")
-                }.pickerStyle(.segmented)
-                Text(capacityWords).font(.caption).foregroundStyle(.secondary)
-            }
-            Picker("Model", selection: modelValue) {
-                ForEach(models) { entry in Text(entry.id).tag(entry.value) }
-            }
-            Picker("Permission", selection: $permission) {
-                ForEach(PermissionPolicy.allCases, id: \.rawValue) { policy in
-                    Text(policy.label).tag(policy.rawValue)
-                        .disabled(provider == "codex" && policy != .readOnly && !writableCodex)
-                }
-            }
-            if PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) {
-                Toggle("I understand the agent will act without asking", isOn: $confirmWiden).font(.callout)
-            }
-            TextField("Title (optional)", text: $title)
-            TextField("First message", text: $message, axis: .vertical).lineLimit(3...10)
-            HStack {
-                Button("Cancel", role: .cancel) { isPresented = false }.keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Start") {
-                    let settings = ConversationSettings(model: modelValue.wrappedValue, permission: permission)
-                    lastPermission = permission
-                    model.create(provider: provider, workspace: workspace, settings: settings,
-                                 title: title.isEmpty ? nil : title, firstMessage: message, staged: [],
-                                 confirmWiden: confirmWiden)
-                    isPresented = false
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(modelValue.wrappedValue.isEmpty || workspace.isEmpty
-                          || (PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) && !confirmWiden))
-            }
-        }
-        .padding(18)
-        .frame(width: 560)
-        .onAppear {
-            capacity = model.providerCapacity()
-            permission = lastPermission
-            pickDefaults()
-        }
-        .onChange(of: providerChoice) { _, _ in pickDefaults() }
-    }
-
-    private var capacityWords: String {
-        guard !capacity.isEmpty else { return "Lane readiness unknown; Auto uses Claude." }
-        let words = ["claude", "codex"].compactMap { name in
-            capacity[name].map { "\(name == "claude" ? "Claude" : "Codex"): \($0) lane\($0 == 1 ? "" : "s") ready" }
-        }.joined(separator: " · ")
-        return providerChoice == "auto" ? words + " — Auto uses \(provider == "codex" ? "Codex" : "Claude")" : words
-    }
-
-    private func pickDefaults() {
-        let models = model.state.models[provider] ?? []
-        if !models.contains(where: { $0.value == modelValue.wrappedValue }) {
-            modelValue.wrappedValue = models.first?.value ?? ""
-        }
-        if provider == "codex" && model.state.availability.capabilities?.codex_writable != true {
-            permission = PermissionPolicy.readOnly.rawValue
-        } else if permission == PermissionPolicy.readOnly.rawValue && provider == "claude"
-                    && lastPermission != PermissionPolicy.readOnly.rawValue {
-            permission = lastPermission
-        }
-    }
-}
 #endif

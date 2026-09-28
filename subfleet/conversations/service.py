@@ -374,7 +374,7 @@ class ConversationService:
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         pending = self.store.one("SELECT COUNT(*) n FROM approvals WHERE conversation_id=? AND state='pending'",
                                  (conversation["conversation_id"],))["n"]
-        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
+        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title", "title_source",
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
                                                     "updated_at")},
@@ -442,10 +442,19 @@ class ConversationService:
             if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
                 raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
         self._check_codex_policy(provider, settings)
-        workspace = os.path.realpath(os.path.expanduser(str(args.get("workspace") or "")))
+        kind = args.get("workspace_kind") or "in-place"
+        if not args.get("workspace"):
+            if kind != "in-place":
+                raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+            # A draft with No folder must never inherit the daemon's repository.
+            # The request id selects a private, stable scratch folder on retries.
+            key = hashlib.sha256(request_id.encode()).hexdigest()
+            with self.store.writing():
+                workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
+        else:
+            workspace = os.path.realpath(os.path.expanduser(str(args["workspace"])))
         if not os.path.isdir(workspace):
             raise ConversationError("bad-workspace", "workspace must be an existing directory")
-        kind = args.get("workspace_kind") or "in-place"
         if kind not in ("in-place", "worktree"):
             raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
         self._check_workspace(provider, workspace, settings)
@@ -535,6 +544,10 @@ class ConversationService:
             fields["allow_main"] = bool(args["allow_main"])
         self._check_codex_policy(conversation["provider"], after)
         return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"], **fields))}
+
+    def op_conversation_rename(self, args, peer) -> dict:
+        return {"conversation": self._view_live(self.store.rename_conversation(
+            args["conversation_id"], args.get("title")))}
 
     def op_conversation_unblock(self, args, peer) -> dict:
         verdict = self._person(peer, "unblocking an unfinished turn")

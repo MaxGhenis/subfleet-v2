@@ -97,6 +97,7 @@ enum Ops {
     static let conversationOpen = DaemonOperation<ConversationOpenArgs, ConversationOpenResult>(name: "conversation.open")
     static let conversationCreate = DaemonOperation<ConversationCreateArgs, ConversationCreateResult>(name: "conversation.create")
     static let conversationSettings = DaemonOperation<ConversationSettingsArgs, ConversationResult>(name: "conversation.settings")
+    static let conversationRename = DaemonOperation<ConversationRenameArgs, ConversationResult>(name: "conversation.rename")
     static let conversationUnblock = DaemonOperation<ConversationUnblockArgs, ConversationResult>(name: "conversation.unblock")
     static let conversationHistory = DaemonOperation<ConversationHistoryArgs, HistoryPage>(name: "conversation.history")
     static let conversationEvents = DaemonOperation<ConversationEventsArgs, EventsPage>(name: "conversation.events", longPoll: true)
@@ -124,7 +125,7 @@ enum Ops {
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
         capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
-        conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
+        conversationSettings.name, conversationRename.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
         conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
         messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
@@ -235,6 +236,8 @@ struct Conversation: Codable, Equatable, Identifiable {
     var provider: String
     var native_session_id: String?
     var title: String?
+    /// A person's rename always wins over asynchronous generation.
+    var title_source: String?
     var workspace: String
     var workspace_kind: String
     /// A worktree conversation's worktree (path, branch, source, repository, base).
@@ -472,6 +475,11 @@ struct ConversationSettingsArgs: Codable, Equatable {
     var settings: ConversationSettings
     var confirm_widen: Bool?
     var allow_main: Bool?
+}
+
+struct ConversationRenameArgs: Codable, Equatable {
+    var conversation_id: String
+    var title: String
 }
 
 struct ConversationResult: Codable, Equatable {
@@ -717,6 +725,8 @@ struct ConversationChange: Codable, Equatable {
     var ts: String?
     /// Why a message is in its state (a waiting message's hold, a failure).
     var state_reason: String?
+    var title: String?
+    var title_source: String?
 }
 
 // MARK: - messages

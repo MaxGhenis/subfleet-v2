@@ -7,7 +7,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-final class ComposerNSTextView: NSTextView {
+class ComposerNSTextView: NSTextView {
     var onSubmit: () -> Void = {}
     var onImage: (Data) -> Void = { _ in }
 

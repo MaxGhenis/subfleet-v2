@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   provider          TEXT NOT NULL CHECK (provider IN ('claude','codex')),
   native_session_id TEXT,
   title             TEXT,
+  title_source      TEXT CHECK (title_source IN ('person','generated','fallback')),
+  title_message_id  TEXT,
+  title_requested_at REAL,
   workspace         TEXT NOT NULL,
   workspace_kind    TEXT NOT NULL CHECK (workspace_kind IN ('in-place','worktree')),
   allow_main        INTEGER NOT NULL DEFAULT 0,
@@ -176,6 +179,14 @@ class ConversationError(Exception):
 
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _validated_title(title: Any, *, optional: bool = False) -> str | None:
+    if optional and (title is None or title == ""):
+        return None
+    if not isinstance(title, str) or not title.strip() or len(title) > 200:
+        raise ConversationError("bad-title", "title must be 1 to 200 characters")
+    return " ".join(title.split())
 
 
 def new_id(prefix: str) -> str:
@@ -312,6 +323,13 @@ class ConversationStore:
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
             if "worktree_json" not in columns:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
+            for name, kind in (("title_source", "TEXT"), ("title_message_id", "TEXT"),
+                               ("title_requested_at", "REAL")):
+                if name not in columns:
+                    self._db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {kind}")
+            # Preserve every pre-existing name; its authorship cannot be recovered.
+            self._db.execute("UPDATE conversations SET title_source='person' "
+                             "WHERE title IS NOT NULL AND title_source IS NULL")
             # A waiting message's reason (another writer, a deferral) reaches the
             # app with its state (design §12).
             if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
@@ -476,6 +494,8 @@ class ConversationStore:
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider must be claude or codex")
         settings = validate_settings(provider, settings)
+        if isinstance(title, str):
+            title = title.strip() or None
         native_session_id = canonical_native(native_session_id)
         now = utcnow()
         held = None
@@ -495,14 +515,44 @@ class ConversationStore:
                 held = row["reason"] if row else None
             cid = new_id("cv")
             tx.execute(
-                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,workspace,workspace_kind,"
+                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
                 "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
-                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, provider, native_session_id, title, workspace, workspace_kind, int(allow_main), lane_id,
+                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
                  json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
                  held, now, now))
             self._change(tx, cid, None, None)
         return self.conversation(cid), True
+
+    def rename_conversation(self, conversation_id: str, title: str) -> dict:
+        """A person's rename permanently takes precedence over an in-flight title."""
+        title = _validated_title(title)
+        self.conversation(conversation_id)
+        with self.transaction() as tx:
+            tx.execute("UPDATE conversations SET title=?,title_source='person',updated_at=? WHERE conversation_id=?",
+                       (title, utcnow(), conversation_id))
+            self._change(tx, conversation_id, None, None)
+        return self.conversation(conversation_id)
+
+    def claim_title_generation(self, conversation_id: str, message_id: str, now: float) -> bool:
+        """At most one request, from the first person message's Claude process."""
+        with self.transaction() as tx:
+            return bool(tx.execute(
+                "UPDATE conversations SET title_requested_at=? WHERE conversation_id=? AND provider='claude' "
+                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL",
+                (now, conversation_id, message_id)).rowcount)
+
+    def generated_title(self, conversation_id: str, message_id: str, title: str, now: float) -> bool:
+        from .titles import TITLE_BUDGET_S
+        with self.transaction() as tx:
+            changed = tx.execute(
+                "UPDATE conversations SET title=?,title_source='generated',updated_at=? WHERE conversation_id=? "
+                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NOT NULL "
+                "AND title_requested_at<=? AND title_requested_at>?",
+                (title, utcnow(), conversation_id, message_id, now, now - TITLE_BUDGET_S)).rowcount
+            if changed:
+                self._change(tx, conversation_id, None, None)
+            return bool(changed)
 
     def by_request(self, request_id: str) -> dict | None:
         row = self.one("SELECT * FROM conversations WHERE request_id=?", (request_id,))
@@ -662,6 +712,14 @@ class ConversationStore:
                         "INSERT INTO messages(message_id,conversation_id,seq,after_message_id,origin,digest,text_path,"
                         "attachments_json,settings_json,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         prepared["rows"])
+                    tx.execute("UPDATE conversations SET title_source='person' WHERE conversation_id=? AND title IS NOT NULL",
+                               (cid,))
+                    if not prepared["title"] and prepared["moves"]:
+                        from .titles import fallback_title
+                        first = prepared["moves"][0]
+                        tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
+                                   "WHERE conversation_id=? AND title_source IS NULL",
+                                   (fallback_title(first["text"]), first["message_id"], cid))
                     self._change(tx, cid, None, None)
                     for row in prepared["rows"]:
                         self._change(tx, cid, row[0], QUEUED)
@@ -724,6 +782,8 @@ class ConversationStore:
         if "workspace" in fields and (not isinstance(fields["workspace"], str) or not fields["workspace"]):
             raise ValueError("a conversation's workspace is a directory path")
         sets, params = [], []
+        if "title" in fields:
+            sets.append("title_source='person'")
         for key, value in fields.items():
             if key == "native_session_id":
                 value = canonical_native(value)
@@ -870,6 +930,11 @@ class ConversationStore:
                  json.dumps(list(attachments)), json.dumps(settings), state, state_reason, now, now))
             tx.execute("UPDATE conversations SET updated_at=?, settings_json=? WHERE conversation_id=?",
                        (now, json.dumps(settings), conversation_id))
+            if origin == "person" and last is None:
+                from .titles import fallback_title
+                tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
+                           "WHERE conversation_id=? AND title IS NULL AND title_source IS NULL",
+                           (fallback_title(text), message_id, conversation_id))
             self._change(tx, conversation_id, message_id, state)
         return self.message(message_id), True
 
@@ -1280,7 +1345,9 @@ class ConversationStore:
                    "VALUES (?,?,?,?,?,?)", (conversation_id, message_id, state, pending, utcnow(), reason))
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
-        rows = self.query("SELECT * FROM changes WHERE seq>? ORDER BY seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
+                          "JOIN conversations c ON c.conversation_id=ch.conversation_id "
+                          "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
         return {"changes": rows, "next": rows[-1]["seq"] if rows else after}
 
     def wait(self, predicate, timeout_s: float) -> bool:

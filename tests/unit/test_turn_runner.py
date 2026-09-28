@@ -351,7 +351,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
     logged, and the runner reads the log again then: the frame is written, nothing
     fails, and the driver's same frame is not sent a second time."""
     import threading
-    import time
+    finish_write = threading.Event()
 
     def in_flight(server, adir):
         server._lock.acquire()                       # `apply` holds it for the whole frame
@@ -360,14 +360,17 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
         server._records.append({**intent, "status": "pending"})
 
         def finish():
-            time.sleep(0.3)
+            finish_write.wait()
             server._append({"kind": "written", "seq": 1})
             server._records[-1]["status"] = "written"
             server._lock.release()
         threading.Thread(target=finish, daemon=True).start()
 
-    runner, clock, server, adir = relayed(before_runner=in_flight)
-    assert runner.sent == {"init": "pending"}           # read while the write was in flight
+    try:
+        runner, clock, server, adir = relayed(before_runner=in_flight)
+        assert runner.sent == {"init": "pending"}       # read while the write was in flight
+    finally:
+        finish_write.set()                             # independent of store construction speed
     runner._apply(runner.driver.start())
     assert runner.handshaken and not runner.relay_failed and runner.stop_reason is None
     assert runner.sent == {"init": "written"} and runner.outbox == [] and runner.next_seq == 2
@@ -447,8 +450,8 @@ def test_without_a_stop_the_message_is_handed_over(relayed, tmp_path):
     runner, clock, server, adir = relayed(recorded=True)
     runner._apply(runner.driver.start())
     answer_up_to_the_message(runner, tmp_path, "claude")
-    # C-26.8: `get_settings` follows the message this runner sent.
-    assert logged(adir) == ["init", "user-message", "settings"] and runner.driver.outcome is None
+    # C-26.8: `get_settings` follows the message; optional titling follows both.
+    assert logged(adir) == ["init", "user-message", "settings", "session-title"] and runner.driver.outcome is None
 
 
 def _lose_the_answer(runner, *, reached: bool):
@@ -483,7 +486,7 @@ def test_a_stop_after_a_handover_whose_answer_was_lost_is_decided_by_the_relay_l
     clock.now += 100
     runner._send_outbox()
     runner._drain_commands()
-    assert logged(adir) == ["init", "user-message", "settings", "interrupt"]
+    assert logged(adir) == ["init", "user-message", "settings", "session-title", "interrupt"]
     assert runner.driver.outcome is None and not runner.withheld
 
 
@@ -513,7 +516,7 @@ def test_without_a_stop_a_message_whose_answer_was_lost_is_sent_once(relayed, tm
     answer_up_to_the_message(runner, tmp_path, "claude")
     clock.now += 100
     runner._send_outbox()
-    assert logged(adir) == ["init", "user-message", "settings"] and runner.outbox == []
+    assert logged(adir) == ["init", "user-message", "settings", "session-title"] and runner.outbox == []
 
 
 # --- get_settings across the upgrade (C-26.8) --------------------------------------------

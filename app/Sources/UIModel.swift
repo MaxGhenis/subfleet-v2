@@ -22,6 +22,11 @@ final class UIModel: ObservableObject {
     /// Each conversation's dispatched runs (its sub-agents), newest first.
     @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
+    @Published var newDraft = NewConversationDraft() {
+        didSet { saveNewDraft() }
+    }
+    /// Sends that should open their conversation when the outbox receives it.
+    private var draftDestinations: [String: Int] = [:]
     /// The Changes pane's subject while it is open (C-26.14).
     @Published var changesScope: ChangesScope?
     /// Each subject's last answer.
@@ -49,6 +54,19 @@ final class UIModel: ObservableObject {
     init() {
         paths = AppPaths.standard()
         drafts = DraftStore(directory: paths.draftsDirectory)
+        let draftURL = paths.support.appendingPathComponent("new-conversation-draft.json")
+        if let data = try? Data(contentsOf: draftURL),
+           var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
+            saved.restore()
+            newDraft = saved
+        } else {
+            let defaults = UserDefaults.standard
+            newDraft.workspace = defaults.string(forKey: "lastWorkspace")
+            let provider = defaults.string(forKey: "providerChoice") ?? "claude"
+            newDraft.provider = ["claude", "codex"].contains(provider) ? provider : "claude"
+            newDraft.settings.model = defaults.string(forKey: "lastModel.\(newDraft.provider)") ?? ""
+            newDraft.settings.permission = defaults.string(forKey: "lastPermission") ?? PermissionPolicy.ask.rawValue
+        }
         for directory in [paths.support, paths.caches, paths.draftsDirectory, paths.attachmentsDirectory] {
             try? ensurePrivateDirectory(directory)
         }
@@ -95,12 +113,15 @@ final class UIModel: ObservableObject {
         await refreshList()
         var baseline = state
         _ = try? await onOutbox { try engine.drainWatch(&baseline) }
+        // A navigation while the baseline was loading keeps its focus.
+        baseline.focus(state.focusedConversationID)
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
+        } else if !newDraft.isPresented,
+                  let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
             // A launch that names a conversation opens it (notifications and links reuse this).
             focus(requested)
         }
@@ -214,6 +235,7 @@ final class UIModel: ObservableObject {
 
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
+        newDraft.leave()
         if !entry.continuable {
             // Opening one only fails (not-continuable): say what it is instead.
             navigation += 1
@@ -239,6 +261,7 @@ final class UIModel: ObservableObject {
     }
 
     func focus(_ conversationID: String) {
+        newDraft.leave()
         lockedEntry = nil
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
@@ -387,22 +410,49 @@ final class UIModel: ObservableObject {
         state.apply(history: page, conversationID: conversationID)
     }
 
-    func create(provider: String, workspace: String, settings: ConversationSettings, title: String?,
-                firstMessage: String, staged: [StagedAttachment], confirmWiden: Bool) {
-        guard let engine else { return }
+    func openNewDraft() {
+        navigation += 1
+        lockedEntry = nil
+        state.focus(nil)
+        eventsGeneration += 1
+        reconcileNewDraft()
+        newDraft.open()
+    }
+
+    func reconcileNewDraft() {
+        newDraft.reconcile(models: state.models[newDraft.provider] ?? [], capabilities: state.availability.capabilities)
+    }
+
+    private func saveNewDraft() {
+        guard let data = try? JSONEncoder().encode(newDraft) else { return }
+        try? atomicWrite(data, to: paths.support.appendingPathComponent("new-conversation-draft.json"))
+    }
+
+    func sendNewDraft(stayHere: Bool) {
+        guard let engine, newDraft.canSend else { return }
+        let draft = newDraft
+        let token = navigation
+        let messageID = Outbox.newMessageID()
+        if !stayHere { draftDestinations[messageID] = token }
+        newDraft.isSubmitting = true
         Task {
             do {
-                let key = try await onOutbox {
-                    let key = try engine.createConversation(provider: provider, workspace: workspace, settings: settings,
-                                                            title: title, confirmWiden: confirmWiden)
-                    if !firstMessage.isEmpty || !staged.isEmpty {
-                        _ = try engine.send(conversation: key, text: firstMessage, staged: staged, settings: settings)
-                    }
-                    return key
+                try await onOutbox {
+                    let key = try engine.createConversation(provider: draft.provider, workspace: draft.workspace ?? "",
+                                                            settings: draft.settings, confirmWiden: draft.confirmWiden)
+                    _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
+                                        settings: draft.settings, messageID: messageID)
                 }
-                _ = key
+                newDraft.journaled()
+                let defaults = UserDefaults.standard
+                defaults.set(draft.workspace, forKey: "lastWorkspace")
+                defaults.set(draft.provider, forKey: "providerChoice")
+                defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
+                defaults.set(draft.settings.permission, forKey: "lastPermission")
                 pump()
             } catch {
+                draftDestinations.removeValue(forKey: messageID)
+                newDraft.isSubmitting = false
                 report(error)
             }
         }
@@ -447,7 +497,12 @@ final class UIModel: ObservableObject {
             }
             for conversation in report.conversations {
                 state.upsert(conversation)
-                if state.focusedConversationID == nil { focus(conversation.conversation_id) }
+            }
+            for receipt in report.receipts {
+                if let token = draftDestinations.removeValue(forKey: receipt.message_id),
+                   token == navigation, let id = receipt.conversation_id {
+                    focus(id)
+                }
             }
             if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
         }
@@ -486,6 +541,16 @@ final class UIModel: ObservableObject {
         } catch {
             report(error)
             return false
+        }
+    }
+
+    func renameConversation(_ conversationID: String, title: String) {
+        guard let engine else { return }
+        Task {
+            do {
+                let updated = try await onOutbox { try engine.renameConversation(conversationID: conversationID, title: title) }
+                state.upsert(updated)
+            } catch { report(error) }
         }
     }
 
