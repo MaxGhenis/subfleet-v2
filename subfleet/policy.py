@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS,
+    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     Closure, Decision, Exit, Lane, Reading,
 )
@@ -35,6 +35,13 @@ HANDOFF_CAPS: dict[str, int] = {
     "progress": 32_000,
     "repository": 16_000,
 }
+#: The caps of the sections a brief carries (the tool caps bound what `recent`
+#: selects), and room for its header: fixed text, three paths and a session id.
+#: The assembled brief is scrubbed whole once more (C-23.14), so together they
+#: must fit the scrubber's bound, or its final pass would exceed it (C-23.36).
+HANDOFF_BRIEF_SECTIONS = ("original_task", "recent", "progress", "repository")
+HANDOFF_HEADER_CHARS = 16 * 1024
+HANDOFF_BRIEF_MAX_CHARS = SCRUB_MAX_CHARS - HANDOFF_HEADER_CHARS
 
 #: `sessions.*` (C-6.4): the sessions kit's caps, all of them policy data rather
 #: than constants, because a restart storm or a slow host is a tuning problem.
@@ -292,6 +299,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key, item in caps.items():
         if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
+    brief = sum(caps[key] for key in HANDOFF_BRIEF_SECTIONS)
+    if brief > HANDOFF_BRIEF_MAX_CHARS:
+        fail("sessions.handoff_caps",
+             f"{' + '.join(HANDOFF_BRIEF_SECTIONS)} is {brief:,} characters; the assembled brief is "
+             f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
     # `network` (d260): whether a writable Codex job's shell reaches the network.

@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 from ..sessions.handoff import (
-    looks_binary, scrub_secrets, sensitive_tool_call, truncate,
+    looks_binary, scrub_bounded, scrub_secrets, sensitive_tool_call,
 )
 
 INPUT_MAX = 500
@@ -33,6 +33,12 @@ _PREFERRED_FIELDS = (
 def scrub(text: str) -> str:
     """Remove credentials, reminders and encoded blobs from displayable text."""
     return scrub_secrets(text, strip_reminders=True)[0]
+
+
+def bounded(text: str, limit: int) -> str:
+    """`scrub`, bounded to `limit` characters keeping the head and the tail. A
+    text over the scrubber's budget is excerpted before matching (C-23.14)."""
+    return scrub_bounded(text, limit, strip_reminders=True)[0]
 
 
 def _summary_text(name: str, value: Any) -> str:
@@ -59,8 +65,7 @@ def tool_started(name: str, value: Any, *, tool_id: str | None) -> dict:
     name = str(name or "tool")[:80]
     if sensitive_tool_call(name, value):
         return {"id": tool_id, "name": name, "hidden": True, "summary": HIDDEN}
-    summary = scrub(_summary_text(name, value))
-    return {"id": tool_id, "name": name, "hidden": False, "summary": truncate(summary, INPUT_MAX)}
+    return {"id": tool_id, "name": name, "hidden": False, "summary": bounded(_summary_text(name, value), INPUT_MAX)}
 
 
 def tool_completed(tool_id: str | None, text: str, *, is_error: bool | None, hidden: bool) -> dict:
@@ -71,13 +76,13 @@ def tool_completed(tool_id: str | None, text: str, *, is_error: bool | None, hid
     if looks_binary(text):
         preview = "[binary output omitted]"
     else:
-        preview = truncate(scrub(text), RESULT_MAX)
+        preview = bounded(text, RESULT_MAX)
     return {"id": tool_id, "is_error": bool(is_error), "hidden": False, "preview": preview}
 
 
 def bounded_text(text: str) -> str:
     """A whole text or thinking block, scrubbed and bounded for one event row."""
-    return truncate(scrub(text), TEXT_EVENT_MAX)
+    return bounded(text, TEXT_EVENT_MAX)
 
 
 class DeltaBuffer:

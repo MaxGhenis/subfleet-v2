@@ -391,8 +391,8 @@ class ClaudeTurn:
                 "tool": name,
                 "title": request.get("title") or request.get("display_name"),
                 "description": request.get("description"),
-                "input": redact.truncate(redact.scrub(redact._summary_text(name, request.get("input"))),
-                                         redact.INPUT_MAX),
+                "input": redact.bounded(redact._summary_text(name, request.get("input")),
+                                        redact.INPUT_MAX),
                 "reason": request.get("decision_reason"),
                 "blocked_path": request.get("blocked_path"),
             }

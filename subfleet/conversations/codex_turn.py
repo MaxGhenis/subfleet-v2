@@ -425,7 +425,7 @@ class CodexTurn:
         if method == "hook/completed":
             return self._hook(params.get("run") or {}, source)
         if method == "turn/diff/updated":
-            diff = redact.truncate(redact.scrub(str(params.get("diff") or "")), 20_000)
+            diff = redact.bounded(str(params.get("diff") or ""), 20_000)
             return Step(events=[Event("diff", {"diff": diff}, source.next())])
         if method == "error":
             error = params.get("error") or {}
@@ -577,7 +577,7 @@ class CodexTurn:
             self.pending[rid] = (method, params)
             if method == "item/commandExecution/requestApproval":
                 kind, options = "command", ("allow", "allow-session", "deny", "cancel-turn")
-                summary = {"command": redact.truncate(redact.scrub(str(params.get("command") or "")), redact.INPUT_MAX),
+                summary = {"command": redact.bounded(str(params.get("command") or ""), redact.INPUT_MAX),
                            "cwd": params.get("cwd"), "reason": params.get("reason"),
                            # Every field that changes what is granted is shown (C-27.1).
                            "input_kind": params.get("kind"),

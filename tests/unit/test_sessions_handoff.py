@@ -736,15 +736,22 @@ def test_assignment_scanner_retains_sensitive_suffixes_and_escaped_quotes(key):
     assert count == 1
 
 
-def test_scrubber_caps_input_before_matching_without_exposing_cut_credentials(monkeypatch):
-    """C-23.14: omit an oversized block whole, never a secret's context alone."""
+def test_scrubber_bounds_input_before_matching_without_exposing_cut_credentials(monkeypatch):
+    """C-23.14: an oversized block is matched only in line-bounded excerpts, never
+    whole, and a line an excerpt would cut is left out, so a secret is never shown
+    without its context (review of 7da13417, finding 2: whole-block omission had
+    also dropped the head and tail that are safe to keep)."""
+    matched: list[int] = []
+    real = handoff._scrub
+    monkeypatch.setattr(handoff, "_scrub", lambda text, strip: (matched.append(len(text)), real(text, strip))[1])
     text = 'password="' + "private value " * 25_000 + '"'
-    class NoMatching:
-        def sub(self, *_args):
-            pytest.fail("oversized input reached content matching")
-    monkeypatch.setattr(handoff, "_PEM_RE", NoMatching())
-    assert handoff.scrub_secrets(text) == (
-        "[text omitted: redaction input exceeds 262,144 characters]", 0)
+    assert handoff.scrub_secrets(text) == (f"… [{len(text):,} characters omitted] …", 0)
+    lines = "".join(f'line {i}: password="private value {i}"\n' for i in range(12_000))
+    scrubbed, count = handoff.scrub_secrets(lines)
+    assert "private value" not in scrubbed and "characters omitted" in scrubbed and count > 0
+    assert scrubbed.startswith('line 0: password="[REDACTED]"')
+    assert scrubbed.endswith('line 11999: password="[REDACTED]"')
+    assert max(matched) <= handoff.EXCERPT_CHARS and sum(matched) <= handoff.MAX_SCRUB_CHARS
 
 
 @pytest.mark.parametrize("text", [
