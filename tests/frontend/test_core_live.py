@@ -8,7 +8,8 @@ answered as the app would answer them. The probe (`CoreProbeLive.swift`)
 drives the daemon through the app's own engine, outbox and store state and
 records every exchange; this test checks its results, the daemon's store,
 and that every answer decodes into the app's models without losing a field.
-Nothing here touches ~/.subfleet.
+Nothing here touches ~/.subfleet. A failed run's state root and the probe's
+record are kept under /tmp/sf-failed, which CI uploads.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import sys
@@ -34,7 +36,7 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001
 
 
 @pytest.fixture
-def dev_daemon(core_probe, tmp_path):
+def dev_daemon(request, core_probe, tmp_path):
     from subfleet.procs import InspectionError, boot_id, proc_start
     try:
         boot_id()
@@ -42,7 +44,7 @@ def dev_daemon(core_probe, tmp_path):
             pytest.skip("the daemon's process checks need a visible current process from ps")
     except InspectionError as exc:
         pytest.skip(f"the daemon's process checks need ps/sysctl: {exc}")
-    from tests.e2e.conftest import E2E
+    from tests.e2e.conftest import E2E, _sockets
     from tests.fake.interactive_claude import encode_project_dir
     root = Path(tempfile.mkdtemp(prefix="sf-app-", dir="/tmp")).resolve()
     assert root != (Path.home() / ".subfleet").resolve()
@@ -62,17 +64,31 @@ def dev_daemon(core_probe, tmp_path):
                                                               "content": [{"type": "text", "text": "Here are the files."}]}},
     ]
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    failed = True
+    started = False
     try:
         harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve())})
+        started = True
         yield harness, session
-        failed = False
     finally:
         harness.close()
-        if not failed:
-            shutil.rmtree(root, ignore_errors=True)
-        else:
-            print(f"\n[frontend live] kept state root at {root}", file=sys.stderr)
+        # Keep the state root of a failed run, with the probe's record beside it (its
+        # checks, every exchange, the app's outbox), under /tmp/sf-failed as the e2e and
+        # fake harnesses keep theirs; CI uploads that directory. A test's failure is not
+        # raised into its fixture, so the call's report (conftest.py) says whether it failed.
+        report = getattr(request.node, "rep_call", None)
+        if not started or (report is not None and report.failed):
+            keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
+            shutil.rmtree(keep, ignore_errors=True)
+            shutil.copytree(root, keep, symlinks=True, ignore_dangling_symlinks=True, ignore=_sockets)
+            for name in ("live-checks.json", "exchanges.jsonl", "app"):
+                source = tmp_path / name
+                if source.is_dir():
+                    shutil.copytree(source, keep / "probe" / name, symlinks=True, ignore=_sockets)
+                elif source.exists():
+                    (keep / "probe").mkdir(exist_ok=True)
+                    shutil.copy2(source, keep / "probe" / name)
+            print(f"\n[frontend live] kept state root at {keep}", file=sys.stderr)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daemon):

@@ -392,6 +392,31 @@ def test_a_denied_question_and_an_answered_question(conv):
     assert text == 'You chose {"Which color?": "Blue"}.'
 
 
+@pytest.mark.parametrize("directive,kind", [("[fake:approval]", "tool"), ("[fake:question]", "question")])
+def test_an_approval_is_listed_as_soon_as_its_event_is_read(conv_with, directive, kind):
+    """C-27.1, design §8: the app draws a card from `approval.requested` and answers it
+    by the id `approval.list` gives, so whoever reads the event finds the approval
+    listed and the message approval-needed, however slow the disk under the request
+    file. Its publish is slowed by a second here; when the event committed first, the
+    list read right after it came back empty and the card could not be answered (the
+    CI failures of tests/frontend/test_core_live.py)."""
+    conv = conv_with(env={"SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S": "1"})
+    cid = conv.create()
+    mid = conv.submit(cid, f"run something {directive}")
+    after, requested, deadline = 0, None, time.monotonic() + 30
+    while requested is None and time.monotonic() < deadline:
+        page = conv.call("conversation.events", conversation_id=cid, after=after, wait_s=5)
+        requested = next((e for e in page["events"] if e["kind"] == "approval.requested"), None)
+        after = page["next"]
+    assert requested is not None, conv.events(cid)
+    listed = conv.call("approval.list", conversation_id=cid)["approvals"]
+    state = conv.message(mid)["state"]
+    display = {k: v for k, v in requested["data"].items() if k not in ("request_id", "kind", "options")}
+    assert [(a["message_id"], a["kind"], a["state"], a["display"]) for a in listed] == [
+        (mid, kind, "pending", display)], listed
+    assert state == "approval-needed"
+
+
 def test_interrupt_ends_a_running_turn_with_the_providers_own_stop(conv):
     """C-24.7, D-13: the control interrupt ends the turn; no signal, no containment."""
     cid = conv.create()
