@@ -16,7 +16,7 @@ from typing import Any
 from .capacity import fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
-from .policy import PolicyError, resolve_model
+from .policy import PolicyError, resolve_model, turn_cap
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -366,8 +366,9 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
     chain = list(dict.fromkeys(chain))
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
-    # `conversations.turn_slots_per_lane` per lane. Neither kind waits for the
-    # other's slots; an attended turn never waits behind background work.
+    # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
+    # sets one. Neither kind waits for the other's slots; an attended turn never
+    # waits behind background work.
     is_turn = _row(job).get("kind") == "turn"
     conversation_caps = policy.get("conversations") or {}
     key = "in_flight_turns" if is_turn else "in_flight"
@@ -381,7 +382,8 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
     if is_turn:
-        if sum(in_flight.values()) >= int(conversation_caps.get("max_active_turns", 3)):
+        fleet_cap = turn_cap(conversation_caps, "max_active_turns")
+        if fleet_cap is not None and sum(in_flight.values()) >= fleet_cap:
             capacity_blocks.append("fleet")
     elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
@@ -450,12 +452,13 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in closures
                    if row["scope"] in ("account", model["id"]) and _future_closure(row, now))
     lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
-    slot_cap = (int(setup["conversation_caps"].get("turn_slots_per_lane", 1)) if setup["is_turn"] else
+    # C-26.9: None for a turn when the policy sets no per-lane turn cap.
+    slot_cap = (turn_cap(setup["conversation_caps"], "turn_slots_per_lane") if setup["is_turn"] else
                 caps["max_in_flight_per_lane"] if lane_measured else
                 min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
     if identity in unavailable:
         detail["slot_block"] = unavailable[identity]
-    if setup["capacity_blocks"] or in_flight >= slot_cap or detail.get("slot_block"):
+    if setup["capacity_blocks"] or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
         reasons.append("no-slot")
     if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
         reasons.append("below-floor")

@@ -160,12 +160,14 @@ A Codex conversation whose lane is limited waits for that lane (admission
 sort ahead of detached jobs within their tier. A turn that cannot be placed
 never enters `waiters` for detached jobs, so it neither holds them
 `behind-older-job` nor causes `slot-kept`; turns hold back only other
-competing turns (review F-04). Turns never trigger an admission probe: a lane
+competing turns (review F-04), and only while the policy sets a turn cap
+(C-26.9, 2026-09-27). Turns never trigger an admission probe: a lane
 whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 `requires_probe`) is not a candidate for a turn, reason `probe-required`
-(review F-03). Turns count against `max_active_attempts` and per-lane slots
-like any attempt (review F-05); this is ordering, not reserved capacity
-(plan amendment 11). A turn waiting on an approval holds its slot for at most
+(review F-03). Turns have their own capacity, counted apart from detached
+jobs (C-26.9, superseding review F-05's shared slots): by default no cap at
+all, or `conversations.max_active_turns` across the fleet and
+`conversations.turn_slots_per_lane` per lane when the policy sets them. A turn waiting on an approval holds its slot for at most
 `approval_wait_s` (policy, default 3600 s), after which its approvals are
 withdrawn and the turn is stopped (D-12) with reason `approval-timeout`.
 
