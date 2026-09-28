@@ -426,11 +426,8 @@ def test_a_retired_handoff_target_dispatches_its_successor(monkeypatch, argv):
                                      source_cwd="/repo", redactions=0)
         return handoff_module.Dispatched(brief=brief, job_id="job-1")
 
-    class NoLaneSessions:
-        def state(self, sessions):
-            return {}
-
-    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: NoLaneSessions())
+    # A daemon with the conversation fence (C-26.13) and no lane or conversation sessions.
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: fx.FakeSessions())
     monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
     monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
     monkeypatch.setattr(revive_module, "cold_candidates",
