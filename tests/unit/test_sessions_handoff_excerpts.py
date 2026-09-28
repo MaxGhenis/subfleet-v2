@@ -282,7 +282,7 @@ def _probe(script: str) -> dict:
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize("run", ["-time ", "-exec ", "sudo -a,time ", "nice -n 5 "])
+@pytest.mark.parametrize("run", ["-time ", "-exec ", "-a,time ", "-x -nice "])
 def test_wrapper_flag_runs_are_matched_in_linear_time(run):
     """C-23.14: every wrapper word inside a run of flags (`-time -time …`) had
     searched the rest of the run again, quadratic in its length: 0.46 s of CPU for
