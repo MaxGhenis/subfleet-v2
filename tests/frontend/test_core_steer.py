@@ -273,6 +273,14 @@ def test_c24_9_queued_messages_do_not_stop_steering(core_probe, tmp_path, harnes
     narrow = {**statuses(harness, first)[0], "settings": {**opened["messages"][1]["settings"], "permission": "read-only"}}
     assert store(core_probe, tmp_path, [*base, {"receipts": [narrow]}])["steer_offers"][first] is False
 
+    # A slash command or shell input is never steered (DESIGN.md section 9).
+    command = harness.submit(cid, "/compact", after=second)["message_id"]
+    shell = harness.submit(cid, "!make test", after=command)["message_id"]
+    with_commands = store(core_probe, tmp_path, [base[0], {"open": harness.call("conversation.open", conversation_id=cid)},
+                                                 base[2]])
+    assert (with_commands["steer_offers"][command], with_commands["steer_offers"][shell]) == (False, False)
+    assert with_commands["steer_offers"][first] is True
+
     # A message already on its way is not offered again.
     asked = store(core_probe, tmp_path, [*base, {"steers": [journaled(first, cid, "queued")]}])
     assert asked["steer_offers"][first] is False and asked["steer_offers"][second] is True
@@ -329,6 +337,10 @@ def test_c24_9_every_steer_status_line(core_probe, tmp_path, harness):
         {"steer_request": mid["asked"]},
         {"steer_request": mid["answered"]}, {"steer_answer": {"message_id": mid["answered"], "refusal": None}},
         *refusals,
+        # Esc takes back the newest the daemon may still give back; with none left, it stops the turn.
+        {"escape": []},
+        {"escape": [local, mid["no-answer"]]},
+        {"escape": [m for _, m in mids] + [local]},
     ])
     words = {name: out["turns"][m]["status_text"] for name, m in mid.items()}
     assert out["turns"][local]["status_text"] == UNREAD
@@ -346,9 +358,12 @@ def test_c24_9_every_steer_status_line(core_probe, tmp_path, harness):
     assert out["turns"][mid["unanswered"]]["steered_into"] == host
     assert out["turns"][mid["missed"]]["steered_into"] is None
     assert out["unknown_kinds"] == {}
-    # Esc takes back the newest steer the provider has not read.
-    unread = [m for name, m in mids if name in ("asked", "steering", "missed", "event-missed")] + [local]
-    assert out["unread_steers"] == unread
+    # What Esc may take back: steers not read yet, and refused ones still queued.
+    recallable = [m for name, m in mids if name in ("asked", "steering", "missed", "event-missed", *STEER_REFUSALS,
+                                                    "unsupported", "no-answer")] + [local]
+    assert out["recallable_steers"] == recallable
+    assert out["results"][-3:] == [f"escape:recall:{local}", f"escape:recall:{mid['unsupported']}",
+                                   f"escape:stop:{host}"]
     assert all(out["turns"][m]["read_steer"] for m in (mid["delivered"], mid["steered"], mid["unanswered"]))
 
 
@@ -427,7 +442,7 @@ def test_c24_9_a_steered_message_is_drawn_once_where_the_turn_took_it(core_probe
     assert person_ids(pending["items"]) == [f"person:{host}", f"person:{steered}"]
     assert ids[-1] == f"person:{steered}"                       # in its own place, at the end
     assert pending["turns"][steered]["status_text"] == UNREAD_TOOL          # the provider is running Bash
-    assert pending["placed_steers"] == [] and pending["unread_steers"] == [steered]
+    assert pending["placed_steers"] == [] and pending["recallable_steers"] == [steered]
 
     for snapshot in (taken, settled, reread):
         ids = [i["id"] for i in snapshot["items"]]
@@ -437,7 +452,7 @@ def test_c24_9_a_steered_message_is_drawn_once_where_the_turn_took_it(core_probe
         assert ids[at - 1] == f"tool:{host}:tu1"                  # after the step the provider finished
         after = snapshot["items"][at + 1]
         assert after["type"] == "text" and after["text"] == "Checking the lexer too."
-        assert snapshot["placed_steers"] == [steered] and snapshot["unread_steers"] == []
+        assert snapshot["placed_steers"] == [steered] and snapshot["recallable_steers"] == []
         assert snapshot["turns"][steered]["status_text"] == READ
         assert snapshot["unknown_kinds"] == {}
         assert len(ids) == len(set(ids))                          # every row's id is unique
@@ -717,6 +732,46 @@ def test_c24_9_esc_on_a_steer_already_read_changes_nothing_and_never_interrupts(
                                                        "message.cancel", "message.status", "message.cancel"]
 
 
+def test_c24_9_esc_on_a_message_seen_sending_asks_the_daemon_where_it_is(core_probe, tmp_path, harness):
+    """The app saw the steer before its receipt ("sending"); by the time Esc is
+    handled its submit was answered. The daemon is asked where the message is, and a
+    message still queued is taken back, not reported too late (review of a4a3414a)."""
+    cid = harness.create()["conversation_id"]
+    (mid,) = ids(1)
+    receipt = harness.submit(cid, "also the lexer", message_id=mid)
+    status = {"messages": statuses(harness, mid)}
+    cancelled = {**receipt, "state": "cancelled", "state_reason": "withdrawn"}
+    script = scripted(tmp_path, [("message.submit", json.loads(protocol.encode(protocol.ok("", receipt)))),
+                                 ("message.status", json.loads(protocol.encode(protocol.ok("", status)))),
+                                 ("message.cancel", json.loads(protocol.encode(protocol.ok("", cancelled))))])
+    out = run_steps(core_probe, tmp_path, script, [
+        {"do": "know_chain", "conversation": cid, "last": None},
+        {"do": "submit", "conversation": cid, "message_id": mid, "text": "also the lexer"},
+        {"do": "pump"},
+        {"do": "recall", "key": mid, "state": "sending"},
+    ])
+    result = out["results"][-1]["result"]
+    assert result["outcome"] == "recalled" and result["text"] == "also the lexer"
+    assert [c.split(" ")[0] for c in out["calls"]] == ["message.submit", "message.status", "message.cancel"]
+
+
+def test_c24_9_a_withdrawal_that_cannot_read_where_the_message_is_never_interrupts(core_probe, tmp_path, harness):
+    """After `too-late`, the app interrupts only a message it read as running. The
+    daemon points an interrupt of a steering message at its host turn, so a failed
+    `message.status` is reported, not guessed past (review of a4a3414a)."""
+    cid = harness.create()["conversation_id"]
+    (mid,) = ids(1)
+    harness.submit(cid, "also", message_id=mid)
+    from subfleet.daemon import busy_answer
+    too_late = {"id": "fixture", "ok": False, "v": 1, "error": {
+        "code": 2, "message": "too-late: the provider may already have this message", "fix": "use turn.interrupt"}}
+    script = scripted(tmp_path, [("message.cancel", too_late),
+                                 ("message.status", json.loads(busy_answer("the daemon is serving 512 connections")))])
+    out = run_steps(core_probe, tmp_path, script, [{"do": "stop", "key": mid, "state": "queued"}])
+    assert out["results"][0]["error"]["kind"] == "daemon" and out["results"][0]["error"]["code"] == 69
+    assert [c.split(" ")[0] for c in out["calls"]] == ["message.cancel", "message.status"]
+
+
 def test_c24_9_slash_commands_and_shell_input_are_never_steered(core_probe, tmp_path):
     """They wait for the turn to end, as in Claude Code (DESIGN.md section 9)."""
     texts = ["/compact", "  /model opus", "!ls -la", "\n!git status", "fix it", "a/b and !c", "", "   "]
@@ -820,6 +875,11 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
     assert out["statuses"][pending] == UNREAD
     assert out["statuses"][refused] == REFUSED_WORDS["not-next"]
     assert out["steer_offers"][pending] is False                    # already on its way
+    # A journaled steer of a message that runs by now (the daemon dispatched it
+    # first) does not make it read as unread: it is past steering.
+    ran = store(core_probe, tmp_path, [{"capabilities": steer_capabilities(harness)}, {"open": opened},
+                                       {"steers": [journaled(host, cid, "queued")]}])
+    assert not ran["statuses"][host].startswith("Unread")
     # An answered one is its receipts' to show.
     done = store(core_probe, tmp_path, [{"open": opened}, {"steers": [journaled(pending, cid, "acknowledged")]}])
     assert done["statuses"][pending] == QUEUED

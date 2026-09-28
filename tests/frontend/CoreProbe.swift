@@ -199,7 +199,7 @@ func project(_ timeline: Timeline) -> [String: Any] {
         "history_added": timeline.historyAddedByLastPage,
         "unknown_kinds": timeline.unknownKinds, "pending_cards": timeline.pendingApprovalCards.map(project),
         "live_message": timeline.liveMessageID as Any? ?? NSNull(),
-        "placed_steers": timeline.placedSteers.sorted(), "unread_steers": timeline.unreadSteers,
+        "placed_steers": timeline.placedSteers.sorted(), "recallable_steers": timeline.recallableSteers,
     ]
 }
 
@@ -238,6 +238,14 @@ func runFold(_ data: Data) throws -> [String: Any] {
         } else if let steered = step["steer_request"]?.string {
             timeline.requestSteer(messageID: steered)
             results.append("steer_request")
+        } else if let passed = step["escape"] {
+            // Esc, passing over the steers the daemon answered too-late for.
+            let unrecallable = Set(passed.array?.compactMap(\.string) ?? [])
+            switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
         } else if let answer = step["steer_answer"] {
             // The outbox's answer to a steer: `refusal` null when the daemon took it.
             let refusal = answer["refusal"].flatMap { $0.isNull ? nil : $0 }.map {

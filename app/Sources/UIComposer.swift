@@ -267,8 +267,14 @@ struct ComposerView: View {
             .controlSize(.small)
         }
         .padding(10)
-        .onAppear(perform: loadDraft)
-        .onChange(of: conversation.conversation_id) { _, _ in loadDraft() }
+        .onAppear {
+            loadDraft()
+            takeRecall()
+        }
+        .onChange(of: conversation.conversation_id) { _, _ in
+            loadDraft()
+            takeRecall()
+        }
         .onChange(of: text) { _, _ in saveDraft() }
         .onChange(of: model.composerRecall[conversation.conversation_id]?.id) { _, _ in takeRecall() }
         .alert("Give this conversation more permission?", isPresented: Binding(get: { widenTo != nil },

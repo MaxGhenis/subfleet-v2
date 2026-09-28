@@ -30,6 +30,8 @@ final class UIModel: ObservableObject {
     @Published var turnChanges: [String: DiffStats] = [:]
     /// Words Esc took back from the running turn, per conversation, for its composer.
     @Published var composerRecall: [String: ComposerRecall] = [:]
+    /// Steers the daemon answered `too-late` for: the next Esc passes over them.
+    private var unrecallable: Set<String> = []
     private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
@@ -441,6 +443,9 @@ final class UIModel: ObservableObject {
     /// "Send now" (DESIGN.md sections 7 to 9) calls this.
     func steer(messageID: String, conversationID: String) {
         guard let engine else { return }
+        // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
+        let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
+        guard steerable(text: text) else { return }
         state.requestSteer(conversationID: conversationID, messageID: messageID)
         Task {
             do {
@@ -458,12 +463,15 @@ final class UIModel: ObservableObject {
     /// Stop keeps unread steers and queued messages: they run next.
     func escape(conversationID: String, assistant: String) {
         guard let engine, let timeline = state.timelines[conversationID] else { return }
-        guard let unread = timeline.unreadSteers.last, let turn = timeline.turn(unread) else {
-            if let live = timeline.liveMessageID {
-                stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
-            }
+        let unread: String
+        switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
+        case .none: return
+        case .stop(let action):
+            stop(action)
             return
+        case .recall(let messageID): unread = messageID
         }
+        guard let turn = timeline.turn(unread) else { return }
         let (messageState, text) = (turn.state, turn.personText)
         Task {
             do {
@@ -477,7 +485,9 @@ final class UIModel: ObservableObject {
                     composerRecall[conversationID] = ComposerRecall(text: words, staged: staged)
                 case .tooLate(let receipt):
                     if let receipt { state.apply(receipt: receipt) }
-                    problem = "Too late to take it back: \(assistant) has read it."
+                    // Its frame is written: the turn's next step reads it. The next Esc stops the turn.
+                    unrecallable.insert(unread)
+                    problem = "\(assistant) already has it; it joins at the next step. Press Esc again to stop the turn."
                 case .inFlight:
                     problem = "That message is still being sent; press Esc again in a moment."
                 }

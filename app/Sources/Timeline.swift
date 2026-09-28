@@ -905,9 +905,15 @@ struct Timeline: Equatable {
         return turn.statusText(host: host, assistant: assistant)
     }
 
-    /// Steers the provider has not read, oldest first: Esc takes back the last one
-    /// (DESIGN.md section 9).
-    var unreadSteers: [String] { order.filter { turns[$0]?.isUnreadSteer == true } }
+    /// Messages the person meant to steer that the provider has not read, oldest
+    /// first: unread steers, and ones the daemon refused (they wait in the queue).
+    /// Esc takes back the newest it still can (DESIGN.md section 9).
+    var recallableSteers: [String] {
+        order.filter { id in
+            guard let turn = turns[id] else { return false }
+            return turn.isUnreadSteer || (turn.messageState == .queued && turn.steerRefusal != nil)
+        }
+    }
 
     /// The message a Stop acts on: the newest live one.
     var liveMessageID: String? {

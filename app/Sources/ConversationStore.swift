@@ -183,13 +183,34 @@ func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabili
 
 /// Whether a queued message may be steered now ("Send now" on the queue tray,
 /// DESIGN.md sections 7 to 9): the person's message, not already being steered,
-/// that a running turn would take.
+/// not a slash command or shell input, that a running turn would take.
 func canSteer(messageID: String, conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> Bool {
     guard let timeline, let turn = timeline.turn(messageID), turn.messageState == .queued, !turn.steerRequested,
-          turn.origin == "person",
+          turn.origin == "person", steerable(text: turn.personText ?? ""),
           let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities)
     else { return false }
     return steerPermits(turn.settings?.permission, into: host)
+}
+
+/// What Esc does while a turn runs (DESIGN.md sections 8 and 9).
+enum EscapeAction: Equatable {
+    /// Take this steer back into the composer.
+    case recall(messageID: String)
+    /// Nothing left to take back: stop the turn.
+    case stop(StopAction)
+    /// No turn runs.
+    case none
+}
+
+/// The newest steer the provider has not read and the daemon may still give
+/// back; with none, Stop. `unrecallable` are steers the daemon already
+/// answered `too-late` for (their frame is written: the next step reads them).
+func escapeAction(timeline: Timeline?, unrecallable: Set<String> = []) -> EscapeAction {
+    guard let timeline, let live = timeline.liveMessageID else { return .none }
+    if let steer = timeline.recallableSteers.last(where: { !unrecallable.contains($0) }) {
+        return .recall(messageID: steer)
+    }
+    return .stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
 }
 
 /// The composer's one-line hint while it steers and the person's picks differ
@@ -495,7 +516,12 @@ struct ConversationStoreState: Equatable {
     mutating func apply(steers: [OutboxSteer]) {
         for steer in steers {
             switch steer.state {
-            case .queued, .sending: timelines[steer.conversation]?.requestSteer(messageID: steer.messageID)
+            case .queued, .sending:
+                // Only while its message still waits: one that runs, or ran, is past steering.
+                let state = timelines[steer.conversation]?.turn(steer.messageID)?.state
+                if state == MessageState.queued.rawValue || state == "sending" {
+                    timelines[steer.conversation]?.requestSteer(messageID: steer.messageID)
+                }
             case .refused: timelines[steer.conversation]?.noteSteer(messageID: steer.messageID, refusal: steer.failure)
             case .acknowledged, .withdrawn: timelines[steer.conversation]?.noteSteer(messageID: steer.messageID, refusal: nil)
             }
@@ -869,6 +895,12 @@ final class ConversationEngine {
         let entry = outbox.entry(messageID)
         let words = entry?.message?.text ?? text ?? ""
         let staged = entry?.message?.staged ?? []
+        var state = state
+        if entry?.isOpen != true, state.flatMap(MessageState.init(rawValue:)) == nil {
+            // The app saw it before any receipt ("sending") and its send has been
+            // answered since: ask where it is now rather than guess.
+            state = try status([messageID]).first?.state
+        }
         switch stopAction(for: messageID, state: state, outboxEntry: entry) {
         case .withdraw:
             switch try withdraw(messageID) {
@@ -877,11 +909,11 @@ final class ConversationEngine {
             case .inDaemon(let receipt): return try recall(messageID: messageID, state: receipt.state, text: text)
             }
         case .cancel(let id), .cancelSteer(let id):
-            try outbox.withdrawSteer(id)
             do {
                 let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: id, conversation_id: nil))
-                return receipt.messageState == .cancelled ? .recalled(text: words, staged: staged, receipt: receipt)
-                    : .tooLate(receipt)
+                guard receipt.messageState == .cancelled else { return .tooLate(receipt) }
+                try outbox.withdrawSteer(id)
+                return .recalled(text: words, staged: staged, receipt: receipt)
             } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
                 return .tooLate(nil)
             }
@@ -902,15 +934,20 @@ final class ConversationEngine {
             case .inFlight: return nil
             }
         case .cancel(let messageID):
-            // A steer of it not sent yet is taken back first: it would only be refused.
-            try outbox.withdrawSteer(messageID)
             do {
-                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID,
+                                                                                   conversation_id: nil))
+                // Its steer not sent yet would only be refused now (one queue: nothing sends between).
+                try outbox.withdrawSteer(messageID)
+                return receipt
             } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
                 // It left `queued` since the app looked, and the provider may have
-                // it: the daemon's fix is `turn.interrupt` (op_message_cancel).
-                // A message steered meanwhile is in another message's turn: no interrupt.
-                if let now = try? status([messageID]).first, now.messageState == .steering || now.messageState == .steered {
+                // it: the daemon's fix is `turn.interrupt` (op_message_cancel). A
+                // message steered meanwhile is in another message's turn, and the
+                // daemon points an interrupt of it at that turn: never interrupt
+                // without knowing (a failed read is thrown, not guessed past).
+                let now = try status([messageID]).first
+                if now?.messageState == .steering || now?.messageState == .steered {
                     throw ConversationEngineError.steerTooLate(messageID)
                 }
                 return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
