@@ -51,6 +51,8 @@ def case(*, owned=False, payload=b"job output"):
                 sandbox="workspace-write" if owned else "read-only", state="succeeded",
                 finished_at="2026-01-01T00:00:00Z",
             )
+            if owned:
+                store.update_job("job", workdir_head=git(repository, "rev-parse", "HEAD"))
             directory = root / "jobs" / "job"
             directory.mkdir(parents=True)
             (directory / "stdout").write_bytes(payload)

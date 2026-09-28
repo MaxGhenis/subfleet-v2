@@ -1,8 +1,10 @@
-"""Read-only round-three retention survey. No maintenance, indexes or Git objects.
+"""Read-only round-four retention survey. No maintenance or live repository writes.
 
-Counts are conservative eventual candidates under budget pressure, not predicted
-one-pass throughput. Raw blob comparisons may conservatively reject filtered
-working files. All live Git calls disable optional locks and lazy fetching.
+Use the production checks for conditions 2-6, including hashing every tracked
+file without filters. Counts are eventual candidates under budget pressure,
+not one-pass throughput or authorization to skip the post-rename recheck.
+All live Git calls disable optional locks and lazy fetching. The validator's
+fresh comparison index is temporary and outside the surveyed repository.
 """
 from __future__ import annotations
 import argparse
@@ -13,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-import stat
 import subprocess
 import sys
 import threading
@@ -24,6 +25,7 @@ from subfleet import retention, retention_salvage
 from subfleet.store import Store
 from subfleet.conversations.turn import TERMINAL_STATES
 
+_VALIDATOR_SHA256 = hashlib.sha256(Path(retention_salvage.__file__).read_bytes()).hexdigest()
 os.environ.update(GIT_OPTIONAL_LOCKS='0', GIT_NO_LAZY_FETCH='1', GIT_TERMINAL_PROMPT='0',
                   GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='core.fsmonitor', GIT_CONFIG_VALUE_0='false',
                   GIT_CONFIG_KEY_1='core.untrackedCache', GIT_CONFIG_VALUE_1='false')
@@ -36,14 +38,6 @@ def checkpoint():
         raise TimeoutError("survey candidate deadline exceeded; preservation remains unproved")
 
 
-def git(path, *args):
-    checkpoint()
-    result = subprocess.run(['git', '-C', str(path), '-c', 'core.fsmonitor=false',
-                             '-c', 'core.untrackedCache=false', '--no-replace-objects', *args],
-                            capture_output=True, timeout=max(.01, min(120, getattr(_budget, "deadline", float("inf"))-time.monotonic())), check=True)
-    return result.stdout
-
-
 def size(path):
     total = 0
     for value in retention._file_sizes(path):
@@ -52,65 +46,22 @@ def size(path):
     return total
 
 
-def file_blob(path, algorithm):
-    metadata = path.lstat()
-    if stat.S_ISLNK(metadata.st_mode):
-        data = os.fsencode(os.readlink(path))
-        return '120000', hashlib.new(algorithm, b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ValueError('nonregular tracked entry')
-    digest = hashlib.new(algorithm, b'blob ' + str(metadata.st_size).encode() + b'\0')
-    with path.open('rb') as file:
-        while chunk := file.read(1024*1024):
-            checkpoint()
-            digest.update(chunk)
-    if path.stat().st_mtime_ns != metadata.st_mtime_ns:
-        raise ValueError('file changed during survey')
-    return ('100755' if metadata.st_mode & 0o111 else '100644'), digest.hexdigest()
-
-
-def content_preserved(tree, artifacts):
-    if git(tree, 'ls-files', '--unmerged'):
-        return False, 'unmerged-index'
-    if git(tree, 'diff-index', '--cached', '--name-only', 'HEAD', '--'):
-        return False, 'staged-index'
-    # Match the production proof's stat-cache model. The real index equals
-    # HEAD (checked above); only changed, untracked, or hiding-flag paths need
-    # independent hashing. This also handles unchanged filtered files without
-    # running filters ourselves or creating an index/object.
-    actual = {}
-    for entry in git(tree, 'ls-tree', '-r', '-z', 'HEAD').split(b'\0'):
-        if entry:
-            description, name = entry.split(b'\t', 1)
-            mode, kind, blob = description.split(b' ')
-            actual[name] = (mode.decode(), blob.decode())
-    changed = set(git(tree, 'diff-files', '--name-only', '-z', '--').split(b'\0'))
-    changed.update(git(tree, 'ls-files', '-o', '--exclude-standard', '-z').split(b'\0'))
-    for record in git(tree, 'ls-files', '-v', '-z').split(b'\0'):
-        if len(record) >= 3 and (record[:1].islower() or record[:1] in (b'S', b's')):
-            changed.add(record[2:])
-    algorithm = git(tree, 'rev-parse', '--show-object-format').strip().decode()
-    for raw in changed - {b''}:
-        path = tree / os.fsdecode(raw)
-        if path.exists() or path.is_symlink():
-            actual[raw] = file_blob(path, algorithm)
-        else:
-            actual.pop(raw, None)
-    for ref in ['HEAD', *(a['path'] for a in artifacts)]:
-        try:
-            entries = git(tree, 'ls-tree', '-r', '-z', ref).split(b'\0')
-        except subprocess.CalledProcessError:
-            continue
-        expected = {}
-        for entry in entries:
-            if not entry:
-                continue
-            description, name = entry.split(b'\t', 1)
-            mode, kind, blob = description.split(b' ')
-            expected[name] = (mode.decode(), blob.decode())
-        if actual == expected:
-            return True, None
-    return False, 'working-tree-mismatch'
+def blocker_for(exc):
+    if isinstance(exc, (retention._Interrupted, TimeoutError, subprocess.TimeoutExpired)):
+        return 'survey-timeout'
+    error = str(exc).lower()
+    if 'condition ' in error:
+        return error.split(':', 1)[0].replace(' ', '-')
+    for needles, reason in (
+        (('baseline', 'salvage commit', 'allowed named ref', 'caller repository'), 'condition-2-head'),
+        (('unmerged', 'staged', 'index'), 'condition-3-index'),
+        (('filter', 'attributes', 'conversion', 'tracked file', 'working tree'), 'condition-4-content'),
+        (('ignored', 'untracked'), 'condition-5-extra-files'),
+        (('nested', 'bare', 'admin', 'worktree ref', 'bisect', 'rebase', 'merge', 'stash'), 'condition-6-git-state'),
+    ):
+        if any(needle in error for needle in needles):
+            return reason
+    return 'proof-or-size-error'
 
 
 def main():
@@ -118,8 +69,12 @@ def main():
     parser.add_argument('--state', type=Path, default=Path.home()/'.subfleet')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--candidate-seconds', type=float, default=120)
+    parser.add_argument('--workers', type=int, default=2)
     args = parser.parse_args()
     root = args.state.resolve()
+    output = args.output.resolve()
+    if output.is_relative_to(root):
+        parser.error('--output must be outside the surveyed state directory')
     started = time.time()
     policy = json.loads((root/'policy.json').read_text()).get('retention', {})
     with Store(root/'state.sqlite3', read_only=True) as store:
@@ -141,7 +96,7 @@ def main():
                     conversation_pins.update(j['job_id'] for j in jobs if j['kind']=='turn' and j['name']==f'turn-{identity}')
         ordinary = retention._pins(store, conversation_pins, {a['artifact_id'] for a in artifacts},
                                    turn_keep_s=float(policy.get('turn_keep_days', 14))*86400)
-        print(f"Snapshot: {len(jobs)} jobs, {len(ordinary)} ordinary pins; proving salvage", flush=True)
+        print(f"Snapshot: {len(jobs)} jobs, {len(ordinary)} ordinary pins", flush=True)
         job_map = {j['job_id']: j for j in jobs}
         attempts = {a['attempt_id']: a for a in store.query('SELECT attempt_id,job_id,seq FROM attempts')}
         class SnapshotEvidence:
@@ -154,13 +109,7 @@ def main():
                 if sql.startswith('SELECT seq') and attempt['job_id'] == params[1]:
                     return {'seq': attempt['seq']}
                 return None
-        proof = retention_salvage.SalvageReachability(SnapshotEvidence(), root)
-        def check_salvage(job):
-            return job['job_id'], all(proof(a) for a in by_job.get(job['job_id'], []))
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            salvage_ok = dict(pool.map(check_salvage, (j for j in jobs if j['job_id'] not in ordinary)))
-
-    print("Salvage proofs complete; measuring and checking worktrees", flush=True)
+    print("Checking salvage pins and strict worktree conditions", flush=True)
 
     def inspect(job):
         identity = job['job_id']
@@ -171,33 +120,28 @@ def main():
             out['worktree_exists'] = tree is not None and tree.exists()
             if identity in ordinary:
                 out['blocker'] = 'ordinary-pin'
-            elif not salvage_ok[identity]:
-                out['blocker'] = 'unproved-salvage'
-            elif out['worktree_exists']:
-                out['ignored_entries'] = [os.fsdecode(p) for p in git(tree, 'ls-files', '-o', '-i', '--exclude-standard', '--directory', '-z').split(b'\0') if p]
-                out['noncache_ignored'] = [p for p in out['ignored_entries'] if not retention_salvage._regenerable_ignored(p)]
-                retention_salvage.prove_worktree_preserved(job, root, by_job.get(identity, []), deadline=_budget.deadline)
-                ok, reason = content_preserved(tree, by_job.get(identity, []))
-                if not ok:
-                    out['blocker'] = reason
+            else:
+                proof = retention_salvage.SalvageReachability(SnapshotEvidence(), root,
+                                                             deadline=_budget.deadline)
+                if not all(proof(a) for a in by_job.get(identity, [])):
+                    out['blocker'] = 'unproved-salvage'
+                elif out['worktree_exists']:
+                    retention_salvage.prove_worktree_preserved(
+                        job, root, by_job.get(identity, []), deadline=_budget.deadline)
             if out['blocker'] is None:
                 if out['worktree_exists']:
                     out['worktree_bytes'] = size(tree)
                 out['job_bytes'] = size(root/'jobs'/identity)
         except Exception as exc:
-            error = str(exc)
-            out['detail'] = error
-            out['blocker'] = ('survey-timeout' if isinstance(exc, (retention._Interrupted, TimeoutError, subprocess.TimeoutExpired)) else
-                              'unheld-head' if 'allowed named ref' in error else
-                              'noncache-ignored' if 'ignored worktree entry' in error else
-                              'nested-git' if 'Git' in error and ('nested' in error or 'bare' in error) else 'proof-or-size-error')
+            out['detail'] = str(exc)
+            out['blocker'] = blocker_for(exc)
         return out
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = []
         for future in as_completed([pool.submit(inspect, job) for job in jobs]):
             results.append(future.result())
             print(f"Checked {len(results)}/{len(jobs)} jobs", flush=True)
-            args.output.with_suffix('.partial.json').write_text(json.dumps(results))
+            output.with_suffix('.partial.json').write_text(json.dumps(results))
     eligible = [r for r in results if r['blocker'] is None]
     existing = [r for r in eligible if r['worktree_exists']]
     summary = {'job_rows': len(jobs), 'eligible_rows': len(eligible), 'retirable_worktrees': len(existing),
@@ -207,9 +151,12 @@ def main():
                'blocked_worktrees': dict(Counter(r['blocker'] for r in results if r['blocker'] and r['worktree_exists'])),
                'existing_owned_worktrees': sum(r['worktree_exists'] for r in results),
                'elapsed_seconds': time.time()-started, 'policy': policy,
+               'started_at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started)),
                'candidate_seconds': args.candidate_seconds,
-               'method': 'read-only stat-aware eventual eligibility lower bound; timed-out proofs remain blocked; no budget trimming or legacy waiver; changed/flagged files compared as raw blobs'}
-    args.output.write_text(json.dumps({'summary': summary, 'jobs': results}, indent=2))
+               'workers': args.workers,
+               'validator_sha256': _VALIDATOR_SHA256,
+               'method': 'read-only eventual eligibility lower bound using production conditions 2-6; every tracked file hashed as raw bytes; timed-out proofs remain blocked; no budget trimming, legacy waiver, or post-rename transaction simulated'}
+    output.write_text(json.dumps({'summary': summary, 'jobs': sorted(results, key=lambda r: r['job_id'])}, indent=2))
     print(json.dumps(summary, indent=2))
 
 

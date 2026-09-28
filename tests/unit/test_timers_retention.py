@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import retention
+from subfleet import retention, retention_trash
 from subfleet import daemon as daemon_module
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
@@ -62,15 +62,15 @@ def test_failed_trash_removal_keeps_retry_journal_after_row_commit(retained, mon
     store, root = retained
     directory = job(store, root, "old", size=20)
     (directory / "stderr").write_bytes(b"y" * 30)
-    original = Path.unlink
+    original = retention_trash._reclaim
 
     def partial_remove(path, *args, **kwargs):
         assert not store.connection.in_transaction
-        if path.name == "stderr" and (root / "trash") in path.parents:
+        if path == root / "trash" / "old" / "job":
             raise PermissionError("cannot remove remaining output")
         return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "unlink", partial_remove)
+    monkeypatch.setattr(retention_trash, "_reclaim", partial_remove)
     first = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
     assert first["pruned"] == ["old"]
     assert first["protected"] == []
@@ -84,7 +84,7 @@ def test_failed_trash_removal_keeps_retry_journal_after_row_commit(retained, mon
     assert (root / "trash" / "old" / "manifest.json").exists()
     assert any(event["kind"] == "retention.trash_error" for event in store.list_events("old"))
 
-    monkeypatch.setattr(Path, "unlink", original)
+    monkeypatch.setattr(retention_trash, "_reclaim", original)
     second = retention.maintenance(store, root, max_jobs=100, max_bytes=100)
     assert second["bytes_before"] == 0
     assert second["bytes_after"] == 0

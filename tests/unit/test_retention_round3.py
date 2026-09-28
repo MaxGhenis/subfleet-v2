@@ -39,6 +39,7 @@ def test_ignored_file_below_tracked_cache_named_package_is_never_discarded(paren
         git(tree, 'add', '.')
         git(tree, '-c', 'user.name=test', '-c', 'user.email=t@x', 'commit', '-m', 'package')
         git(repo, 'update-ref', 'refs/heads/held', git(tree, 'rev-parse', 'HEAD'))
+        store.update_job('job', workdir_head=git(tree, 'rev-parse', 'HEAD'))
         output = package / 'calibrated.h5'
         output.write_bytes(payload)
         result = retention.maintenance(store, root, max_jobs=0)
@@ -49,8 +50,8 @@ def test_ignored_file_below_tracked_cache_named_package_is_never_discarded(paren
 @pytest.mark.parametrize('name', ['private.git', 'bare-store', '.GIT'])
 def test_nested_repositories_inside_ignored_caches_are_pinned(owned, name):
     store, root, repo, tree = owned
-    (repo / '.git/info/exclude').write_text('node_modules/\n')
-    nested = tree / 'node_modules/pkg' / name
+    (repo / '.git/info/exclude').write_text('__pycache__/\n')
+    nested = tree / '__pycache__/pkg' / name
     nested.mkdir(parents=True)
     git(nested, 'init', '--bare')
     result = retention.maintenance(store, root, max_jobs=0)
@@ -118,7 +119,7 @@ def test_new_crash_lease_never_gets_deletion_waiver(owned, monkeypatch):
     assert not (tree / 'tracked').exists() and not store.list_leases()
 
 
-def test_deep_file_edit_expires_cached_size_without_directory_mtime_change(tmp_path, monkeypatch):
+def test_deep_file_edit_invalidates_cached_size_without_directory_mtime_change(tmp_path, monkeypatch):
     clock = SimpleNamespace(now=0.)
     monkeypatch.setattr(retention, 'time', SimpleNamespace(monotonic=lambda: clock.now))
     with Store(tmp_path / 'db') as store:
@@ -136,7 +137,7 @@ def test_deep_file_edit_expires_cached_size_without_directory_mtime_change(tmp_p
         with (big / 'part-0/payload-0.bin').open('wb') as file:
             file.truncate(MIB)
         assert big.stat().st_mtime_ns == before
-        clock.now += retention._SIZE_MAX_AGE + 1
+        clock.now += 5
         monkeypatch.setattr(retention, '_size', original)
         result = retention.maintenance(store, tmp_path, max_bytes=4*MIB)
         assert result['pruned'] == [] and result['bytes_after'] == 3*MIB
@@ -154,21 +155,15 @@ def test_deadline_git_timeout_is_interruption(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('flag', ['--assume-unchanged', '--skip-worktree'])
-def test_stat_cached_proof_clears_hiding_flags_without_changing_real_index(owned, monkeypatch, flag):
+def test_fresh_proof_ignores_hiding_flags_without_changing_real_index(owned, monkeypatch, flag):
     store, root, _, tree = owned
     git(tree, 'update-index', flag, 'tracked')
     index = Path(git(tree, 'rev-parse', '--git-path', 'index'))
     before = index.read_bytes()
     (tree / 'tracked').write_text('hidden unsalvaged edit')
-    calls = []
-    original = retention._git
-    def observe(path, *args, **kwargs):
-        calls.append(args)
-        return original(path, *args, **kwargs)
-    monkeypatch.setattr(retention, '_git', observe)
     result = retention.maintenance(store, root, max_jobs=0)
     assert result['pruned'] == [] and index.read_bytes() == before
-    assert any('read-tree' in args and '-m' in args for args in calls)
+    assert (tree / 'tracked').read_text() == 'hidden unsalvaged edit'
 
 
 @settings(max_examples=10, deadline=None, database=None)
@@ -238,36 +233,39 @@ def test_version_marker_collision_cannot_create_unmarked_new_lease():
 
 
 def test_selected_admin_on_another_filesystem_can_resume_cleanup(owned, monkeypatch):
-    import errno
-    import threading
     store, root, _, tree = owned
+    common = git(tree, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     admin = Path(git(tree, 'rev-parse', '--absolute-git-dir'))
-    rename, unlink = Path.rename, Path.unlink
-    cancel = threading.Event()
-    def cross_device(source, destination):
-        if source == admin:
-            raise OSError(errno.EXDEV, 'separate filesystem')
-        return rename(source, destination)
-    def interrupt(path, *args, **kwargs):
-        result = unlink(path, *args, **kwargs)
-        if path.parent == admin and path.name != 'gitdir':
-            cancel.set()
-        return result
-    monkeypatch.setattr(Path, 'rename', cross_device)
-    monkeypatch.setattr(Path, 'unlink', interrupt)
-    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
-    assert result['pruned'] == ['job'] and result['interrupted'] == 'cancelled'
-    assert (admin / 'gitdir').exists() and not store.list_leases()
-    monkeypatch.setattr(Path, 'unlink', unlink)
-    result = retention.maintenance(store, root)
-    assert not result['errors'] and not admin.exists()
-    assert not (root / 'trash/job').exists()
+    target = retention_trash.prepare(root, 'job', tree, common, 100)
+    retention_trash.stage(root, 'job', tree, target)
+    with store.transaction() as tx:
+        tx.execute("DELETE FROM jobs WHERE job_id='job'")
+    original_stat, reclaim = Path.stat, retention_trash._reclaim
+    def separate_device(path, *args, **kwargs):
+        metadata = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_dev=metadata.st_dev + 1) if path == target else metadata
+    def interrupt(path, checkpoint, progress):
+        raise retention._Interrupted('cancelled')
+    monkeypatch.setattr(Path, 'stat', separate_device)
+    monkeypatch.setattr(retention_trash, '_reclaim', interrupt)
+    progress = {'errors': [], 'made_progress': False}
+    with pytest.raises(retention._Interrupted):
+        retention_trash.clean(store, root, checkpoint=lambda: None, git=None, progress=progress)
+    import json
+    manifest = json.loads((target / 'manifest.json').read_text())
+    detached = Path(manifest['admin_retired'])
+    assert detached.parent == admin.parent and detached != admin
+    assert (detached / 'gitdir').exists() and not admin.exists()
+    monkeypatch.setattr(retention_trash, '_reclaim', reclaim)
+    retention_trash.clean(store, root, checkpoint=lambda: None, git=None, progress=progress)
+    assert not progress['errors'] and not detached.exists() and not target.exists()
 
 
 @pytest.mark.parametrize("seconds", [120, 0])
 def test_live_survey_uses_real_readonly_git_and_sqlite(snapshot, tmp_path, seconds):
     import json
-    store, root, repo, tree, _ = snapshot
+    store, root, repo, tree, saved = snapshot
+    git(tree, 'reset', '--hard', saved.commit)
     (root / 'policy.json').write_text(json.dumps({'retention': {'jobs': 0}}))
     index = Path(git(tree, 'rev-parse', '--git-path', 'index'))
     before = index.read_bytes()

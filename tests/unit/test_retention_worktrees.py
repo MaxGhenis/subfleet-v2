@@ -33,6 +33,7 @@ def owned(tmp_path):
         store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
                       workdir=str(repository), worktree=str(worktree), prompt_path="/prompt",
                       sandbox="workspace-write", state="succeeded")
+        store.update_job("job", workdir_head=git(repository, "rev-parse", "HEAD"))
         artifact_dir = root / "jobs" / "job"
         artifact_dir.mkdir(parents=True)
         (artifact_dir / "stdout").write_bytes(b"output")
@@ -125,7 +126,7 @@ def test_c13_4_dirty_allocated_worktree_without_salvage_is_preserved(owned):
     result = retention.maintenance(store, root, max_jobs=0)
     assert result["pruned"] == []
     assert result["protected"] == ["job"]
-    assert "no recorded salvage" in result["errors"][0]["error"]
+    assert "condition 4" in result["errors"][0]["error"]
     assert (worktree / "tracked").read_text() == "unsalvaged changes"
     assert store.get_job("job") is not None
     assert store.list_leases() == []
@@ -142,13 +143,14 @@ def test_c13_4_retention_resumes_after_worktree_removed_before_row_commit(owned)
     assert store.list_leases() == []
 
 
-def test_c13_4_dirty_allocated_worktree_removed_only_after_salvage_is_retained(owned, monkeypatch):
-    """C-13.4, C-8.4: retirement requires the current dirty tree in a retained salvage ref."""
+def test_c13_4_allocated_worktree_removed_only_at_recorded_salvage_commit(owned, monkeypatch):
+    """C-13.4, C-8.4: retirement requires a clean checkout of the recorded salvage."""
     store, root, repository, worktree = owned
     (worktree / "tracked").write_text("salvaged changes")
     snapshot = record_salvage(store, worktree)
     assert retention.maintenance(store, root, max_jobs=0)["protected"] == ["job"]
     git(repository, "update-ref", "refs/heads/retained-checkpoint", snapshot.commit)
+    git(worktree, "reset", "--hard", snapshot.commit)
     commands = []
     original = subprocess.run
 
@@ -179,6 +181,6 @@ def test_c13_4_dirty_worktree_needs_matching_existing_salvage(owned, damage):
     result = retention.maintenance(store, root, max_jobs=0, salvage_referenced_elsewhere=lambda artifact: True)
     assert result["pruned"] == []
     assert result["protected"] == ["job"]
-    assert "not preserved" in result["errors"][0]["error"]
+    assert "condition 4" in result["errors"][0]["error"]
     assert worktree.exists()
     assert store.get_job("job") is not None

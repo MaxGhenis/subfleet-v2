@@ -132,8 +132,8 @@ def test_job_commits_on_detached_head_remain_reachable(world):
     assert git(worktree, "status", "--porcelain") == ""
     assert saved.ref in reachable_from_any_ref(world.repository, job_head)
     run_daemon_retention(world)
-    assert world.store.get_job("job") is None                  # pruned
-    assert not worktree.exists()
+    assert world.store.get_job("job") is not None  # HEAD must equal a recorded commit
+    assert worktree.exists()
     assert git(world.repository, "rev-parse", saved.ref + "^") == baseline
     assert git(world.repository, "rev-parse", saved.ref + "^2") == job_head
     assert "job step 1" in git(world.repository, "log", "--all", "--format=%s")
@@ -306,7 +306,7 @@ def test_killed_legacy_worktree_remove_is_finished_without_pressure(world):
 
 
 @pytest.mark.parametrize("stage", ["after-worktree-rename", "after-job-rename"])
-def test_interruption_after_destructive_step_commits_row_and_releases_lease(world, monkeypatch, stage):
+def test_interruption_during_post_rename_proof_restores_row_and_releases_lease(world, monkeypatch, stage):
     worktree, _, _ = add_worktree_job(world, "job", with_salvage=False)
     cancel = threading.Event()
     original_rename = Path.rename
@@ -322,12 +322,12 @@ def test_interruption_after_destructive_step_commits_row_and_releases_lease(worl
     monkeypatch.setattr(Path, "rename", rename)
     result = retention.maintenance(world.store, world.root, max_jobs=0, cancel=cancel)
     assert result["interrupted"] == "cancelled"
-    assert result["pruned"] == ["job"]
-    assert not worktree.exists()
-    assert not directory.exists()
-    assert world.store.get_job("job") is None
+    assert result["pruned"] == []
+    assert worktree.exists()
+    assert directory.exists()
+    assert world.store.get_job("job") is not None
     assert not world.store.query("SELECT * FROM leases WHERE holder='retention:job'")
-    assert [e for e in world.store.list_events("job") if e["kind"] == "retention.pruned"]
+    assert not [e for e in world.store.list_events("job") if e["kind"] == "retention.pruned"]
 
     monkeypatch.setattr(Path, "rename", original_rename)
     later = retention.maintenance(world.store, world.root, max_jobs=10)
@@ -376,7 +376,8 @@ def test_cached_size_matches_a_fresh_pass_after_files_are_removed(tmp_path):
 # 5. Fairness: a deferred older candidate and the "newest N" order
 # ---------------------------------------------------------------------------
 
-def test_transient_proof_failure_demotion_expires_after_cooldown(tmp_path, monkeypatch):
+@pytest.mark.parametrize("after_cooldown", [False, True])
+def test_transient_proof_failure_demotion_expires_after_cooldown(tmp_path, monkeypatch, after_cooldown):
     root = tmp_path / "state"
     root.mkdir()
     with Store(root / "state.sqlite3") as store:
@@ -396,8 +397,9 @@ def test_transient_proof_failure_demotion_expires_after_cooldown(tmp_path, monke
         first = retention.maintenance(store, root, max_jobs=2, salvage_referenced_elsewhere=proof)
         assert first["pruned"] == ["mid"]        # correct: "old" was unprovable this pass
         add_sized_job(store, root, "newest", 9, 1024)
-        later = time.monotonic() + retention._RETRY_COOLDOWN + 1
-        monkeypatch.setattr(retention.time, "monotonic", lambda: later)
+        if after_cooldown:
+            later = time.monotonic() + retention._RETRY_COOLDOWN + 1
+            monkeypatch.setattr(retention.time, "monotonic", lambda: later)
         second = retention.maintenance(store, root, max_jobs=2, salvage_referenced_elsewhere=proof)
         assert second["pruned"] == ["old"]
         assert len(calls) >= 2 and set(calls) == {"old/a1"}

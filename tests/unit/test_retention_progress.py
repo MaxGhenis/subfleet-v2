@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import retention
+from subfleet import retention, retention_salvage, retention_trash
 from subfleet.store import Store
 
 
@@ -177,14 +177,14 @@ def test_failed_trash_cleanup_does_not_overcount_retired_bytes(tmp_path, monkeyp
     with Store(tmp_path / "state.sqlite3") as store:
         add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
         newer = add_job(store, tmp_path, "newer", order=1, nested=False)
-        original = Path.unlink
+        original = retention_trash._reclaim
 
         def denied(path, *args, **kwargs):
-            if path == tmp_path / "trash" / "older" / "job" / "payload-0.bin":
+            if path == tmp_path / "trash" / "older" / "job":
                 raise PermissionError("cannot reclaim trash yet")
             return original(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "unlink", denied)
+        monkeypatch.setattr(retention_trash, "_reclaim", denied)
         result = retention.maintenance(store, tmp_path, max_bytes=2 * MIB)
         assert result["pruned"] == ["older"]
         assert store.get_job("older") is None
@@ -193,7 +193,7 @@ def test_failed_trash_cleanup_does_not_overcount_retired_bytes(tmp_path, monkeyp
         assert result["pools"]["detached"]["measured_bytes"] == MIB
         assert store.list_leases() == []
         assert any(event["kind"] == "retention.trash_error" for event in store.list_events("older"))
-        monkeypatch.setattr(Path, "unlink", original)
+        monkeypatch.setattr(retention_trash, "_reclaim", original)
         retention.maintenance(store, tmp_path)
         assert not (tmp_path / "trash" / "older").exists()
 
@@ -226,17 +226,17 @@ def test_trash_error_is_audited_even_when_cleanup_exhausts_deadline(tmp_path, mo
     with Store(tmp_path / "state.sqlite3") as store:
         add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
         newer = add_job(store, tmp_path, "newer", order=1, nested=False)
-        original = Path.unlink
+        original = retention_trash._reclaim
         clock = Clock()
 
         def denied(path, *args, **kwargs):
-            if path == tmp_path / "trash" / "older" / "job" / "payload-0.bin":
+            if path == tmp_path / "trash" / "older" / "job":
                 clock.now = 10
                 raise PermissionError("cannot reclaim trash yet")
             return original(path, *args, **kwargs)
 
         monkeypatch.setattr(retention, "time", SimpleNamespace(monotonic=clock.monotonic))
-        monkeypatch.setattr(Path, "unlink", denied)
+        monkeypatch.setattr(retention_trash, "_reclaim", denied)
         result = retention.maintenance(store, tmp_path, max_bytes=2 * MIB, deadline=1)
         assert result["errors"][0]["job_id"] == "older"
         assert result["pruned"] == ["older"]
@@ -271,6 +271,7 @@ def test_interrupted_read_only_git_check_keeps_completed_size_measurement(tmp_pa
             return str(common)
 
         monkeypatch.setattr(retention, "_remove_worktree", preflight)
+        monkeypatch.setattr(retention_salvage, "prove_worktree_preserved", lambda *a, **kw: str(common))
         for _ in range(5):
             result = retention.maintenance(store, tmp_path, max_jobs=0, deadline=clock.now + 3.5)
             if store.get_job("job") is None:

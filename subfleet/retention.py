@@ -14,9 +14,7 @@ from __future__ import annotations
 import json
 import os
 import stat
-import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -33,7 +31,6 @@ from .contracts import (
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
-_SIZE_MAX_AGE = 60.0
 _LEASE_MARKER = "retention-v3:"
 _RETRY_COOLDOWN = 900.0
 _REMOVAL_RESERVE = 1.0  # reserve time for the journal, atomic renames and row transaction
@@ -50,6 +47,20 @@ def _checkpoint(cancel: threading.Event | None, deadline: float | None) -> None:
         raise _Interrupted("deadline")
 
 
+def _size_signature(metadata):
+    return (metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns)
+
+
+class _MeasuredBytes(int):
+    """An ordinary byte count with evidence for interrupted-pass reuse."""
+    def __new__(cls, value, path, metadata):
+        result = super().__new__(cls, value)
+        result.path = path
+        result.signature = _size_signature(metadata)
+        return result
+
+
 def _file_sizes(path: Path):
     """Yield after each filesystem operation, keeping the walk resumable.
 
@@ -59,24 +70,30 @@ def _file_sizes(path: Path):
     are held between maintenance passes.
     """
     if path.is_symlink() or not path.is_dir():
-        yield path.lstat().st_size if path.exists() or path.is_symlink() else 0
+        if path.exists() or path.is_symlink():
+            metadata = path.lstat()
+            yield _MeasuredBytes(metadata.st_size, path, metadata)
+        else:
+            yield 0
         return
 
     def unreadable(error: OSError) -> None:
         raise error
 
     for directory, dirnames, filenames in os.walk(path, followlinks=False, onerror=unreadable):
-        yield 0
+        yield _MeasuredBytes(0, Path(directory), Path(directory).lstat())
         for name in dirnames:
             entry = Path(directory) / name
             try:
                 metadata = entry.lstat()
-                yield metadata.st_size if stat.S_ISLNK(metadata.st_mode) else 0
+                yield _MeasuredBytes(metadata.st_size if stat.S_ISLNK(metadata.st_mode) else 0, entry, metadata)
             except FileNotFoundError:
                 pass
         for name in filenames:
             try:
-                yield (Path(directory) / name).lstat().st_size
+                entry = Path(directory) / name
+                metadata = entry.lstat()
+                yield _MeasuredBytes(metadata.st_size, entry, metadata)
             except FileNotFoundError:
                 pass
 
@@ -87,12 +104,16 @@ class _SizeScan:
     size: int = 0
     complete: bool = False
     steps: int = 0
+    evidence: dict[Path, tuple] = field(default_factory=dict)
 
     def advance(self, cancel, deadline) -> int:
         while not self.complete:
             _checkpoint(cancel, deadline)
             try:
-                self.size += next(self.iterator)
+                value = next(self.iterator)
+                self.size += value
+                if isinstance(value, _MeasuredBytes):
+                    self.evidence[value.path] = value.signature
                 self.steps += 1
             except StopIteration:
                 self.complete = True
@@ -121,12 +142,26 @@ class _Measurement:
     def size(self) -> int:
         return sum(scan.size for scan in self.scans)
 
+    def unchanged(self) -> Iterable[bool]:
+        # Yield after each stat so the caller can checkpoint without closing
+        # this iterator. Deep edits need not change the root directory mtime.
+        for scan in self.scans:
+            for path, signature in scan.evidence.items():
+                try:
+                    yield _size_signature(os.stat(path, follow_symlinks=False)) == signature
+                except FileNotFoundError:
+                    yield False
+                    return
+
 
 @dataclass
 class _RetentionCache:
     # Scoped to one Store and state root, used by the single retention worker.
     # No schema change or filesystem I/O is needed to save interrupted work.
     measurements: dict[str, _Measurement] = field(default_factory=dict)
+    # A validation epoch may span passes, but is consumed once before sizes
+    # are used. This bounds retries without making metadata a lifetime proof.
+    validation: dict[str, tuple[_Measurement, Any]] | None = None
     # Failed Git proofs/removals must not spend every deadline on the same
     # oldest jobs. Remember their last attempt, never a cached permission.
     retries: dict[str, tuple[tuple, float]] = field(default_factory=dict)
@@ -242,7 +277,7 @@ def _git(worktree: Path, *args: str, env: dict[str, str] | None = None, input: s
     timeout = 15 if deadline is None else max(.001, min(15, deadline - time.monotonic()))
     try:
         result = subprocess.run(["git", "-C", str(worktree), *args], env=env,
-                                capture_output=True, text=True, timeout=timeout, check=False, input=input)
+                                capture_output=True, text=True, errors="surrogateescape", timeout=timeout, check=False, input=input)
     except subprocess.TimeoutExpired:
         _checkpoint(cancel, deadline)
         raise
@@ -286,67 +321,9 @@ def _remove_worktree(job: dict[str, Any], state_root: Path,
     registered = any(line.startswith("worktree ") and Path(line[9:]).resolve() == worktree
                      for line in git(worktree, "worktree", "list", "--porcelain").splitlines())
     if not registered:
-        raise ValueError("allocated path is not a registered Git worktree")
-    prove_worktree_preserved(job, state_root, salvage_artifacts, cancel=cancel, deadline=deadline,
-                             on_progress=on_progress)
-    common = git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    # The real index can hold unique staged blobs or unmerged versions even
-    # when the working files equal HEAD. Do not overwrite that evidence.
-    if git(worktree, "ls-files", "--unmerged"):
-        raise ValueError("unmerged index content is not independently preserved")
-    if git(worktree, "diff-index", "--cached", "--name-only", "HEAD", "--"):
-        raise ValueError("staged index content is not independently preserved")
-    # Copy the real index, including its timestamp/stat cache, then clear only
-    # flags which could hide changed working files. Never modify the real index.
-    from .sessions.transcripts import open_regular
-    with tempfile.TemporaryDirectory(prefix="retention-index-", dir=state_root) as temporary:
-        index = Path(temporary) / "index"
-        source = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index"))
-        if source.exists():
-            with open_regular(source) as reader, index.open("xb") as writer:
-                metadata = os.fstat(reader.fileno())
-                shutil.copyfileobj(reader, writer)
-                writer.flush()
-                os.utime(writer.fileno(), ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
-        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
-        git(worktree, "read-tree", "-m", "HEAD", env=env)
-        records = git(worktree, "ls-files", "-v", "-z", env=env).split("\0")
-        assumed, skipped = [], []
-        for record in records:
-            if len(record) < 3:
-                continue
-            tag, path = record[0], record[2:]
-            if tag.islower():
-                assumed.append(path)
-            if tag in ("S", "s"):
-                skipped.append(path)
-        for option, paths in (("--no-assume-unchanged", assumed), ("--no-skip-worktree", skipped)):
-            if paths:
-                git(worktree, "update-index", option, "-z", "--stdin",
-                    input="\0".join(paths) + "\0", env=env)
-        git(worktree, "add", "-A", env=env)
-        current_tree = git(worktree, "write-tree", env=env)
-    if current_tree == git(worktree, "rev-parse", "HEAD^{tree}"):
-        return common
-    if not salvage_artifacts and not recovering:
-        raise ValueError("dirty allocated worktree has no recorded salvage snapshot")
-    refs = [a["path"] for a in salvage_artifacts if a["path"].startswith("refs/subfleet-salvage/")]
-    # A legacy removal lease is the durable intent from the previous code. It
-    # can have deleted tracked files already, but surviving edits must still
-    # match a preserved snapshot. Never waive HEAD/ignored/nested-repo checks.
-    if recovering:
-        refs.append("HEAD")
-    for ref in refs:
-        try:
-            preserved_tree = git(worktree, "rev-parse", "--verify", ref + "^{tree}")
-            if preserved_tree == current_tree:
-                return common
-            if recovering and not git(worktree, "diff-tree", "--no-commit-id", "-r",
-                                      "--diff-filter=ACMRTUXB", "--name-only", preserved_tree, current_tree):
-                return common
-        except OSError:
-            continue
-    raise ValueError("dirty allocated worktree is not preserved by an existing salvage ref")
+        raise ValueError("condition 6: allocated path is not a registered Git worktree")
+    return prove_worktree_preserved(job, state_root, salvage_artifacts, cancel=cancel, deadline=deadline,
+                                    on_progress=on_progress, recovering=recovering)
 
 
 def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTION_MAX_JOBS,
@@ -366,8 +343,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     again inside every delete transaction. A failed filesystem deletion is
     reported and audited; pruning never performs a subprocess, stat, or removal
     inside a tx. C-16.4 cancellation is cooperative between filesystem
-    operations. Renames through row commit form an uninterruptible retirement;
-    journals recover process crashes and restore newly pinned directories.
+    operations. After renaming, checks 2–6 run again at the trash path;
+    failed or interrupted checks restore the tree before releasing its lease.
+    Journals recover process crashes and restore newly pinned directories.
     The Store retains partial walks and validated completed measurements across
     interrupted passes; a restart safely starts fresh. Count and
     measured-byte pressure trigger deletion before the complete scan finishes.
@@ -451,10 +429,30 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
         paths_unchanged = (measurement.paths and measurement.paths == _path_signature(
             [Path(item[0]) for item in measurement.paths]))
         if (job is None or measurement.signature != _signature(job) or not paths_unchanged
-                or (measurement.complete and (job["state"] not in _TERMINAL or identity in unsettled
-                    or measurement.completed_at is None
-                    or time.monotonic() - measurement.completed_at >= _SIZE_MAX_AGE))):
+                or (measurement.complete and (job["state"] not in _TERMINAL or identity in unsettled))):
             del cache.measurements[identity]
+    if cache.validation is None:
+        cache.validation = {identity: (measurement, iter(measurement.unchanged()))
+                            for identity, measurement in cache.measurements.items()}
+    for identity, (measurement, pending) in list(cache.validation.items()):
+        if cache.measurements.get(identity) is not measurement:
+            del cache.validation[identity]
+            continue
+        while True:
+            _checkpoint(cancel, deadline)
+            try:
+                unchanged = next(pending)
+            except StopIteration:
+                del cache.validation[identity]
+                break
+            progress["made_progress"] = True
+            if not unchanged:
+                del cache.measurements[identity]
+                del cache.validation[identity]
+                break
+    # Metadata observations are not an atomic size snapshot. Revalidate again
+    # on the next pass, even when later scanning/pruning interrupts this one.
+    cache.validation = None
     sizes = {identity: m.size for identity, m in cache.measurements.items() if m.complete}
     measurement_errors = set()
     artifacts = store.query("SELECT r.*,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) WHERE r.role='salvage'")
@@ -469,6 +467,11 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
     other_pins = _pins(store, explicit, {a["artifact_id"] for a in artifacts},
                        pins=pins, turn_keep_s=turn_keep_s)
     protected = other_pins | set(salvage_by_job)
+    pin_reasons = progress["pin_reasons"] = {
+        identity: "condition 1: terminal state or an existing retention pin"
+        for identity in other_pins}
+    pin_reasons.update({identity: "condition 2: recorded salvage is not yet proved reachable"
+                        for identity in salvage_by_job if identity not in other_pins})
     counts = {name: sum(_pool(job) == name for job in jobs) for name in budgets}
     totals = {name: sum(sizes.get(job["job_id"], 0) for job in jobs if _pool(job) == name) for name in budgets}
     before_totals = dict(totals)
@@ -493,6 +496,7 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
         error = {"job_id": identity, "error": str(exc)}
         errors.append(error)
         protected.add(identity)
+        pin_reasons[identity] = str(exc)
         store.add_event(kind, job_id=identity, data=error)
 
     def measure(job):
@@ -572,7 +576,7 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
                 raise
             if any(a["artifact_id"] not in landed for a in salvage_artifacts):
                 defer()
-                report(identity, "salvage commit is not provably held by an allowed named ref")
+                report(identity, "condition 2: salvage commit is not provably held by an allowed named ref")
                 store.release_leases(holder)
                 return
             protected.discard(identity)
@@ -594,11 +598,13 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
                 _checkpoint(cancel, deadline)
                 if identity in pinned():
                     protected.add(identity)
+                    pin_reasons[identity] = "condition 1: retention pin at selection"
                     conn.execute("DELETE FROM leases WHERE holder=?", (holder,))
                     return
                 current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (lease_key,)).fetchone()
                 if current and current["holder"] != holder:
                     protected.add(identity)
+                    pin_reasons[identity] = "condition 1: worktree lease held by another owner"
                     return
                 conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
                              (lease_key, holder, utc_now()))
@@ -618,9 +624,22 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
             if deadline is not None and deadline - time.monotonic() < _REMOVAL_RESERVE:
                 raise _Interrupted("deadline")
             target = trash.prepare(state_root, identity, worktree, common, sizes[identity])
-            # The journal is now durable. Never observe cancellation/deadline
-            # between the first rename and row commit (or a complete restore).
+            # The journal is durable. Rename as one uninterrupted operation;
+            # the second proof can be interrupted only by restoring everything.
             trash.stage(state_root, identity, worktree, target)
+            # The old path is now unavailable to ordinary writers. Repeat all
+            # content checks against trash; no cached proof authorizes deletion.
+            # Interruption must restore, just like a failed second check.
+            if common is not None and not (target / "worktree").exists():
+                raise ValueError("condition 6: worktree disappeared during retirement")
+            if worktree is not None and ((target / "worktree").exists() or (target / "worktree").is_symlink()):
+                from .retention_salvage import prove_worktree_preserved
+                proved_common = prove_worktree_preserved(
+                    job, state_root, salvage_artifacts, worktree=target / "worktree",
+                    cancel=cancel, deadline=deadline, recovering=identity in legacy)
+                if proved_common != common:
+                    raise ValueError("condition 2: repository changed during retirement")
+            trash.validate_registration(target)
             retained = False
             with store.transaction("retention.pruned", job_id=identity,
                                    data={"bytes": sizes[identity], "pool": _pool(job)}) as conn:
@@ -636,8 +655,15 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
                 restore_job(identity, worktree)
                 store.release_leases(holder)
                 protected.add(identity)
+                pin_reasons[identity] = "condition 1: retention pin at deletion"
                 return
         except _Interrupted:
+            if selected:
+                try:
+                    restore_job(identity, worktree)
+                except (OSError, ValueError) as restore_error:
+                    report(identity, restore_error, "retention.recovery_error")
+                    raise  # retain the lease and journal if restoration failed
             store.release_leases(holder)
             raise
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -654,6 +680,7 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
         cache.measurements.pop(identity, None)
         cache.retries.pop(identity, None)
         protected.discard(identity)
+        pin_reasons.pop(identity, None)
         removed.add(identity)
         pruned.append(identity)
         progress["made_progress"] = True
@@ -692,6 +719,9 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
     # Completed sizes are only a bridge across interrupted passes, never a
     # lifetime cache of terminal directories that an operator can still edit.
     cache.measurements.clear()
+    # Cooldowns prevent an interrupted catch-up repeatedly proving the same
+    # failures. A completed pass starts a new oldest-first selection epoch.
+    cache.retries.clear()
     trash.clean(store, state_root, checkpoint=partial(_checkpoint, cancel, deadline),
                 git=partial(_git, cancel=cancel, deadline=deadline), progress=progress)
     _checkpoint(cancel, deadline)

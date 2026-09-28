@@ -46,6 +46,7 @@ def snapshot(tmp_path):
         store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
                       workdir=str(repository), worktree=str(worktree), prompt_path="/prompt",
                       sandbox="workspace-write", state="succeeded")
+        store.update_job("job", workdir_head=git(repository, "rev-parse", "HEAD"))
         store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id="codex-1",
                           model_requested="gpt-6-astra", state="succeeded")
         store.add_artifact("job/a1", "salvage", saved.ref, hashlib.sha256(saved.commit.encode()).hexdigest(), 0)
@@ -64,8 +65,9 @@ def run_daemon_retention(store, root):
 
 
 def test_daemon_prunes_shared_salvage_and_keeps_its_commit(snapshot, monkeypatch):
-    """A named common salvage ref alone survives removal of its dirty worktree."""
+    """A named common salvage ref survives removal of its exact clean checkout."""
     store, root, repository, worktree, saved = snapshot
+    git(worktree, "reset", "--hard", saved.commit)
     original = subprocess.run
 
     def outside_transaction(*args, **kwargs):
@@ -79,7 +81,7 @@ def test_daemon_prunes_shared_salvage_and_keeps_its_commit(snapshot, monkeypatch
     assert git(repository, "show", saved.ref + ":tracked") == "preserved snapshot"
 
 
-@pytest.mark.parametrize("held_ref", ["refs/heads/retained", "refs/tags/retained", "refs/subfleet/retained"])
+@pytest.mark.parametrize("held_ref", ["refs/heads/retained", "refs/tags/retained"])
 def test_daemon_accepts_other_named_ref_but_keeps_unreachable_salvage(snapshot, held_ref):
     """An object or detached HEAD is not proof; a named descendant ref is."""
     store, root, repository, worktree, saved = snapshot
@@ -94,6 +96,7 @@ def test_daemon_accepts_other_named_ref_but_keeps_unreachable_salvage(snapshot, 
     git(worktree, "add", "next")
     git(worktree, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "descendant")
     git(repository, "update-ref", held_ref, git(worktree, "rev-parse", "HEAD"))
+    git(worktree, "reset", "--hard", saved.commit)
     run_daemon_retention(store, root)
     assert store.get_job("job") is None, store.list_events("job")
     assert not worktree.exists()
@@ -168,7 +171,7 @@ def test_salvage_proof_observes_pass_interruption(snapshot, monkeypatch, reason)
         SalvageReachability(store, root, cancel=cancel, deadline=deadline)(store.list_artifacts("job/a1")[0])
 
 
-@pytest.mark.parametrize("held_ref", ["refs/stash", "refs/remotes/origin/retained",
+@pytest.mark.parametrize("held_ref", ["refs/stash", "refs/remotes/origin/retained", "refs/subfleet/retained",
                                      "refs/prefetch/retained", "refs/original/retained"])
 def test_git_prunable_namespaces_cannot_preserve_salvage(snapshot, held_ref):
     store, root, repository, _, saved = snapshot
@@ -177,15 +180,16 @@ def test_git_prunable_namespaces_cannot_preserve_salvage(snapshot, held_ref):
     assert not SalvageReachability(store, root)(store.list_artifacts("job/a1")[0])
 
 
-def test_worktree_safety_rejects_detached_history_until_named_ref_holds_it(snapshot):
+def test_worktree_safety_rejects_unrecorded_head_even_when_named_ref_holds_it(snapshot):
     store, root, repository, worktree, _ = snapshot
     git(worktree, "add", "tracked")
     git(worktree, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "detached progress")
     job = store.get_job("job")
-    with pytest.raises(ValueError, match="HEAD is not preserved"):
+    with pytest.raises(ValueError, match="recorded baseline"):
         prove_worktree_preserved(job, root, [])
     git(repository, "update-ref", "refs/heads/retained", git(worktree, "rev-parse", "HEAD"))
-    prove_worktree_preserved(job, root, [])
+    with pytest.raises(ValueError, match="recorded baseline"):
+        prove_worktree_preserved(job, root, [])
 
 
 def test_replacement_object_cannot_disguise_unpreserved_content(snapshot):
@@ -218,10 +222,11 @@ def test_worktree_safety_rejects_noncache_ignored_entries(snapshot, ignored):
 
 
 @pytest.mark.parametrize("ignored", ["__pycache__/a.pyc", ".pytest_cache/README.md",
-                                    "node_modules/pkg/index.js", ".venv/bin/python",
-                                    "package.egg-info/PKG-INFO", ".DS_Store"])
+                                    ".mypy_cache/result", ".ruff_cache/result",
+                                    ".hypothesis/result", ".DS_Store"])
 def test_worktree_safety_accepts_explicit_regenerable_caches(snapshot, ignored):
     store, root, repository, worktree, _ = snapshot
+    git(worktree, "reset", "--hard", store.get_job("job")["workdir_head"])
     (repository / ".git" / "info" / "exclude").write_text("*\n")
     path = worktree / ignored
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,8 +237,8 @@ def test_worktree_safety_accepts_explicit_regenerable_caches(snapshot, ignored):
 @pytest.mark.parametrize("kind", ["file", "directory", "symlink"])
 def test_nested_git_metadata_inside_allowed_cache_keeps_worktree(snapshot, kind):
     store, root, repository, worktree, _ = snapshot
-    (repository / ".git" / "info" / "exclude").write_text("node_modules/\n")
-    nested = worktree / "node_modules" / "pkg" / ".git"
+    (repository / ".git" / "info" / "exclude").write_text("__pycache__/\n")
+    nested = worktree / "__pycache__" / "pkg" / ".git"
     nested.parent.mkdir(parents=True)
     if kind == "directory":
         nested.mkdir()
@@ -328,6 +333,7 @@ def test_property_retention_never_deletes_unsnapshotted_files(payload, hazard):
             store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
                           workdir=str(repository), worktree=str(worktree), prompt_path="/prompt",
                           sandbox="workspace-write", state="succeeded")
+            store.update_job("job", workdir_head=git(repository, "rev-parse", "HEAD"))
             (root / "jobs" / "job").mkdir(parents=True)
             result = retention.maintenance(store, root, max_jobs=0)
             assert result["pruned"] == [] and result["protected"] == ["job"]
