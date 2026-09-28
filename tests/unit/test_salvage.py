@@ -66,7 +66,38 @@ def test_salvage_compares_tree_against_reserved_baseline(repository):
     result = salvage(repository, baseline, 2)
     assert result is not None
     assert git(repository, "rev-parse", f"{result.commit}^") == baseline
+    assert git(repository, "rev-parse", f"{result.commit}^2") == current_head
     assert git_head(repository) == current_head
+
+
+def test_salvage_preserves_history_even_when_files_return_to_baseline(repository):
+    """C-13.1 commits and their messages survive even after a committed revert."""
+    baseline = git_head(repository)
+    git(repository, "checkout", "--detach")
+    (repository / "tracked.txt").write_text("intermediate work\n")
+    git(repository, "commit", "-am", "an important intermediate step")
+    intermediate = git_head(repository)
+    git(repository, "revert", "--no-edit", intermediate)
+    head = git_head(repository)
+    result = salvage(repository, baseline, 1, timestamp="2026-09-05T10:00:00Z")
+    assert result is not None
+    assert git(repository, "rev-parse", result.commit + "^2") == head
+    assert git(repository, "merge-base", "--is-ancestor", intermediate, result.ref) == ""
+    assert salvage(repository, baseline, 1, timestamp="2026-09-05T10:00:00Z") == result
+
+
+def test_salvage_replay_with_same_files_preserves_new_commits(repository):
+    """A repeated snapshot cannot hide new history merely because its tree matches."""
+    baseline = git_head(repository)
+    git(repository, "checkout", "--detach")
+    (repository / "tracked.txt").write_text("snapshot\n")
+    first = salvage(repository, baseline, 1, timestamp="2026-09-05T10:00:00Z")
+    git(repository, "commit", "-am", "commit previously dirty files")
+    head = git_head(repository)
+    second = salvage(repository, baseline, 1, timestamp="2026-09-05T10:00:00Z")
+    assert first.tree == second.tree and first.ref != second.ref
+    assert git(repository, "rev-parse", second.commit + "^2") == head
+    assert salvage(repository, baseline, 1, timestamp="2026-09-05T10:00:00Z") == second
 
 
 def test_salvage_unchanged_baseline_has_no_ref(repository):

@@ -2517,6 +2517,15 @@ class Daemon:
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
                 return
+            if result.get("made_progress"):
+                # Partial scans and trash cleanup survive the deadline. Treat
+                # useful catch-up as success and offer its next slice promptly.
+                self.store.add_event("retention.progress", data=result)
+                self.log.info("retention catch-up: pruned %d jobs; continuing in 5 seconds",
+                              len(result.get("pruned", [])))
+                self.timers.mark("retention", next_due=after(5))
+                self._last_maintenance = time.monotonic() - 3600 + 5
+                return
             raise TimeoutError("retention deadline reached")
         with self.store.transaction("service-notice.retention") as tx:
             tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))

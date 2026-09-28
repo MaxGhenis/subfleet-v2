@@ -48,21 +48,29 @@ def record_salvage(store, worktree):
 
 
 def test_c8_4_c13_4_retention_counts_and_removes_clean_allocated_worktree(owned, monkeypatch):
-    """C-8.4, C-13.4, C-3.3: owned worktree bytes bind retention and Git removal runs outside tx."""
+    """Owned bytes bind retention; retirement holds a lease and Git stays outside tx."""
     store, root, repository, worktree = owned
     commands = []
     original = subprocess.run
+    original_rename = Path.rename
+    retired = []
 
     def inspect(argv, **kwargs):
         assert not store.connection.in_transaction
         commands.append(argv)
-        if argv[3:5] == ["worktree", "remove"]:
+        return original(argv, **kwargs)
+
+    def rename(source, destination):
+        assert not store.connection.in_transaction
+        if source == worktree:
             key = f"worktree:{worktree.resolve()}"
             assert store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"] == "retention:job"
             assert not store.acquire_lease(key, "new-writer")
-        return original(argv, **kwargs)
+            retired.append(destination)
+        return original_rename(source, destination)
 
     monkeypatch.setattr(retention.subprocess, "run", inspect)
+    monkeypatch.setattr(Path, "rename", rename)
     result = retention.maintenance(store, root, max_jobs=1, max_bytes=100)
     assert result["pruned"] == ["job"]
     assert result["bytes_before"] >= 4096
@@ -71,8 +79,9 @@ def test_c8_4_c13_4_retention_counts_and_removes_clean_allocated_worktree(owned,
     assert store.list_leases() == []
     assert not worktree.exists()
     assert str(worktree) not in git(repository, "worktree", "list", "--porcelain")
-    removal = next(command for command in commands if command[3:5] == ["worktree", "remove"])
-    assert "--force" not in removal
+    assert retired == [root / "trash" / "job" / "worktree"]
+    assert any("prune" in command and "worktree" in command for command in commands)
+    assert not any("remove" in command and "worktree" in command for command in commands)
 
 
 def test_c13_4_retention_never_removes_in_place_workdir(owned, monkeypatch):
@@ -134,7 +143,7 @@ def test_c13_4_retention_resumes_after_worktree_removed_before_row_commit(owned)
 
 
 def test_c13_4_dirty_allocated_worktree_removed_only_after_salvage_is_retained(owned, monkeypatch):
-    """C-13.4, C-8.4: force removal requires the current dirty tree in a retained salvage ref."""
+    """C-13.4, C-8.4: retirement requires the current dirty tree in a retained salvage ref."""
     store, root, repository, worktree = owned
     (worktree / "tracked").write_text("salvaged changes")
     snapshot = record_salvage(store, worktree)
@@ -153,8 +162,8 @@ def test_c13_4_dirty_allocated_worktree_removed_only_after_salvage_is_retained(o
     assert result["pruned"] == ["job"]
     assert not worktree.exists()
     assert git(repository, "show", snapshot.ref + ":tracked") == "salvaged changes"
-    removal = next(command for command in commands if command[3:5] == ["worktree", "remove"])
-    assert "--force" in removal
+    assert any("prune" in command and "worktree" in command for command in commands)
+    assert not any("remove" in command and "worktree" in command for command in commands)
 
 
 @pytest.mark.parametrize("damage", ["new-edit", "missing-ref"])

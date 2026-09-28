@@ -1,14 +1,18 @@
 """Hourly maintenance preserves C-8.4 evidence and accounts for actual bytes."""
 
 import json
+import logging
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from subfleet import retention
+from subfleet import daemon as daemon_module
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.store import Store
 
 
@@ -53,35 +57,40 @@ def test_hourly_retention_pins_required_evidence(retained, pin):
     assert directory.exists()
 
 
-def test_failed_removal_retains_row_and_remaining_bytes_for_next_pass(retained, monkeypatch):
-    """C-8.4, C-3.3: partial deletion retains retry state and counts unreclaimed bytes outside tx."""
+def test_failed_trash_removal_keeps_retry_journal_after_row_commit(retained, monkeypatch):
+    """C-8.4: a deletion error preserves resumable trash and releases job ownership."""
     store, root = retained
     directory = job(store, root, "old", size=20)
     (directory / "stderr").write_bytes(b"y" * 30)
-    original = retention.shutil.rmtree
+    original = Path.unlink
 
-    def partial_remove(path):
+    def partial_remove(path, *args, **kwargs):
         assert not store.connection.in_transaction
-        (Path(path) / "stdout").unlink()
-        raise PermissionError("cannot remove remaining output")
+        if path.name == "stderr" and (root / "trash") in path.parents:
+            raise PermissionError("cannot remove remaining output")
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(retention.shutil, "rmtree", partial_remove)
+    monkeypatch.setattr(Path, "unlink", partial_remove)
     first = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert first["pruned"] == []
-    assert first["protected"] == ["old"]
+    assert first["pruned"] == ["old"]
+    assert first["protected"] == []
     assert first["bytes_before"] == 50
-    assert first["bytes_after"] == 30
-    assert first["jobs_after"] == 1
+    assert first["bytes_after"] == 0
+    assert first["jobs_after"] == 0
     assert first["errors"][0]["job_id"] == "old"
-    assert store.get_job("old") is not None
-    assert any(event["kind"] == "retention.remove_error" for event in store.list_events("old"))
-
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
-    second = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert second["bytes_before"] == 30
-    assert second["bytes_after"] == 0
-    assert second["pruned"] == ["old"]
     assert store.get_job("old") is None
+    assert not store.query("SELECT * FROM leases WHERE holder='retention:old'")
+    assert (root / "trash" / "old" / "job" / "stderr").read_bytes() == b"y" * 30
+    assert (root / "trash" / "old" / "manifest.json").exists()
+    assert any(event["kind"] == "retention.trash_error" for event in store.list_events("old"))
+
+    monkeypatch.setattr(Path, "unlink", original)
+    second = retention.maintenance(store, root, max_jobs=100, max_bytes=100)
+    assert second["bytes_before"] == 0
+    assert second["bytes_after"] == 0
+    assert second["pruned"] == []
+    assert store.get_job("old") is None
+    assert not (root / "trash" / "old").exists()
 
 
 def test_directory_symlink_counts_link_without_external_contents(retained):
@@ -165,30 +174,70 @@ def test_retention_byte_scan_observes_cancellation(retained, monkeypatch):
     assert directory.exists()
 
 
-def test_cancel_after_filesystem_stage_preserves_rows_and_is_retryable(retained, monkeypatch):
-    """C-16.4, C-8.4: cancellation after a removal stage prevents further DB writes and later-job deletion."""
+def test_cancel_after_filesystem_stage_commits_current_job_and_preserves_later_jobs(retained, monkeypatch):
+    """C-8.4: finish an atomic prune before observing cancellation for the next job."""
     store, root = retained
     first = job(store, root, "a")
     later = job(store, root, "b")
     cancel = threading.Event()
-    changes_at_cancel = []
-    original = retention.shutil.rmtree
+    original = Path.rename
 
-    def remove_then_cancel(path):
-        original(path)
-        changes_at_cancel.append(store.connection.total_changes)
-        cancel.set()
+    def rename_then_cancel(path, target):
+        result = original(path, target)
+        if path == first:
+            cancel.set()
+        return result
 
-    monkeypatch.setattr(retention.shutil, "rmtree", remove_then_cancel)
+    monkeypatch.setattr(Path, "rename", rename_then_cancel)
     result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
     assert result["interrupted"] == "cancelled"
-    assert result["pruned"] == []
-    assert result["protected"] == ["a", "b"]
+    assert result["pruned"] == ["a"]
+    assert result["protected"] == ["b"]
     assert not first.exists()
     assert later.exists()
-    assert store.get_job("a") is not None
-    assert store.connection.total_changes == changes_at_cancel[0]
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
+    assert store.get_job("a") is None
+    assert not store.query("SELECT * FROM leases WHERE holder='retention:a'")
+    monkeypatch.setattr(Path, "rename", original)
     resumed = retention.maintenance(store, root, max_jobs=0)
-    assert resumed["pruned"] == ["a", "b"]
+    assert resumed["pruned"] == ["b"]
     assert resumed["bytes_after"] == 0
+
+
+@pytest.mark.parametrize("pruned", [[], ["old"]])
+def test_daemon_retention_progress_is_audited_and_retried_soon(retained, monkeypatch, caplog, pruned):
+    """Both partial scans and completed prunes are catch-up rather than timer failures."""
+    store, root = retained
+    marks = []
+    service = SimpleNamespace(
+        store=store, root=root, policy={}, log=logging.getLogger("retention-test"),
+        conversations=SimpleNamespace(retention_pins=lambda: set()),
+        timers=SimpleNamespace(cancel=threading.Event(), mark=lambda *a, **kw: marks.append((a, kw))),
+        _last_maintenance=0,
+    )
+    result = {"interrupted": "deadline", "made_progress": True, "pruned": pruned, "bytes_after": None}
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **kw: result)
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: 7200)
+    monkeypatch.setattr(daemon_module, "after", lambda seconds: f"in:{seconds}")
+    with caplog.at_level(logging.INFO, logger="retention-test"):
+        Daemon._retention(service)
+    assert marks == [(("retention",), {"next_due": "in:5"})]
+    assert service._last_maintenance + 3600 == 7205
+    assert "retention catch-up" in caplog.text
+    events = store.query("SELECT data_json FROM events WHERE kind='retention.progress' AND data_json!='{}'")
+    assert len(events) == 1
+    assert json.loads(events[0]["data_json"]) == result
+
+
+def test_daemon_retention_deadline_without_progress_remains_a_failure(retained, monkeypatch):
+    store, root = retained
+    service = SimpleNamespace(
+        store=store, root=root, policy={},
+        conversations=SimpleNamespace(retention_pins=lambda: set()),
+        timers=SimpleNamespace(cancel=threading.Event()), _last_maintenance=0,
+    )
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **kw: {
+        "interrupted": "deadline", "made_progress": False, "pruned": [],
+    })
+    with pytest.raises(TimeoutError, match="retention deadline reached"):
+        Daemon._retention(service)
+    assert service._last_maintenance == 0

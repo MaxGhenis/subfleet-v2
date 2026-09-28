@@ -172,43 +172,34 @@ def test_large_old_pinned_job_does_not_starve_later_prunable_job(tmp_path, monke
         assert not prunable_dir.exists()
 
 
-def test_unreadable_size_after_partial_removal_cannot_force_newer_deletion(tmp_path, monkeypatch):
-    """A failed removal invalidates its old byte total when remaining bytes are unknown."""
+def test_failed_trash_cleanup_does_not_overcount_retired_bytes(tmp_path, monkeypatch):
+    """A pending physical deletion cannot force deletion of a newer retained row."""
     with Store(tmp_path / "state.sqlite3") as store:
-        older = add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
+        add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
         newer = add_job(store, tmp_path, "newer", order=1, nested=False)
-        original_remove = retention.shutil.rmtree
-        original_size = retention._size
-        removal_started = False
+        original = Path.unlink
 
-        def partial_remove(path):
-            nonlocal removal_started
-            if Path(path) == older:
-                (older / "payload-0.bin").unlink()
-                removal_started = True
-                raise PermissionError("cannot finish removing directory")
-            original_remove(path)
+        def denied(path, *args, **kwargs):
+            if path == tmp_path / "trash" / "older" / "job" / "payload-0.bin":
+                raise PermissionError("cannot reclaim trash yet")
+            return original(path, *args, **kwargs)
 
-        def remaining_size(path, **kwargs):
-            if Path(path) == older and removal_started:
-                raise PermissionError("cannot measure directory after partial removal")
-            return original_size(path, **kwargs)
-
-        monkeypatch.setattr(retention.shutil, "rmtree", partial_remove)
-        monkeypatch.setattr(retention, "_size", remaining_size)
+        monkeypatch.setattr(Path, "unlink", denied)
         result = retention.maintenance(store, tmp_path, max_bytes=2 * MIB)
-
-        assert result["pruned"] == []
-        assert store.get_job("older") is not None
-        assert store.get_job("newer") is not None
+        assert result["pruned"] == ["older"]
+        assert store.get_job("older") is None
         assert newer.exists()
-        assert result["bytes_after"] is None
+        assert result["bytes_after"] == MIB
         assert result["pools"]["detached"]["measured_bytes"] == MIB
-        assert any(event["kind"] == "retention.remove_error" for event in store.list_events("older"))
+        assert store.list_leases() == []
+        assert any(event["kind"] == "retention.trash_error" for event in store.list_events("older"))
+        monkeypatch.setattr(Path, "unlink", original)
+        retention.maintenance(store, tmp_path)
+        assert not (tmp_path / "trash" / "older").exists()
 
 
 def test_pin_added_after_removal_cannot_leave_stale_bytes_for_newer_jobs(tmp_path):
-    """Keeping a newly pinned row must not count its already removed files twice."""
+    """A late pin restores the directory and retains its true bytes in the budget."""
     with Store(tmp_path / "state.sqlite3") as store:
         older = add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
         newer = add_job(store, tmp_path, "newer", order=1, nested=False)
@@ -221,49 +212,38 @@ def test_pin_added_after_removal_cannot_leave_stale_bytes_for_newer_jobs(tmp_pat
 
         result = retention.maintenance(store, tmp_path, max_bytes=2 * MIB, pins=pins)
 
-        assert result["pruned"] == []
+        assert result["pruned"] == ["newer"]
         assert store.get_job("older") is not None
-        assert not older.exists()
-        assert store.get_job("newer") is not None
-        assert newer.exists()
+        assert older.exists()
+        assert store.get_job("newer") is None
+        assert not newer.exists()
+        assert result["bytes_after"] == 10 * MIB
         assert "older" in result["protected"]
 
 
-def test_removal_error_is_audited_even_when_remeasurement_hits_deadline(tmp_path, monkeypatch):
-    """The failure event precedes a potentially interrupted remaining-byte walk."""
+def test_trash_error_is_audited_even_when_cleanup_exhausts_deadline(tmp_path, monkeypatch):
+    """Trash failures are visible even when the next checkpoint ends the pass."""
     with Store(tmp_path / "state.sqlite3") as store:
-        older = add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
+        add_job(store, tmp_path, "older", order=0, size=10 * MIB, nested=False)
         newer = add_job(store, tmp_path, "newer", order=1, nested=False)
-        original_remove = retention.shutil.rmtree
-        original_size = retention._size
+        original = Path.unlink
         clock = Clock()
-        removal_started = False
 
-        def partial_remove(path):
-            nonlocal removal_started
-            if Path(path) == older:
-                (older / "payload-0.bin").unlink()
-                removal_started = True
-                raise PermissionError("cannot finish removing directory")
-            original_remove(path)
-
-        def interrupted_size(path, **kwargs):
-            if Path(path) == older and removal_started:
+        def denied(path, *args, **kwargs):
+            if path == tmp_path / "trash" / "older" / "job" / "payload-0.bin":
                 clock.now = 10
-            return original_size(path, **kwargs)
+                raise PermissionError("cannot reclaim trash yet")
+            return original(path, *args, **kwargs)
 
         monkeypatch.setattr(retention, "time", SimpleNamespace(monotonic=clock.monotonic))
-        monkeypatch.setattr(retention.shutil, "rmtree", partial_remove)
-        monkeypatch.setattr(retention, "_size", interrupted_size)
+        monkeypatch.setattr(Path, "unlink", denied)
         result = retention.maintenance(store, tmp_path, max_bytes=2 * MIB, deadline=1)
-
-        assert result["interrupted"] == "deadline"
         assert result["errors"][0]["job_id"] == "older"
-        assert result["pruned"] == []
-        assert store.get_job("older") is not None
-        assert store.get_job("newer") is not None
+        assert result["pruned"] == ["older"]
+        assert store.get_job("older") is None
         assert newer.exists()
-        assert any(event["kind"] == "retention.remove_error" for event in store.list_events("older"))
+        assert store.list_leases() == []
+        assert any(event["kind"] == "retention.trash_error" for event in store.list_events("older"))
 
 
 def test_interrupted_read_only_git_check_keeps_completed_size_measurement(tmp_path, monkeypatch):
@@ -277,31 +257,94 @@ def test_interrupted_read_only_git_check_keeps_completed_size_measurement(tmp_pa
         clock = slow_walk(monkeypatch, store)
         commands = []
 
-        def git(path, *args, cancel=None, deadline=None, **kwargs):
+        def preflight(*args, cancel=None, deadline=None, **kwargs):
             assert not store.connection.in_transaction
             retention._checkpoint(cancel, deadline)
-            commands.append(args)
-            if args[:2] == ("worktree", "list"):
-                return f"worktree {worktree}\nHEAD {'0' * 40}\ndetached\n"
-            if args[0] == "status":
-                # This fits a fresh pass, but not a pass that just walked both
-                # the job artifacts and the allocated worktree.
-                clock.now += 2
-                retention._checkpoint(cancel, deadline)
-                return ""
-            assert args[:2] == ("worktree", "remove")
-            retention.shutil.rmtree(worktree)
-            return ""
+            commands.append("preflight")
+            clock.now += 2
+            retention._checkpoint(cancel, deadline)
+            return None
 
-        monkeypatch.setattr(retention, "_git", git)
+        monkeypatch.setattr(retention, "_remove_worktree", preflight)
         for _ in range(5):
-            result = retention.maintenance(store, tmp_path, max_jobs=0, deadline=clock.now + 2.5)
+            result = retention.maintenance(store, tmp_path, max_jobs=0, deadline=clock.now + 3.5)
             if store.get_job("job") is None:
                 break
         else:
             pytest.fail("read-only Git interruption discarded the completed scan every pass")
 
         assert result["pruned"] == ["job"]
-        assert len([args for args in commands if args[0] == "status"]) == 2
+        assert len(commands) == 2
         assert not directory.exists()
         assert not worktree.exists()
+
+
+@pytest.mark.parametrize("mutation", ["replace", "mtime", "missing", "unchanged"])
+@pytest.mark.parametrize("target", ["job", "worktree"])
+def test_interrupted_size_cache_requires_existing_unchanged_directories(tmp_path, monkeypatch, mutation, target):
+    """C-8.4: only an unchanged directory identity can reuse an interrupted-pass size."""
+    import os
+    import shutil
+
+    with Store(tmp_path / "state.sqlite3") as store:
+        directory = add_job(store, tmp_path, "old", order=0, size=100, nested=False)
+        worktree = tmp_path / "worktrees" / "old"
+        worktree.mkdir(parents=True)
+        (worktree / "data").write_bytes(b"x" * 100)
+        store.update_job("old", sandbox="workspace-write", worktree=str(worktree))
+        add_job(store, tmp_path, "later", order=1, size=10, nested=False)
+        original = retention._size
+
+        def interrupt_later(path, **kwargs):
+            if Path(path).name == "later":
+                raise retention._Interrupted("deadline")
+            return original(path, **kwargs)
+
+        monkeypatch.setattr(retention, "_size", interrupt_later)
+        assert retention.maintenance(store, tmp_path)["interrupted"] == "deadline"
+        cached = store._retention_caches[str(tmp_path)].measurements["old"]
+        assert cached.complete and cached.size == 200
+        changed = directory if target == "job" else worktree
+        if mutation == "replace":
+            renamed = changed.with_name(changed.name + "-before")
+            changed.rename(renamed)
+            changed.mkdir()
+            (changed / "new").write_bytes(b"y" * 40)
+            shutil.rmtree(renamed)
+        elif mutation == "mtime":
+            file = next(changed.iterdir())
+            file.write_bytes(b"y" * 40)
+            metadata = changed.stat()
+            os.utime(changed, ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 1_000_000))
+        elif mutation == "missing":
+            shutil.rmtree(changed)
+        scans = []
+        original_files = retention._file_sizes
+
+        def observed(path):
+            scans.append(path)
+            yield from original_files(path)
+
+        monkeypatch.setattr(retention, "_size", original)
+        monkeypatch.setattr(retention, "_file_sizes", observed)
+        result = retention.maintenance(store, tmp_path)
+        assert result["bytes_after"] == {"replace": 150, "mtime": 150, "missing": 110, "unchanged": 210}[mutation]
+        assert (directory in scans) == (mutation != "unchanged")
+        assert not store._retention_caches[str(tmp_path)].measurements
+
+
+def test_retirement_waits_for_reserved_time_before_first_rename(tmp_path, monkeypatch):
+    """The uninterruptible retirement must not begin at the end of a pass."""
+    with Store(tmp_path / "state.sqlite3") as store:
+        directory = add_job(store, tmp_path, "job", order=0, size=10, nested=False)
+        clock = Clock()
+        monkeypatch.setattr(retention, "time", SimpleNamespace(monotonic=clock.monotonic))
+        result = retention.maintenance(store, tmp_path, max_jobs=0,
+                                       deadline=retention._REMOVAL_RESERVE / 2)
+        assert result["interrupted"] == "deadline" and result["pruned"] == []
+        assert (directory / "payload-0.bin").stat().st_size == 10
+        assert store.list_leases() == []
+        assert not (tmp_path / "trash" / "job").exists()
+        result = retention.maintenance(store, tmp_path, max_jobs=0,
+                                       deadline=retention._REMOVAL_RESERVE + 1)
+        assert result["pruned"] == ["job"]
