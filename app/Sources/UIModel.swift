@@ -334,6 +334,10 @@ final class UIModel: ObservableObject {
     }
 
     private func openClicked(_ opening: NotificationOpening) {
+        // The click is the newest navigation: an open still on its way (a native
+        // session chosen just before) is dropped, even when the clicked
+        // conversation is already focused and `focus` changes nothing.
+        navigation += 1
         if opening.revealsCard { approvalReveal = opening.conversationID }
         focus(opening.conversationID)
     }
@@ -475,7 +479,9 @@ final class UIModel: ObservableObject {
             }
             for conversation in report.conversations {
                 state.upsert(conversation)
-                if state.focusedConversationID == nil { focus(conversation.conversation_id) }
+                // Not while a clicked notification waits for the baseline: a create
+                // the outbox replays at launch is no navigation of the person's.
+                if state.focusedConversationID == nil && clicks.held == nil { focus(conversation.conversation_id) }
             }
             if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
         }

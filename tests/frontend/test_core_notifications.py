@@ -335,4 +335,7 @@ def test_property_clicks_open_once_in_order_and_yield_to_navigation(core_probe, 
     assert (out["opened"], out["held"]) == expected_openings(steps)
     for opened in out["opened"]:
         event("nothing" if opened is None else f"opened, card {opened['reveals_card']}")
-    event(f"a held click yielded to navigation: {any('navigate' in s for s in steps) and None in out['opened']}")
+    first_baseline = next((i for i, s in enumerate(steps) if "baseline" in s), len(steps))
+    clicked = [i for i in range(first_baseline) if "click" in steps[i] and expected_openings([steps[i], {"baseline": True}])[0][-1]]
+    event(f"a held click, then navigation before the baseline: "
+          f"{bool(clicked) and any('navigate' in steps[j] for j in range(clicked[-1], first_baseline))}")
