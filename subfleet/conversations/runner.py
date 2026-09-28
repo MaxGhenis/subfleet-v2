@@ -359,7 +359,10 @@ class TurnRunner:
                                     attempt_id=self.attempt_id, provider_request_id=approval.provider_request_id,
                                     kind=approval.kind, request=approval.request, display=approval.summary,
                                     options=approval.options)
-            self.approval_seen.setdefault(approval.provider_request_id, self.clock())
+            if approval.kind != "question":
+                # C-26.9: a question (AskUserQuestion) waits for the person with no
+                # limit; only a tool approval stops its turn after approval_wait_s.
+                self.approval_seen.setdefault(approval.provider_request_id, self.clock())
             self.store.set_state(self.message_id, APPROVAL_NEEDED, expect=("running", "starting"))
         if step.resolved:
             self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
