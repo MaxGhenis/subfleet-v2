@@ -38,10 +38,9 @@ from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, rende
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
-    LIVENESS_INTERVAL_S, OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S,
-    TERM_GRACE_S, WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S,
-    Attestation, ClockSource, Closure, ClosureReason, Credential,
+    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
@@ -183,6 +182,11 @@ HEADLESS_PREAMBLE = (
 )
 
 
+# A retry that could not repeat a raised inspection is neither recovery nor
+# another failure (C-5.10 with C-5.11/C-5.12).
+DEFERRED = object()
+
+
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
@@ -302,7 +306,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
-                 liveness_interval_s: float = LIVENESS_INTERVAL_S,
+                 inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
@@ -315,7 +319,7 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
-        self.liveness_interval_s = liveness_interval_s
+        self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -342,7 +346,15 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
-        self._census_next: dict[str, float] = {}
+        # C-5.12: attempt id -> when its processes are next inspected, and the
+        # one process table those inspections share.
+        self._inspect_next: dict[str, float] = {}
+        # Raised inspections stay pending until an inspection runs to its end.
+        self._inspect_retry: set[str] = set()
+        # The last table read (None if the read failed) and when it expires,
+        # replaced whole; the lock is held while `ps` runs.
+        self._table: tuple[procs.ProcessTable | None, float] = (None, 0.0)
+        self._table_lock = threading.Lock()
         # C-5.7a: probe holder -> (consecutive looks that left it quarantined,
         # the monotonic time the next is due). Replaced whole, never updated in
         # place: a timer turn or an enrollment can quarantine a probe on its own
@@ -358,8 +370,6 @@ class Daemon:
         # it, and asking again is safe (C-16.3).
         self._probe_resolutions: dict[str, dict] = {}
         self._probe_resolution_lock = threading.Lock()
-        # Attempt id -> when its guardian may next be inspected (LIVENESS_INTERVAL_S).
-        self._liveness_next: dict[str, float] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -2036,9 +2046,10 @@ class Daemon:
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
-                f.result()
+                deferred = f.result() is DEFERRED
                 with self._busy_lock:
-                    self._worker_failures.pop(key, None)
+                    if not deferred:
+                        self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
                 # Provider/keychain errors can contain secrets; log the error
@@ -2094,9 +2105,11 @@ class Daemon:
         itself raises "dictionary changed size during iteration" whenever a
         worker adds an entry mid-walk. Popping is safe.
         """
-        for pacing in (self._liveness_next, self._census_next):
+        for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
+        for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
+            self._inspect_retry.discard(aid)
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -2588,7 +2601,7 @@ class Daemon:
             # most every liveness interval, and the owned-member record reads
             # the group source alone. The full census decides containment.
             if time.monotonic() >= next_liveness:
-                next_liveness = time.monotonic() + self.liveness_interval_s
+                next_liveness = time.monotonic() + self.inspect_interval_s
                 if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
                     break
                 if time.monotonic() >= next_census:
@@ -3569,7 +3582,13 @@ class Daemon:
             os.close(read_fd)
             if write_fd >= 0:
                 os.close(write_fd)
-        self._starting_deadlines[a["attempt_id"]] = time.monotonic() + self.start_grace_s
+        now = time.monotonic()
+        self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
+        # C-5.12: first inspected with a table read after its guardian started,
+        # which shows the guardian. Due as it first asked, it was usually given
+        # a table another attempt had read before the guardian existed, and paid
+        # for a fresh `liveness` and a table of its own to record its group.
+        self._inspect_next[a["attempt_id"]] = now + self.inspect_interval_s
         self._boundary("starting", a["job_id"], a["attempt_id"])
 
     def _launch_failure(self, a: dict, detail: str, *, rc: int = 127) -> None:
@@ -3586,12 +3605,13 @@ class Daemon:
         except FileNotFoundError:
             return None
 
-    def _process_attempt(self, aid: str) -> None:
+    def _process_attempt(self, aid: str) -> object:
+        """One attempt pass; DEFERRED when a raised inspection still cannot repeat."""
         a = self.store.get_attempt(aid)
         if not a or a["state"] not in LIVE:
-            self._liveness_next.pop(aid, None)
-            self._census_next.pop(aid, None)
-            return
+            self._inspect_next.pop(aid, None)
+            self._inspect_retry.discard(aid)
+            return None
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
@@ -3631,59 +3651,113 @@ class Daemon:
             if time.monotonic() < deadline:
                 return
             census = self._contain(a)
+            # The guardian writes start.json, runs the provider, writes exit.json
+            # and exits, so the receipts can land while the census runs, and a
+            # census that then finds nothing is an attempt that finished. Read
+            # before them, it released a provider that had exited 0 to run again
+            # (C-4.2). The next tick takes them from the top, and takes only a
+            # receipt that reads as a value (as above): one that merely exists,
+            # holding `{}` or `null`, left the attempt here, taking a census on
+            # every tick.
+            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
+                return
             if census.verified_empty:
                 self._unlaunched(a, "starting-no-receipt")
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        # The receipt, the cancel request and the wall limit above are read on
-        # every tick; asking `ps` about the guardian is paced. Each question is
-        # several subprocesses from a large, many-threaded process, and asking
-        # it up to twenty times a second per running attempt stretched every
-        # store-lock hold behind the daemon's requests (C-5.11, 2026-09-24).
-        # A guardian that dies without a receipt is noticed at the first
-        # inspection due one interval after the last, once a worker takes
-        # this attempt; an `unknown` answer decides nothing (C-4.2).
+        # C-5.12: everything above is files and rows and runs every tick. What
+        # follows asks the operating system, so a healthy attempt is inspected
+        # once per interval, from one process table shared by every attempt.
+        # It falls due again when the table it was given expires, which is when
+        # a new one may be read: timed from before the read, the next inspection
+        # fell just short of that and took the same table again.
         now = time.monotonic()
-        if now < self._liveness_next.get(aid, 0):
-            return
-        self._liveness_next[aid] = now + self.liveness_interval_s
+        due = self._inspect_next.get(aid, now)
+        retry = aid in self._inspect_retry
+        if now < due:
+            return DEFERRED if retry else None
         try:
-            self._inspect_running(a, adir)
+            inspected = self._inspect_running(a, adir, due)
         except BaseException:
             # A pass that raised must be retried in full, not skipped at the
             # gate: a skipped pass returns normally, and C-5.10 would count it
-            # as recovery and start its backoff over.
-            self._liveness_next.pop(aid, None)
+            # as recovery and start its backoff over. The retry is given the
+            # same table while that has not expired, so a table is still read
+            # at most once per interval.
+            self._inspect_next.pop(aid, None)
+            self._inspect_retry.add(aid)
             raise
+        if inspected:
+            self._inspect_retry.discard(aid)
+            return None
+        return DEFERRED if retry else None
 
-    def _inspect_running(self, a: dict, adir: Path) -> None:
-        """The paced half of `_process_attempt`: is the guardian still ours?"""
+    def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
+        """The paced inspection (C-5.12); False when it could not inspect.
+
+        A retry that cannot read a table, boot identity or guardian is no
+        recovery: C-5.10 keeps its failure count until inspection completes.
+        """
         aid = a["attempt_id"]
+        shared = self._process_table(due)
+        if shared is None:
+            # Another attempt's read (`ps`, then `sysctl`) is running: ask again
+            # next tick, still due from when it fell due (a recovered attempt,
+            # from now), so that it may be given that read.
+            self._inspect_next.setdefault(aid, due)
+            return False
+        table, self._inspect_next[aid] = shared
+        if table is None:
+            # This interval's read failed. Asking about the guardian singly would
+            # cost a capped read per running attempt, which is the outage cost
+            # the shared read exists to ration, and a guardian that cannot be
+            # inspected decides nothing anyway (C-4.2, C-5.5).
+            self.log.debug("process table unreadable; %s not inspected this interval", aid)
+            return False
+        try:
+            # C-5.3's legacy match too: a guardian recorded with `kern.boottime`
+            # seconds (its UUID `sysctl` failed once at start) is shown alive when
+            # the table's one read of those seconds matches, as `liveness` would
+            # say, and is recorded from this table, not asked about singly.
+            shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"], legacy=True)
+        except procs.InspectionError:
+            # The table's boot identity (or the seconds a legacy record needs)
+            # could not be read, once for every attempt that asks; asked singly,
+            # the guardian would need the same read.
+            self.log.debug("boot identity unreadable; %s not inspected this interval", aid)
+            return False
+        if shown:
+            self._record_owned(a, table)
+            return True  # Re-adopted solely by receipt identity, not parentage.
+        # A shared table can say "alive" and nothing else: a guardian it does
+        # not show is asked about afresh before anything is decided from it.
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
-            if time.monotonic() >= self._census_next.get(aid, 0):
-                self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + OWNED_CENSUS_INTERVAL_S
-            return  # Re-adopted solely by receipt identity, not parentage.
+            try:
+                self._record_owned(a, procs.snapshot())
+            except procs.InspectionError:
+                return False
+            return True
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
             # that cannot be inspected is neither dead nor an escape; nothing is
             # decided from it this tick (C-4.2, C-5.5).
             self.log.debug("guardian liveness of %s unknown this tick", aid)
-            return
+            return False
         # The guardian writes exit.json and then exits, so a receipt can appear
         # between the read above and the liveness check: a dead guardian with a
         # receipt is the normal end of an attempt, not a loss (C-4.2).
         receipt = self._read_json(adir / "exit.json")
         if receipt:
             self._begin_finalizing(a, receipt)
-            return
+            return True
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
         else:
             self._lost(a)
+        return True
 
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
@@ -3719,23 +3793,76 @@ class Daemon:
                 fresh[str(pid)] = dataclasses.asdict(ident)
         return fresh
 
-    def _record_owned(self, a: dict) -> None:
-        """Record the group members a live attempt owns (C-5.4 signal targets).
+    def _process_table(self, due: float) -> tuple[procs.ProcessTable | None, float] | None:
+        """C-5.12: a table for an inspection that fell due at `due`, and when that
+        table expires (the table is None if its read failed); None when another
+        inspection's read is running and no table is new enough, in which case
+        the caller asks again on its next tick.
 
-        Only group members are ever recorded, so this reads C-5.5's group
-        source alone: the marker scan reads every process's environment
-        (`ps -axEww`, megabytes) and its pids were discarded here. A member
-        already recorded under the same start and the current boot identity is
-        not asked again; a pid a new process has taken, and a member recorded
-        under another boot identity, are recorded afresh, as the full census
-        did (`_new_group_identities`).
+        An inspection is given the last table if it expires after the inspection
+        fell due: for an attempt already inspected, one read after the table it
+        was last given; for one this daemon launched, one read after its guardian
+        started (it falls due an interval after its launch gate opened); and for
+        one it recovered, one read less than an interval before it first asked.
+        Otherwise it reads a table, and that is the only time a read begins, so
+        reads begin at least `inspect_interval_s` apart however many attempts ask
+        and however long `ps` takes. A read is `ps` and then the table's boot
+        identity (`sysctl`, unless the module remembers the UUID). Only the
+        inspection that reads waits for them: one that finds a read running
+        returns at once, so a slow or hung `ps` or `sysctl` holds one worker of
+        the pool, not one per running attempt, and every other attempt's
+        receipts, cancel and clock are still read each tick. A read that failed
+        is rationed like one that worked.
         """
+        if due < self._table[1]:
+            return self._table
+        if not self._table_lock.acquire(blocking=False):
+            return None
+        try:
+            if due < self._table[1]:                 # another read ended while this one asked
+                return self._table
+            began = time.monotonic()
+            try:
+                table = procs.snapshot()
+            except procs.InspectionError:
+                table = None
+            try:
+                if table is not None:
+                    # The reader waits for `sysctl` too, before any attempt is
+                    # given the table: an attempt that read it lazily held every
+                    # other attempt given the table on its lock for as long.
+                    table.boot()
+            except procs.InspectionError:
+                pass                             # kept by the table: each attempt sees it
+            finally:
+                # Published however the boot read ends: anything else it raises
+                # is kept by the table and fails the passes of the attempts
+                # given it (C-5.10 retries them, on this table while it lasts),
+                # and never costs a second `ps` or `sysctl` this interval.
+                self._table = (table, began + self.inspect_interval_s)
+            return self._table
+        finally:
+            self._table_lock.release()
+
+    def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
+        """C-5.6: remember the group's members while the recorded guardian leads it.
+
+        Both facts come from the one table, so the leader is known to be ours at
+        the instant its members were listed. Only group members are recorded,
+        which is why the marker scan of a full census is not run here. The
+        leader is ours by C-5.3's rule, the one `same_process` applies before
+        the kill protocol records members, so a legacy boot timestamp that
+        matches counts.
+        """
+        guardian = a["guardian_pid"]
+        if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
+                or table.rows[guardian][1] != a["pgid"]):
+            return
+        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
-        fresh = self._new_group_identities(a.get("pgid"), before)
-        if not fresh or not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
-            return
-        owned = {**before, **fresh}
+        owned = dict(before)
+        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

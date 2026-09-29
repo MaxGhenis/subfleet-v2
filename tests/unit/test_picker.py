@@ -9,6 +9,7 @@ from subfleet import cli, compat, picker
 from subfleet.capacity import build_view
 from subfleet.client import DaemonUnavailable
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.fable_reserve import load_fable_reserve_policy
 
 
 NOW = "2026-09-20T16:00:00Z"
@@ -18,6 +19,12 @@ LATER = "2026-09-21T16:00:00Z"
 @pytest.fixture
 def policy():
     return load_policy(DEFAULT_POLICY_PATH)
+
+
+@pytest.fixture
+def reserve_policy():
+    """Fable still reserved (C-11.7), as shipped until its retirement on 2026-09-27."""
+    return load_fable_reserve_policy()
 
 
 def lane(name="codex-1", **kw):
@@ -111,8 +118,9 @@ def test_exact_model_keeps_unrelated_closure_out_but_unknown_model_is_conservati
     assert picker.rank(policy, data)["best"] is None
 
 
-def test_claude_email_exact_model_reserve_and_exclusion(policy):
+def test_claude_email_exact_model_reserve_and_exclusion(reserve_policy):
     """C-11.7: no operator reserve authorization is inherited by a picker."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [reading("claude-1")])
     assert picker.rank(policy, data, family="claude", model="fable")["best"] == "claude-1@example.org"
     assert picker.rank(policy, data, family="claude", model="opus")["best"] is None
@@ -121,8 +129,17 @@ def test_claude_email_exact_model_reserve_and_exclusion(policy):
                        exclusions=["claude-1@example.org"])["best"] is None
 
 
-def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
+def test_shipped_policy_picks_opus_for_a_retired_fable_pick(policy, capsys):
+    """C-11.1: with Fable retired and nothing reserved, `pick --model fable` ranks Opus."""
+    data = view([lane("claude-1")], [reading("claude-1")])
+    assert picker.rank(policy, data, family="claude", model="fable")["best"] == "claude-1@example.org"
+    assert picker.rank(policy, data, family="claude", model="opus")["best"] == "claude-1@example.org"
+    assert "retired model 'fable' resolves to 'opus'" in capsys.readouterr().err
+
+
+def test_reserve_slack_requiring_probe_is_not_a_raw_pick(reserve_policy):
     """C-11.4: scoped closure evidence may require supervised admission."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [reading("claude-1")], closures=[{
         "lane_id": "claude-1", "scope": policy["models"]["fable"]["id"],
         "reason": "provider-limit", "clock_source": "reported", "until_at": LATER,
@@ -132,8 +149,9 @@ def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
     assert "admission-probe-required" in result["excluded"][0]["reasons"]
 
 
-def test_matched_stream_windows_can_measure_real_opus_reserve_slack(policy):
+def test_matched_stream_windows_can_measure_real_opus_reserve_slack(reserve_policy):
     """C-11.7: same-event shared/Fable measurements need no unknown-quota waiver."""
+    policy = reserve_policy
     data = view([lane("claude-1")], [
         reading("claude-1", .2, source="rate_limit_event", attempt_id="old/a1"),
         reading("claude-1", .95, source="rate_limit_event", attempt_id="old/a1",
@@ -227,3 +245,19 @@ def test_native_api_lane_check_is_silent_for_subscription_and_unknown(tmp_path, 
     (tmp_path / "auth.json").write_text(json.dumps({"tokens": {"account_id": "example"}}))
     assert cli.main(["_api-lane-check", str(tmp_path)]) == 0
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("retired,successor,family", [("fable", "opus", "claude"), ("sol", "astra", "codex")])
+def test_cli_pick_model_asks_the_daemon_about_the_successor(monkeypatch, capsys, retired, successor, family):
+    """C-17.2: `pick --model fable` is a person naming a model, so it is remapped like
+    `-m`, even when the daemon's policy still lists Fable."""
+    calls = []
+
+    class Client:
+        def call(self, op, args):
+            calls.append(args["model"])
+            return {"best": None, "ranked": [], "excluded": []}
+    monkeypatch.setattr(cli, "_client", lambda args: Client())
+    assert cli.main(["pick", family, "--model", retired, "--json"]) == 1
+    assert calls == [successor]
+    assert f"pick: --model {retired} is retired; using {successor}" in capsys.readouterr().err
