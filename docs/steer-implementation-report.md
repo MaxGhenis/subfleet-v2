@@ -23,8 +23,8 @@ reinforces the design’s existing consumed-first settlement precedence.
 | §4 Claude driver | `subfleet/conversations/claude_turn.py:240` emits `priority:"next"` messages with the same content/image shape as the host, requiring `msg_lifecycle_v1`. `:252` bounds unseen messages after a result. `:668`, `:710` and `:734` process result consumption IDs, lifecycle ordering, and cancellation/interrupt receipts. Folded steers and steers that become their own provider turn both work; approvals remain active until the final result. Stop and cancel-turn approvals sweep queued commands when supported. Late cancellation cannot erase established delivery. |
 | §4 Codex driver | `subfleet/conversations/codex_turn.py:207` holds steer input until the active turn ID is known, then emits schema-validated `turn/steer`. `:304` handles response success/refusal even after the host has ended; `:608` correlates `userMessage.clientId` and tracks unanswered delivery. Subsequent agent work marks it answered; compaction and unknown items do not. `:621` treats accepted but unechoed input as cancelled only after a proven interrupted terminal, with late echoes taking precedence. Requested interrupt or unexplained EOF alone leaves delivery unknown. |
 | §4 fake providers | `tests/fake/interactive_claude.py:365` implements UUID lifecycle, queued cancellation, result consumption IDs and result numbering; `:407` folds at a tool boundary, while `:414` misses that boundary and runs the queued input after the first result in the same process. `tests/fake/interactive_codex.py:225` implements active-turn validation, steer RPC responses and client-ID echoes; `:290` exercises answered/refused/unanswered scenarios. |
-| §5 contract | `docs/acceptance-contract.md:9` adds the change-list line; `:366`–`:370` amend C-24.5/C-24.6/C-24.7 and add C-24.9; `:375`, `:387`, `:388` and `:419` amend C-25.2, C-26.5, C-26.6 and C-29.7. `docs/desktop/ledger.json:134` adds the corresponding M-9b acceptance row, kept open pending the app UI and live verification. |
-| §6 fixed app interface | Interface names, op order, refusal codes, states/reasons, binding fields, host-stream events, frame tag and driver signature are retained. Only a minimal Swift protocol/test bridge was added in `app/Sources/Protocol.swift:107` and `tests/frontend/CoreProbe.swift:81` so the existing cross-language contract tests can round-trip the new op and fields. Composer/timeline UI implementation and an app build are outside this daemon-side change. |
+| §5 contract | `docs/acceptance-contract.md:9` adds the change-list line; `:366`–`:370` amend C-24.5/C-24.6/C-24.7 and add C-24.9; `:375`, `:387`, `:388` and `:419` amend C-25.2, C-26.5, C-26.6 and C-29.7. `docs/desktop/ledger.json:134` adds the corresponding M-9b acceptance row, kept open pending the app UI and live verification (the app UI has shipped since; live provider verification still keeps it open). |
+| §6 fixed app interface | Interface names, op order, refusal codes, states/reasons, binding fields, host-stream events, frame tag and driver signature are retained. Only a minimal Swift protocol/test bridge was added in `app/Sources/Protocol.swift:107` and `tests/frontend/CoreProbe.swift:81` so the existing cross-language contract tests can round-trip the new op and fields. Composer/timeline UI implementation and an app build are outside this daemon-side change (both shipped afterwards, in the steer app build and its review fixes). |
 
 `subfleet/conversations/service.py:833` also preserves the host’s unfinished-turn
 block while several ambiguous steer deliveries are resolved in any order.
@@ -33,7 +33,10 @@ fixed Receipt shape or the database schema.
 
 ## Design adaptations and limits
 
-- No §6 interface change was necessary.
+- The daemon side needed no §6 interface change. The second round added one
+  optional argument, `message.steer`'s `into` (the r2 brief asked for it: a late or
+  retried steer must never join a different turn); DESIGN.md §6 itself was not
+  amended.
 - Claude silence is bounded by 15 seconds before requesting cancellation and
   another 15 seconds for its receipt. A positive cancellation proves a miss;
   missing/negative acknowledgement leaves `delivery-unknown`. The design's
@@ -58,11 +61,11 @@ fixed Receipt shape or the database schema.
 
 | Invariant | Tests and what they exercise |
 | --- | --- |
-| 1. Exactly once: one final disposition; no delivered message requeued or lost | `tests/unit/test_steer_invariants.py:63` generates mixed fate/frame/cancel histories and repeated settlement through the real service/store; it checks one disposition, no own jobs and unchanged event/watch history on replay. `tests/unit/test_claude_turn.py:589` protects consumed folds from late cancellation. `tests/unit/test_turn_runner.py:972` protects recorded delivery from negative replay evidence. |
+| 1. Exactly once: one final disposition; no delivered message requeued or lost | `tests/unit/test_steer_invariants.py` `test_every_steer_settles_once_as_the_provider_s_evidence_says` generates provider histories for every fate through the real drivers, runner, `turn.json` and settlement, with an oracle from the provider's side; `test_every_steer_settles_once_through_the_runner_loop` runs the same histories through `TurnRunner._run` on its thread; both check one disposition, no own jobs and unchanged event/watch history on a second settlement. `tests/unit/test_claude_turn.py:589` protects consumed folds from late cancellation. `tests/unit/test_turn_runner.py:972` protects recorded delivery from negative replay evidence. |
 | 2. Queue order survives misses | `tests/unit/test_steer_invariants.py:100` generates mixed consumed/missed children and checks original sequence and dispatch order before later messages. `tests/e2e/test_conversations.py:594` exercises a refused Codex steer returning to the queue. |
 | 3. No writes after close, host stop or own cancel | `tests/unit/test_steer_invariants.py:157` generates barriers and repeated outbox sends against a durable journal. `tests/unit/test_turn_runner.py:855` generates commands for both providers; focused real-relay races begin at `:597` and `:649`. `tests/e2e/test_conversations.py:612` cancels before handover. |
-| 4. Restart never rewrites a steer and preserves settlement | `tests/unit/test_steer_invariants.py:180` generates restarts around claim, framing, handover, consumption and settlement. `tests/unit/test_turn_runner.py:888` adds generated Claude/Codex replay boundaries; `:677`, `:952` and `:981` cover written-log/status-handshake recovery. `tests/e2e/test_conversations.py:660` restarts with a native steer in flight; fake-process integration coverage is in `tests/fake/test_interactive_steer.py:146`. |
-| 5. Ordinary host delivery/outcome rules stay intact | `tests/unit/test_steer_invariants.py:216` varies host acknowledgement, success/failure and replay count, checking unchanged delivery, one host frame, one close, and no steer facts. Existing driver tests remain intact; the driver files have 101 passing cases after the final driver changes (74 existing plus 27 added). |
+| 4. Restart never rewrites a steer and preserves settlement | `tests/unit/test_steer_invariants.py` generates restarts around claim, framing, handover, consumption and settlement, and `test_a_restart_at_each_steer_boundary_through_the_runner_loop_settles_as_an_uninterrupted_run` restarts the real loop after the claim, after the write and after delivery, for both providers. `tests/unit/test_turn_runner.py:888` adds generated Claude/Codex replay boundaries; `:677`, `:952` and `:981` cover written-log/status-handshake recovery. `tests/e2e/test_conversations.py:660` restarts with a native steer in flight; fake-process integration coverage is in `tests/fake/test_interactive_steer.py:146`. |
+| 5. Ordinary host delivery/outcome rules stay intact | Differential: 172 driver histories and 31 runner-and-settlement histories with no steer (`tests/unit/no_steer_histories.py`) must match a recording of the pre-steer code (52ffde17) in `tests/fixtures/steer/no_steer_presteer.json`, with empty `steers`; the one deliberate Codex difference is pinned to its own step. `test_hosts_without_steers_keep_their_delivery_and_outcome_rules` also varies acknowledgement, outcome and replay count. |
 
 Additional coverage includes claim authorization and all refusal paths,
 permission narrowing, repair priority, cancellation, multi-unknown resolution,
@@ -75,6 +78,9 @@ without terminal evidence. Requested e2e cases are present at
 `tests/e2e/test_conversations.py:560`, `:579`, `:594`, `:612`, `:643` and `:660`.
 
 ## Validation results
+
+These are the first build's results. The results after the review are at the end,
+under "After the review".
 
 The full requested selection completed: **6,370 passed, 140 failed, 91 skipped,
 37 setup errors in 9703.24 s (2:41:43)**. It is not a green full-suite result.
@@ -230,3 +236,39 @@ steers, both fixed: a Claude CLI that advertises `interrupt_cancel_queued_v1` go
 `cancel_queued: true` on every stop (now only a turn with steers asks), and a
 Codex item that named the turn before the `turn/start` answer did was dropped (now
 another turn's notifications are dropped only once the turn's id is known).
+
+### Second pass (2026-09-29)
+
+Three independent read-only reviews of the branch (daemon side, app side, contract
+and test strength) checked every finding again and looked for defects the fixes
+had introduced. What they found, and what changed:
+
+- A steer the CLI had started as its own turn after the held host result left the
+  pending set when a stop's receipt (or a cancelled lifecycle row) called it
+  cancelled, so the held result then ended the turn as complete with that turn cut
+  short; stdout's end did the same. The Claude driver now keeps steers started after
+  the held result until the next result, and a result ends every turn a started
+  steer is part of, listed or not (C-26.5).
+- A result held only for a steer that was then never written waited out the
+  watchdog's two rounds (about 30 s). It now ends when that steer is dropped.
+- A rolled-back handoff wiped a missed steer's `steer-missed:` mark, so it fell
+  back behind messages queued for later. It keeps the mark (C-24.5).
+- A live turn whose runner the restarted daemon had not taken back yet answered
+  `no-live-turn`, which the app treats as final ("the turn it was sent to had
+  ended"). It answers `not-steerable`, which the app asks again about (C-24.9).
+- Esc's too-late memory was stale at once for a queued steer the daemon said had
+  left the queue, so each Esc asked about it again, and
+  `test_c24_9_every_steer_status_line` no longer held. Each entry now records what
+  the app saw (`TooLateMark`); the words say whether the next Esc takes an older or
+  a newer steer (C-29.7).
+- The composer loads its draft before taking in recalled words, whichever SwiftUI
+  change comes first, and merges them itself when saving the draft had failed.
+- After `too-late`, Stop interrupts only a message it reads as its own turn's.
+- The fifo read test still called `_read_attachment` with a path.
+- Invariant 5's recording now holds every history C-24.9 names (172 driver, 31
+  runner histories, re-recorded through 52ffde17; the 160 earlier ones came out
+  byte-identical), fails on any non-empty `steers`, and pins the one deliberate
+  Codex difference to its own step. Invariant 1 also runs through the runner's
+  own loop.
+- The contract (C-24.5, C-24.7, C-24.9, C-25.2, C-26.5, C-26.6, C-29.7) and this
+  report's stale lines were brought in line with the code.
