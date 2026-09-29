@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import os
+import queue
 import sqlite3
 import tempfile
 import threading
@@ -649,22 +651,22 @@ def test_the_claim_rides_the_batch_that_records_the_first_turns_result():
 # The reviewer's schedules for the two guards 66d692a0's review showed are not redundant
 # (review-titles/astra.md, "Tests and mutations"), as they fall in this design.
 
-def test_a_stop_the_runner_has_before_its_gate_ends_asks_for_no_title():
-    """The stop-fields schedule, before the claim: `interrupt()` has set the runner's
-    stop but not yet ended the title's gate or queued its command when the provider's
-    result arrives. The stop fields alone keep the turn from being a quiescent point:
-    nothing is claimed, nothing written, the close goes."""
+def test_a_stop_the_runner_has_before_its_command_is_queued_asks_for_no_title():
+    """The stop-fields schedule, before the claim (review of 66d692a0: `interrupt()` paused
+    after setting `stop_reason`, before its queue insertion): the provider's result
+    arrives meanwhile. The runner's stop field alone keeps the turn from being a
+    quiescent point: nothing is claimed, nothing written, the close goes."""
     with title_turn() as turn:
         runner = turn.runner()
         paused, resume = threading.Event(), threading.Event()
-        end_title = runner.end_title
 
-        def paused_end_title(why):
-            paused.set()
-            resume.wait(10)
-            end_title(why)
+        class PausedCommands(queue.Queue):
+            def put(self, item, block=True, timeout=None):
+                paused.set()
+                resume.wait(10)
+                super().put(item, block, timeout)
 
-        runner.end_title = paused_end_title
+        runner.commands = PausedCommands()
         stopper = threading.Thread(target=runner.interrupt, args=("stopped",))
         turn.say(runner, INIT_OK, ACCEPTED, reply())
         stopper.start()
@@ -698,6 +700,41 @@ def test_a_stop_between_the_claim_and_the_write_stops_the_write():
         turn.to_result(runner)
         assert turn.requested() is not None and TITLE_FRAME not in turn.logged()
         assert turn.logged()[-1] == "close" and runner.title.why == "not-quiescent"
+
+
+@pytest.mark.parametrize("command", ["answer", "steer"])
+def test_a_command_queued_between_the_claim_and_the_write_skips_the_title(command):
+    """A person's answer or steer is sent to the runner (another thread) after the result's
+    transaction claimed the title and before the write: the title is not written, so the
+    command never waits even the one line, and the close goes."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        send_frames = runner._send_frames
+
+        def frames_then_command():
+            send_frames()
+            if runner.title.state == CLAIMED:
+                if command == "answer":
+                    runner.respond("a-request", "allow")
+                else:
+                    claim_steer(runner)
+                    runner.steer(STEER_MID)
+
+        runner._send_frames = frames_then_command
+        turn.to_result(runner)
+        assert turn.requested() is not None and TITLE_FRAME not in turn.logged()
+        assert turn.logged()[-1] == "close" and runner.title.why == "not-quiescent"
+
+
+def test_a_runner_never_asks_a_provider_other_than_claude():
+    """The request is a Claude control. A runner for another provider never claims it or
+    writes it, even from a store that would grant the claim (defense in depth: the store
+    grants only Claude conversations, `ConversationStore._claim_title`)."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        runner.spec = dataclasses.replace(runner.spec, provider="codex")
+        turn.to_result(runner)
+        assert TITLE_FRAME not in turn.logged() and turn.requested() is None and turn.logged()[-1] == "close"
 
 
 @pytest.mark.parametrize("ending", ["failed-result", "eof", "model-mismatch", "stopped-before-send"])
@@ -995,7 +1032,10 @@ def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(act
                 barrier = len(turn.logged()) if barrier is None else barrier
             elif action == "steer" and "steer" not in said and "init" in said:
                 said.add("steer")
-                claim_steer(runner)
+                try:
+                    claim_steer(runner)
+                except ConversationError:
+                    continue                      # refused by the store (its predecessor not accepted yet)
                 runner.steer(STEER_MID)
                 barrier = len(turn.logged()) if barrier is None else barrier
             elif action == "respond":
@@ -1004,8 +1044,11 @@ def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(act
                 runner.respond("an-answered-request", "allow")
             elif action == "message" and "message" not in said:
                 said.add("message")
-                turn.store.submit_message(conversation_id=turn.cid, message_id=str(uuid.uuid4()),
-                                          after_message_id=MID, text="next", attachments=[], settings=turn.claude)
+                try:
+                    turn.store.submit_message(conversation_id=turn.cid, message_id=str(uuid.uuid4()),
+                                              after_message_id=MID, text="next", attachments=[], settings=turn.claude)
+                except ConversationError:
+                    continue                      # refused by the store (its predecessor not accepted yet)
                 barrier = len(turn.logged()) if barrier is None else barrier
             elif action == "rename":
                 turn.store.rename_conversation(turn.cid, "Mine")
