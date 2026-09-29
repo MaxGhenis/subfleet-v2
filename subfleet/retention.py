@@ -358,7 +358,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 turn_keep_s: float = TURN_RETENTION_KEEP_DAYS * 86400,
                 pins: Callable[[], Iterable[str]] | None = None, referenced_job_ids: Iterable[str] = (),
                 archiver: Mapping[str, Any] | None = None, state: RetentionState | None = None,
-                cancel: threading.Event | None = None, deadline: float | None = None) -> dict[str, Any]:
+                cancel: threading.Event | None = None, deadline: float | None = None,
+                dry_run: bool = False) -> dict[str, Any]:
     """Prune oldest unpinned terminal jobs until each pool's limits hold.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
@@ -372,7 +373,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 
     The result says what was pruned, protected and deferred (with reasons) and
     measured; `interrupted` when work remained that the pass did not reach, and
-    `made_progress` when it pruned, measured, or finished anything.
+    `made_progress` when it pruned, measured, or finished anything. `dry_run`
+    only reads (a read-only store works): it neither recovers nor retires, and
+    reports under `would_retire` what a pass would hand to the archiver and prune.
     """
     state = state if state is not None else RetentionState()
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
@@ -383,7 +386,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         result = _maintenance(store, Path(state_root).resolve(), state=state,
                               budgets={"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)},
                               turn_keep_s=turn_keep_s, pins=pins, referenced_job_ids=referenced_job_ids,
-                              archiver=archiver, cancel=cancel, deadline=deadline, progress=progress)
+                              archiver=archiver, cancel=cancel, deadline=deadline, progress=progress,
+                              dry_run=dry_run)
     except _Interrupted as exc:
         jobs = store.list_jobs()
         pruned = set(progress["pruned"])
@@ -395,13 +399,14 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 
 
 def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_job_ids, archiver,
-                 cancel, deadline, progress):
+                 cancel, deadline, progress, dry_run=False):
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
         raise ValueError("retention limits must be nonnegative")
     _checkpoint(cancel, deadline)
     jobs_root = root / "jobs"
     archive_root = root / "archive"
-    _recover(store, root, state, progress, cancel)
+    if not dry_run:
+        _recover(store, root, state, progress, cancel)
     jobs = store.list_jobs()                                   # newest first
     errors = progress["errors"]
     owned: dict[str, Path] = {}
@@ -484,6 +489,12 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_j
         selected.append(job)
         counts[pool] -= 1
         totals[pool] -= sizes.get(identity, 0)
+    if dry_run:
+        progress["would_retire"] = [
+            {"job_id": job["job_id"], "pool": _pool(job), "bytes": sizes.get(job["job_id"]),
+             "worktree": str(owned[job["job_id"]]) if job["job_id"] in owned
+             and os.path.lexists(owned[job["job_id"]]) else None} for job in selected]
+        selected = []
     counts = {name: progress["pools"][name]["jobs_before"] for name in budgets}
     totals = {name: progress["pools"][name]["bytes_before"] for name in budgets}
     if selected:

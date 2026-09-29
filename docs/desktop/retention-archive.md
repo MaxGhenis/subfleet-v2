@@ -281,6 +281,11 @@ code, is released. The live store had none on 2026-09-28.
 
 - `subfleet retention archives [--json]` lists each archive: job, date,
   original path, bytes, archive bytes, and any salvage refs from `rows.json`.
+- `subfleet retention preview [--json] [--policy FILE]` runs a pass as a dry
+  run against a read-only store (`maintenance(..., dry_run=True)`): no recovery,
+  no retirement, nothing written. It lists what the next passes would hand to
+  the archiver and prune. A differential property test checks that the dry
+  run names exactly what a real pass then prunes.
 - `subfleet retention restore <job> [--to DIR] [--check]` re-verifies the
   archive and extracts it to `DIR`, or to `<state>/jobs/<job>` when that is
   free. It extracts with `filter="tar"`, which keeps `.venv`-style absolute
@@ -370,5 +375,6 @@ removed proof API, and their scenarios are carried over.
   person removes them.
 - **C-13.4.** An allocated worktree is removed only by the configured
   worktree archiver. Retention prunes its job only after it has gone.
-- **C-17.1.** New verbs: `retention archives [--json]` and
-  `retention restore <job> [--to DIR] [--check]`.
+- **C-17.1.** New verbs: `retention archives [--json]`,
+  `retention restore <job> [--to DIR] [--check]` and
+  `retention preview [--json] [--policy FILE]`.

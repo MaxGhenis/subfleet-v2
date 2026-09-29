@@ -97,6 +97,44 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def cmd_preview(args: argparse.Namespace) -> int:
+    """What the next passes would retire, read from a read-only store; nothing is written."""
+    from . import cli, retention
+    from .policy import DEFAULT_POLICY_PATH, RETENTION_DEFAULTS, PolicyError, load_policy
+    from .store import Store
+    root = cli._root(args)
+    path = Path(args.policy) if args.policy else root / "policy.json"
+    try:
+        policy = load_policy(path if path.exists() else DEFAULT_POLICY_PATH)
+    except PolicyError as exc:
+        return cli.fail(Exit.INVALID_INPUT, f"retention preview: {exc}")
+    budget = {**RETENTION_DEFAULTS, **(policy.get("retention") or {})}
+    database = root / "state.sqlite3"
+    if not database.exists():
+        return cli.fail(Exit.OPERATIONAL, f"retention preview: no store at {database}")
+    with Store(database, read_only=True) as store:
+        result = retention.maintenance(
+            store, root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
+            turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
+            turn_keep_s=float(budget["turn_keep_days"]) * 86400, archiver=budget.get("worktree_archiver"),
+            dry_run=True)
+    result["archiver_configured"] = budget.get("worktree_archiver") is not None
+    result["note"] = "the conversation service's pins are not consulted offline"
+    if args.json:
+        cli.emit({key: result.get(key) for key in ("would_retire", "pools", "errors", "archiver_configured", "note")})
+        return int(Exit.OK)
+    for name, pool in result["pools"].items():
+        cli.out(f"{name}: {pool['jobs_before']} jobs, {pool['bytes_before']} bytes measured"
+                f" ({pool['unmeasured']} unmeasured); budget {pool['max_jobs']} jobs, {pool['max_bytes']} bytes")
+    for row in result.get("would_retire", []):
+        via = f"  worktree {row['worktree']} -> archiver" if row["worktree"] else ""
+        cli.out(f"would retire {row['job_id']} ({row['pool']}, {row['bytes']} bytes){via}")
+    if not result["archiver_configured"]:
+        cli.note("No retention.worktree_archiver: jobs whose worktree still exists would be kept.")
+    cli.note(result["note"])
+    return int(Exit.OK)
+
+
 def add_verbs(sub) -> None:
     parser = sub.add_parser("retention", help="job records that retention archived")
     verbs = parser.add_subparsers(dest="retention_command", required=True)
@@ -108,3 +146,7 @@ def add_verbs(sub) -> None:
     restore.add_argument("--to", metavar="DIR", help="restore into DIR/<job> instead of the state root's jobs/")
     restore.add_argument("--check", action="store_true", help="only verify the archive")
     restore.set_defaults(handler=cmd_restore, json=False)
+    preview = verbs.add_parser("preview", help="what retention would retire, from a read-only store")
+    preview.add_argument("--json", action="store_true")
+    preview.add_argument("--policy", metavar="FILE", help="policy to read (default: the state root's)")
+    preview.set_defaults(handler=cmd_preview)

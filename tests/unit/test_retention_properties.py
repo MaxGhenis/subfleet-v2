@@ -393,3 +393,29 @@ def test_cli_lists_and_restores_an_archived_job(tmp_path, monkeypatch, capsys):
     assert cli.main(["retention", "restore", "../etc"]) == int(Exit.INVALID_INPUT)
     assert cli.main(["retention", "restore", "job", "--to", str(tmp_path / "elsewhere")]) == 0
     assert (tmp_path / "elsewhere" / "job" / "stdout").read_bytes() == b"hello"
+
+
+@settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(jobs=JOBS, max_jobs=st.integers(0, 6), max_bytes=st.integers(0, 2000))
+def test_a_dry_run_names_exactly_what_the_pass_then_prunes_and_writes_nothing(tmp_path_factory, jobs, max_jobs,
+                                                                           max_bytes):
+    """Differential: `dry_run` (used by `retention preview`) and a real pass agree, and the
+    dry run changes neither the store nor the filesystem."""
+    root = tmp_path_factory.mktemp("preview")
+    with Store(root / "state.sqlite3") as store:
+        lane(store)
+        for order, (kind, size, state) in enumerate(jobs):
+            add(store, root, f"j{order:02d}", order=order, size=size, kind=kind,
+                state="running" if state == "running" else "succeeded")
+            if state == "pinned":
+                store.add_notice(f"j{order:02d}", "unread", "session-1")
+        rows_before = {table: store.query(f"SELECT * FROM {table}") for table in ("jobs", "leases", "events", "notices")}
+    before = sorted(str(p) for p in root.rglob("*") if "state.sqlite3" not in p.name)
+    with Store(root / "state.sqlite3", read_only=True) as reader:
+        preview = retention.maintenance(reader, root, max_jobs=max_jobs, max_bytes=max_bytes, turn_keep_s=0,
+                                        dry_run=True)
+    assert sorted(str(p) for p in root.rglob("*") if "state.sqlite3" not in p.name) == before
+    with Store(root / "state.sqlite3") as store:
+        assert {table: store.query(f"SELECT * FROM {table}") for table in rows_before} == rows_before
+        result = retention.maintenance(store, root, max_jobs=max_jobs, max_bytes=max_bytes, turn_keep_s=0)
+    assert [row["job_id"] for row in preview["would_retire"]] == result["pruned"]
