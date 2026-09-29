@@ -8,6 +8,8 @@ import time
 import pytest
 
 from subfleet import retention
+from subfleet import retention_archive as rarch
+from subfleet import retention_fs as rfs
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.store import Store
 
@@ -53,35 +55,31 @@ def test_hourly_retention_pins_required_evidence(retained, pin):
     assert directory.exists()
 
 
-def test_failed_removal_retains_row_and_remaining_bytes_for_next_pass(retained, monkeypatch):
-    """C-8.4, C-3.3: partial deletion retains retry state and counts unreclaimed bytes outside tx."""
+def test_an_entry_deletion_cannot_remove_is_set_aside_not_left_half_deleted(retained, monkeypatch):
+    """C-8.4, C-3.3 (d635): the rows go only after the archive is verified; an
+    entry verified deletion cannot unlink is moved to the job's conflicts folder,
+    so no half-deleted tree is left behind, and its bytes are in the archive."""
     store, root = retained
     directory = job(store, root, "old", size=20)
     (directory / "stderr").write_bytes(b"y" * 30)
-    original = retention.shutil.rmtree
+    original = rfs.os.unlink
 
-    def partial_remove(path):
+    def refuse_stderr(name, *args, **kwargs):
         assert not store.connection.in_transaction
-        (Path(path) / "stdout").unlink()
-        raise PermissionError("cannot remove remaining output")
+        if str(name) == "stderr":
+            raise PermissionError(1, "cannot remove remaining output")
+        return original(name, *args, **kwargs)
 
-    monkeypatch.setattr(retention.shutil, "rmtree", partial_remove)
+    monkeypatch.setattr(rfs.os, "unlink", refuse_stderr)
     first = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert first["pruned"] == []
-    assert first["protected"] == ["old"]
-    assert first["bytes_before"] == 50
-    assert first["bytes_after"] == 30
-    assert first["jobs_after"] == 1
-    assert first["errors"][0]["job_id"] == "old"
-    assert store.get_job("old") is not None
-    assert any(event["kind"] == "retention.remove_error" for event in store.list_events("old"))
-
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
-    second = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert second["bytes_before"] == 30
-    assert second["bytes_after"] == 0
-    assert second["pruned"] == ["old"]
+    assert first["pruned"] == ["old"]
+    assert first["bytes_before"] == 50 and first["bytes_after"] == 0
     assert store.get_job("old") is None
+    assert not (root / "retention" / "old").exists()
+    assert (root / "retention-conflicts" / "old" / "job" / "stderr").read_bytes() == b"y" * 30
+    kinds = [event["kind"] for event in store.list_events("old")]
+    assert "retention.pruned" in kinds and "retention.conflict" in kinds
+    assert rarch.check_archive(root, "old")["ok"]
 
 
 def test_directory_symlink_counts_link_without_external_contents(retained):
@@ -165,30 +163,27 @@ def test_retention_byte_scan_observes_cancellation(retained, monkeypatch):
     assert directory.exists()
 
 
-def test_cancel_after_filesystem_stage_preserves_rows_and_is_retryable(retained, monkeypatch):
-    """C-16.4, C-8.4: cancellation after a removal stage prevents further DB writes and later-job deletion."""
+def test_cancel_mid_archive_keeps_rows_and_the_next_pass_finishes(retained, monkeypatch):
+    """C-16.4, C-8.4: cancellation while a job is being archived leaves its rows
+    and its journal; nothing is deleted, and the next pass finishes the work."""
     store, root = retained
-    first = job(store, root, "a")
-    later = job(store, root, "b")
+    job(store, root, "a")
+    job(store, root, "b")
     cancel = threading.Event()
-    changes_at_cancel = []
-    original = retention.shutil.rmtree
+    original = rfs.clone_or_copy
 
-    def remove_then_cancel(path):
-        original(path)
-        changes_at_cancel.append(store.connection.total_changes)
+    def clone_then_cancel(*args, **kwargs):
+        method = original(*args, **kwargs)
         cancel.set()
+        return method
 
-    monkeypatch.setattr(retention.shutil, "rmtree", remove_then_cancel)
-    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
-    assert result["interrupted"] == "cancelled"
-    assert result["pruned"] == []
-    assert result["protected"] == ["a", "b"]
-    assert not first.exists()
-    assert later.exists()
-    assert store.get_job("a") is not None
-    assert store.connection.total_changes == changes_at_cancel[0]
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
+    monkeypatch.setattr(rfs, "clone_or_copy", clone_then_cancel)
+    first = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+    assert first["interrupted"] == "cancelled"
+    assert first["pruned"] == []
+    assert store.get_job("a") is not None and store.get_job("b") is not None
+    monkeypatch.setattr(rfs, "clone_or_copy", original)
     resumed = retention.maintenance(store, root, max_jobs=0)
-    assert resumed["pruned"] == ["a", "b"]
+    assert sorted(resumed["pruned"]) == ["a", "b"]
     assert resumed["bytes_after"] == 0
+    assert not (root / "jobs" / "a").exists() and not (root / "retention" / "a").exists()

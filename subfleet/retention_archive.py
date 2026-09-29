@@ -822,7 +822,8 @@ class _Builder:
                     pass       # a nested repository: archived byte for byte like everything else
                 entries.append(entry)
         except rfs.TreeError as exc:
-            seconds = DEFER_CHANGED_S if exc.reason in ("changed", "swapped") else DEFER_PERMANENT_S
+            seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
+                       else DEFER_PERMANENT_S)
             raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
         finally:
             os.close(fd)
@@ -1010,6 +1011,12 @@ class _Builder:
                 and cached.get("size") == bundle.stat().st_size):
             temporary = self.dir / "commits.bundle.tmp"
             temporary.unlink(missing_ok=True)
+            fd = os.open(self.dir, rfs.O_DIR)
+            try:
+                if rfs.free_bytes(fd) < rfs.LOW_SPACE_FLOOR:
+                    raise Defer("low-space", DEFER_BUSY_S, "not enough free space for the bundle")
+            finally:
+                os.close(fd)
             rgit.create_bundle(common, temporary, refs, held, timeout=self.ctx.git_timeout_s * 6,
                                cancel=self.ctx.cancel)
             rgit.verify_bundle(common, temporary, expected, fmt, self.r.work / "verify.git",
