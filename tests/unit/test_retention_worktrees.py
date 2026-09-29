@@ -181,14 +181,18 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
     """I5 (C-8.4, C-13.4, C-24.5): a conversation turn in a detached job's allocated worktree
     (a person continued the job's session in the app) holds a row of its own on the folder,
     writable or read-only, not `worktree:<folder>`. Retention keeps the job and its worktree
-    while the row exists, whether its pins see the row or only the selection fence does (a
-    recorded path spelled otherwise), runs no git there, and reclaims both once it is gone."""
+    while the row exists, whether only its pins see the row (`_pins`) or only the selection
+    fence does (a recorded path spelled otherwise), runs no git there, and reclaims both once
+    it is gone. Each layer is tested alone, the other one blinded: review of 5e9f2fbd (P3-3)
+    found the pins' check survived being emptied, since the fence alone kept this green."""
     from subfleet import folders
     store, root, repository, worktree = owned
     key = folders.turn_key(str(worktree.resolve()), "20260929-120000-turn", writable=writable)
     assert store.acquire_lease(key, "20260929-120000-turn")
     if seen_by == "fence":
         monkeypatch.setattr(retention.folders, "turn_folders", lambda read: set())
+    else:
+        monkeypatch.setattr(retention.folders, "turn_holds", lambda read, folder, kinds=folders.SHARED: [])
     original = subprocess.run
     monkeypatch.setattr(retention.subprocess, "run",
                         lambda *args, **kwargs: pytest.fail("no git while a turn works in the worktree"))
