@@ -77,9 +77,9 @@ class World:
 
         original = service._contain_probe
 
-        def contain(record):
+        def contain(record, **kwargs):
             self.looks.append(self.now)
-            return original(record)
+            return original(record, **kwargs)
 
         monkeypatch.setattr(service, "_probe_census", take_census)
         monkeypatch.setattr(procs, "same_process", same_process)

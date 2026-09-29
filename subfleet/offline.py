@@ -267,6 +267,7 @@ class Offline:
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
             job["probes"] = self.probes(conn, job_id)
+            job["probe_resolutions"] = self.probe_resolutions(conn, job_id)
             decisions = conn.execute(
                 "SELECT decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",
@@ -369,7 +370,8 @@ class Offline:
     def probes(self, conn: sqlite3.Connection, job_id: str | None = None) -> list[dict[str, Any]]:
         """C-5.7a, C-17.5: the probes that hold a lane slot, as the daemon's `status`
         and `runs show` list them, less what only a running daemon knows (the
-        recheck clock, a pending request). A payload `json_valid` refuses (a NaN;
+        recheck clock, a pending request): the operator's last look is in the
+        store, and is listed. A payload `json_valid` refuses (a NaN;
         no writer makes one) is passed over here, where the daemon parses it.
         """
         tables = self._tables(conn)
@@ -395,6 +397,14 @@ class Offline:
                 continue
             state = record.get("state", "unrecorded")
             containment = record.get("containment") if isinstance(record.get("containment"), dict) else {}
+            look = conn.execute(
+                "SELECT event_id, ts, data_json FROM events WHERE kind = 'probe.still_live' AND json_valid(data_json)"
+                " AND json_extract(data_json, '$.holder') = ? ORDER BY event_id DESC LIMIT 1",
+                (holder,)).fetchone()
+            try:
+                said = json.loads(look["data_json"]) if look else None
+            except (TypeError, ValueError):
+                said = None
             rows.append({
                 "holder": holder, "lane_id": lane_ids[0], "lane_ids": lane_ids, "job_id": owner,
                 "kind": record.get("timer_kind") or ("admission" if owner else "unknown"),
@@ -404,9 +414,30 @@ class Offline:
                 "unverifiable": containment.get("unverifiable"),
                 "errors": containment.get("errors", []),
                 "containment": containment or None,
+                "operator_look": ({"event_id": look["event_id"], "at": look["ts"],
+                                   **{key: said.get(key) for key in ("operator_note", "containment")}}
+                                  if isinstance(said, dict) else None),
                 "resolve": probe_resolutions(lane_ids[0], owner) if state == "quarantined" else None,
             })
         return rows
+
+    def probe_resolutions(self, conn: sqlite3.Connection, job_id: str) -> list[dict[str, Any]]:
+        """C-5.7a: what operators asked of this job's quarantined probes, and what
+        came of it, oldest first, as the daemon's `runs show` lists them."""
+        if "events" not in self._tables(conn):
+            return []
+        events = []
+        for row in conn.execute(
+                "SELECT ts, kind, data_json FROM events WHERE job_id = ? AND kind IN"
+                " ('probe.confirmed_dead', 'probe.force_released', 'probe.still_live') ORDER BY event_id",
+                (job_id,)):
+            try:
+                data = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("holder"):      # not an insert's empty audit twin
+                events.append({"at": row["ts"], "event": row["kind"], **data})
+        return events
 
     # --- kill (C-17.5, C-5.3, C-5.4) ----------------------------------------
 
