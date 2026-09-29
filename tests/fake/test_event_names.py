@@ -13,6 +13,8 @@ from subfleet.contracts import ClockSource, Closure, ClosureReason, Reading, Rea
 from subfleet.daemon import Daemon, after, utcnow
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
+from tests.fake.test_capacity_wait_backoff import fleet  # noqa: F401  (fixture)
+from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
 
 @pytest.fixture
@@ -78,3 +80,34 @@ def test_c3_8_a_full_fleet_names_the_wait_it_records(service):
     kinds = [kind for kind, _aid, _lane in events(daemon, second)]
     assert daemon.store.get_job(second)["state"] == "waiting"
     assert "job.capacity_waiting" in kinds and "attempt.reserved" not in kinds
+
+
+def test_c3_8_a_held_lease_records_the_wait(fleet):
+    """C-3.8, C-6.5 a job whose output path another job holds records `job.capacity_waiting`, never a reservation."""
+    service, harness = fleet
+    out = str(harness.root / "report.md")
+    waiting = service.dispatch("submit", harness.submit_args(pinned_model="terra", out_path=out))["job_id"]
+    with service.store.transaction("fixture.lease") as tx:
+        tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                   (f"out:{out}", "some-other-job", utcnow()))
+    service._admit()
+    assert service._capacity_waits[waiting]["label"] == "lease-held"
+    kinds = [kind for kind, _aid, _lane in events(service, waiting)]
+    assert "job.capacity_waiting" in kinds and "attempt.reserved" not in kinds
+    assert service.store.list_attempts(waiting) == []
+
+
+def test_c3_8_a_pair_that_changed_after_its_probe_records_the_wait(fleet, monkeypatch):
+    """C-3.8, C-6.12 a chosen pair that is no longer the probed one records `job.capacity_waiting`."""
+    from subfleet import daemon as daemon_module
+    service, harness = fleet
+    job_id = service.dispatch("submit", harness.submit_args(pinned_model="astra"))["job_id"]
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job: True)
+    # The probe approved nothing, so whatever pair the reserving transaction chooses has changed since.
+    monkeypatch.setattr(service, "_prepare_route",
+                        lambda job, decision_job, exclusions: (set(), service._desktop_identity()))
+    service._admit()
+    assert service._holds[job_id]["reason"] == "probe-pending"
+    kinds = [kind for kind, _aid, _lane in events(service, job_id)]
+    assert "job.capacity_waiting" in kinds and "attempt.reserved" not in kinds
+    assert service.store.list_attempts(job_id) == []
