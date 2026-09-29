@@ -251,6 +251,10 @@ class RetentionState:
     #: Jobs whose deferral this state already knows (it deferred them, or took
     #: the deferral an idle journal kept across a restart, N8).
     recalled: set[str] = field(default_factory=set)
+    #: job id -> the clock time of its last archive slice. In-flight jobs are
+    #: sliced least recently sliced first, so one that parks pass after pass
+    #: does not keep the others waiting behind it (review of a9a6cbf4, N3).
+    sliced: dict[str, float] = field(default_factory=dict)
 
     def defer(self, job_id: str, seconds: float, reason: str, now: float) -> None:
         self.deferred[job_id] = (now + seconds, reason)
@@ -450,7 +454,10 @@ class _Pass:
                 retirements[job_id] = retirement
         self._check_holders(retirements, second=False)
         archived: dict[str, rarch.Retirement] = {}
-        for job_id, retirement in list(retirements.items()):
+        # Least recently sliced first (never sliced first of all, oldest first
+        # among them): the pass's time goes round the in-flight jobs (N3).
+        for job_id in sorted(retirements, key=lambda job_id: self.state.sliced.get(job_id, float("-inf"))):
+            retirement = retirements[job_id]
             self.ctx.check()
             if retirement.state == "archived":
                 archived[job_id] = retirement
@@ -458,6 +465,7 @@ class _Pass:
             if self.deadline is not None and self.clock() >= self.deadline + self.slice_s:
                 self.progress["in_flight"].append(job_id)
                 continue
+            self.state.sliced[job_id] = self.clock()
             try:
                 outcome = retirement.archive(self.clock() + self.slice_s)
             except rarch.Defer as exc:
@@ -723,6 +731,7 @@ class _Pass:
         self.acted += 1
         self.progress["pruned"].append(job_id)
         self.state.sizes.pop(job_id, None)
+        self.state.sliced.pop(job_id, None)
         self._complete(retirement)
 
     def _complete(self, retirement: rarch.Retirement) -> None:
@@ -773,6 +782,7 @@ class _Pass:
         after every persistent error)."""
         job_id = retirement.job_id
         self.acted += 1
+        self.state.sliced.pop(job_id, None)
         failures = int((retirement.journal or {}).get("failures") or 0)
         if seconds == rarch.DEFER_ERROR_S:
             failures += 1
