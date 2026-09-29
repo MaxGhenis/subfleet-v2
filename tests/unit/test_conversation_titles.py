@@ -625,6 +625,28 @@ def test_a_steer_queued_while_the_title_is_claimed_is_written_first():
 
 
 @pytest.mark.parametrize("failure", ["reached", "unreached", "refused"])
+def test_a_steer_after_an_unanswered_title_write_keeps_its_handover(failure):
+    """A title write whose answer was lost may have taken a frame number. The steer that
+    follows resynchronizes with the relay first, then goes once, at the head of the
+    outbox, under its handover locks, and the host's relay stays up."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        turn.say(runner, INIT_OK, STEER_CAPS)
+        runner.replay_caught_up = True
+        turn.relay.fail_next_title = failure
+        turn.say(runner, ACCEPTED)
+        assert runner.optional_ack_lost
+        claim_steer(runner)
+        runner.steer(STEER_MID)
+        runner._drain_commands()
+        tag = f"steer:{STEER_MID}"
+        assert turn.logged().count(tag) == 1 and turn.logged()[-1] == tag
+        assert [send for send in turn.relay.sends if send[0] == tag] == [(tag, 1, True, 0)]
+        assert runner.steer_written(STEER_MID) and not runner.relay_failed and runner.stop_reason is None
+        assert runner.steer_facts()[STEER_MID]["frame"] == "written"
+
+
+@pytest.mark.parametrize("failure", ["reached", "unreached", "refused"])
 def test_a_title_cancellation_goes_only_for_a_request_the_relay_took(failure):
     """After an unanswered or refused title write, the turn's next frame (one that is not
     a stop) resynchronizes with the relay's log. The budget's cancellation then goes once
