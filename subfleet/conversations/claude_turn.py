@@ -196,6 +196,9 @@ class ClaudeTurn(SteerTracking):
         self._init_steers()
         self.capabilities: set[str] = set()
         self.steer_waiting = False
+        # Counts the spells of `steer_waiting`: each time it turns on. The runner's
+        # watchdog clock starts afresh with each, however briefly it was off.
+        self.steer_watch = 0
         # The unseen steers the watchdog's current round asked the CLI to cancel
         # (`expire_steers`); None while no round is under way.
         self._steer_round: set[str] | None = None
@@ -783,9 +786,12 @@ class ClaudeTurn(SteerTracking):
         # runs as its own turn the process is working: model and tool latency is
         # unrestricted, and a steer written meanwhile folds at that turn's next tool
         # boundary or runs after its result, which is then the one held (C-26.5).
-        self.steer_waiting = self._last_result is not None and not self._steer_turn_running() and (
+        waiting = self._last_result is not None and not self._steer_turn_running() and (
             any(self.steers[mid]["fate"] == "unknown" for mid in self._steer_pending)
             or (not self._steer_pending and self._queued_turn_count > 0))
+        if waiting and not self.steer_waiting:
+            self.steer_watch += 1
+        self.steer_waiting = waiting
         if not self.steer_waiting:
             self._steer_round = None            # steering resumes; a later round starts afresh
 

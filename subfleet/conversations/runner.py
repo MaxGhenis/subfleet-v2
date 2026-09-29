@@ -163,6 +163,7 @@ class TurnRunner:
         self._replay_steers: list[str] = []
         self._steers_restored = False
         self.steer_wait_since: float | None = None
+        self._steer_watch_seen = 0             # the driver's `steer_watch` the clock above belongs to
         self._discarding_steers = False
         self._thread: threading.Thread | None = None
         self._stopping = threading.Event()
@@ -835,8 +836,12 @@ class TurnRunner:
     def _timers(self) -> None:
         now = self.clock()
         if getattr(self.driver, "steer_waiting", False) and self.driver.outcome is None:
-            if self.steer_wait_since is None:
-                self.steer_wait_since = now
+            watch = getattr(self.driver, "steer_watch", 0)
+            if self.steer_wait_since is None or watch != self._steer_watch_seen:
+                # A new spell of waiting, even one that began and ended between two
+                # polls (a steer's own turn and its result read in one batch): its
+                # 15 s start now, not with the spell before it (C-26.5).
+                self.steer_wait_since, self._steer_watch_seen = now, watch
             elif now - self.steer_wait_since >= STEER_GRACE_S:
                 self.steer_wait_since = now
                 self._apply(self.driver.expire_steers())

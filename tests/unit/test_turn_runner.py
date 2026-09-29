@@ -1250,3 +1250,43 @@ def test_the_runner_s_watchdog_never_cancels_a_steer_queued_during_another_steer
     facts = runner.steer_facts()
     assert runner.driver.outcome.state == "complete"
     assert (facts[STEER_MID]["fate"], facts[second]["fate"]) == ("consumed", "consumed")
+
+
+def test_the_watchdog_s_15_s_start_again_with_each_spell_of_waiting_even_one_between_polls(relayed, tmp_path):
+    """C-26.5: the host's result is held for S1, unseen, and the watchdog's clock starts.
+    S1 then runs as its own turn and its result is held for S2, all read in one batch
+    between two polls. S2 has been unseen for less than 15 s at the next poll, so it is
+    not cancelled then; 15 s after that poll it is."""
+    from subfleet.conversations.runner import STEER_GRACE_S
+    runner, clock, _, adir = relayed(recorded=True)
+    ready_to_steer(runner, tmp_path)
+    claim_steer(runner)
+    runner.steer(STEER_MID)
+    runner._drain_commands()
+
+    def feed(row, offset):
+        runner._apply(runner.driver.feed(json.dumps(row), offset))
+
+    feed({"type": "result", "subtype": "success", "is_error": False, "user_message_uuids": [MID],
+          "queued_turn_count": 0}, 30)
+    runner._timers()                                    # S1 unseen: the clock starts
+    assert runner.steer_wait_since == clock.now
+    second = "7f1c9a0e-3333-4222-8333-444455556666"
+    runner.store.submit_message(conversation_id=runner.conversation_id, message_id=second,
+                                after_message_id=STEER_MID, text="and this", attachments=[],
+                                settings=runner.store.message(MID)["settings"])
+    runner.store.set_state(second, "steering", reason=f"steer:{MID}", expect=("queued",))
+    runner.steer(second)
+    runner._drain_commands()
+    clock.now += STEER_GRACE_S + 5                      # a stall: one batch holds all of this
+    feed({"type": "command_lifecycle", "command_uuid": STEER_MID, "state": "started"}, 31)
+    feed({"type": "result", "subtype": "success", "is_error": False, "user_message_uuids": [STEER_MID],
+          "queued_turn_count": 0}, 32)
+    assert runner.driver.steer_waiting                  # held again, now for S2
+    runner._timers()
+    runner._send_outbox()
+    assert not [tag for tag in logged(adir) if tag.startswith("cancel-steer:")]
+    clock.now += STEER_GRACE_S
+    runner._timers()
+    runner._send_outbox()
+    assert [tag for tag in logged(adir) if tag.startswith("cancel-steer:")] == [f"cancel-steer:{second}"]
