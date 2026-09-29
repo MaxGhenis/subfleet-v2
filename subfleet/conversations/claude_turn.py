@@ -199,6 +199,9 @@ class ClaudeTurn(SteerTracking):
         # The unseen steers the watchdog's current round asked the CLI to cancel
         # (`expire_steers`); None while no round is under way.
         self._steer_round: set[str] | None = None
+        # Steers the CLI started after the held result: they run as their own turn,
+        # which the next result ends, or stdout's end cuts short (C-26.5).
+        self._steer_turns: set[str] = set()
         self._last_result: dict | None = None
         self._last_result_offset = 0
         self._queued_turn_count = 0
@@ -713,6 +716,11 @@ class ClaudeTurn(SteerTracking):
             if mid in self.steers:
                 step.extend(self._steer_delivered(mid, source.next(), fate="consumed"))
                 self._steer_pending.discard(mid)
+        # A result ends the turn every started steer is part of, folded into it or
+        # its own: one the CLI started (delivered) waits for nothing more, listed
+        # here or not, and no steer's own turn runs past it.
+        self._steer_pending -= {mid for mid in self._steer_pending if self.steers[mid]["fate"] == "delivered"}
+        self._steer_turns.clear()
         self._last_result = row
         self._last_result_offset = source.offset
         self._queued_turn_count = row.get("queued_turn_count") or 0
@@ -746,16 +754,18 @@ class ClaudeTurn(SteerTracking):
         return end
 
     def _finish_held(self, source: "_Sources | None" = None) -> Step:
-        """End the turn with the held result once nothing it waits for is left."""
-        if self._steer_pending or self._queued_turn_count > 0:
+        """End the turn with the held result once nothing it waits for is left:
+        no steer the CLI has not settled, no queued turn it counted, and no steer
+        running as its own turn (whose result, not the held one, ends the turn)."""
+        if self._steer_pending or self._queued_turn_count > 0 or self._steer_turn_running():
             return Step()
         return self._finish_result(source)
 
     def _steer_turn_running(self) -> bool:
-        """A steer the CLI started after the held result runs as its own turn: it
-        is delivered, and its own result has not come yet."""
-        return self._last_result is not None and any(
-            self.steers[mid]["fate"] == "delivered" for mid in self._steer_pending)
+        """A steer the CLI started after the held result runs as its own turn until
+        the next result, even one a stop's receipt then calls cancelled: that turn
+        was started, and only its result or stdout's end says how it ended."""
+        return self._last_result is not None and bool(self._steer_turns)
 
     def _refresh_steer_waiting(self) -> None:
         # The 15 s watchdog bounds only a held result's unseen steers. While a steer
@@ -777,6 +787,8 @@ class ClaudeTurn(SteerTracking):
         if mid not in self.steers:
             return Step()
         step = Step()
+        if state == "started" and self._last_result is not None:
+            self._steer_turns.add(mid)          # after the held result: its own turn
         if state in ("started", "completed"):
             step.extend(self._steer_delivered(mid, source.next(), fate="consumed" if state == "completed" else "delivered"))
         if state == "completed":

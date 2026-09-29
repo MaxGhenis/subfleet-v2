@@ -867,3 +867,45 @@ def test_eof_during_a_steer_s_own_turn_is_for_reconciliation():
     end = turn.eof(500)
     assert end.outcome.ended_by == "eof" and (end.outcome.state, end.outcome.reason) == ("interrupted", "stopped")
     assert end.outcome.steers[STEER]["fate"] == "delivered"
+
+
+@pytest.mark.parametrize("cancelled_by", ["receipt", "lifecycle"])
+def test_a_steer_s_own_turn_a_stop_calls_cancelled_is_still_running_until_its_result_or_eof(cancelled_by):
+    """C-26.5: a stop sweeps the steer whose own turn runs, and the CLI calls it
+    cancelled (its receipt or its lifecycle), with no result for that turn yet. The turn
+    it started is still running: the held host result neither ends it at once nor after
+    the watchdog's two rounds, and stdout's end leaves it to reconciliation."""
+    turn = missed_the_boundary()
+    stop = turn.interrupt()
+    assert json.loads(stop.frames[0].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+    if cancelled_by == "receipt":
+        swept = turn.feed(line(type="control_response", response={
+            "subtype": "success", "request_id": INTERRUPT_REQUEST_ID, "response": {"cancelled": [STEER]}}), 40)
+    else:
+        swept = lifecycle(turn, STEER, "cancelled", 40)
+    assert swept.outcome is None and turn.outcome is None and not turn.steer_waiting
+    for _ in range(3):
+        assert turn.expire_steers() == Step()
+    end = turn.eof(500)
+    assert end.outcome.ended_by == "eof" and (end.outcome.state, end.outcome.reason) == ("interrupted", "stopped")
+    assert end.outcome.steers[STEER]["fate"] == "delivered"       # it was started: never requeued
+
+
+def test_a_steer_s_own_turn_ends_with_its_result_even_one_that_does_not_list_it():
+    """C-26.5: a result ends every turn a started steer is part of, its own included, so
+    a result that does not list the steer (the list is bounded) still ends the turn."""
+    turn = missed_the_boundary()
+    end = steer_result(turn, [], offset=40)
+    assert end.outcome.state == "complete" and end.outcome.ended_by == "provider"
+    assert end.outcome.steers[STEER]["fate"] == "delivered"
+
+
+def test_a_folded_steer_the_result_does_not_list_does_not_hold_the_turn():
+    """A steer the CLI started before the host's result folded into that turn: the result
+    ends it whether or not `user_message_uuids` names it, and no watchdog is needed."""
+    turn = steer_running()
+    written_steer(turn, STEER, "fold")
+    lifecycle(turn, STEER, "started", 20)
+    end = steer_result(turn, [MID], offset=30)
+    assert end.outcome.state == "complete" and end.outcome.ended_by == "provider"
+    assert end.outcome.steers[STEER]["fate"] == "delivered"
