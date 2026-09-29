@@ -311,6 +311,74 @@ def test_c5_7a_a_verified_empty_look_at_a_re_enrolment_probe_is_one_look(routing
     assert [record["state"] for record in records(service, holder)][-2:] == ["contained", "completed"]
 
 
+def test_c5_7a_a_request_asked_during_a_look_waits_for_the_next_pass(routing_state, monkeypatch):
+    """A pass looks at each holder once (C-5.7a), and that includes a request
+    asked while its look runs: a re-enrolment's holder has two leases, and a pass
+    that walked leases rather than holders would take the new request through the
+    second one and census the probe twice in one pass."""
+    service, _ = routing_state
+    holder = started_turn(service, "enroll", ("codex-1", second_lane(service)))
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    world.now += 61                                       # the holder's clock is due
+    look = service._probe_census
+    asked = []
+
+    def census_then_ask(record):
+        found = look(record)
+        if not asked:
+            asked.append(release_probe(service, holder, confirm_dead=True))
+        return found
+    monkeypatch.setattr(service, "_probe_census", census_then_ask)
+    censuses = len(world.censuses)
+    service._recover_probes()
+    assert asked[0]["status"] == "resolution requested"
+    assert len(world.censuses) == censuses + 1, "one look per holder per pass"
+    assert service._probe_resolutions[holder]["requests"][0]["mode"] == "confirm-dead"
+    service._recover_probes()
+    assert len(world.censuses) == censuses + 2 and holder not in service._probe_resolutions
+    assert len(kinds(service, "probe.still_live")) == 1 and service.store.list_leases(holder)
+
+
+def test_c5_7a_confirm_dead_never_signals_a_live_guardian(routing_state, monkeypatch):
+    """I2 with the guardian still alive. A quarantined record is looked at with a
+    census and nothing else, whoever asks: the pass's own look and an operator's
+    `--confirm-dead` must not run the kill protocol even when the recorded leader
+    is still the recorded process and its survivors are owned (signals raise)."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    record = service._probe_record(HOLDER)
+    service._save_probe({**record, "owned_identities": {
+        str(pid): dataclasses.asdict(procs.ProcessIdentity(pid, "fixture-boot", "fixture-start"))
+        for pid in world.table.live_pids}})
+    monkeypatch.setattr(procs, "same_process", lambda *args: True)   # the guardian is alive
+    world.now += 61
+    service._recover_probes()                                         # the pass's own look
+    kill(service, job_id, confirm_dead=True)
+    service._recover_probes()                                         # the operator's
+    assert [event["data"]["holder"] for event in kinds(service, "probe.still_live")] == [HOLDER]
+    assert service._probe_record(HOLDER)["state"] == "quarantined" and service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_timer_turn_gives_its_lease_back_before_it_lets_the_holder_go(routing_state, monkeypatch):
+    """`Timers._release` releases while the holder is still the turn's, so a pass
+    never looks at a lease on its way out (C-5.7a)."""
+    service, _ = routing_state
+    holder = "probe:timer:" + str(uuid4())
+    assert service.store.acquire_lease("lane:codex-1:slot:0", holder)
+    service.timers.active_holders.add(holder)
+    seen = []
+    release = service.store.release_leases
+
+    def watched(name, **kwargs):
+        seen.append(name in service.timers.active_holders)
+        return release(name, **kwargs)
+    monkeypatch.setattr(service.store, "release_leases", watched)
+    service.timers._release(holder)
+    assert seen == [True]
+    assert holder not in service.timers.active_holders and not service.store.list_leases(holder)
+
+
 def test_c5_7a_release_probe_answers(routing_state, monkeypatch):
     service, harness = routing_state
     with pytest.raises(protocol.ProtocolError) as unknown:
@@ -813,9 +881,10 @@ VALUES = {"pass": st.sampled_from([.05, .5, 1, 3, 30, 61]),
           "force": st.sampled_from(["kill", "lane", "holder"]),
           "cancel": st.none(), "restart": st.none(), "turn": st.sampled_from([.05, 1, 30]),
           "stale": st.sampled_from(["kill", "lane"]), "turn-ends": st.none(),
-          "fault": st.tuples(st.sampled_from(["resolve", "lease"]), st.sampled_from([.05, 1, 61]))}
+          "fault": st.tuples(st.sampled_from(["resolve", "lease"]), st.sampled_from([.05, 1, 61])),
+          "leader": st.booleans()}
 OPS = st.lists(st.sampled_from(["pass"] * 5 + ["table"] * 3 + ["confirm"] * 3 + ["force"] * 2
-                               + ["cancel", "restart", "turn", "stale", "turn-ends", "fault"])
+                               + ["cancel", "restart", "turn", "stale", "turn-ends", "fault", "leader"])
                .flatmap(lambda op: st.tuples(st.just(op), VALUES[op])), min_size=12, max_size=50)
 
 TABLES = {"survivor": census(SURVIVOR), "other": census(OTHER), "empty": EMPTY, "unverifiable": NOT_VERIFIABLE}
@@ -833,7 +902,8 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
     - I1: the lease goes only in a step whose last census came back verified
       empty, or in a step that recorded a `probe.force_released` naming the
       holder, which only a `--force-release` request produces;
-    - I2: nothing is ever signalled (World forbids it);
+    - I2: nothing is ever signalled (World forbids it), whether or not the
+      recorded guardian is still alive and its survivors are recorded as owned;
     - I3: once released it stays released, no later record says quarantined,
       and its job, if still waiting, is not held `uncertain`;
     - I4: a request handler takes no census;
@@ -863,6 +933,14 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
                 holder = started_turn(service, kind, lanes)
             world = World(service, monkeypatch, census(SURVIVOR))
             quarantined(service, world, holder)
+            # `leader` ops make the recorded guardian alive, with the survivors
+            # recorded as owned: the kill protocol would have a target to signal.
+            leader = {"alive": False}
+            monkeypatch.setattr(procs, "same_process", lambda *args: leader["alive"])
+            record = service._probe_record(holder)
+            service._save_probe({**record, "owned_identities": {
+                str(pid): dataclasses.asdict(procs.ProcessIdentity(pid, "fixture-boot", "fixture-start"))
+                for pid in (SURVIVOR, OTHER)}})
             forced, released = 0, False
             for op, value in ops:
                 held = bool(service.store.list_leases(holder))
@@ -909,6 +987,8 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
                     service._recover_probes()
                     service.timers.active_holders.discard(holder)
                     assert len(world.looks) == looks, "a turn's probe is the turn's"
+                elif op == "leader":
+                    leader["alive"] = value
                 elif op == "fault":
                     # The next pass raises after it has taken a pending request
                     # (a store error reading the lease again, or while resolving):

@@ -167,3 +167,21 @@ def test_provider_enrollment_does_not_hold_the_submission_lock(core, tmp_path):
             return super().enroll(credential)
     register('claude', CheckLock)
     daemon.dispatch('lanes', {'action': 'enroll', 'credential': str(home)})
+
+
+def test_c5_7a_a_reenrolment_gives_its_lease_back_before_it_lets_the_holder_go(core, tmp_path, monkeypatch):
+    """C-5.7a: the re-enrolment's finally releases the lease while the holder is
+    still its turn's (`timers.active_holders`), as `Timers._release` does; a pass
+    that ran in between would otherwise look at a lease on its way out."""
+    daemon, home, old = disabled(core, tmp_path)
+    seen = []
+    release = daemon.store.release_leases
+
+    def watched(holder, **kwargs):
+        if holder.startswith('probe:timer:enroll:'):
+            seen.append(holder in daemon.timers.active_holders)
+        return release(holder, **kwargs)
+    monkeypatch.setattr(daemon.store, 'release_leases', watched)
+    daemon.dispatch('lanes', {'action': 'enroll', 'credential': str(home)})
+    assert seen == [True], 'the lease goes while the holder is still the turn\'s'
+    assert not daemon.store.list_leases() and not daemon.timers.active_holders
