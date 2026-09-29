@@ -327,10 +327,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(f"sessions.{key}", "must be a nonnegative finite number")
         elif key in ("mirror_stall_min", "mirror_hang_min") and item <= 0:
             fail(f"sessions.{key}", "must be a positive finite number of minutes")
-        elif key in ("wake_quiet_s", "wake_cost_pct") and item <= 0:
+        elif key in ("wake_quiet_s", "wake_cost_pct", "wake_settle_min") and item <= 0:
             # C-23.56, C-23.59: zero here is not "off", it is unsafe: no quiet
-            # window takes a process inside a long tool call for a dead one, and a
-            # wake that costs nothing never counts against the window it spends.
+            # window takes a process inside a long tool call for a dead one, a
+            # wake that costs nothing never counts against the window it spends,
+            # and a wake that settles at once is never counted as running.
             fail(f"sessions.{key}", "must be a positive finite number")
         elif key in ("wake_ceiling_pct", "wake_headroom_pct") and item > 100:
             fail(f"sessions.{key}", "must be a percentage, at most 100")

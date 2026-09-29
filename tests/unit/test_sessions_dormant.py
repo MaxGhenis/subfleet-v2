@@ -737,6 +737,46 @@ def test_c23_59_a_lane_without_a_reading_is_named_not_trusted(monkeypatch):
     assert dormant.pace_lanes([], now=NOW).allowed == 0
 
 
+def test_c23_59_a_busy_lane_cannot_take_a_later_wake_of_the_batch(monkeypatch):
+    """C-23.59, review r2 (blocking): with one turn slot per lane, lane A (10%)
+    free and lane B (75%) busy, admission refuses B for now (`no-slot`), but a
+    wake queued behind A's one slot would later run on B. The batch is capped
+    at the free slots on the lanes measured, so no wake waits to fall there."""
+    from subfleet import scheduler
+
+    class Picked:
+        chosen_lane, chosen_model, reason = "claude-a", "opus", "ranked"
+        evaluations = ({"model": "opus", "candidates": ["claude-a"],
+                        "rejections": [{"lane_id": "claude-b", "reason": "no-slot"}]},)
+
+    monkeypatch.setattr(scheduler, "evaluate", lambda policy, view, job: Picked())
+    monkeypatch.setattr(scheduler, "prepare", lambda policy, view, job: {
+        "conversation_caps": {"turn_slots_per_lane": 1}, "in_flight": {"claude-b": 1}})
+    view = {"readings": [{"lane_id": lane, "scope": "account", "window": "five_hour", "utilization": used,
+                          "resets_at": fx.iso(NOW + timedelta(hours=1)), "label": "provider",
+                          "observed_at": fx.iso(NOW)} for lane, used in (("claude-a", 0.1), ("claude-b", 0.75))]}
+    windows = dormant.lane_windows(view, fx.policy(), model=OPUS, now=NOW)
+    decision = dormant.pace_lanes(windows, now=NOW)
+    assert [window.slots for window in windows] == [1]
+    assert decision.allowed == 1 and "1 free turn slots" in decision.reason
+
+
+@pytest.mark.parametrize("slots, fleet, allowed", [
+    ([None, None], None, 6),       # no turn caps (the default): the batch binds
+    ([2, 1], None, 3),             # three free slots on the lanes measured
+    ([2, None], None, 6),          # one measured lane has no cap
+    ([None, None], 2, 2),          # the fleet's cap binds
+    ([0, 0], None, 0),             # every measured lane full
+])
+def test_c23_59_the_batch_fits_the_free_turn_slots(slots, fleet, allowed):
+    """C-23.59 (C-26.9): no more wakes than free turn slots on measured lanes and
+    in the fleet; with no caps set, only the pace and the batch bind."""
+    windows = [dormant.Window(5.0, NOW + timedelta(hours=1), as_of=NOW, label="provider",
+                              source=f"lane {index}", slots=free, fleet_slots=fleet)
+               for index, free in enumerate(slots)]
+    assert dormant.pace_lanes(windows, now=NOW).allowed == allowed
+
+
 @pytest.mark.parametrize("as_of", [None, NOW + timedelta(hours=1)])
 def test_c23_59_a_reading_with_no_time_or_a_future_one_paces_nothing(as_of):
     """C-23.59, review r1: a reading that does not say when it was taken, or says
@@ -776,7 +816,10 @@ def test_c23_57_the_real_reader_turns_every_failure_into_unknown(monkeypatch):
     assert dormant.read_processes(lambda argv: good, own_pid=4242).starts == {4242: "Mon Sep 28 17:19:00 2026"}
 
 
-@pytest.mark.parametrize("body", ["{}", json.dumps({"sessionId": S2}), json.dumps({"pid": 31})])
+@pytest.mark.parametrize("body", ["{}", json.dumps({"sessionId": S2}), json.dumps({"pid": 31}),
+                                  json.dumps({"sessionId": S2, "pid": 0}),
+                                  json.dumps({"sessionId": S2, "pid": True}),
+                                  json.dumps({"sessionId": S2, "pid": 32})])
 def test_c23_57_an_uninterpretable_registry_row_is_unreadable(tmp_path, monkeypatch, body):
     """C-23.57, review r1: a registry file that is valid JSON but names no session
     or no pid still names a process (its file name), whose session is unknown."""
@@ -786,6 +829,34 @@ def test_c23_57_an_uninterpretable_registry_row_is_unreadable(tmp_path, monkeypa
     assert reading.unreadable == (31,) and reading.rows == ()
     live = dormant.Processes(starts={31: "Mon Sep 28 17:19:00 2026"}, named=frozenset())
     assert dormant.liveness(S1, reading=reading, processes=live) == "unknown"
+
+
+def test_c23_58_a_copy_that_cannot_be_looked_at_counts_as_unread(world):
+    """C-23.58, review r2: a copy in a folder that cannot be searched is not "no
+    copy"; it is counted unread, which holds the wake."""
+    dormant_session(world)
+    fx.index_entry(world["store"], "acct-2", "org-2", S1, cwd=world["cwd"], model=OPUS)
+    locked = world["store"] / "acct-2" / "org-2"
+    locked.chmod(0o600)
+    try:
+        merged = dormant.all_copies(world["store"], f"local_{S1}")
+    finally:
+        locked.chmod(0o700)
+    assert merged is not None and merged.unreadable == 1
+
+
+def test_c23_59_a_lock_that_cannot_be_opened_is_named(world, monkeypatch):
+    """C-23.59, review r2: a pass that cannot open its lock sends nothing and says
+    why, rather than blaming another pass."""
+    dormant_session(world)
+
+    def refuse(path):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(dormant.transcripts, "lock_fd", refuse)
+    service = FakeConversations()
+    report = wake(world, fx.FakeSessions(), service)
+    assert not service.opened and "could not be opened" in report.pace.reason
 
 
 def test_c23_60_a_branch_that_cannot_be_read_holds(monkeypatch, tmp_path):
@@ -982,7 +1053,8 @@ def test_c23_60_plan_needs_the_window_it_paces_against(world, daemon, capsys):
 @pytest.mark.parametrize("key, value", [("wake_batch", -1), ("wake_batch", 2.5), ("wake_model", ""),
                                         ("wake_model", 5), ("wake_quiet_s", float("nan")),
                                         ("wake_quiet_s", 0), ("wake_cost_pct", 0),
-                                        ("wake_ceiling_pct", 101), ("wake_headroom_pct", 150)])
+                                        ("wake_ceiling_pct", 101), ("wake_headroom_pct", 150),
+                                        ("wake_settle_min", 0)])
 def test_c23_59_wake_policy_is_validated(tmp_path, key, value):
     """C-23.59 (C-6.4): the wake caps are policy data, validated like the rest."""
     from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy

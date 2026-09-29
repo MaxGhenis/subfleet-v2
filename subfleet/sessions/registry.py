@@ -245,10 +245,14 @@ def read(directory: Path | None = None) -> Reading:
             unreadable.append(_named_pid(name))
             continue
         row = _parsed(path, data)
-        if row is None or row.pid is None:
-            # Valid JSON with no session id or no pid still names a process (its
-            # file name), and says nothing about which session that process holds.
-            unreadable.append(_named_pid(name))
+        named = _named_pid(name)
+        raw_pid = data.get("pid") if isinstance(data, dict) else None
+        if (row is None or row.pid is None or row.pid <= 0 or isinstance(raw_pid, bool)
+                or (named is not None and row.pid != named)):
+            # Valid JSON with no session id, or a pid that is not the process the
+            # file is named for, still names a process (its file name), and says
+            # nothing reliable about which session that process holds.
+            unreadable.append(named)
             continue
         found.append(row)
     return Reading(rows=tuple(found), unreadable=tuple(unreadable))

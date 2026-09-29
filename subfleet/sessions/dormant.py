@@ -444,7 +444,12 @@ def all_copies(store: Path, local_id: str, *,
             continue
         for org in orgs:
             path = Path(org) / f"{local_id}.json"
-            if not path.exists():
+            try:
+                os.stat(path)
+            except (FileNotFoundError, NotADirectoryError):
+                continue                    # no copy in this folder
+            except OSError:
+                unreadable += 1             # a copy that cannot be looked at may be the archived one
                 continue
             data = _read_record(path)
             if data is None:
@@ -465,11 +470,15 @@ class Window:
     as_of: datetime | None = None
     label: str = "unknown"
     source: str = ""
+    #: Free turn slots on this lane (C-26.9), and in the whole fleet; None is no cap.
+    slots: int | None = None
+    fleet_slots: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"percent_used": self.percent_used,
                 "resets_at": _iso(self.resets_at), "as_of": _iso(self.as_of),
-                "label": self.label, "source": self.source}
+                "label": self.label, "source": self.source, "slots": self.slots,
+                "fleet_slots": self.fleet_slots}
 
 
 @dataclass(frozen=True)
@@ -589,6 +598,19 @@ def pace_lanes(windows: Sequence[Window], *, now: datetime, rule: PaceRule = Pac
             tightest = Pace(other.allowed, f"{other.reason}, on {window.source}, where a turn "
                             f"may land", elapsed_pct=other.elapsed_pct,
                             percent_used=other.percent_used, pending=pending, window=window)
+    # A wake beyond the free turn slots of the lanes measured here waits for a
+    # slot, and may then be placed on a lane that was busy or unmeasured when the
+    # batch was paced; so the batch is no larger than those slots (C-26.9 caps).
+    measured = [window for window in windows if distrust(window, now=now, rule=rule) is None]
+    lane_room = None if any(window.slots is None for window in measured) \
+        else sum(max(0, window.slots) for window in measured)
+    fleet = windows[0].fleet_slots
+    rooms = [value for value in (lane_room, None if fleet is None else max(0, fleet))
+             if value is not None]
+    if rooms and min(rooms) < tightest.allowed:
+        tightest = Pace(min(rooms), f"{tightest.reason}; {min(rooms)} free turn slots on the "
+                        "lanes measured", elapsed_pct=tightest.elapsed_pct,
+                        percent_used=tightest.percent_used, pending=pending, window=tightest.window)
     if unmeasured:
         tightest = Pace(tightest.allowed, f"{tightest.reason}; not measured: "
                         f"{', '.join(unmeasured)}", elapsed_pct=tightest.elapsed_pct,
@@ -675,8 +697,28 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
     for evaluation in getattr(decision, "evaluations", ()) or ():
         if isinstance(evaluation, Mapping) and evaluation.get("model") == decision.chosen_model:
             candidates = [item for item in evaluation.get("candidates") or [] if isinstance(item, str)]
-    return [_lane_reading(view, lane)] + [_lane_reading(view, other) for other in candidates
-                                          if other != lane]
+    lane_slots, fleet_slots = _turn_slots(policy, view, short)
+    return [_lane_reading(view, other, slots=lane_slots(other), fleet_slots=fleet_slots)
+            for other in [lane] + [item for item in candidates if item != lane]]
+
+
+def _turn_slots(policy: Mapping[str, Any], view: Mapping[str, Any],
+                short: str) -> tuple[Callable[[str], int | None], int | None]:
+    """Free turn slots per lane and in the fleet, as admission counts them
+    (`scheduler.prepare`'s in-flight turns and the C-26.9 caps); None is no cap."""
+    from .. import scheduler
+    from ..policy import turn_cap
+    try:
+        setup = scheduler.prepare(policy, view, _turn_job(policy, short))
+        caps = setup.get("conversation_caps") or {}
+        per_lane = turn_cap(caps, "turn_slots_per_lane")
+        fleet = turn_cap(caps, "max_active_turns")
+        in_flight = dict(setup.get("in_flight") or {})
+    except Exception:                                   # noqa: BLE001 - uncounted slots: none free
+        return (lambda lane: 0), 0
+    fleet_free = None if fleet is None else fleet - sum(in_flight.values())
+    return ((lambda lane: None if per_lane is None else per_lane - in_flight.get(lane, 0)),
+            fleet_free)
 
 
 def lane_window(view: Mapping[str, Any], policy: Mapping[str, Any], *,
@@ -691,7 +733,8 @@ def _turn_job(policy: Mapping[str, Any], short: str) -> dict[str, Any]:
             "job_id": "wake-pacing", "workdir": str(Path.home())}
 
 
-def _lane_reading(view: Mapping[str, Any], lane: str) -> Window:
+def _lane_reading(view: Mapping[str, Any], lane: str, *, slots: int | None = None,
+                  fleet_slots: int | None = None) -> Window:
     """A lane's newest five-hour account reading in `view`, as a `Window`."""
     best: Mapping[str, Any] | None = None
     for row in view.get("readings", ()) or ():
@@ -702,13 +745,15 @@ def _lane_reading(view: Mapping[str, Any], lane: str) -> Window:
             if best is None or str(row.get("observed_at") or "") > str(best.get("observed_at") or ""):
                 best = row
     if best is None:
-        return Window(None, None, label="unknown", source=f"lane {lane}: no five-hour reading")
+        return Window(None, None, label="unknown", source=f"lane {lane}: no five-hour reading",
+                      slots=slots, fleet_slots=fleet_slots)
     utilization = best.get("utilization")
     percent = float(utilization) * 100 if isinstance(utilization, (int, float)) \
         and not isinstance(utilization, bool) else None
     return Window(percent, _instant(best.get("resets_at")), as_of=_instant(best.get("observed_at")),
                   label=str(best.get("label") or "unknown"),
-                  source=f"lane {lane} ({best.get('source') or 'reading'})")
+                  source=f"lane {lane} ({best.get('source') or 'reading'})",
+                  slots=slots, fleet_slots=fleet_slots)
 
 
 def window_from(percent: float | None, resets_at: Any, *, now: datetime,
@@ -1216,10 +1261,10 @@ def wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
     if transport not in TRANSPORTS:
         raise ValueError(f"transport must be one of {TRANSPORTS}")
     lock = None if dry_run or state_root is None else _pass_lock(state_root)
-    if lock is False:
-        busy = Scan(errors=["another wake pass is running; this one waits for the next"])
+    if isinstance(lock, str):
+        busy = Scan(errors=[f"{lock}; this pass sends nothing"])
         report = WakeReport(scan=busy, transport=transport, dry_run=dry_run)
-        report.pace = Pace(0, "another wake pass is running")
+        report.pace = Pace(0, lock)
         return report
     try:
         return _wake_pass(sessions, policy, transport=transport, conversations=conversations,
@@ -1237,20 +1282,20 @@ def wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
 LOCK_NAME = "wake.lock"
 
 
-def _pass_lock(state_root: Path) -> int | bool:
-    """The pass lock's descriptor, or False when another pass holds it."""
+def _pass_lock(state_root: Path) -> int | str:
+    """The pass lock's descriptor, or why it could not be taken."""
     import fcntl
     directory = Path(state_root) / "sessions"
     try:
         directory.mkdir(parents=True, exist_ok=True)
         fd = transcripts.lock_fd(directory / LOCK_NAME)
-    except OSError:
-        return False
+    except OSError as exc:
+        return f"the wake lock {directory / LOCK_NAME} could not be opened ({exc.strerror or exc})"
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
-        return False
+        return "another wake pass is running"
     return fd
 
 
@@ -1311,7 +1356,7 @@ def _wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
 
 
 #: How long one re-read process table serves the wakes that follow it.
-RECHECK_TABLE_S = 30.0
+RECHECK_TABLE_S = 5.0
 
 
 class _Recheck:
@@ -1609,6 +1654,10 @@ def _end(child) -> tuple[str, str]:
                 stream.close()
         except OSError:
             pass
+    try:
+        child.wait(timeout=PASS_KILL_S)
+    except subprocess.TimeoutExpired:
+        pass
     return "", ""
 
 
