@@ -349,8 +349,9 @@ def test_c10_3_a_slow_idle_read_never_replaces_a_newer_busy_one(state_daemon, mo
     assert [row.status for row in daemon._registry[1]["found"]["rows"]] == ["busy"]
     assert daemon._desktop_answer() is True
     # An answer older than the bound is use, whatever it said.
-    daemon._registry = (time.monotonic() - daemon_module.DESKTOP_IN_USE_MAX_AGE_S - 1,
-                        {"found": {"rows": [], "unreadable": [], "groups": {}}, "in_use": False, "evidence": {}})
+    aged = time.monotonic() - daemon_module.DESKTOP_IN_USE_MAX_AGE_S - 1
+    daemon._registry = (aged, {"found": {"rows": [], "unreadable": [], "groups": {}}, "in_use": False,
+                               "evidence": {}, "finished": aged})
     assert daemon._desktop_answer() is True
 
 
@@ -478,3 +479,146 @@ def test_c10_3_a_newer_unreadable_read_supersedes_an_older_answer_being_judged(s
     release.set()
     older.join(10)
     assert answers == [True] and daemon._desktop_answer() is True and daemon._session_rows() is None
+
+
+
+def _resume(daemon, harness, source_id, caller):
+    from subfleet import protocol
+    return daemon.submit(protocol.SubmitArgs(**harness.submit_args(
+        kind="resume", parent_job_id=source_id, caller_session=caller)))["job_id"]
+
+
+@pytest.mark.parametrize("policy", ["uncapped", "capped"])
+@pytest.mark.parametrize("waiter_due", [True, False])
+def test_c6_9_a_retry_never_waits_behind_a_job_waiting_for_its_own_lease(state_daemon, monkeypatch,
+                                                                        policy, waiter_due):
+    """Review of PR #72 (Opus peer, two lenses): two read-only resumes of one native
+    session. The first is placed and holds the session's leases; its attempt ends
+    transient, so it waits to retry and keeps them. The second, whose caller is
+    live, is ordered first (`session` before `background`) and waits for those
+    leases. The first is placed on the next pass: it is never queued (lease FIFO)
+    or held behind (C-6.9, capped) a job waiting for a lease it holds itself."""
+    from subfleet import scheduler
+    from subfleet.daemon import native_session_lease_key
+    from tests.fake.test_resume_contract import finish_reserved, finished_source, measured_lane
+
+    daemon, harness = state_daemon
+    if policy == "capped":
+        capped(daemon.policy)
+    measured_lane(daemon)
+    source_id, source_attempt = finished_source(daemon, harness)
+    first = _resume(daemon, harness, source_id, "gone-session")
+    daemon._admit()
+    assert daemon.store.get_job(first)["state"] == "running"
+    second = _resume(daemon, harness, source_id, "live-session")
+    real = daemon._liveness
+    monkeypatch.setattr(daemon, "_liveness", lambda jobs: scheduler.Liveness(
+        sessions=(real(jobs) or scheduler.Liveness(frozenset(), frozenset())).sessions | {"live-session"},
+        jobs=frozenset()))
+    daemon._admit()
+    assert daemon._holds[second]["reason"] == "lease-held"                 # waits for the first's leases
+    monkeypatch.setattr(FakeAdapter, "classify", lambda self, adir, launch, exit_info: Outcome(
+        OutcomeClass.TRANSIENT, "fixture transient", evidence={"rc": exit_info.rc}))
+    finish_reserved(daemon, first)
+    key = native_session_lease_key(source_attempt["lane_id"], "native-source-session")
+    assert daemon.store.get_job(first)["state"] == "waiting"
+    assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"] == first
+    daemon.store.update_job(first, next_check_at=None)
+    if waiter_due:
+        daemon.store.update_job(second, next_check_at=None)
+    daemon._admit()
+    assert [a["seq"] for a in daemon.store.list_attempts(first)] == [1, 2], daemon._holds.get(first)
+    assert daemon.store.list_attempts(second) == []                        # still waiting its turn
+
+
+def test_c6_9_an_unlistable_registry_is_unknown_liveness(state_daemon, monkeypatch):
+    """Review of PR #72: a registry that exists and cannot be listed says nothing
+    about who is live. Every detached job is then `session` (C-6.9), not each live
+    caller's job `background`."""
+    from subfleet import scheduler
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
+    monkeypatch.setattr(daemon_module.registry, "listing", lambda directory=None: None)
+    job = {"job_id": "j", "kind": "dispatch", "caller_session": LIVE_SESSION, "parent_job_id": None}
+    assert daemon._liveness([job]) is None
+    assert scheduler.priority_class(job, daemon._liveness([job])) == "session"
+
+
+def test_c3_7_a_read_op_never_waits_for_the_desktop_event_write(state_daemon, monkeypatch):
+    """Review of PR #72: recording a changed answer writes an event, which waits for
+    any store writer. A read op publishing its own registry read meanwhile does not
+    wait for that write."""
+    import threading
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
+    entered, release = threading.Event(), threading.Event()
+    real_add = daemon.store.add_event
+
+    def slow_add(kind, *args, **kwargs):
+        if kind == "desktop.in_use":
+            entered.set()
+            assert release.wait(10)
+        return real_add(kind, *args, **kwargs)
+    monkeypatch.setattr(daemon.store, "add_event", slow_add)
+    from subfleet.sessions import registry as registry_module
+    monkeypatch.setattr(daemon_module.registry, "listing", lambda directory=None: registry_module.Listing())
+    daemon._desktop_in_use()
+    recorder = threading.Thread(target=daemon._record_desktop_use)
+    recorder.start()
+    try:
+        assert entered.wait(10)
+        answered = []
+        reader = threading.Thread(target=lambda: answered.append(daemon._desktop_in_use()))
+        reader.start()
+        reader.join(5)
+        assert answered, "a read op waited for the desktop.in_use event write"
+    finally:
+        release.set()
+        recorder.join(10)
+
+
+def test_c10_3_a_slow_registry_read_is_reused(state_daemon, monkeypatch):
+    """Review of PR #72: a read that takes longer than the cache lifetime is reused
+    for that lifetime after it finished, not read again at every call; it is still
+    aged from when it began."""
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0.2)
+    calls = []
+
+    def slow_listing(directory=None):
+        calls.append(None)
+        time.sleep(0.3)
+        return registry_module.Listing()
+    monkeypatch.setattr(daemon_module.registry, "listing", slow_listing)
+    began = time.monotonic()
+    daemon._desktop_in_use()
+    daemon._desktop_in_use()
+    daemon._session_rows()
+    assert len(calls) == 1
+    assert daemon._registry[0] <= began + 0.05                               # aged from its start
+
+
+def test_c10_3_the_answer_a_reservation_places_by_is_recorded(state_daemon, monkeypatch):
+    """Review of PR #72: the answer changes between the pass's first read and the
+    reservation's refresh. The change the reservation places by is recorded as a
+    `desktop.in_use` event in that pass, not left to a later pass that may read it
+    changed back."""
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
+    now = time.time() * 1000
+    busy = registry_module.SessionRow(session_id="s", pid=os.getpid(), socket=None, name=None, cwd=None,
+                                      started_at=now, alive=True, socket_present=False, registry_path="x",
+                                      entrypoint="claude-desktop", status="busy", status_updated_at=now)
+    reads = []
+    monkeypatch.setattr(daemon_module.registry, "listing", lambda directory=None: reads.append(None) or (
+        registry_module.Listing() if len(reads) == 1 else registry_module.Listing((busy,), ())))
+    monkeypatch.setattr(daemon_module.registry, "validated", lambda found, starts: list(found))
+    submit(daemon, harness, "one")
+    daemon._admit()
+    assert [row["in_use"] for row in _uses(daemon)] == [False, True]

@@ -556,6 +556,9 @@ class Daemon:
         # reads that record a change, so each change is one `desktop.in_use` event.
         self._desktop_use_recorded: bool | None = None
         self._desktop_use_lock = threading.Lock()
+        # C-3.7: recording writes an event, so it has its own lock: a read op that
+        # publishes a registry read never waits for a store writer behind it.
+        self._desktop_record_lock = threading.Lock()
         # C-6.9, C-10.3: the last registry read (`_registry_read`): the instant it
         # began, and the rows and desktop answer it found; reused for a moment.
         self._registry: tuple[float, dict | None] = (0.0, None)
@@ -948,7 +951,10 @@ class Daemon:
         PR #72: with two caches, an older idle answer could be published after
         a newer read that found the registry unreadable)."""
         read_at, reading = self._registry
-        if reading is not None and time.monotonic() - read_at < REGISTRY_READ_TTL_S:
+        # Reused for `REGISTRY_READ_TTL_S` after it finished, so a slow read (a
+        # slow `ps`) is reused like any other; it is still aged from when it
+        # began (`_desktop_answer`). Review of PR #72.
+        if reading is not None and time.monotonic() - reading["finished"] < REGISTRY_READ_TTL_S:
             return read_at, reading
         started = time.monotonic()
         listed = registry.listing()
@@ -977,7 +983,7 @@ class Daemon:
                 found["rows"], now_ms=time.time() * 1000,
                 recent_s=admission_settings(self.policy)["desktop_recent_s"],
                 owned_pids=owned_pids, owned_sessions=owned_sessions, unreadable=len(found["unreadable"]))
-        reading = {"found": found, "in_use": in_use, "evidence": evidence}
+        reading = {"found": found, "in_use": in_use, "evidence": evidence, "finished": time.monotonic()}
         with self._desktop_use_lock:
             if started >= self._registry[0]:
                 self._registry = (started, reading)         # replaced whole: other threads read it
@@ -1013,11 +1019,12 @@ class Daemon:
     def _record_desktop_use(self) -> None:
         """C-10.3: each change of the in-use answer, and the first after a start, is
         one `desktop.in_use` event carrying the rows that decided it, so a job
-        placed on the desktop lane can be explained. Written by the detached
-        admission pass, which writes anyway; never by a read op."""
+        placed on the desktop lane can be explained. Written by admission, which
+        writes anyway, after each refresh it places by; never by a read op. Under
+        its own lock, never the one `_registry_read` publishes under (C-3.7)."""
         _, reading = self._registry
         in_use, evidence = (reading["in_use"], reading["evidence"]) if reading else (None, None)
-        with self._desktop_use_lock:
+        with self._desktop_record_lock:
             if in_use is None or in_use == self._desktop_use_recorded:
                 return
             self.store.add_event("desktop.in_use", data={"in_use": in_use, "was": self._desktop_use_recorded,
@@ -1039,7 +1046,7 @@ class Daemon:
         known[job_id] = frozenset(found)
         return known[job_id]
 
-    def _liveness(self, jobs: list[dict]) -> scheduler.Liveness:
+    def _liveness(self, jobs: list[dict]) -> scheduler.Liveness | None:
         """C-6.9: who is waiting on these jobs now (`scheduler.priority_class`).
 
         The Claude Code sessions a validated registry row names (its pid still the
@@ -1048,7 +1055,12 @@ class Daemon:
         alone is not asked: a live pid proves a process, not the caller (review of
         the uncap plan).
         """
-        found = self._session_rows() or {"rows": []}
+        found = self._session_rows()
+        if found is None:
+            # Unknown, not empty: with no liveness to read every detached job is
+            # `session` (C-6.9), rather than each live caller's job `background`
+            # (review of PR #72).
+            return None
         sessions = frozenset(row.session_id.lower() for row in found["rows"] if row.alive)
         parents = sorted({job["parent_job_id"] for job in jobs if job.get("parent_job_id")})
         live_jobs: set[str] = set()
@@ -3167,6 +3179,7 @@ class Daemon:
             # Claude Code began using after the evaluation (review of PR #72).
             # Before the directory exists, so a store error here leaves none behind.
             self._desktop_in_use()
+            self._record_desktop_use()
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
@@ -3424,7 +3437,9 @@ class Daemon:
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
-        waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None]]] = {}
+        # Each waiter carries the leases it waits for another holder to release:
+        # a job never waits behind a waiter for a lease the job itself holds.
+        waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]]] = {}
         # C-6.9: job id -> its ancestors, for holds scoped to a family (`hold_scope`).
         ancestry: dict[str, frozenset[str]] = {job["job_id"]: frozenset() for job in queued
                                                if not job.get("parent_job_id")}
@@ -3525,13 +3540,27 @@ class Daemon:
             scope = scheduler.hold_scope(self.policy, job)
             family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
 
+            held_here: list[frozenset[str]] = []
+
+            def held():
+                """The leases this job holds itself: a retry keeps its job-held ones."""
+                if not held_here:
+                    held_here.append(frozenset(row["lease_key"] for row in self.store.query(
+                        "SELECT lease_key FROM leases WHERE holder=?", (job["job_id"],))))
+                return held_here[0]
+
             def ahead(models, lanes):
-                """The oldest waiter this job may not pass (C-6.9), or None."""
+                """The oldest waiter this job may not pass (C-6.9), or None. Never one
+                waiting for a lease this job holds: that waiter moves only once this
+                job has run, so holding this job behind it holds both until
+                `max_wall_s` (review of PR #72: a retrying resume and a newer one
+                of the same native session, the newer ordered first by class)."""
                 if scope is None:
                     return None
-                return next((older for older, theirs, their_lanes in waiters.get(tier, ())
+                return next((older for older, theirs, their_lanes, their_leases in waiters.get(tier, ())
                              if scheduler.competes(models, theirs, lanes, their_lanes)
-                             and (scope == "pool" or family & self._ancestors(older, ancestry))), None)
+                             and (scope == "pool" or family & self._ancestors(older, ancestry))
+                             and not (their_leases and their_leases & held())), None)
             behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
@@ -3552,7 +3581,9 @@ class Daemon:
             hurried = bool(freed and known and known["expedite"])
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 if job["wait_reason"] == "capacity":
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                    waiting_for = (frozenset(known["hold"].get("leases") or ())
+                                   if known and known["hold"].get("reason") == "lease-held" else frozenset())
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
                 if known and known["hold"].get("reason") == "lease-held":
                     queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
                               job["job_id"])
@@ -3637,7 +3668,7 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
                 current = self._job(job["job_id"])
                 clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
@@ -3692,8 +3723,10 @@ class Daemon:
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
             for tries in range(1, ROUTE_TRIES + 1):
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
-                # check inside reads the answer without touching the registry.
+                # check inside reads the answer without touching the registry. A
+                # change it places by is recorded (review of PR #72).
                 self._desktop_in_use()
+                self._record_desktop_use()
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
                     with self._isolated_route(job, holds) as route, \
@@ -3735,7 +3768,7 @@ class Daemon:
                         limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
                         at_limit = limit is not None and live >= limit
                         if not decision.chosen_lane or at_limit:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
                             # 2026-09-20 three such jobs were each re-evaluated every
@@ -3767,7 +3800,7 @@ class Daemon:
                             # The chosen identity changed after its probe; a later pass
                             # probes the new pair (`_prepare_route`). C-6.10: on a clock,
                             # or a lane whose state keeps moving is probed every tick.
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                             hold = {"reason": "probe-pending"}
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
@@ -3821,12 +3854,16 @@ class Daemon:
                                 status = "held"
                                 break
                             leases.append((revive_key, job["job_id"]))
-                        contested = [key for key, holder in leases
-                                     if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
-                        queued = [key for key, _ in leases if key not in contested
+                        current = {key: r[0] for key, _ in leases
+                                   if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())}
+                        contested = [key for key, holder in leases if key in current and current[key] != holder]
+                        # A lease this job already holds (a retry keeps its job-held
+                        # ones) is never queued behind a job waiting for it: that job
+                        # waits for this one to run and release it (review of PR #72).
+                        queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
                         if contested or queued:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
                             hold = {"reason": "lease-held", "leases": contested,
@@ -3890,7 +3927,7 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
                 continue

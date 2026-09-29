@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 8)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 9)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -373,6 +373,16 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 8 (Opus 5.5 peer review of PR #72)
+
+Astra had no Codex capacity until about Oct 3, so an independent Opus 5.5 review ran instead: four lenses, each finding checked by a skeptic. It confirmed one P2 and five P3s.
+
+- **A retry never waits for its own lease.** A job keeps its job-held leases while it waits to retry: native session, worktree and output path. With classes ordering a newer job first, and the lease FIFO now covering detached jobs, two resumes of one native session each waited for the other until `max_wall_s`. A job's own leases are now never `queued` for another job. In a capped pool, C-6.9's `ahead()` never holds a job behind a waiter for a lease the job holds.
+- **Unknown liveness.** A registry that cannot be listed gives unknown liveness, so every detached job is `session` (C-6.9). Before, every live caller's job became `background`.
+- **Recording.** `desktop.in_use` is recorded after each refresh that a reservation or an admission probe places by, not only at the start of a pass. Recording has its own lock, so a read op never waits for its event write (C-3.7).
+- **Slow reads are reused.** A registry read is reused for 2 s after it finished, so a slow `ps` is not repeated at every call. It is still aged from when it began.
+- **Contract text.** C-6.5 no longer names a default of 8 for `max_writable_per_session`.
 
 ## Changes since revision 7 (Astra's PR gates on PR #72)
 
