@@ -470,20 +470,51 @@ def test_a_lost_refused_or_oversized_title_write_is_never_retried_and_never_fail
         assert TITLE_CANCEL_FRAME not in turn.logged()                # nor cancelled after the stop
 
 
-@pytest.mark.parametrize("stopped", [False, True])
+@pytest.mark.parametrize("stopped", [None, "asked", "recorded"])
 def test_the_title_cancellation_goes_once_after_the_budget_and_never_after_a_stop(stopped):
+    """A recorded stop is one the service has committed before its `interrupt` reached
+    the runner (`ConversationService._interrupt`): the cancellation already yields to it."""
     with title_turn() as turn:
         runner = turn.runner()
         turn.say(runner, INIT_OK, ACCEPTED)
-        if stopped:
+        if stopped == "asked":
             runner.interrupt("stopped")
             runner._drain_commands()
+        elif stopped == "recorded":
+            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
         for _ in range(3):
             turn.now[0] += TITLE_BUDGET_S
             runner._timers()
             runner._send_outbox()
         assert turn.logged().count(TITLE_CANCEL_FRAME) == (0 if stopped else 1)
         assert turn.titles_yielded()
+
+
+@pytest.mark.parametrize("barrier", ["recorded-stop", "asked-stop", "close", "outcome"])
+def test_a_title_waiting_behind_a_command_is_never_written_after_a_barrier(barrier):
+    """The title waits while a person's answer is queued; a barrier that falls meanwhile
+    (here after the provider took the message) ends it before the runner drains."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        turn.say(runner, INIT_OK)
+        runner.respond("an-answered-request", "allow")
+        turn.say(runner, ACCEPTED, reply())
+        assert TITLE_FRAME not in turn.logged()                      # waiting behind the answer
+        if barrier == "recorded-stop":
+            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
+        elif barrier == "asked-stop":
+            runner.interrupt("stopped")
+        elif barrier == "close":
+            runner.outbox.append(Frame("close", "close"))
+        else:
+            turn.say(runner, RESULT)
+        runner._drain_commands()
+        runner._send_outbox()
+        turn.now[0] += TITLE_BUDGET_S
+        runner._timers()
+        runner._send_outbox()
+        assert TITLE_FRAME not in turn.logged() and TITLE_CANCEL_FRAME not in turn.logged()
+        assert not runner.relay_failed and runner.frame_refused is None
 
 
 @pytest.mark.parametrize("accepted_first", [True, False])
@@ -699,6 +730,8 @@ INTERVENTIONS = ("recorded-stop", "asked-stop", "close", "race-recorded-stop", "
 @example(actions=["init", "race-recorded-stop", "accept", "tick"], person_title=False)
 @example(actions=["init", "race-asked-stop", "accept", "tick"], person_title=False)
 @example(actions=["init", "queue-answer", "accept", "text", "tick"], person_title=False)
+@example(actions=["init", "accept", "recorded-stop", "expire"], person_title=False)
+@example(actions=["init", "queue-answer", "accept", "result", "tick"], person_title=False)
 def test_property_a_title_is_asked_at_most_once_after_acceptance_and_never_past_a_barrier(actions, person_title):
     """Invariants, for every schedule:
     1. at most one title request and one cancellation are ever written, across replays;
