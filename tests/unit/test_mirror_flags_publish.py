@@ -396,6 +396,42 @@ def test_a_sweep_leaves_the_temporaries_of_a_pending_record(world, monkeypatch):
     assert not stray.exists(), "nothing pending: a leftover like any other"
 
 
+def test_recovery_resolves_by_what_the_pass_read_not_by_a_newer_save(world, monkeypatch):
+    """A crash left C unreached. The next pass reads every copy, then the
+    user archives C before the pass resolves the record. The pass decides on
+    what it read, so C's reference must be what it read too: taken from the
+    newer save, C's older read would vote, and the pass would unarchive
+    every account the user had archived."""
+    process, store = world
+    running = synced(process, store, False)
+    rewrite(store, 0, isArchived=True)                   # the user archives in A
+    install = mirror._install
+
+    def the_app_saves_c_then_the_process_dies(temporary, destination, **kwargs):
+        if destination == path(store, 2) and kwargs.get("keep"):
+            rewrite(store, 2, lastFocusedAt=7)
+            install(temporary, destination, **kwargs)
+            raise Crash()
+        return install(temporary, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_install", the_app_saves_c_then_the_process_dies)
+        run_crashing(running)
+    sync = mirror.Mirror.sync_flags
+
+    def the_user_archives_c_after_the_read(engine, folder_files, *args, **kwargs):
+        rewrite(store, 2, isArchived=True)
+        return sync(engine, folder_files, *args, **kwargs)
+
+    fresh = process()
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.Mirror, "sync_flags", the_user_archives_c_after_the_read)
+        assert fresh.run_once().state == "ok"
+    assert flags(store) == (True,) * 3
+    assert fresh.run_once().state == "ok"
+    assert flags(store) == (True,) * 3 and record(fresh)["isArchived"] is True
+
+
 def test_a_record_the_base_already_holds_is_not_resolved_again(world, monkeypatch):
     """The process dies once the base holds the resolution and before the
     record is dropped. The next process drops it without resolving it a
