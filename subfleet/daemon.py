@@ -49,7 +49,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model, turn_cap
-from .retention import maintenance
+from .retention import RetentionState, maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -85,6 +85,11 @@ PROBE_RECORD = (
 #: `store.STATEMENT_RESERVE` (2) of them; a read that finds none free waits at
 #: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
+#: d635: seconds a retention pass may start new work; a started job gets its
+#: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
+RETENTION_PASS_S = 180
+#: d635: seconds between passes while a backlog is being worked off.
+RETENTION_CATCH_UP_S = 5
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -437,6 +442,8 @@ class Daemon:
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
         self._last_maintenance = time.monotonic()
+        # d635: deferrals and measured sizes carried between retention passes.
+        self._retention_state = RetentionState()
         # Every connection not yet closed, for shutdown; `_reading`, those whose
         # reader still runs, is what `MAX_CONNECTIONS` counts (C-16.1).
         self._connections: set[socket.socket] = set()
@@ -488,7 +495,9 @@ class Daemon:
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
         self._seed_lanes()
-        self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
+        # 13: retention's pass (d635) can hold one worker for minutes; the other
+        # twelve are what attempts, admission and exports had before.
+        self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
         self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
@@ -1178,7 +1187,12 @@ class Daemon:
             # `caller_session`.
             fence: tuple[str | None, str] | None = None
             resume_workspace = None
+            fence = None
             if args.kind == "resume":
+                # d635: while the resume reads its source's job directory, and
+                # until its own row pins the source (C-8.4 `parent`), retention
+                # may not start retiring the source (review Astra 9).
+                fence = self._fence_resume(args)
                 args, resume = self._resume_submission(args)
                 # Where the resume starts is the source's, not the request's: it
                 # stays out of the digest, so a resume retried across an upgrade
@@ -1428,6 +1442,8 @@ class Daemon:
                     self._validate_conflicts(values, cleared, write_target)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
+                if fence is not None:
+                    tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", fence)
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True,
                     **self._where_it_writes(job_id, sandbox.value)}
@@ -1485,6 +1501,24 @@ class Daemon:
         """The lane an already accepted request was pinned to, when that is a lane id (C-6.2)."""
         row = self.store.one("SELECT pinned_lane FROM jobs WHERE request_id=?", (request_id,))
         return {"lane_id": row["pinned_lane"]} if row and row["pinned_lane"] and self.store.get_lane(row["pinned_lane"]) else None
+
+    def _fence_resume(self, args: protocol.SubmitArgs) -> tuple[str, str] | None:
+        """Hold `retire:<source>` for this resume, or refuse it while retention is
+        retiring the source (d635). The job's insert releases the fence; one a
+        refused or retried submit leaves is stale, and any resume fence found here
+        is (submits are serialized by the submit lock), as is one retention finds
+        older than `retention.FENCE_STALE_S`."""
+        if not args.parent_job_id:
+            return None
+        key, holder = f"retire:{args.parent_job_id}", f"resume:{args.request_id}"
+        with self.store.transaction("retention.fenced", data={"lease_key": key}) as tx:
+            tx.execute("DELETE FROM leases WHERE lease_key LIKE 'retire:%' AND holder LIKE 'resume:%'")
+            row = tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if row:
+                raise AdapterError(f"resume refused: {args.parent_job_id} is being archived by retention",
+                                   code=int(Exit.OPERATIONAL), fix="retry in a minute")
+            tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+        return key, holder
 
     def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
         """Resolve the native session on its original lane before persisting a resume."""
@@ -2502,13 +2536,17 @@ class Daemon:
 
     def _retention(self):
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
-        # conversation service pins the turn jobs it still needs (IR-17).
+        # conversation service pins the turn jobs it still needs (IR-17). d635:
+        # retirement archives before it deletes; a pass retires a bounded batch,
+        # oldest first, and says when more is waiting, so a backlog is worked
+        # off in catch-up passes seconds apart instead of timing out hourly.
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
-                             cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+                             cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
+                             state=self._retention_state)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
@@ -2516,12 +2554,26 @@ class Daemon:
             raise TimeoutError("retention deadline reached")
         with self.store.transaction("service-notice.retention") as tx:
             tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
+        for error in (result.get("errors") or [])[:5]:
+            self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
+        if result.get("more"):
+            self.log.info("retention catch-up: retired %d jobs, %d in flight, %d deferred; continuing in %g seconds",
+                          len(result.get("pruned") or ()), len(result.get("in_flight") or ()),
+                          len(result.get("deferred") or {}), RETENTION_CATCH_UP_S)
+            self.timers.mark("retention", next_due=after(RETENTION_CATCH_UP_S))
+            self._last_maintenance = time.monotonic() - 3600 + RETENTION_CATCH_UP_S
+            return
+        if result.get("pruned"):
+            self.log.info("retention: retired %d jobs", len(result["pruned"]))
         self.timers.mark("retention", next_due=after(3600))
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Only a completed pass rearms the ordinary hourly interval.
         self._last_maintenance = time.monotonic()
 
     def _recover_then_start_timers(self):
+        # d635: a resume's fence on its source lives only while its submit runs.
+        with self.store.transaction("retention.fence_released", data={"reason": "restart"}) as tx:
+            tx.execute("DELETE FROM leases WHERE lease_key LIKE 'retire:%' AND holder LIKE 'resume:%'")
         # HTTP reservations have no provider process and can be released on restart.
         for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:timer:%'"):
             if lease["holder"] not in self.timers.active_holders and not self._probe_record(lease["holder"]):
@@ -2707,11 +2759,27 @@ class Daemon:
 
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
-        """Best effort: a failure here is reported by the add that follows it."""
+        """Best effort: a failure here is reported by the add that follows it.
+
+        Only this path's registration is removed. A repository-wide `git
+        worktree prune` would also drop every other registration whose tree is
+        missing at that moment (d635: never run a repository-wide prune)."""
         shutil.rmtree(workdir, ignore_errors=True)
         try:
-            subprocess.run(["git", "-C", repository, "worktree", "prune"],
-                           capture_output=True, timeout=cap)
+            found = subprocess.run(["git", "-C", repository, "rev-parse", "--git-common-dir"],
+                                   capture_output=True, text=True, timeout=cap)
+            if found.returncode:
+                return
+            common = os.path.realpath(os.path.join(repository, found.stdout.strip()))
+            wanted = os.path.realpath(os.path.join(workdir, ".git"))
+            for admin in sorted(Path(common, "worktrees").iterdir()):
+                try:
+                    backlink = (admin / "gitdir").read_text().strip()
+                except OSError:
+                    continue
+                target = backlink if os.path.isabs(backlink) else os.path.join(admin, backlink)
+                if os.path.realpath(target) == wanted and not (admin / "locked").exists():
+                    shutil.rmtree(admin, ignore_errors=True)
         except (OSError, subprocess.SubprocessError):
             pass
 
