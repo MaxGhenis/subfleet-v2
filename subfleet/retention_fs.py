@@ -228,6 +228,14 @@ if _fclonefileat is not None:
 CLONE_NOFOLLOW = 0x0001
 #: Tests set this to exercise the byte-copy path that a non-APFS volume takes.
 FORCE_COPY = False
+#: A byte copy (no clones on this volume) or a bundle never takes free space
+#: below this: retention must never be what fills the disk.
+LOW_SPACE_FLOOR = 2 * 1024 ** 3
+
+
+def free_bytes(fd: int) -> int:
+    st = os.fstatvfs(fd)
+    return st.f_bavail * st.f_frsize
 
 
 def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None = None) -> str:
@@ -239,6 +247,9 @@ def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None =
         code = ctypes.get_errno()
         if code not in (errno.ENOTSUP, errno.EXDEV, errno.ENOSYS, errno.EINVAL):
             raise OSError(code, os.strerror(code), name)
+    size = os.fstat(src_fd).st_size
+    if free_bytes(dst_dir_fd) - size < LOW_SPACE_FLOOR:
+        raise TreeError("low-space", f"copying {size} bytes would leave less than {LOW_SPACE_FLOOR} free")
     out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
                   dir_fd=dst_dir_fd)
     try:

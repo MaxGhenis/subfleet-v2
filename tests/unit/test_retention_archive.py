@@ -964,3 +964,55 @@ def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
     finally:
         holder.kill()
         holder.wait()
+
+
+# --- the survey and the command line ---------------------------------------------------
+
+def _tree_state(path: Path) -> dict:
+    out = {}
+    for directory, dirnames, filenames in os.walk(path):
+        for name in dirnames + filenames:
+            p = Path(directory) / name
+            if name.startswith("state.sqlite3"):
+                continue
+            st = p.lstat()
+            out[str(p)] = (st.st_mode, st.st_size, st.st_mtime_ns, st.st_ino)
+    return out
+
+
+def test_survey_is_read_only_and_predicts_the_pass(world):
+    """The live dry run applies the pass's eligibility and writes nothing: not
+    the state root, not the source repository (no index refresh, no ref)."""
+    from subfleet.retention_survey import survey
+    w = world
+    make_dirty_detached(w, "s-dirty")
+    w.job("s-clean")
+    w.job("s-pinned")
+    w.store.add_notice("s-pinned", "unread", "session-1")
+    before = {**_tree_state(w.root), **_tree_state(w.repo)}
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert {**_tree_state(w.root), **_tree_state(w.repo)} == before
+    predicted = {c["job_id"] for c in report["candidates"]}
+    assert predicted == {"s-dirty", "s-clean"}
+    assert report["kept"]["jobs_by_reason"]["unread-notice"] == 1
+    assert report["would_retire"]["with_worktree"] == 2
+    assert report["would_retire"]["omittable_bytes_upper_bound"] > 0
+    result = run(w)
+    assert set(result["pruned"]) == predicted
+
+
+def test_retention_command_lists_checks_and_restores(world, monkeypatch, capsys):
+    from subfleet import cli
+    w = world
+    wt = w.job("cli-job")
+    (wt / "note.txt").write_text("kept by the archive\n")
+    assert run(w)["pruned"] == ["cli-job"]
+    monkeypatch.setenv("SUBFLEET_HOME", str(w.root))
+    assert cli.main(["retention", "archives", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)["archives"]
+    assert [a["job_id"] for a in listed] == ["cli-job"]
+    assert cli.main(["retention", "restore", "cli-job", "--check", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert cli.main(["retention", "restore", "cli-job", "--to", str(w.base / "cli-out"), "--json"]) == 0
+    assert (w.base / "cli-out" / "worktree" / "note.txt").read_text() == "kept by the archive\n"
+    assert cli.main(["retention", "restore", "cli-job", "--to", str(w.base / "cli-out")]) != 0
