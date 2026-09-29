@@ -384,6 +384,11 @@ Astra had no Codex capacity until about Oct 3, so an independent Opus 5.5 review
 - **Slow reads are reused.** A registry read is reused for 2 s after it finished, so a slow `ps` is not repeated at every call. It is still aged from when it began.
 - **Contract text.** C-6.5 no longer names a default of 8 for `max_writable_per_session`.
 
+The re-review approved, and its two P3s are fixed too:
+
+- **The kept slot.** In a capped pool, the last slot C-6.9 keeps for an older waiter is never kept for one waiting for the job's own lease.
+- **Recording.** A record reads the current reading under its own lock, so the turn pass cannot write a stale flip after the detached pass recorded a newer answer.
+
 ## Changes since revision 7 (Astra's PR gates on PR #72)
 
 - **Workspace retries.** The machine guard, when turned on, holds a due workspace

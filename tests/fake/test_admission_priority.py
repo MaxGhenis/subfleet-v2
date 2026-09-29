@@ -285,6 +285,8 @@ def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(st
     daemon._admit()
     assert probes == [] and daemon.store.list_attempts(job) == []
     assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:claude-4:slot:0'")
+    # The answer the probe was refused by is on record (review of PR #72, round 2).
+    assert [row["in_use"] for row in _uses(daemon)] == [False, True]
 
 
 def test_c23_44_a_probe_never_starts_on_a_credential_found_revoked_after_the_evaluation(state_daemon,
@@ -488,7 +490,7 @@ def _resume(daemon, harness, source_id, caller):
         kind="resume", parent_job_id=source_id, caller_session=caller)))["job_id"]
 
 
-@pytest.mark.parametrize("policy", ["uncapped", "capped"])
+@pytest.mark.parametrize("policy", ["uncapped", "capped", "cap-1"])
 @pytest.mark.parametrize("waiter_due", [True, False])
 def test_c6_9_a_retry_never_waits_behind_a_job_waiting_for_its_own_lease(state_daemon, monkeypatch,
                                                                         policy, waiter_due):
@@ -503,7 +505,7 @@ def test_c6_9_a_retry_never_waits_behind_a_job_waiting_for_its_own_lease(state_d
     from tests.fake.test_resume_contract import finish_reserved, finished_source, measured_lane
 
     daemon, harness = state_daemon
-    if policy == "capped":
+    if policy != "uncapped":
         capped(daemon.policy)
     measured_lane(daemon)
     source_id, source_attempt = finished_source(daemon, harness)
@@ -523,6 +525,11 @@ def test_c6_9_a_retry_never_waits_behind_a_job_waiting_for_its_own_lease(state_d
     key = native_session_lease_key(source_attempt["lane_id"], "native-source-session")
     assert daemon.store.get_job(first)["state"] == "waiting"
     assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"] == first
+    if policy == "cap-1":
+        # One slot, none in use: the last slot C-6.9 keeps for an older waiter is
+        # never kept for one waiting for this job's own lease (review of PR #72,
+        # round 2).
+        daemon.policy["caps"]["max_active_attempts"] = 1
     daemon.store.update_job(first, next_check_at=None)
     if waiter_due:
         daemon.store.update_job(second, next_check_at=None)
@@ -622,3 +629,27 @@ def test_c10_3_the_answer_a_reservation_places_by_is_recorded(state_daemon, monk
     submit(daemon, harness, "one")
     daemon._admit()
     assert [row["in_use"] for row in _uses(daemon)] == [False, True]
+
+
+def test_c10_3_a_record_is_never_older_than_the_one_before_it(state_daemon):
+    """Review of PR #72 (round 2): the turn pass and the detached pass both record.
+    A record that waited for the other is made from the reading current when it
+    runs, never from one read before it waited: no stale flip is written."""
+    import threading
+
+    daemon, harness = state_daemon
+    reading = lambda in_use: {"found": {"rows": [], "unreadable": [], "groups": {}}, "in_use": in_use,
+                              "evidence": {}, "finished": time.monotonic()}
+    daemon._registry = (time.monotonic(), reading(True))
+    daemon._desktop_use_recorded = True
+    daemon._desktop_record_lock.acquire()
+    recorder = threading.Thread(target=daemon._record_desktop_use)       # the turn pass
+    try:
+        recorder.start()
+        time.sleep(0.3)                                                    # waiting for the lock
+        daemon._registry = (time.monotonic(), reading(False))              # the detached pass: newer,
+        daemon._desktop_use_recorded = False                               # already recorded
+    finally:
+        daemon._desktop_record_lock.release()
+    recorder.join(10)
+    assert [row["in_use"] for row in _uses(daemon)] == []

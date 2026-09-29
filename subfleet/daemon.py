@@ -1022,9 +1022,13 @@ class Daemon:
         placed on the desktop lane can be explained. Written by admission, which
         writes anyway, after each refresh it places by; never by a read op. Under
         its own lock, never the one `_registry_read` publishes under (C-3.7)."""
-        _, reading = self._registry
-        in_use, evidence = (reading["in_use"], reading["evidence"]) if reading else (None, None)
         with self._desktop_record_lock:
+            # Read under the lock: two passes record, and a reading taken before
+            # waiting for it could be older than one recorded meanwhile, a stale
+            # flip on record (review of PR #72). Published readings only move
+            # forward (`_registry_read`), so each record is the latest.
+            _, reading = self._registry
+            in_use, evidence = (reading["in_use"], reading["evidence"]) if reading else (None, None)
             if in_use is None or in_use == self._desktop_use_recorded:
                 return
             self.store.add_event("desktop.in_use", data={"in_use": in_use, "was": self._desktop_use_recorded,
@@ -3540,14 +3544,20 @@ class Daemon:
             scope = scheduler.hold_scope(self.policy, job)
             family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
 
-            held_here: list[frozenset[str]] = []
+            own_here: list[frozenset[str]] = []
 
-            def held():
+            def own_leases():
                 """The leases this job holds itself: a retry keeps its job-held ones."""
-                if not held_here:
-                    held_here.append(frozenset(row["lease_key"] for row in self.store.query(
+                if not own_here:
+                    own_here.append(frozenset(row["lease_key"] for row in self.store.query(
                         "SELECT lease_key FROM leases WHERE holder=?", (job["job_id"],))))
-                return held_here[0]
+                return own_here[0]
+
+            def blocks(waiter):
+                """Whether a waiter of this tier may keep a slot from this job: never
+                one waiting for a lease this job holds, which moves only once this
+                job has run (review of PR #72)."""
+                return not (waiter[3] and waiter[3] & own_leases())
 
             def ahead(models, lanes):
                 """The oldest waiter this job may not pass (C-6.9), or None. Never one
@@ -3557,10 +3567,10 @@ class Daemon:
                 of the same native session, the newer ordered first by class)."""
                 if scope is None:
                     return None
-                return next((older for older, theirs, their_lanes, their_leases in waiters.get(tier, ())
-                             if scheduler.competes(models, theirs, lanes, their_lanes)
-                             and (scope == "pool" or family & self._ancestors(older, ancestry))
-                             and not (their_leases and their_leases & held())), None)
+                return next((waiter[0] for waiter in waiters.get(tier, ())
+                             if scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
+                             and blocks(waiter)), None)
             behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
@@ -3765,7 +3775,8 @@ class Daemon:
                         # active slot free, so the older job can start the moment its
                         # capacity appears instead of waiting out the jobs that passed it.
                         # An uncapped pool (C-26.9) has no last slot to keep.
-                        limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
+                        kept = [waiter for waiter in waiters.get(tier, ()) if blocks(waiter)]
+                        limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
                         if not decision.chosen_lane or at_limit:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
@@ -3782,7 +3793,7 @@ class Daemon:
                                 label = "fleet-full" if saturated[pool] else "slot-kept"
                             hold = {"reason": label,
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
-                                    **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
+                                    **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
                             rechecks = self._capacity_wait(
                                 job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
