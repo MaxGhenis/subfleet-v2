@@ -4,8 +4,8 @@ quarantine only while it lives.
 
 The provider is `tests/bin/fakeprov`'s `session-child` scenario: it starts
 `/bin/sleep` in a new session, as Claude Code starts a Bash command (`/bin/zsh`)
-and Codex its tool commands. `/bin/sleep` is a platform binary whose environment
-`ps -E` does not show, so once the provider is gone no marker finds it; only what
+and Codex its tool commands. `/bin/sleep` is code-signing restricted, so `ps -E` does not show its
+environment (XNU's `sysctl_procargsx`), so once the provider is gone no marker finds it; only what
 the daemon recorded does. The fake daemon writes the owned record at once
 (`owned_persist_s=0`) and rechecks quarantines every 0.3 s (tests/fake/run_daemon.py).
 """

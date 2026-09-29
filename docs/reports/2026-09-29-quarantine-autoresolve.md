@@ -24,7 +24,7 @@ The process table of every live attempt on 2026-09-29 (read-only; `ps -axo pid,p
 
 So the recorded group holds only the guardian, the provider and whatever the provider runs without a new session. The kill protocol signals that group. It signals individually only the members recorded as owned, and those are group members recorded while the guardian led the group (C-5.6, C-5.12). When the provider dies, a tool session's processes are reparented to launchd (ppid 1). From then on only the environment marker can find them, and nothing is allowed to signal them.
 
-The marker cannot see every process. `ps -E` shows no environment for `/bin/zsh`, a platform binary. For each of the 40 `/bin/zsh` processes checked, `ps -E -ww -p <pid>` printed none of `HOME`, `PATH`, `USER`, `SHELL`, `TMPDIR` or `SUBFLEET_ATTEMPT`. Their children (`uv`, `python`) do show the marker. So a zsh left behind is invisible to all three census sources once its parent dies.
+The marker cannot see every process. `ps -E` reads `KERN_PROCARGS2`, and XNU's `sysctl_procargsx` (`bsd/kern/kern_sysctl.c`) omits the environment of a code-signing-restricted process (`cs_restricted`) unless SIP is off or the caller holds an entitlement. Apple's own executables are restricted, `/bin/zsh` and `/bin/sleep` among them. The earlier, unmerged branch `fix/containment-marker-gap` (f715cb14, 2026-09-24) found the same thing. For each of the 40 `/bin/zsh` processes checked, `ps -E -ww -p <pid>` printed none of `HOME`, `PATH`, `USER`, `SHELL`, `TMPDIR` or `SUBFLEET_ATTEMPT`. Their children (`uv`, `python`) do show the marker. So a zsh left behind is invisible to all three census sources once its parent dies.
 
 ## The change
 

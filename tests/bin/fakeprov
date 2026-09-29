@@ -81,7 +81,7 @@ def main() -> int:
     if scenario == "session-child":
         # C-5.6, C-5.7b: a tool command in a session of its own, as Claude Code
         # runs Bash (`/bin/zsh`) and Codex its commands. `/bin/sleep` is a
-        # platform binary whose environment `ps -E` does not show, so once this
+        # code-signing restricted binary whose environment `ps -E` does not show, so once this
         # provider is gone only the ancestry the daemon recorded finds it.
         child = subprocess.Popen(
             ["/bin/sleep", os.environ.get("SUBFLEET_FAKE_LINGER_S", "30")],
