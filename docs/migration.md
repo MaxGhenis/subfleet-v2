@@ -108,8 +108,48 @@ The dry run is the default and computes the real keep and delete sets, the exact
 
 **The backups, and restoring from them.** Before the first delete a real pass writes both of these to `<state root>/backups/` (0700, files 0600) and verifies them:
 
-- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check`. To restore: stop the daemon, move `state.sqlite3` aside, copy this file over it, then `subfleet doctor`.
+- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check`. Restore it with the procedure below.
 - `decisions-pruned-<utc>.jsonl.gz` — every deleted row as one JSON object per line with every column, re-read and checked against the row count and digest recorded while writing. Its SHA-256 is in the report (`shasum -a 256` confirms it later). To put rows back without restoring the whole store, `INSERT` them from the file.
+
+<!-- prune-restore:start -->
+Stop the daemon with `subfleet daemon stop`. If its launchd job is
+installed, unload it with
+`launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist` so KeepAlive
+cannot restart it. Set `state_root` to the store's directory, then run
+`lsof -- "$state_root/state.sqlite3" "$state_root/state.sqlite3-wal" "$state_root/state.sqlite3-shm"`
+and confirm that no process holds any of these files. Missing sidecars are OK;
+resolve any other inspection error before proceeding.
+
+Move `state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm` aside together
+before copying the backup. Run this block in the same shell with `state_root`
+set; replace the backup placeholder with the copy named in the pass report:
+
+```sh
+(
+    set -eu
+    backup='<backup copy>'
+    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
+    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
+        if [ -e "$state_root/$file" ]; then
+            mv "$state_root/$file" "$aside/$file"
+        fi
+    done
+    cp "$backup" "$state_root/state.sqlite3"
+    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
+)
+```
+
+Require `integrity_check` to return exactly `ok`. Compare each table's
+`SELECT COUNT(*) FROM "<table>"` with the pre-prune counts in this pass's JSON
+report: `decisions.total` for `decisions`, and
+`fingerprints.before.<table>.rows` for `events` and every other table.
+`fingerprints.before.decisions-kept.rows` is only the retained subset, not the
+backup's decision count. An integrity check alone does not prove that the
+backup's contents were restored. Only after integrity and all counts match,
+restart with `launchctl load -w ~/Library/LaunchAgents/com.subfleet.daemon.plist`
+if installed, or `subfleet daemon start`. Keep the displaced files and backup
+until the restore is verified.
+<!-- prune-restore:end -->
 
 **What the pass proves before it reports success.** Every table other than `decisions` and `events` is counted and digested before and after and must match; the tables are enumerated from `sqlite_master`, so one added later is covered. `events` must hold its existing rows unchanged and gain exactly one `decisions.pruned` row per batch. The surviving `decisions` rows must be byte-identical to the rows the plan kept, `COUNT(DISTINCT job_id)` unchanged, and both reader queries must return identical `decision_json` for every affected job. `PRAGMA integrity_check` and `PRAGMA foreign_key_check` must be clean. Any mismatch exits non-zero, saves the report, and names the copy to restore from. A second pass is a no-op: the keep set is everything that is left.
 

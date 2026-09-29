@@ -69,6 +69,7 @@ import gzip
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import sys
@@ -83,6 +84,48 @@ from .store import SCHEMA_VERSION, SchemaVersionError, Store, utc_now
 STORE_NAME = "state.sqlite3"
 LOCK_NAME = "daemon.lock"
 BACKUPS_NAME = "backups"
+
+#: The operator recipe, also embedded verbatim in docs/migration.md and
+#: executed against disposable stores by test_prune_restore.py. Invariants:
+#: all old database files stay together, no old WAL reaches the restored copy,
+#: and neither the backup nor its rows change during restoration.
+RESTORE_RECIPE = """Stop the daemon with `subfleet daemon stop`. If its launchd job is
+installed, unload it with
+`launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist` so KeepAlive
+cannot restart it. Set `state_root` to the store's directory, then run
+`lsof -- "$state_root/state.sqlite3" "$state_root/state.sqlite3-wal" "$state_root/state.sqlite3-shm"`
+and confirm that no process holds any of these files. Missing sidecars are OK;
+resolve any other inspection error before proceeding.
+
+Move `state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm` aside together
+before copying the backup. Run this block in the same shell with `state_root`
+set; replace the backup placeholder with the copy named in the pass report:
+
+```sh
+(
+    set -eu
+    backup={copy_path}
+    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
+    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
+        if [ -e "$state_root/$file" ]; then
+            mv "$state_root/$file" "$aside/$file"
+        fi
+    done
+    cp "$backup" "$state_root/state.sqlite3"
+    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
+)
+```
+
+Require `integrity_check` to return exactly `ok`. Compare each table's
+`SELECT COUNT(*) FROM "<table>"` with the pre-prune counts in this pass's JSON
+report: `decisions.total` for `decisions`, and
+`fingerprints.before.<table>.rows` for `events` and every other table.
+`fingerprints.before.decisions-kept.rows` is only the retained subset, not the
+backup's decision count. An integrity check alone does not prove that the
+backup's contents were restored. Only after integrity and all counts match,
+restart with `launchctl load -w ~/Library/LaunchAgents/com.subfleet.daemon.plist`
+if installed, or `subfleet daemon start`. Keep the displaced files and backup
+until the restore is verified."""
 
 #: The `jobs.state` values that mean the job is finished: the CHECK on
 #: `jobs.state` in `store_schema.sql` less the three live ones, which is the
@@ -280,22 +323,19 @@ def _schema_version(database: Path) -> int:
 
 
 def _restore_fix(copy_path: str | None) -> str:
-    """How to put the store back from the copy this pass took, in one sentence.
+    """How to put the store back from the copy this pass took.
 
     All three files are named. SQLite replays a `state.sqlite3-wal` it finds
     beside a database over whatever `state.sqlite3` is there, so a restore that
     moves only the database aside is read back as something other than the copy:
     on a synthetic store, following the shorter instruction with a hot log
     present gave a malformed image. `subfleet doctor` is not the check for this
-    — `doctor.py` `checks()` tests that `state.sqlite3` is present in the layout
-    and never opens it — so the check named here reads the store.
+    — `doctor.py` opens it read-only to query unfinished jobs with unknown lane
+    pins, but does not check integrity or restored row counts.
     """
     if not copy_path:
         return "nothing was deleted and no copy was taken; the store is as it was"
-    return (f"stop the daemon, move `state.sqlite3`, `state.sqlite3-wal` and "
-            f"`state.sqlite3-shm` aside, copy {copy_path} over `state.sqlite3`, then check it "
-            f"with `sqlite3 <store> 'PRAGMA integrity_check'` and against the row counts in "
-            f"this pass's report before starting the daemon again")
+    return RESTORE_RECIPE.format(copy_path=shlex.quote(copy_path))
 
 
 def _hold_daemon_lock(state_root: Path) -> int | None:
