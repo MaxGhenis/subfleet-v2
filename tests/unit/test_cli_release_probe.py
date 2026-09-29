@@ -119,9 +119,10 @@ def test_c5_7a_json_is_one_object(daemon, capsys):
 def test_c5_7a_wait_reports_a_release(daemon, capsys):
     daemon({"lanes": lanes([])})                            # the holder no longer holds a slot
     assert run_cli(["lanes", "release-probe", "codex-3", "--wait"]) == 0
-    assert capsys.readouterr().out == f"{TIMER} on codex-3: released (its census came back verified empty)\n"
+    assert capsys.readouterr().out == f"{TIMER} on codex-3: released (it no longer holds a lane slot)\n"
     assert run_cli(["lanes", "release-probe", "codex-3", "--wait", "--force-release"]) == 0
-    assert capsys.readouterr().out == f"{TIMER} on codex-3: released (the override is recorded)\n"
+    # Not "the override is recorded": its own look, or another request, may be what released it.
+    assert capsys.readouterr().out == f"{TIMER} on codex-3: released (it no longer holds a lane slot)\n"
 
 
 def test_c5_7a_wait_reports_a_census_that_found_it_live(daemon, capsys):
@@ -145,6 +146,55 @@ def test_c5_7a_an_older_look_is_not_this_requests_answer(daemon, capsys):
     captured = capsys.readouterr()
     assert captured.out == f"{TIMER} on codex-3: --confirm-dead requested\n"
     assert "not acted on within 0 s" in captured.err
+
+
+def test_c5_7a_a_look_that_acted_on_another_request_is_not_this_ones(daemon, capsys):
+    """While this --force-release waited, another operator's --confirm-dead,
+    taken by the pass before it, was looked at and found the probe live. That
+    look is not this command's answer: its request is still pending and the
+    next pass releases the probe. A look answers only if it names this
+    request's id."""
+    theirs = {"event_id": 101, "at": "2026-09-27T12:00:01Z", "containment": {"live_pids": [7]},
+              "requests": [{"id": "theirs", "mode": "confirm-dead", "at": "2026-09-27T12:00:00Z", "via": "kill"}]}
+    shown = {"look": theirs}
+
+    def answer(request):
+        if request.args.get("action") == "release-probe":
+            return requested(request, request_id="mine")
+        return {"lanes": [], "leases": [], "probes": [{**QUARANTINED, "holder": TIMER, "job_id": None,
+                                                       "kind": "keepalive", "operator_look": shown["look"]}]}
+    daemon({"lanes": answer})
+    argv = ["lanes", "release-probe", "codex-3", "--force-release", "--wait", "--timeout", "0"]
+    assert run_cli(argv) == int(Exit.WAIT_TIMEOUT)
+    assert capsys.readouterr().out == f"{TIMER} on codex-3: --force-release requested\n"
+    shown["look"] = {**theirs, "requests": [*theirs["requests"], {"id": "mine", "mode": "force-release"}]}
+    assert run_cli(argv) == int(Exit.OPERATIONAL)
+    assert capsys.readouterr().out == f"{TIMER} on codex-3: still quarantined\n"
+    shown["look"] = {key: value for key, value in theirs.items() if key != "requests"}   # no request ids: older
+    assert run_cli(argv) == int(Exit.OPERATIONAL)
+    capsys.readouterr()
+
+
+def test_c5_7a_a_look_recorded_when_the_request_was_is_not_its_answer(daemon, capsys):
+    """`since_event` is the newest event when the request was recorded: a look
+    at that same event id was taken before it, not after."""
+    same = {"event_id": 100, "at": "2026-09-27T12:00:00Z", "containment": {"live_pids": [1]}}
+    daemon({"lanes": lanes([{**QUARANTINED, "holder": TIMER, "operator_look": same}])})
+    assert run_cli(["lanes", "release-probe", "codex-3", "--wait", "--timeout", "0"]) == int(Exit.WAIT_TIMEOUT)
+    capsys.readouterr()
+
+
+def test_c5_7a_kill_wait_takes_only_its_own_requests_look(daemon, capsys):
+    theirs = {"event_id": 101, "at": "2026-09-27T12:00:01Z", "containment": {"live_pids": [9]},
+              "requests": [{"id": "someone-else", "mode": "confirm-dead"}]}
+    daemon({
+        "kill": lambda request: {"job_id": JOB, "status": "resolution requested", "since_event": 100,
+                                 "probes": [{"holder": HOLDER, "lane_id": "codex-3", "lane_ids": ["codex-3"],
+                                             "kind": "admission", "created_at": "2026-09-27T09:57:40Z",
+                                             "request_id": "this-kill"}]},
+        "lanes": lambda request: {"lanes": [], "leases": [], "probes": [{**QUARANTINED, "operator_look": theirs}]}})
+    assert run_cli(["kill", JOB, "--confirm-dead", "--wait", "--timeout", "0"]) == int(Exit.WAIT_TIMEOUT)
+    capsys.readouterr()
 
 
 # --- where a quarantined probe is shown -----------------------------------------------
@@ -247,7 +297,7 @@ def test_c5_7a_kill_wait_waits_for_the_probe_not_the_job(daemon, capsys):
     assert run_cli(["kill", JOB, "--force-release", "--wait"]) == 0
     captured = capsys.readouterr()
     assert captured.out.splitlines() == [f"{JOB} resolution requested",
-                                         f"{JOB} {HOLDER} on codex-3: released (the override is recorded)"]
+                                         f"{JOB} {HOLDER} on codex-3: released (it no longer holds a lane slot)"]
     assert "wait" not in server.ops(), "not the job's terminal state"
 
 
