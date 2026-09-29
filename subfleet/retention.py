@@ -269,7 +269,10 @@ class _Worktrees:
         for entry in entries:
             if _named(entry, name):
                 return f"worktree present: {self.root / entry}"
-        if not workdir or not os.path.isdir(workdir):
+        if workdir and not os.path.isdir(workdir):
+            # A removed subdirectory or checkout: its repository may still be above it.
+            workdir = next((str(p) for p in Path(workdir).parents if p.is_dir() and p != Path(p.anchor)), None)
+        if not workdir:
             return None                                     # its repository is gone too
         if not fresh and self.deadline is not None and time.monotonic() >= self.deadline:
             return "worktree state unknown: checked on a later pass"
@@ -339,8 +342,12 @@ def _registrations(common: Path) -> list[tuple[str, str]] | None:
     for admin_id in names:
         try:
             gitdir = (admins / admin_id / "gitdir").read_text().strip()
+        except FileNotFoundError:
+            continue                    # a registration being written or removed
         except (OSError, UnicodeDecodeError):
-            continue
+            return None
+        if not os.path.isabs(gitdir):   # worktree.useRelativePaths
+            gitdir = os.path.normpath(os.path.join(admins / admin_id, gitdir))
         found.append((admin_id, os.path.dirname(gitdir)))
     return found
 
@@ -479,6 +486,11 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
             errors.append({"job_id": identity, "error": str(exc)})
             explicit.add(identity)
             continue
+        if worktree is None and job.get("sandbox") == "workspace-write" and not job.get("in_place") \
+                and not job.get("worktree"):
+            # Allocation makes `<root>/worktrees/<job>` before admission records it;
+            # a job cancelled in between owns a tree its row does not name.
+            worktree = root / "worktrees" / identity
         if worktree is not None:
             owned[identity] = worktree
         if worktree is not None and job["state"] in _TERMINAL:
@@ -516,7 +528,8 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
     except _Interrupted as exc:
         if str(exc) == "cancelled":
             raise
-        unfinished = any(job["job_id"] not in sizes for job in order if job["state"] in _TERMINAL)
+        unfinished = any(job["job_id"] not in sizes and job["job_id"] not in failed
+                         for job in order if job["state"] in _TERMINAL)
     protected = pinned()
     counts = {name: 0 for name in budgets}
     totals = {name: 0 for name in budgets}
@@ -653,7 +666,23 @@ def _retire(store, root, selected, sizes, *, state, pinned, cancel, progress, pr
         counts[pool] -= 1
         totals[pool] -= sizes.get(identity, 0)
         state.forget(identity)
+        _sync_store(store)          # the rows' deletion is durable before the first unlink (J2)
         _finish(store, root, identity, final, manifest, progress, check)
+
+
+def _sync_store(store: Store) -> None:
+    """Flush the drive's cache after the store's commit (SQLite's fsync alone does not
+    on macOS, fsync(2)), so rows can never reappear over a half-deleted directory."""
+    try:
+        fd = os.open(store.path, os.O_RDONLY | os.O_CLOEXEC)
+    except OSError:
+        return
+    try:
+        archive.full_sync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _skip(store, state, progress, protected, identity, delay, reason) -> None:
@@ -671,9 +700,15 @@ def _release(store: Store, identity: str) -> None:
 
 
 def _finish(store, root, identity, final, manifest, progress, check) -> None:
-    """After the rows are gone: delete what the archive holds, keep the rest, release."""
+    """After the rows are gone: delete what the archive holds, keep the rest, release.
+
+    A deletion that fails (an immutable file, a directory another user owns) keeps
+    whatever remains in retention-conflicts/ rather than stopping the pass."""
     directory = root / "jobs" / identity
-    kept = archive.delete_archived(directory, manifest, check=check)
+    try:
+        kept = archive.delete_archived(directory, manifest, check=check)
+    except OSError as exc:
+        kept = [f"(deletion stopped: {type(exc).__name__}: {exc})"]
     if kept:
         _to_conflicts(store, root, identity, directory, kept, progress)
     _release(store, identity)
@@ -700,7 +735,9 @@ def _to_conflicts(store, root, identity, directory, kept, progress) -> None:
 
 
 def _recover(store, root, state, progress, cancel) -> None:
-    """Finish or undo what an interrupted pass left (design 6.3)."""
+    """Finish or undo what an interrupted pass left (design 6.3), one lease at a time:
+    a lease that cannot be resolved is reported and released, never allowed to stop
+    the pass, and nothing of its job is deleted."""
     check = _cancel_only(cancel)
     archive_root = root / "archive"
     for lease in store.query("SELECT lease_key,holder FROM leases WHERE lease_key LIKE ? OR "
@@ -716,38 +753,60 @@ def _recover(store, root, state, progress, cancel) -> None:
         identity = key[len(LEASE_PREFIX):]
         if Path(identity).name != identity or identity in (".", "..") or holder != f"retention:{identity}":
             continue
-        row = store.get_job(identity)
-        final = archive_root / identity
-        partial = archive_root / (archive.PARTIAL_PREFIX + identity)
-        if os.path.lexists(partial):
-            archive.discard(partial)
-        if row is not None:
-            # Never committed, so the job directory is untouched. An archive at the
-            # final name is this retirement's only if it names this request.
-            if os.path.lexists(final):
-                try:
-                    if archive.load(final).get("request_id") == row["request_id"]:
-                        archive.discard(final)
-                except (OSError, ValueError):
-                    pass
-            _release(store, identity)
-            progress["recovered"].append({"job_id": identity, "action": "undone"})
-            continue
-        directory = root / "jobs" / identity
         try:
-            manifest = archive.verify(final, check=check)
-        except archive.ArchiveCorrupt as exc:
-            if os.path.lexists(directory):
+            _recover_one(store, root, archive_root, identity, progress, check)
+        except _Interrupted:
+            raise
+        except Exception as exc:                                   # noqa: BLE001 - isolate one job
+            error = f"{type(exc).__name__}: {exc}"
+            progress["errors"].append({"job_id": identity, "error": f"recovery: {error}"})
+            store.add_event("retention.recovery_error", job_id=identity, data={"error": error})
+            directory = root / "jobs" / identity
+            if store.get_job(identity) is None and os.path.lexists(directory):
                 _to_conflicts(store, root, identity, directory, [""], progress)
-            store.add_event("retention.recovery_error", job_id=identity, data={"error": str(exc)})
             _release(store, identity)
-            continue
-        _finish(store, root, identity, final, manifest, progress, check)
-        progress["recovered"].append({"job_id": identity, "action": "finished"})
-        progress["made_progress"] = True
     if archive_root.is_dir():
         held = {row["lease_key"][len(LEASE_PREFIX):] for row in
                 store.query("SELECT lease_key FROM leases WHERE lease_key LIKE ?", (LEASE_PREFIX + "%",))}
         for name in os.listdir(archive_root):
             if name.startswith(archive.PARTIAL_PREFIX) and name[len(archive.PARTIAL_PREFIX):] not in held:
                 archive.discard(archive_root / name)   # an unfinished copy of an untouched directory
+
+
+def _recover_one(store, root, archive_root, identity, progress, check) -> None:
+    row = store.get_job(identity)
+    final = archive_root / identity
+    partial = archive_root / (archive.PARTIAL_PREFIX + identity)
+    directory = root / "jobs" / identity
+    if os.path.lexists(partial):
+        archive.discard(partial)
+    if row is not None:
+        # The rows were never deleted. An archive at the final name is this
+        # retirement's only if it names this request; it is discarded only if the
+        # directory is provably whole. If anything of it is gone (rows restored
+        # from a backup, or a commit the drive lost), the directory is rebuilt from
+        # the archive and what remained is kept in retention-conflicts/.
+        action = "undone"
+        if os.path.lexists(final) and archive.load(final).get("request_id") == row["request_id"]:
+            manifest = archive.verify(final, check=check)
+            if not archive.untouched(directory, manifest):
+                if os.path.lexists(directory):
+                    _to_conflicts(store, root, identity, directory, ["(partly deleted before recovery)"], progress)
+                archive.restore(final, directory)
+                store.add_event("retention.recovery_restored", job_id=identity, data={"archive": str(final)})
+                action = "restored"
+            archive.discard(final)
+        _release(store, identity)
+        progress["recovered"].append({"job_id": identity, "action": action})
+        return
+    try:
+        manifest = archive.verify(final, check=check)
+    except archive.ArchiveCorrupt as exc:
+        if os.path.lexists(directory):
+            _to_conflicts(store, root, identity, directory, [""], progress)
+        store.add_event("retention.recovery_error", job_id=identity, data={"error": str(exc)})
+        _release(store, identity)
+        return
+    _finish(store, root, identity, final, manifest, progress, check)
+    progress["recovered"].append({"job_id": identity, "action": "finished"})
+    progress["made_progress"] = True

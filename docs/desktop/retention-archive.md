@@ -239,10 +239,14 @@ contained, and an export holds a lease that pins the job. So there is no
   (type, device, inode). Each other entry is unlinked only if its signature
   equals the manifest's.
 - **Hard links.** Unlinking one link changes the inode's ctime for the others.
-  The deleter reads the new value through a descriptor taken before the unlink.
-  After an interruption, a remaining link's changed ctime is accepted only if
-  everything else matches and the drop in its link count equals the number of
-  its archived paths already gone.
+  A multi-link file whose only difference from the manifest is its ctime is
+  therefore re-hashed. It is deleted only if its bytes still match the archived
+  sha256 of its link group. Content is compared, not ctime bookkeeping, so a
+  write can never pass as retention's own change, during a run or after an
+  interruption (code review, finding 4).
+- **Symlinks.** Every multi-component path is opened one component at a time
+  with `O_NOFOLLOW`, so a directory swapped for a symlink anywhere on the path
+  can never redirect a deletion (finding 5).
 - **Directories without owner permissions** get `fchmod` u+rwx after their
   identity check.
 - Deletion is idempotent, so an interrupted run resumes.
@@ -253,7 +257,7 @@ Each `retire:` lease left by a pass is resolved as follows:
 
 | Job rows | Archive | Action |
 |---|---|---|
-| present | none, partial or this request's | Discard it. The directory was never touched. Release the lease |
+| present | none, partial or this request's | If every archived entry is still present and unchanged, discard the archive. Otherwise the directory lost entries: the rows came back from a backup, or the drive lost the commit. Move what remains to `retention-conflicts/`, rebuild the directory from the archive, then discard it. Release the lease |
 | absent | complete | Re-verify the archive by reading it back, run verified deletion, release the lease |
 | absent | partial or missing | Keep the directory. Move it to `retention-conflicts/<job>`, emit an event, release the lease |
 
@@ -263,6 +267,14 @@ Each `retire:` lease left by a pass is resolved as follows:
   is untouched.
 - A legacy `retention:` holder on a `worktree:` lease, left by the installed
   code, is released. The live store had none on 2026-09-28.
+- Each lease is resolved on its own. One that raises (an immutable file, a
+  stray `.DS_Store` in an archive, a malformed manifest) is reported. What
+  remains of its directory goes to `retention-conflicts/`, and the lease is
+  released, so it cannot stop the pass or fence resume forever (finding 1).
+- After the commit and before the first unlink, the store's file gets
+  `F_FULLFSYNC`. SQLite's own fsync does not flush the drive's cache on macOS,
+  so without it the rows could reappear over a half-deleted directory
+  (finding 2).
 
 ### 6.4 Verbs
 
@@ -316,6 +328,21 @@ CHANGES, and no path found that deletes unpreserved work):
 | 5a. Classification had no time bound | Fixed: it gets a share of the deadline |
 | 5b. A broken linked checkout hid the repository | Fixed: the repository is found through its `.git` file |
 | 5c. "Its own schedule" was inaccurate | Corrected: the sweep is run by hand |
+
+**Code review of revision 3** (in-session Opus, mutation testing and
+experiments; CHANGES NEEDED, no data loss found):
+
+| Finding | Disposition |
+|---|---|
+| 1. One stuck job stops every pass | Fixed: each lease is resolved on its own, and `discard` and deletion failures keep the remainder instead of raising |
+| 2. Recovery row 1 could discard the only copy | Fixed: discard only if the directory is untouched, otherwise rebuild it from the archive; `F_FULLFSYNC` on the store before the first unlink |
+| 3. The gone test missed moved trees | Fixed: relative `gitdir`, the nearest existing ancestor of a removed workdir, the registration's name |
+| 4. The hard-link ctime rule accepted a real edit | Fixed: content is verified (section 6.2) |
+| 5. An intermediate symlink redirected deletion | Fixed: component-by-component `O_NOFOLLOW` |
+| 6. The 200 cap with all candidates deferred raised | Fixed: `capped`, and deferrals count as progress |
+| 7. An errored job kept a pass "unfinished" | Fixed |
+| 8. An allocated tree its row never recorded | Fixed: `<root>/worktrees/<job>` counts for writable, not-in-place jobs |
+| Surviving mutants | New tests kill each safety-relevant one (`tests/unit/test_retention_review_r3.py`): the pin and lease at commit, the fence pin, ctime, verification, failing closed on Git and admin reads, the dry run with worktrees. A mutation run over the fixes is recorded in the PR |
 
 **Revision 1** (two reviews):
 

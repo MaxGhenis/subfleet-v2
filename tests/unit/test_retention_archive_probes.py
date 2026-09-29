@@ -198,27 +198,32 @@ def test_probe_worktree_content_is_never_touched_by_subfleet(world, tmp_path, mo
 
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
 def test_probe_the_job_goes_only_after_the_archiver_took_the_tree(world, tmp_path, monkeypatch, scenario):
-    """W2: after the archiver has set the tree aside and removed it, the job's records are
-    retired; Subfleet deleted none of the tree (the archiver's copy is byte-identical)."""
+    """W2: after the archiver has set the tree aside, copied it and removed it, the job's
+    records are retired. W1: retention touches neither the (gone) tree nor the archiver's
+    copy: the copy's bytes are the same after the pass as before it."""
     store, root, repository = world
     worktree = add_job(store, root, repository, "job")
     SCENARIOS[scenario](worktree, repository)
-    files_before = fingerprint(worktree, repository)["files"]
     quarantine = archive_like_the_sweep(repository, worktree)
     aside = tmp_path / "aside"
     import shutil
     shutil.copytree(quarantine, aside, symlinks=True)
     git(repository, "worktree", "remove", "--force", str(quarantine))
-    forbid_worktree_writes(monkeypatch, [worktree, quarantine])
+
+    def copy_fingerprint():
+        found = {}
+        for path in sorted(aside.rglob("*")):
+            if path.is_symlink():
+                found[str(path.relative_to(aside))] = ("link", os.readlink(path))
+            elif path.is_file():
+                found[str(path.relative_to(aside))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return found
+
+    before = copy_fingerprint()
+    forbid_worktree_writes(monkeypatch, [worktree, quarantine, aside])
     result = retention.maintenance(store, root, max_jobs=0)
     assert result["pruned"] == ["job"]
-    copied = {}
-    for path in sorted(aside.rglob("*")):
-        if path.is_symlink():
-            copied[str(path.relative_to(aside))] = ("link", os.readlink(path))
-        elif path.is_file():
-            copied[str(path.relative_to(aside))] = hashlib.sha256(path.read_bytes()).hexdigest()
-    assert copied == files_before
+    assert copy_fingerprint() == before
     archive.verify(root / "archive" / "job")
 
 

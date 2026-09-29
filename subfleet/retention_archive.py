@@ -166,6 +166,22 @@ def _join(parent: str, name: str) -> str:
     return name if not parent else parent + "/" + name
 
 
+def open_below(root_fd: int, relative: str) -> int:
+    """Open the directory `relative` below `root_fd` one component at a time, each
+    with O_NOFOLLOW, so no symlink anywhere on the way is followed (O_NOFOLLOW on a
+    whole path guards only its last component). Raises OSError otherwise."""
+    fd = os.dup(root_fd)
+    try:
+        for part in relative.split("/") if relative else []:
+            following = os.open(part, _DIR, dir_fd=fd)
+            os.close(fd)
+            fd = following
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def _names(fd: int) -> list[str]:
     return sorted(os.listdir(fd), key=os.fsencode)
 
@@ -183,7 +199,7 @@ def _add_tree(root: Path, tar: tarfile.TarFile, check: Callable[[], None]) -> di
         while pending:
             check()
             relative = pending.pop()
-            fd = root_fd if not relative else os.open(relative, _DIR, dir_fd=root_fd)
+            fd = root_fd if not relative else open_below(root_fd, relative)
             try:
                 here = os.fstat(fd)
                 if (here.st_dev, here.st_ino) != known[relative]:
@@ -336,17 +352,22 @@ def load(archive_dir: Path) -> dict[str, Any]:
         return json.loads(stream.read())
 
 
-def discard(archive_dir: Path) -> None:
+def discard(archive_dir: Path) -> bool:
     """Remove an archive retention wrote: only its own file names, then the directory.
 
-    Anything else found inside keeps the directory (rmdir fails), by design."""
-    for name in os.listdir(archive_dir) if archive_dir.is_dir() and not archive_dir.is_symlink() else []:
-        if name in (MANIFEST, ROWS, "job.tar.zst", "job.tar.gz"):
-            os.unlink(archive_dir / name)
+    Anything else found inside keeps the directory, by design, and the answer is
+    False; the only exceptions it lets through are cancellations."""
     try:
+        names = os.listdir(archive_dir) if archive_dir.is_dir() and not archive_dir.is_symlink() else []
+        for name in names:
+            if name in (MANIFEST, ROWS, "job.tar.zst", "job.tar.gz"):
+                os.unlink(archive_dir / name)
         os.rmdir(archive_dir)
     except FileNotFoundError:
-        pass
+        return True
+    except OSError:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +439,45 @@ def _compare(tar, member, entry, check) -> None:
 # verified deletion
 # ---------------------------------------------------------------------------
 
+def untouched(job_dir: Path, manifest: Mapping[str, Any]) -> bool:
+    """Whether every entry the manifest lists is still in `job_dir`, unchanged
+    (directories by identity). Extra entries do not matter; nothing is deleted."""
+    tree = manifest.get("tree")
+    if tree is None:
+        return True
+    if "symlink" in tree:
+        try:
+            return os.readlink(job_dir) == tree["symlink"]
+        except OSError:
+            return False
+    try:
+        root_fd = os.open(job_dir, _DIR)
+    except OSError:
+        return False
+    try:
+        for entry in tree["entries"]:
+            parent, _, name = entry["path"].rpartition("/")
+            try:
+                if not entry["path"]:
+                    st = os.fstat(root_fd)
+                else:
+                    fd = open_below(root_fd, parent)
+                    try:
+                        st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    finally:
+                        os.close(fd)
+            except OSError:
+                return False
+            if entry["type"] == "dir":
+                if (st.st_dev, st.st_ino) != (entry["dev"], entry["ino"]) or not stat.S_ISDIR(st.st_mode):
+                    return False
+            elif not unchanged(entry, st):
+                return False
+        return True
+    finally:
+        os.close(root_fd)
+
+
 def delete_archived(job_dir: Path, manifest: Mapping[str, Any], *,
                     check: Callable[[], None] = _never) -> list[str]:
     """Delete the entries of `job_dir` the manifest lists with unchanged signatures.
@@ -444,7 +504,6 @@ def delete_archived(job_dir: Path, manifest: Mapping[str, Any], *,
     directories = sorted((p for p, e in entries.items() if e["type"] == "dir"),
                          key=lambda p: (-(p.count("/") + 1) if p else 1, os.fsencode(p)))
     kept: list[str] = []
-    relinked: dict[tuple[int, int], int] = {}
     parent_fd = os.open(job_dir.parent, _DIR)
     try:
         try:
@@ -459,7 +518,7 @@ def delete_archived(job_dir: Path, manifest: Mapping[str, Any], *,
                 return [""]
             for directory in directories:
                 check()
-                _empty(root_fd, directory, entries, kept, relinked)
+                _empty(root_fd, directory, entries, kept)
         finally:
             os.close(root_fd)
         if not kept:
@@ -474,29 +533,36 @@ def delete_archived(job_dir: Path, manifest: Mapping[str, Any], *,
     return kept
 
 
-def _relinked_by_us(root_fd, entry, st, entries) -> bool:
-    """A hard link whose only change is the ctime an earlier, interrupted deletion gave it.
-
-    Everything but ctime must match, and the drop in the link count must be exactly
-    the number of this inode's archived paths that are already gone."""
-    if entry["type"] != "file" or entry["nlink"] < 2 or \
-            not unchanged(entry, st, st.st_ctime_ns if st.st_ctime_ns > entry["ctime_ns"] else None):
+def _only_ctime_moved(dir_fd, name, entry, st, entries) -> bool:
+    """A hard link whose ctime changed because a sibling link was unlinked (by this
+    run or an interrupted one), and nothing else: every other signature field still
+    matches, and its bytes still hash to the archived sha256 of its link group.
+    Content is compared, not bookkeeping, so a write can never pass as our change."""
+    if entry["type"] != "file" or entry["nlink"] < 2 or not unchanged(entry, st, st.st_ctime_ns):
         return False
-    group = [e["path"] for e in entries.values() if (e.get("dev"), e.get("ino")) == (entry["dev"], entry["ino"])]
-    gone = 0
-    for path in group:
-        try:
-            os.stat(path, dir_fd=root_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            gone += 1
-        except OSError:
-            return False
-    return gone > 0 and st.st_nlink == entry["nlink"] - gone
-
-
-def _empty(root_fd, directory, entries, kept, relinked) -> None:
+    first = entries.get(entry.get("hardlink")) if "hardlink" in entry else entry
+    expected = (first or {}).get("sha256")
+    if expected is None:
+        return False
     try:
-        fd = os.open(directory, _DIR, dir_fd=root_fd) if directory else os.dup(root_fd)
+        fd = os.open(name, _FILE, dir_fd=dir_fd)
+    except OSError:
+        return False
+    try:
+        now = os.fstat(fd)
+        if (now.st_dev, now.st_ino) != (entry["dev"], entry["ino"]) or now.st_size != entry["size"]:
+            return False
+        digest = hashlib.sha256()
+        while data := os.read(fd, CHUNK):
+            digest.update(data)
+        return digest.hexdigest() == expected
+    finally:
+        os.close(fd)
+
+
+def _empty(root_fd, directory, entries, kept) -> None:
+    try:
+        fd = open_below(root_fd, directory)
     except FileNotFoundError:
         return                                       # gone in an earlier, interrupted run
     except OSError:
@@ -529,25 +595,10 @@ def _empty(root_fd, directory, entries, kept, relinked) -> None:
                 except OSError:
                     pass                             # not empty: what it holds was kept already
                 continue
-            identity = (st.st_dev, st.st_ino)
-            if not unchanged(entry, st, relinked.get(identity)) and not _relinked_by_us(root_fd, entry, st, entries):
+            if not unchanged(entry, st) and not _only_ctime_moved(fd, name, entry, st, entries):
                 kept.append(path)
                 continue
-            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
-                # Unlinking one link changes the inode's ctime for the others; read
-                # the new value through a descriptor taken before the unlink.
-                handle = os.open(name, _FILE, dir_fd=fd)
-                try:
-                    now = os.fstat(handle)
-                    if (now.st_dev, now.st_ino) != identity:
-                        kept.append(path)
-                        continue
-                    os.unlink(name, dir_fd=fd)
-                    relinked[identity] = os.fstat(handle).st_ctime_ns
-                finally:
-                    os.close(handle)
-            else:
-                os.unlink(name, dir_fd=fd)
+            os.unlink(name, dir_fd=fd)
     finally:
         os.close(fd)
 
