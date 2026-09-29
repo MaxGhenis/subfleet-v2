@@ -394,3 +394,25 @@ def test_c10_3_a_slow_answer_never_replaces_a_newer_one_after_the_registry_read(
     release.set()
     older.join(10)
     assert answers == [True] and daemon._desktop_use[1] is True
+
+
+@pytest.mark.parametrize("clock", ["due", "running"])
+def test_c6_13_a_workspace_retry_is_held_by_the_guard_before_its_git(state_daemon, monkeypatch, clock):
+    """Review of PR #72: a background job waiting on a transient workspace failure
+    (C-6.8) skipped the guard when its retry came due and prepared its workspace
+    at load 150. Due, it is held `machine-busy` before any git; while its clock
+    runs it still reports `workspace` (C-6.11)."""
+    daemon, harness = state_daemon
+    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    monkeypatch.setattr("subfleet.machine.read", lambda: dict(BUSY))
+    job = submit(daemon, harness, "retry", caller_session="gone-session")
+    when = "2000-01-01T00:00:00Z" if clock == "due" else daemon_module.after(300)
+    with daemon.store.transaction("test.workspace_wait", job_id=job) as tx:
+        tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? WHERE job_id=?",
+                   (when, job))
+    prepared = []
+    workspace = daemon._workspace
+    monkeypatch.setattr(daemon, "_workspace", lambda row: prepared.append(row["job_id"]) or workspace(row))
+    daemon._admit()
+    assert prepared == [] and daemon.store.list_attempts(job) == []
+    assert daemon._holds[job]["reason"] == ("machine-busy" if clock == "due" else "workspace")

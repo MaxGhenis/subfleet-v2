@@ -3504,9 +3504,14 @@ class Daemon:
                 if hold:
                     holds[job["job_id"]] = hold
                     continue
-            if job["kind"] != "turn" and job["wait_reason"] not in NOT_ADMISSIONS_TO_PLACE:
+            due = not (job["next_check_at"] and job["next_check_at"] > utcnow())
+            if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
+                    and (due or job["wait_reason"] != "workspace")):
                 # C-6.13: at the door, before any git: a saturated machine holds the
-                # detached jobs of the classes its guard names. Never a turn.
+                # detached jobs of the classes its guard names. Never a turn. A due
+                # workspace retry is held too, before it prepares its workspace
+                # (review of PR #72); one whose clock runs still reports `workspace`
+                # (C-6.11).
                 busy = scheduler.machine_hold(self.policy, reading, scheduler.priority_class(job, liveness))
                 if busy:
                     holds[job["job_id"]] = busy
