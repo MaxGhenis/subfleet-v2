@@ -55,7 +55,6 @@ def make_dirty_detached(w: World, job_id: str) -> dict:
     """A job that committed on a detached HEAD, reset one commit away, left
     staged, modified, untracked and ignored files, and a refs/worktree ref."""
     wt = w.job(job_id)
-    git(wt, "config", "--worktree", "user.name", "agent") if False else None
     (wt / "feature.py").write_text("def feature():\n    return 1\n")
     git(wt, "add", "feature.py")
     git(wt, "commit", "--quiet", "-m", "unpushed 1")
@@ -1059,3 +1058,94 @@ def test_retention_command_lists_checks_and_restores(world, monkeypatch, capsys)
     assert cli.main(["retention", "restore", "cli-job", "--to", str(w.base / "cli-out"), "--json"]) == 0
     assert (w.base / "cli-out" / "worktree" / "note.txt").read_text() == "kept by the archive\n"
     assert cli.main(["retention", "restore", "cli-job", "--to", str(w.base / "cli-out")]) != 0
+
+
+# --- guards the mutation run needs a failing test for -----------------------------------
+
+def test_a_write_while_a_file_is_archived_puts_the_job_back(world, monkeypatch):
+    """The re-fstat around each file's clone and read: a write in between
+    means the clone may not be the bytes read, so the job goes back."""
+    w = world
+    wt = w.job("job-writing")
+    (wt / "out.log").write_text("first\n")
+    original = rfs.clone_or_copy
+
+    def clone_then_write(src_fd, dst_dir_fd, name, check=None):
+        method = original(src_fd, dst_dir_fd, name, check)
+        target = w.root / "retention" / "job-writing" / "worktree" / "out.log"
+        if target.exists() and os.fstat(src_fd).st_ino == target.stat().st_ino and target.read_text() == "first\n":
+            with open(target, "a") as stream:          # the writer still has it open
+                stream.write("second\n")
+        return method
+
+    monkeypatch.setattr(rfs, "clone_or_copy", clone_then_write)
+    result = run(w)
+    assert result["pruned"] == [] and result["deferred"]["job-writing"].startswith("changed")
+    assert (wt / "out.log").read_text() == "first\nsecond\n"
+
+
+def test_an_archive_that_does_not_read_back_authorizes_nothing(world, monkeypatch):
+    """I8: a stored file that does not read back (here overwritten after it was
+    cloned) fails verification; nothing is deleted."""
+    w = world
+    wt = w.job("job-badcopy")
+    original = rfs.clone_or_copy
+
+    def clone_then_spoil(src_fd, dst_dir_fd, name, check=None):
+        method = original(src_fd, dst_dir_fd, name, check)
+        fd = os.open(name, os.O_WRONLY, dir_fd=dst_dir_fd)
+        try:
+            os.write(fd, b"X")
+        finally:
+            os.close(fd)
+        return method
+
+    monkeypatch.setattr(rfs, "clone_or_copy", clone_then_spoil)
+    result = run(w)
+    assert result["pruned"] == [] and "did not read back" in result["deferred"]["job-badcopy"]
+    assert wt.is_dir() and w.store.get_job("job-badcopy") is not None
+
+
+def test_a_prune_during_archiving_cannot_drop_the_registration(world, monkeypatch):
+    """The lock written before the tree moves: a `git worktree prune` (or a gc)
+    while the tree is away leaves the registration and what it names."""
+    w = world
+    wt = w.job("job-prune")
+    (wt / "x").write_text("x")
+    git(wt, "add", "x")
+    git(wt, "commit", "--quiet", "-m", "only here")
+    only = git(wt, "rev-parse", "HEAD")
+    original = rarch._Builder.run
+
+    def prune_then_run(self):
+        git(w.repo, "worktree", "prune")
+        git(w.repo, "gc", "--quiet", "--prune=now")
+        return original(self)
+
+    monkeypatch.setattr(rarch._Builder, "run", prune_then_run)
+    assert run(w)["pruned"] == ["job-prune"]
+    fresh = w.base / "fresh-prune"
+    git(w.base, "clone", "--quiet", str(w.remote), str(fresh))
+    git(fresh, "fetch", "--quiet", str(w.root / "archive" / "job-prune" / "commits.bundle"), "+refs/*:refs/r/*")
+    assert git(fresh, "cat-file", "-t", only) == "commit"
+
+
+def test_a_row_that_changes_before_the_commit_is_in_rows_json(world, monkeypatch):
+    """The commit transaction compares the rows it deletes with rows.json; a
+    row added in between is written into rows.json before anything is deleted."""
+    w = world
+    w.job("job-rows", worktree=False)
+    original = rarch.job_rows
+    calls = []
+
+    def rows_then_change(conn_or_store, job_id):
+        rows = original(conn_or_store, job_id)
+        calls.append(1)
+        if len(calls) == 1:
+            w.store.add_notice(job_id, "late notice", None, state="acknowledged")
+        return rows
+
+    monkeypatch.setattr(rarch, "job_rows", rows_then_change)
+    assert run(w)["pruned"] == ["job-rows"]
+    saved = json.loads((w.root / "archive" / "job-rows" / "rows.json").read_text())["rows"]
+    assert [n["text"] for n in saved["notices"]] == ["late notice"]
