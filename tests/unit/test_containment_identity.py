@@ -395,7 +395,9 @@ def holds_record(case, pid):
 
 
 def expected_sources(case):
-    """Ownership oracle: each pid's own ancestry path, and the group leader rule."""
+    """Ownership oracle. Ancestry is checked independently (each pid's own path up
+    to a verified root, not a traversal down); the group rule is restated from
+    C-5.5 rather than derived, so the examples above pin it separately."""
     live = {pid for pid, row in case.rows.items() if not row[2].startswith("Z")}
     roots = {pid for pid in (10, 20) if holds_record(case, pid)}
     reused = {pid for pid in (10, 20) if pid in case.rows and not holds_record(case, pid)}
@@ -481,8 +483,9 @@ def reused_only_tables(draw):
                           "Z" if fate == "reused-zombie" else "S", REUSED_START)
     for pid in range(30, 30 + draw(st.integers(0, 12))):
         parent = draw(st.sampled_from([1, 900, *rows]))
-        # POSIX: with pid 10 free, no live group 10 can exist but the attempt's
-        # own, which by definition this table does not have.
+        # No live group 10 while pid 10 is free: such a group is counted by
+        # design, since the snapshot cannot tell it from the attempt's own
+        # surviving group (`test_absent_leader_group_is_attributed_...`).
         group = draw(st.sampled_from([900, pid, *([10] if 10 in rows else [])]))
         rows[pid] = (parent, group, "S", REUSED_START)
     wrong_root = draw(st.sets(st.sampled_from(sorted(rows)), max_size=len(rows))) if rows else set()

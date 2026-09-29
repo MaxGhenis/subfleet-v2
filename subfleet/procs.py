@@ -410,13 +410,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     recorded identity: a live child of a verified process is the attempt's,
     even at a pid an earlier process of the attempt once held. The recorded
     group is the attempt's while its leader pid holds the recorded leader
-    (live or a zombie), or holds nothing on the recorded boot: POSIX does not
-    reuse a pid while a group with that id has members, so the id is still
-    the attempt's. Another process at the leader pid proves that the old
-    group emptied and a new one took the id; none of it is attributed. The
-    attempt markers count whatever the identity. Identity evidence one of
-    these decisions needs that is missing or cannot be compared prevents
-    release.
+    (live or a zombie). Another process there proves that the old group
+    emptied and a new one took the id; none of it is attributed. With the
+    leader pid free on the recorded boot the members still count: POSIX does
+    not reuse a pid while a group with that id has members, so the attempt's
+    own group keeps its id after the leader exits, and the snapshot cannot
+    tell it from a group that a later holder of the pid made and left, which
+    errs toward holding on. The attempt markers count whatever the identity.
+    Identity evidence one of these decisions needs that is missing or cannot
+    be compared prevents release.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
