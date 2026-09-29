@@ -198,6 +198,11 @@ def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],
     if reason in ("approval", "uncertain"):
         return ("admission: an operator's approval is needed" if reason == "approval" else
                 "admission: a probe was quarantined; an operator must resolve it")
-    if reason in ("waiting", "not-evaluated"):
+    if reason in ("waiting", "not-evaluated", "capacity"):
+        # `capacity` here is the job row's raw `wait_reason`, which every admission
+        # wait records (a lease wait too), met with no remembered hold: it says nothing
+        # of lanes, so it is not worded as capacity.
         return "admission: the daemon looks at it again shortly"
+    if reason == "parent-cap":
+        return "capacity: its parent job already has as many attempts running as its cap allows"
     return lanes_reason(hold.get("lanes"), reason)

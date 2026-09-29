@@ -111,3 +111,52 @@ def test_i3_closed_lanes_name_their_reset_and_a_turn_cap_is_capacity(tmp_path):
         _, second, _ = message_in(service, harness, "Capped")
         service._admit_turns()
         assert reason(service, second).startswith("capacity: the conversations' turn pool is ")
+
+
+def test_i3_an_older_pass_s_notes_never_land_over_a_newer_one_s(tmp_path):
+    """Review of 63698f1e: two workers run turn passes and note after the pass lock is
+    released, so a slower older pass could write `lease` over the newer pass's `placed`.
+    Notes carry the pass's number and an older one is dropped whole."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        _, mid, job_id = message_in(service, harness, "Raced")
+        notes = service.conversations
+        notes.note_holds({}, placed=[job_id], seq=10**6)
+        assert reason(service, mid) == waits.PLACED
+        notes.note_holds({job_id: {"reason": "fleet-full", "max_active_attempts": 1}}, seq=10**6 - 1)
+        assert reason(service, mid) == waits.PLACED
+
+
+def test_i3_a_note_before_its_message_is_bound_is_tried_again_soon(tmp_path):
+    """Review of 63698f1e: a pass can look at a turn job before the dispatcher binds its
+    message; that note reaches nothing, so it is not remembered for NOTE_REFRESH_S: the
+    next pass a second later writes it. One job's failure leaves the others' notes."""
+    from subfleet.conversations import service as service_module
+    from subfleet.conversations.service import CLAIMED
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        _, mid, job_id = message_in(service, harness, "Early")
+        _, other, other_job = message_in(service, harness, "Other")
+        notes = service.conversations
+        now = [1000.0]
+        patch.setattr(notes, "clock", lambda: now[0])
+        notes.store.set_state(mid, WAITING, reason=CLAIMED, job_id=None)             # not bound yet
+        hold = {"reason": "fleet-full", "max_active_attempts": 1}
+        notes.note_holds({job_id: hold}, seq=10**6)
+        assert reason(service, mid) == CLAIMED
+        notes.store.set_state(mid, WAITING, reason=CLAIMED, job_id=job_id)           # the dispatcher binds it
+        now[0] += service_module.NOTE_UNBOUND_RETRY_S + .1
+        notes.note_holds({job_id: hold}, seq=10**6 + 1)
+        assert reason(service, mid).startswith("capacity: the conversations' turn pool is full")
+        real = notes._who
+
+        def broken(job):
+            raise RuntimeError("a store hiccup")
+        patch.setattr(notes, "_who", broken)
+        failing = {"reason": "slot-kept", "kept_for": other_job}
+        now[0] += service_module.NOTE_REFRESH_S + 1
+        import pytest
+        with pytest.raises(RuntimeError):
+            notes.note_holds({job_id: failing, other_job: {"reason": "route-moved"}}, seq=10**6 + 2)
+        assert reason(service, other).startswith("admission: its lane changed")
+        patch.setattr(notes, "_who", real)

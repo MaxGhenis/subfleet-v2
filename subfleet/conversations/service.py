@@ -94,6 +94,8 @@ DEFER_MAX_S = 300.0
 #: C-24.4 (I3): a held turn's reason is looked at again this often while its hold
 #: stands, so a lease's new holder or a renamed conversation reaches the message.
 NOTE_REFRESH_S = 30.0
+#: A note whose message was not yet bound to its job is tried again this soon.
+NOTE_UNBOUND_RETRY_S = 1.0
 # The handover locks (`ConversationService._handover`, C-24.7).
 HANDOVER_STRIPES = 64
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
@@ -157,7 +159,8 @@ class ConversationService:
         self._replayed: set[str] = set()       # ended attempts `_replay_unsettled` has replayed
         # C-24.4 (I3): turn job id -> (the hold it was last noted for, when); a note is
         # written only when the hold changes or NOTE_REFRESH_S has passed.
-        self._noted: dict[str, tuple[str, float]] = {}
+        self._noted: dict[str, tuple[str, float]] = {}    # job id -> (hold signature, look again after)
+        self._note_seq = 0                                  # the newest turn pass whose notes were written
         self._note_lock = threading.Lock()
         self._closed = False
 
@@ -1614,37 +1617,56 @@ class ConversationService:
 
     # --- why a message waits (C-24.4, C-29.11; I3) --------------------------------
 
-    def note_holds(self, holds: dict[str, dict], *, placed=()) -> None:
+    def note_holds(self, holds: dict[str, dict], *, placed=(), seq: int | None = None) -> None:
         """After each turn pass: every waiting message whose turn job admission left
         unplaced says why in its `state_reason` (`waits.hold_reason`), and one whose
         job it placed says it is starting. Written only when the reason changes, and
         looked at again at most once a hold per NOTE_REFRESH_S while it stands (a
-        lease's holder, a title, may change under the same hold)."""
-        now = self.clock()
+        lease's holder, a title, may change under the same hold).
+
+        `seq` numbers the turn passes (`Daemon._admit_kind`). Two workers run turn
+        passes and each notes after releasing the pass lock, so an older pass's
+        notes can arrive after a newer one's: they are dropped, never written over
+        the newer (review of 63698f1e: a turn placed by the newer pass read "lease"
+        again). One job's failure leaves the others' notes written; the first is
+        raised after them."""
         with self._note_lock:
+            if seq is not None:
+                if seq <= self._note_seq:
+                    return
+                self._note_seq = seq
+            now = self.clock()
             live = set(holds) | set(placed)
             self._noted = {job_id: value for job_id, value in self._noted.items() if job_id in live}
-        for job_id in placed:
-            self._note(job_id, "placed", lambda: waits.PLACED, now)
-        for job_id, hold in holds.items():
-            signature = json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
-                                   sort_keys=True, default=str)
-            self._note(job_id, signature, lambda hold=hold: waits.hold_reason(
-                hold, describe=self._describe_lease, who=self._who), now)
+            failure: Exception | None = None
+            notes = [(job_id, "placed", lambda: waits.PLACED) for job_id in placed]
+            notes += [(job_id, json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
+                                          sort_keys=True, default=str),
+                       lambda hold=hold: waits.hold_reason(hold, describe=self._describe_lease, who=self._who))
+                      for job_id, hold in holds.items()]
+            for job_id, signature, reason_of in notes:
+                try:
+                    self._note(job_id, signature, reason_of, now)
+                except Exception as exc:                 # noqa: BLE001
+                    failure = failure or exc
+            if failure is not None:
+                raise failure
 
     def _note(self, job_id: str, signature: str, reason_of, now: float) -> None:
-        with self._note_lock:
-            last = self._noted.get(job_id)
-            if last and last[0] == signature and now - last[1] < NOTE_REFRESH_S:
-                return
-            self._noted[job_id] = (signature, now)
+        """Under `_note_lock`. A note is remembered for NOTE_REFRESH_S once it reached its
+        message; one whose message is not bound to the job yet (the dispatcher binds it
+        just after submit returns) is tried again after NOTE_UNBOUND_RETRY_S."""
+        last = self._noted.get(job_id)
+        if last and last[0] == signature and now < last[1]:
+            return
         job = self.daemon.store.one("SELECT request_id, kind FROM jobs WHERE job_id=?", (job_id,))
         request = str((job or {}).get("request_id") or "")
         if not job or job["kind"] != "turn" or not request.startswith("turn:"):
+            self._noted[job_id] = (signature, now + NOTE_REFRESH_S)
             return
         reason = reason_of()
-        if reason:
-            self.store.note_wait(request.split(":")[1], job_id, reason[:500])
+        bound = bool(reason) and self.store.note_wait(request.split(":")[1], job_id, reason[:500])
+        self._noted[job_id] = (signature, now + (NOTE_REFRESH_S if bound or not reason else NOTE_UNBOUND_RETRY_S))
 
     def _who(self, job_id: str) -> str:
         """A job as a person knows it: a turn by its conversation's title."""
@@ -1675,6 +1697,10 @@ class ConversationService:
         if key.startswith(folders.EXCLUSIVE):
             if holder.startswith("retention:"):
                 return "retention is removing a finished job's worktree in this folder"
+            job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
+            if job and job["kind"] == "turn":
+                # A turn a daemon before 2026-09-29 admitted still holds the folder alone.
+                return f"{self._who(job_id)} is writing in this folder"
             return f"{self._who(job_id)} is writing in this folder, and a detached writer works alone"
         if key.startswith("conversation:"):
             return f"this conversation's previous turn ({job_id}) has not finished"

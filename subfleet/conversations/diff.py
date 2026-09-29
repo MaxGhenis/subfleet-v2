@@ -4,8 +4,11 @@ A writable turn whose workspace is a git checkout with a commit is bracketed
 by two snapshots of the working tree, each a tree object written through a
 temporary index by the C-6.8 snapshot (`salvage.working_tree`): the start one
 is the attempt's `baseline_tree`, taken at admission for every writable job;
-the end one is taken at finalization, while the turn's `worktree:` lease is
-still held, so no other writer's work lands between the turn and it. Neither
+the end one is taken at finalization, while the turn still holds its folder.
+Conversations share a folder (C-24.5), so another conversation's turn may
+write between the two; the conversation store records which did
+(`ConversationStore._note_overlaps`) and the diff ops say so (`shared`). No
+detached writer can, since it holds its folder alone (C-6.5). Neither
 writes a ref, and neither touches HEAD, the real index, or a file in the
 checkout. The objects are unreferenced, so git may prune them once they are
 older than its prune window (`gc.pruneExpire`, two weeks by default); a diff

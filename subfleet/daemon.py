@@ -555,6 +555,7 @@ class Daemon:
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
         self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
+        self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
         # by side (`_admit_turns` beside `_admit`), so a turn never waits for a
         # detached job's evaluation, workspace or probe. `_admission_lock` guards
@@ -1373,8 +1374,8 @@ class Daemon:
                         raise
                     raise _written_by_policy(exc, args.task) from exc
             else:
-                # C-26.1, IR-12: a turn waits for its workspace at admission (the
-                # `worktree:` lease), it is never refused here.
+                # C-26.1, IR-12: a turn waits for its workspace at admission (a
+                # detached writer's `worktree:` lease, C-24.5), it is never refused here.
                 cleared = None
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
@@ -3097,6 +3098,8 @@ class Daemon:
         if not lock.acquire(blocking=wait):
             return
         try:
+            self._pass_seq[kind] += 1                 # C-24.4: notes of an older pass never land last
+            seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
             # A pass that raises leaves both as the last whole pass left them: half
@@ -3112,7 +3115,7 @@ class Daemon:
             # C-24.4 (I3): every message a turn pass left waiting says why, and one it
             # placed says it is starting. Its failure is logged, never the pass's.
             try:
-                self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()))
+                self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()), seq=seq)
                 self._note_error = None
             except Exception as exc:                      # noqa: BLE001
                 error = f"{type(exc).__name__}: {exc}"[:300]

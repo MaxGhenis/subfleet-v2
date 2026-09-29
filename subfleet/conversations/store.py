@@ -1017,7 +1017,8 @@ class ConversationStore:
     def note_wait(self, message_id: str, job_id: str, reason: str) -> bool:
         """C-24.4, I3: why a waiting message's turn job is not placed yet, written while
         that job still carries it and only when it changes, with a change-feed row so
-        the app shows it. Returns whether it changed."""
+        the app shows it. Returns whether the message is waiting on that job (so the
+        reason now stands), changed or not."""
         if not reason:
             raise ValueError("a waiting message needs its reason")
         with self.transaction() as tx:
@@ -1027,7 +1028,9 @@ class ConversationStore:
             if cur.rowcount:
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
                 self._change(tx, row["conversation_id"], message_id, WAITING, reason=reason)
-            return bool(cur.rowcount)
+                return True
+            return tx.execute("SELECT 1 FROM messages WHERE message_id=? AND state=? AND job_id=?",
+                              (message_id, WAITING, job_id)).fetchone() is not None
 
     def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
@@ -1283,6 +1286,13 @@ class ConversationStore:
                 (attempt_id, message_id, conversation_id, workspace, int(bool(writable)), head_before, start_tree,
                  head_after, end_tree, error, started_at, utcnow() if ended else None, target or workspace,
                  _stamp(window_start)))
+            if target and target != workspace:
+                # A row written before `target` took its workspace as its folder; a
+                # conversation keeps one workspace for its life (C-24.1), so its folder
+                # is this one, and `conversation.diff` compares the right rows (review
+                # of 52c73076: a conversation in `/repo/sub` never met turns in `/repo`).
+                tx.execute("UPDATE turn_trees SET target=? WHERE conversation_id=? AND target=workspace "
+                           "AND workspace=?", (target, conversation_id, workspace))
             grown = self._note_overlaps(tx, attempt_id)
             if ended and not (before and before["ended_at"]):
                 # One change-feed row with `state` null, as an approval writes: it

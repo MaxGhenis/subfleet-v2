@@ -80,7 +80,8 @@ def test_a_lease_names_its_holder_and_a_settled_message_needs_no_reason():
 HOLDS = st.one_of(
     st.builds(lambda reason: {"reason": reason},
               st.sampled_from(["attempt-live", "route-moved", "probe-pending", "approval", "uncertain", "waiting",
-                               "not-evaluated", "workspace", "route", "conversation-blocked"])),
+                               "not-evaluated", "workspace", "route", "conversation-blocked",
+                               "capacity"])),                   # a job row's raw wait_reason: not capacity
     st.builds(lambda leases: {"reason": "lease-held", "leases": leases},
               st.lists(st.sampled_from(["worktree:/r", "conversation:c", "native:claude:s"]), max_size=3)),
     st.builds(lambda n: {"reason": "fleet-full", "max_active_attempts": n}, st.integers(1, 9)),
@@ -100,6 +101,8 @@ def test_i3_every_hold_but_a_settled_message_has_a_reason_with_a_kind(hold):
     assert sep and detail and kind in ("capacity", "closed", "usage-unknown", "no-lane", "lease", "blocked",
                                        "workspace", "route", "admission")
     assert (kind == "capacity") == (hold["reason"] in ("fleet-full", "slot-kept", "behind-older-job"))
+    if hold["reason"] == "capacity":
+        assert kind == "admission"          # review of 63698f1e: it fell through to `no-lane`
 
 
 @settings(max_examples=500, deadline=None)

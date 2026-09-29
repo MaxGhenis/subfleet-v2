@@ -160,3 +160,32 @@ def test_i4_a_store_from_before_the_windows_gains_them_and_keeps_its_rows(tmp_pa
         assert store.turn_trees("new")["shared"] == ["20260929-115959-old/a1"]      # still open: it met it
     finally:
         store.close()
+
+
+def test_i4_a_conversation_s_rows_from_before_the_windows_take_its_folder(tmp_path):
+    """Review of 52c73076: a row written before `target` took its workspace as its folder,
+    so a conversation in `/repo/sub` never met turns in `/repo` in `conversation.diff`.
+    Its next turn's record gives its older rows the folder (one workspace for its life,
+    C-24.1), and the conversation's diff then names the other conversation."""
+    import sqlite3
+    root = tmp_path / "state"
+    ConversationStore(root).close()
+    with sqlite3.connect(root / "conversations.sqlite3") as db:
+        db.execute("INSERT INTO turn_trees(attempt_id,message_id,conversation_id,workspace,writable,start_tree,"
+                   "started_at,ended_at,target) VALUES ('20260929-110000-old/a1','old','sub','/repo/sub',1,'t',"
+                   "'2026-09-29T11:00:00Z','2026-09-29T11:01:00.000Z','/repo/sub')")
+    store = ConversationStore(root)
+    try:
+        store.record_trees(attempt_id="20260929-113000-beside/a1", message_id="beside", conversation_id="top",
+                           workspace="/repo", writable=True, started_at="2026-09-29T11:30:00Z", start_tree="t",
+                           target="/repo", window_start="2026-09-29T11:30:00.000Z")
+        assert store.overlapping("/repo/sub", "2026-09-29T11:00:00Z", besides_conversation="sub") == []
+        store.record_trees(attempt_id="20260929-120000-new/a1", message_id="new", conversation_id="sub",
+                           workspace="/repo/sub", writable=True, started_at="2026-09-29T12:00:00Z", start_tree="t",
+                           target="/repo", window_start="2026-09-29T12:00:00.000Z")
+        first = store.first_trees("sub")
+        assert first["attempt_id"] == "20260929-110000-old/a1" and first["target"] == "/repo"
+        assert [row["conversation_id"] for row in store.overlapping(
+            first["target"], first["started_at"], besides_conversation="sub")] == ["top"]
+    finally:
+        store.close()
