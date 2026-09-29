@@ -21,6 +21,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -584,6 +585,28 @@ def test_c5_7a_a_pass_that_raises_with_nothing_asked_meanwhile_keeps_the_request
     assert not service.store.list_leases(HOLDER) and HOLDER not in service._probe_resolutions
     [resolved] = kinds(service, "probe.force_released" if mode == "force-release" else "probe.confirmed_dead")
     assert [(item["mode"], item["operator_note"]) for item in resolved["data"]["requests"]] == [(mode, "first")]
+
+
+def test_c5_7a_a_pass_whose_lease_check_raises_keeps_the_request(routing_state, monkeypatch):
+    """The pass takes the request before it reads the lease again, and a store
+    error there has not acted on it either: the request stays for the next pass."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="first")
+    taken = copy.deepcopy(service._probe_resolutions[HOLDER])
+    one = service.store.one
+
+    def locked(sql, params=()):
+        if sql == "SELECT 1 FROM leases WHERE holder=?":
+            raise sqlite3.OperationalError("database is locked")
+        return one(sql, params)
+    monkeypatch.setattr(service.store, "one", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        service._recover_probes()
+    assert service._probe_resolutions[HOLDER] == taken and service.store.list_leases(HOLDER)
+    monkeypatch.setattr(service.store, "one", one)
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and len(kinds(service, "probe.force_released")) == 1
 
 
 PENDING = st.builds(

@@ -2777,19 +2777,21 @@ class Daemon:
                 request = self._probe_resolutions.pop(holder, None)
             if request is None and time.monotonic() < self._probe_rechecks.get(holder, (0, 0.0))[1]:
                 continue                                  # quarantined, and not yet due
-            if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)):
-                continue          # released since this pass read the leases: nothing left to look at
-            if request is not None:
-                try:
+            try:
+                if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)):
+                    continue      # released since this pass read the leases: nothing left to look at
+                if request is not None:
                     self._resolve_probe(holder, request)  # C-5.7a: the operator's, whatever the clock says
-                except BaseException:
-                    # A pass that raised (C-5.10 retries it) has not acted on the
-                    # request: it stays, merged with any asked since.
+                    continue
+            except BaseException:
+                if request is not None:
+                    # A pass that raised (C-5.10 retries it), reading the lease
+                    # again or resolving, has not acted on the request: it
+                    # stays, merged with any asked since.
                     with self._probe_resolution_lock:
                         self._probe_resolutions[holder] = merge_probe_requests(
                             request, self._probe_resolutions.get(holder))
-                    raise
-                continue
+                raise
             record = self._probe_record(holder)
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
