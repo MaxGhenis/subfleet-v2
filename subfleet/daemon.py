@@ -18,6 +18,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import resource
 import signal
 import shutil
@@ -256,8 +257,20 @@ def whole_seconds(instant: datetime) -> int:
     return (instant - EPOCH) // timedelta(seconds=1)
 
 
+#: C-5.7a: the one form `issued_at` takes: a date, a time to the second with an
+#: optional fraction, and `Z`, a whole-minute offset, or none (UTC). The other
+#: forms `datetime.fromisoformat` accepts are read differently from one Python to
+#: the next (3.12 reads `+00:00:00.5` as no offset at all, where 3.14 reads half
+#: a second), so the same stamp could name two instants: they are refused.
+ISSUED_AT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?")
+
+
 def issued_instant(issued_at: str) -> datetime:
-    """C-5.7a: the instant a CLI stamped on its resolution request; refused if unreadable."""
+    """C-5.7a: the instant a CLI stamped on its resolution request; refused if
+    it is not `YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]` or cannot be read."""
+    if not ISSUED_AT.fullmatch(str(issued_at)):
+        raise protocol.ProtocolError(f"issued_at {issued_at!r} is not an instant of the form "
+                                     f"YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", Exit.INVALID_INPUT)
     try:
         instant = datetime.fromisoformat(str(issued_at).replace("Z", "+00:00"))
     except ValueError:
