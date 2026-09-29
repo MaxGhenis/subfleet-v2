@@ -29,50 +29,57 @@ steps, because the app can write between any two:
 
 Three rules decide a session, so the checker can compare them:
 
-* `base`, the rule on `main` before 2026-09-26: agreement wins, otherwise the
-  change from the one merge base wins, and with no base archived-anywhere wins.
-  The base advances only after a publish that wrote every copy.
+* `base`, the rule before 2026-09-29: agreement wins, otherwise the change
+  from the one merge base wins, and with no base archived-anywhere wins. The
+  base advances only after a publish that wrote every copy.
 * `mine`, the design first proposed for review round 5's finding F2: the same,
   except that a copy whose file is the mirror's own last write does not vote
   (unless no copy is left to vote). The mirror's writes are assumed durably
   journaled.
-* `refs`, the rule the code implements: each copy has its own reference, the
-  value the mirror's last decision gave it. A copy votes only when it differs
-  from its reference; voters that agree win; with no voter the last decision
-  stands; voters that disagree fall back to the change from the last
-  decision. A publish is recorded before its first write, and what the files
-  show afterwards (which writes landed, which were put back) decides the
-  record: a decision stands for the copies it reached, and a copy it did not
-  reach keeps its own reference.
+* `refs`, the rule the code implements. Each copy has its own reference: the
+  value the mirror's last decision gave it, or read there. A copy votes only
+  when it differs from its reference; voters that agree win; with no voter
+  the last decision stands; voters that disagree fall back to the change from
+  the last decision. A publish is recorded before its first write, and what
+  the files show afterwards (which writes landed, which were put back)
+  resolves the record: a publish that reached no target, or a bootstrap
+  publish (decided with no base) that did not reach every target, changes
+  nothing; otherwise the decision stands, and a target it did not reach takes
+  what its file holds as its reference.
 
 Faults (`faults=True`): a rollback write that raises (`rollback_write_fails`),
 a merge-base write that raises (`commit_fails`), and a crash anywhere after
-the decision (`crash`). The code's write-ahead record and the prepared
-temporary files make every one of them recoverable for rule `refs`: a crash
-keeps the publish record, and `pass_recover` reads which writes landed.
+the pre-check (`crash`). For rule `refs` the publish record outlives all
+three, and `pass_recover` resolves it by which writes landed.
 
 The app is modeled as `mirror.py`'s docstring and `desktop.py` describe it: it
 holds in memory the record of the folder it loaded (as it was on disk at that
 load) and of folders where a session still runs from an earlier account; a
 user's action changes the loaded folder's copy and the app's memory; any app
 save writes memory. `focus` is an app save that keeps the flag (an activity or
-focus update): it changes the file, so it matters only to a publish in
-progress. With `stale=False` the app never saves a flag that differs from the
-file (as when its memory is current). With `stale=True` it may: that is the
-re-save of a value the mirror changed after the app's load, the known limit
-in the 2026-09-24 report.
+focus update): it matters to a publish in progress, which must not write over
+it, and it makes the file the app's rather than the mirror's own write. With
+`stale=False` the app never saves a flag that differs from the file (as when
+its memory is current). With `stale=True` it may: that is the re-save of a
+value the mirror changed after the app's load, the known limit in the
+2026-09-24 report.
 
 Two ghosts say what the user wants. `intent` is the one the 2026-09-25 model
 used: what the user set since the last publish that converged every copy and
 the base, or `CONFLICT` once they set both values. `latest` is causal: it is
 the value of the user's latest action, unless some copy (or a decision in
-flight) still holds the other value from an action the user did not know
-about when they acted, in which case it is `CONFLICT`. Knowledge follows
-values: acting on a copy knows everything that copy's value was derived from,
-and a value the mirror writes is derived from the copies it read that held
-the decided value. So a user who archives in one account and unarchives in
-the same account, or in another account after seeing the archive there, means
-"unarchived", whatever the mirror wrote in between.
+flight, or a value a rollback could put back) still holds the other value
+from an action the user did not know of when they acted, in which case it is
+`CONFLICT`. Knowledge follows values: acting on a copy knows everything that
+copy's value was derived from, and a value the mirror writes is derived from
+the copies it read that held the decided value. So a user who archives in one
+account and unarchives in the same account, or in another account after
+seeing the archive there, means "unarchived", whatever the mirror wrote in
+between. Both ghosts exempt the bootstrap rule: `intent` and `latest` are
+checked only by a pass with a base, and `latest` guards only actions taken
+while a base was recorded. The provenance behind `latest` makes the state
+space large (tens of gigabytes for three accounts with faults, 2026-09-29), so
+with `CAUSAL` on the space is explored only to a state limit.
 
 What the model does not cover: an app rename landing between the code's last
 signature check and its own `os.replace` (a window of one syscall), which the
@@ -269,19 +276,24 @@ def _record(state: State, base: bool | None, ref: tuple[bool | None, ...], *,
 # --- resolution (rule refs) -------------------------------------------------------
 
 def resolve(state: State) -> tuple[bool | None, tuple[bool | None, ...]]:
-    """The record a publish leaves, from what its files show.
+    """The record a publish leaves, from what its files show now.
 
     A publish none of whose writes stands (none landed, or every one put back)
-    changes nothing. Otherwise its decision stands: the base is the value
+    changes nothing, and neither does a bootstrap publish (one decided with no
+    base) that did not reach every target: with no base every copy votes, so
+    the next pass decides it again by the same rule. Otherwise its decision
+    stands: the base is the value
     decided and every copy has it as its reference, except a target the
-    publish did not reach, whose reference is the value the pass read there
-    (the other value: that is what made it a target).
+    publish did not reach, whose reference is what its file holds now. That
+    is the value the pass read there, or the decided value if someone wrote
+    it since, which the decision already agrees with; either way a change
+    made there afterwards reads as a change.
     """
     decided, targets, prior_ref, prior_base = state.wal
     reached = {t for t in targets if t in state.landed and t not in state.restored}
-    if targets and not reached:
+    if targets and (not reached or (prior_base is None and len(reached) < len(targets))):
         return prior_base, prior_ref
-    ref = tuple((not decided) if a in targets and a not in reached else decided
+    ref = tuple(state.copy[a] if a in targets and a not in reached else decided
                 for a in range(len(state.copy)))
     return decided, ref
 
@@ -330,7 +342,9 @@ def user_set(state: State, value: bool) -> State | None:
     if CAUSAL:
         action = _fresh(state)
         knows = know[here] | {action}
-        latest = _latest(state, here, value, knows)
+        # An action taken while no base is recorded is the bootstrap rule's
+        # (archived-anywhere) to override: `latest` guards only the others.
+        latest = _latest(state, here, value, knows) if isinstance(state.base, bool) else None
         sup[here], know[here] = frozenset({action}), knows
     copy, mem = list(state.copy), list(state.mem)
     copy[here] = mem[here] = value
@@ -381,12 +395,10 @@ def pass_decide(state: State) -> State | None:
     sup, know = _sets(state.sup, n), _sets(state.know, n)
     supporters = [a for a in range(n) if state.copy[a] == decided]
     # With no base the bootstrap rule (archived-anywhere) may override the
-    # user by design: what they did before the decision is exempt.
-    exempt = state.base is None
+    # user by design: an intent from before it is exempt.
     return _canon(replace(state, phase=DECIDED, snap=state.copy, decided=decided,
                           smine=state.mine,
-                          intent=None if exempt else state.intent,
-                          latest=None if exempt else state.latest,
+                          intent=state.intent,
                           dsup=frozenset().union(*(sup[a] for a in supporters)),
                           dknow=frozenset().union(*(know[a] for a in supporters)),
                           ssup=sup, sknow=know))
@@ -434,12 +446,7 @@ def pass_write(state: State) -> State | None:
     sup, know = list(_sets(state.sup, n)), list(_sets(state.know, n))
     sup[target], know[target] = state.dsup, state.dknow
     rest = state.pending[1:]
-    # A bootstrap publish overwrites by design, whatever the user did since
-    # its decision: the pre-check compares values, so it cannot see a user
-    # who flipped a copy and flipped it back (`intent` calls that CONFLICT).
-    exempt = state.base is None
     return _canon(replace(state, copy=tuple(copy), pending=rest,
-                          latest=None if exempt else state.latest,
                           written=state.written + (target,),
                           landed=state.landed | {target} if state.rule == REFS else EMPTY,
                           mine=state.mine | {target}, sup=tuple(sup), know=tuple(know),
