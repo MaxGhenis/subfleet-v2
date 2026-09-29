@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 7)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 8)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -229,11 +229,11 @@ busy or recently active, so the login is protected. Working through the Subfleet
 app runs turns as attempts, so after 30 minutes with no Claude Code activity the
 desktop lane opens, last in line.
 
-The answer is read at most every 5 s, off the store lock, and kept only if its registry read began after the answer kept already; it is aged from that read, and a reservation treats an answer older than 10 s as use. It is put on the desktop
+The answer is computed as part of each registry read (at most every 2 s, off the store lock, the same read the priority classes use), and kept only if no read that began later was kept already; it is aged from that read, and a reservation treats an answer older than 10 s as use. It is put on the desktop
 lane row as `desktop_in_use`, which joins `scheduler.LANE_FACTS`; a desktop lane
 without it counts as in use. **The reservation reads it again** (review finding
 3). Before each reservation try, the daemon refreshes the answer off the lock (at
-most 5 s old). Inside the transaction, `_route_rows` marks the desktop lane with
+most 2 s old). Inside the transaction, `_route_rows` marks the desktop lane with
 that current answer, not the early view's. A change since the evaluation changes
 the lane's facts, and C-6.3's check judges that lane again. The admission-probe
 reservation, which refused a desktop lane outright, now refuses it only while in
@@ -373,6 +373,18 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 7 (Astra's PR gates on PR #72)
+
+- **Workspace retries.** The machine guard, when turned on, holds a due workspace
+  retry before its git. One whose clock is still running reports `workspace`
+  (C-6.11).
+- **One registry read.** Each read of Claude Code's session registry
+  (`_registry_read`) yields both the rows the priority classes read and the
+  desktop answer, kept together as one reading. A reading is kept only if no read
+  that began later was kept meanwhile. Revision 7 kept rows and answer in two
+  caches, and an older idle answer could be published after a newer read had
+  found the registry unreadable. `REGISTRY_READ_TTL_S` (2 s) serves both.
 
 ## Changes since revision 6 (Astra round 4, the gate's last: one P2)
 
