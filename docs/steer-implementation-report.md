@@ -272,3 +272,32 @@ had introduced. What they found, and what changed:
   own loop.
 - The contract (C-24.5, C-24.7, C-24.9, C-25.2, C-26.5, C-26.6, C-29.7) and this
   report's stale lines were brought in line with the code.
+
+### Validation at defc5c08 (2026-09-29)
+
+Run inside a Subfleet job on macOS with CPython 3.12.14 (GIL, as CI), pytest 9.1.1
+and Hypothesis 6.168.1 (`uv sync --locked --group dev --python 3.12`),
+`SUBFLEET_LIVE=0`. The one-minute load average ran from 14 to 115 on 18 CPUs, so
+every file ran in slices of under ten minutes, each with its own process group.
+`pytest -q` collects 7,349 tests, and every one was run:
+
+| Selection | Tests | Result |
+| --- | ---: | --- |
+| The brief's unit files (steer service, invariants, `test_turn_*`, both drivers, conversation service) | 576 | 576 passed; the two FIFO cases timed out at 60 s under load and all three passed alone |
+| `tests/frontend` | 184 | 183 passed; `test_the_app_core_drives_a_development_daemon` ran 9 min 23 s and was stopped (ledger M-9b: it cannot run inside a Subfleet lane) |
+| `tests/e2e/test_conversations.py` | 36 | 22 passed; 14 skipped by the file's own guard (person-only requests cannot come from inside a Subfleet turn or job) |
+| Every other test file (184 files) | 6,553 | 6,521 passed, 26 failed, 6 skipped (5 need `SUBFLEET_LIVE=1`; 1 QoS case whose test process is clamped) |
+
+Of the 26 failures, 24 passed when rerun at lower load: 11 in
+`test_daemon_contract.py` (5 s waits), `test_interactive_steer.py` (13 of 13 alone;
+its fake had not started within 5 s), and 12 more e2e, fake, process and timer
+cases. Two still fail, and fail the same way on 38547c91, whose sources and tests
+for them are unchanged: `test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics`
+(`[slow-reap]`, and `[reap-error]` when run alone) and
+`test_timers_probe.py::test_usage_timeout_does_not_block_cycle_or_shutdown`.
+
+`app/build.sh <dir>` built and signed `Subfleet.app`, with 8 warnings and no errors.
+At this load its single `swiftc` call twice ran past 585 s and was stopped. The
+build that passed ran the same script, with `swiftc`'s own job list
+(`swiftc -###`) run as resumable jobs. The frontend probes were compiled the
+same way, once, and shared between slices.
