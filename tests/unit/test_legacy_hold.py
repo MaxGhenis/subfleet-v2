@@ -394,6 +394,9 @@ class RecordingRunner:
     def interrupt(self, reason="stopped"):
         self.interrupts.append(reason)
 
+    def end_title(self, why):
+        pass
+
     def withhold(self, reason):
         assert not self.started, "withheld after the runner started"
         self.withheld.append(reason)

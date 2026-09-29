@@ -29,6 +29,9 @@ class Runner:
     def interrupt(self, why):
         self.commands.append(("interrupt", why))
 
+    def end_title(self, why):
+        pass
+
     def stop(self):
         pass
 

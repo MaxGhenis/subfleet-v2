@@ -1,22 +1,34 @@
-"""First-message titles are optional metadata, never a prerequisite for a turn."""
+"""First-message titles are optional metadata: never a prerequisite for a turn, never a wait for anything."""
 
 from __future__ import annotations
 
+import ast
 import json
+import os
 import sqlite3
+import tempfile
 import threading
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
-from subfleet.conversations.store import ConversationError, ConversationStore
+from subfleet import relay as relay_module
+from subfleet.conversations import runner as runner_module, titles as titles_module
+from subfleet.conversations.runner import Clocks, TurnRunner
+from subfleet.conversations.service import ConversationService
+from subfleet.conversations.store import ConversationError, ConversationStore, TitleUpdate
 from subfleet.conversations.titles import (
-    SessionTitle, TITLE_BUDGET_S, TITLE_FRAME, TITLE_REQUEST_ID, fallback_title,
+    CLAIMED, ENDED, OPEN, PIPE_FLOOR, SENT, SessionTitle, TITLE_BUDGET_S, TITLE_CANCEL_FRAME, TITLE_DESCRIPTION_MAX,
+    TITLE_FRAME, TITLE_LINE_MAX, TITLE_REQUEST_ID, fallback_title, request_line,
 )
-from tests.unit.test_conversation_service import SETTINGS, svc  # noqa: F401
-from tests.unit.test_turn_runner import INIT_OK, MID, logged, logged_intent, relayed  # noqa: F401
-from subfleet.relay import RelayServer, read_log
+from subfleet.conversations.turn import Frame, TurnSpec
+from subfleet.relay import Ack, FrameTooLarge, RelayError, RelayServer, read_log
+from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, svc  # noqa: F401
+from tests.unit.test_turn_runner import INIT_OK, MID, SID, STEER_CAPS, STEER_MID, claim_steer
+from tests.unit.test_title_review_regressions import Held
 
 
 @pytest.fixture
@@ -42,6 +54,19 @@ def response(title="Widget_API.py repairs", subtype="success"):
         "request_id": TITLE_REQUEST_ID, "subtype": subtype, "response": {"title": title}}})
 
 
+def batch(store, cid, mid, title: TitleUpdate, events=()):
+    """The runner's events batch (`TurnRunner._flush`), carrying the title's work."""
+    store.append_events(conversation_id=cid, message_id=mid, attempt_id="job/a1", events=list(events),
+                        stdout_offset=0, stdin_seq=0, title=title)
+    return title
+
+
+def claim(store, cid, mid, at=100.0):
+    return batch(store, cid, mid, TitleUpdate(claim_at=at)).claimed
+
+
+# --- the fallback and the store ---------------------------------------------------------
+
 @pytest.mark.parametrize("prompt,title", [
     ("Please fix Widget_API.py; then update docs", "Widget_API.py"),
     ("Could you help me build a fast little search bar with filters? More", "a fast little search bar with"),
@@ -65,85 +90,103 @@ def test_first_acceptance_has_fallback_without_waiting_for_a_provider(store):
     assert store.changes_after(0)["changes"][-1]["title_source"] == "fallback"
 
 
-def test_only_first_person_message_claims_one_request_and_watch_gets_title(store):
+def test_only_the_first_person_message_claims_one_request_and_watch_gets_its_title(store):
     cid = conversation(store)["conversation_id"]
-    submit(store, cid, "internal brief", origin="handoff")
+    brief = submit(store, cid, "internal brief", origin="handoff")["message_id"]
     assert store.conversation(cid)["title"] is None
+    store.set_state(brief, "complete")
     first = submit(store, cid)
+    store.set_state(first["message_id"], "running")
     second = submit(store, cid, "a later message", after_message_id=first["message_id"])
-    title = SessionTitle(store, cid, first["message_id"], clock=lambda: 100)
-    assert SessionTitle(store, cid, second["message_id"]).request("later") is None
-    frame = title.request("first context")
-    assert frame.tag == TITLE_FRAME
-    assert json.loads(frame.line)["request"] == {
-        "subtype": "generate_session_title", "description": "first context", "persist": False}
-    assert title.request("first context") is None
-    title.receive(response())
+    assert not claim(store, cid, second["message_id"])          # not the conversation's first message
+    store.set_state(second["message_id"], "complete")          # nothing else of the conversation waits
+    assert claim(store, cid, first["message_id"])
+    assert not claim(store, cid, first["message_id"], at=101)  # one request per conversation, ever
+    assert batch(store, cid, first["message_id"], TitleUpdate(answer=("Widget_API.py repairs", 101))).recorded
     assert store.conversation(cid)["title_source"] == "generated"
-    title.receive(response("Regenerated incorrectly"))
+    assert not batch(store, cid, first["message_id"], TitleUpdate(answer=("Regenerated incorrectly", 102))).recorded
     assert store.conversation(cid)["title"] == "Widget_API.py repairs"
     assert store.changes_after(0)["changes"][-1]["title"] == "Widget_API.py repairs"
 
 
+@pytest.mark.parametrize("waiting", ["stop", "queued", "waiting", "steering", None])
+def test_the_claim_is_refused_while_anything_else_of_the_conversation_waits(store, waiting):
+    """The store's half of the quiescent point (titles.py): a stop recorded for the message,
+    or another message of the conversation queued, waiting to start or steering."""
+    cid = conversation(store)["conversation_id"]
+    first = submit(store, cid)["message_id"]
+    store.set_state(first, "running")
+    if waiting == "stop":
+        store.update_message(first, stop_requested_at="2026-09-29T12:00:00.000Z")
+    elif waiting is not None:
+        other = submit(store, cid, "and then this", after_message_id=first)["message_id"]
+        if waiting != "queued":
+            store.set_state(other, waiting, reason=f"steer:{first}" if waiting == "steering" else None)
+    assert claim(store, cid, first) == (waiting is None)
+
+
+def test_the_claim_and_the_answer_ride_the_events_batch_and_their_failure_costs_only_the_title(store, monkeypatch):
+    """No transaction of their own: the title's statements run inside the batch's, in a
+    savepoint. A failure there leaves the batch's events and watermark recorded."""
+    cid = conversation(store)["conversation_id"]
+    first = submit(store, cid)["message_id"]
+    store.set_state(first, "running")
+
+    def broken(*args):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(store, "_claim_title", broken)
+    event = ("stdout", "10:1", 0, "turn.completed", {"state": "complete"})
+    title = batch(store, cid, first, TitleUpdate(claim_at=100.0), events=[event])
+    assert not title.claimed and "disk I/O error" in title.error
+    assert [row["kind"] for row in store.query("SELECT kind FROM events WHERE message_id=?", (first,))] == [
+        "turn.completed"]
+    assert store.conversation(cid)["title_requested_at"] is None
+    monkeypatch.undo()
+    assert claim(store, cid, first)
+
+
 def test_rename_atomically_wins_an_inflight_generated_result(store):
     cid = conversation(store)["conversation_id"]
-    message = submit(store, cid)
-    title = SessionTitle(store, cid, message["message_id"], clock=lambda: 100)
-    assert title.request("first")
+    message = submit(store, cid)["message_id"]
+    assert claim(store, cid, message)
     store.rename_conversation(cid, "My chosen name")
-    title.receive(response())
+    assert not batch(store, cid, message, TitleUpdate(answer=("Widget_API.py repairs", 101))).recorded
     result = store.conversation(cid)
     assert (result["title"], result["title_source"]) == ("My chosen name", "person")
 
 
-def test_person_title_and_codex_never_request_generation(store):
+def test_person_title_and_codex_never_claim_generation(store):
     for fields in ({"title": "Chosen name"}, {"provider": "codex"}):
         cid = conversation(store, **fields)["conversation_id"]
-        message = submit(store, cid)
-        assert SessionTitle(store, cid, message["message_id"]).request("context") is None
-        result = store.conversation(cid)
-        assert result["title_source"] == ("person" if "title" in fields else "fallback")
+        message = submit(store, cid)["message_id"]
+        assert not claim(store, cid, message)
+        assert store.conversation(cid)["title_source"] == ("person" if "title" in fields else "fallback")
 
 
-def test_budget_drops_late_response_and_requests_scoped_cancellation_once(store):
+@pytest.mark.parametrize("after,recorded", [(TITLE_BUDGET_S - 0.01, True), (TITLE_BUDGET_S, False)])
+def test_an_answer_counts_only_within_the_budget_of_its_claim(store, after, recorded):
     cid = conversation(store)["conversation_id"]
-    message = submit(store, cid)
-    now = [100.0]
-    title = SessionTitle(store, cid, message["message_id"], clock=lambda: now[0])
-    assert title.request("context")
-    assert title.expire() is None
-    now[0] += TITLE_BUDGET_S
-    cancellation = title.expire()
-    assert json.loads(cancellation.line) == {"type": "control_cancel_request", "request_id": TITLE_REQUEST_ID}
-    assert title.expire() is None
-    title.receive(response())
-    assert store.conversation(cid)["title_source"] == "fallback"
-    assert SessionTitle(store, cid, message["message_id"]).request("retry") is None
+    message = submit(store, cid)["message_id"]
+    assert claim(store, cid, message, at=100.0)
+    assert batch(store, cid, message, TitleUpdate(answer=("Widget repairs", 100.0 + after))).recorded == recorded
+    assert store.conversation(cid)["title_source"] == ("generated" if recorded else "fallback")
 
 
 @pytest.mark.parametrize("reply", [response(None), response(""), response("title", "error"),
-                                  response("x" * 121), '{"subfleet-session-title":'])
-def test_provider_errors_null_and_malformed_answers_keep_fallback(store, reply):
-    cid = conversation(store)["conversation_id"]
-    message = submit(store, cid)
-    title = SessionTitle(store, cid, message["message_id"], clock=lambda: 100)
-    title.request("context")
+                                   response("x" * 121), '{"subfleet-session-title":', '["subfleet-session-title"]'])
+def test_provider_errors_null_and_malformed_answers_keep_the_fallback(reply):
+    title = SessionTitle("cv", "m", clock=lambda: 100)
     title.receive(reply)
-    assert store.conversation(cid)["title_source"] == "fallback"
-    assert title.request("retry") is None
+    assert title.take() is None
+    # A response to the request, even unusable, is its answer: the hold it kept ends.
+    assert title.answered == reply.startswith('{"type"')
 
 
-def test_title_store_failures_are_contained(store, monkeypatch):
-    cid = conversation(store)["conversation_id"]
-    message = submit(store, cid)
-    title = SessionTitle(store, cid, message["message_id"])
-    def failed(*args):
-        raise RuntimeError("metadata unavailable")
-    monkeypatch.setattr(store, "claim_title_generation", failed)
-    monkeypatch.setattr(store, "generated_title", failed)
-    assert title.request("context") is None
-    title.receive(response())
-    assert store.message(message["message_id"])["state"] == "queued"
+def test_an_answer_is_normalized_and_handed_over_once():
+    title = SessionTitle("cv", "m", clock=lambda: 100)
+    title.receive(response("  Widget   API\trepairs "))
+    assert title.pending and title.take() == ("Widget API repairs", 100) and title.take() is None
 
 
 def test_existing_title_is_preserved_when_title_columns_are_added(tmp_path):
@@ -158,8 +201,8 @@ def test_existing_title_is_preserved_when_title_columns_are_added(tmp_path):
     reopened = ConversationStore(root)
     try:
         assert reopened.conversation(cid)["title_source"] == "person"
-        message = submit(reopened, cid)
-        assert SessionTitle(reopened, cid, message["message_id"]).request("context") is None
+        message = submit(reopened, cid)["message_id"]
+        assert not claim(reopened, cid, message)
     finally:
         reopened.close()
 
@@ -185,99 +228,94 @@ def test_no_folder_uses_an_idempotent_private_scratch_directory_not_daemon_cwd(s
         svc.handle("conversation.create", {**args, "workspace_kind": "worktree"}, None)
 
 
-ACCEPTED = json.dumps({"type": "command_lifecycle", "command_uuid": MID, "state": "started"})
+# --- the title's gate (SessionTitle) ----------------------------------------------------
+
+@settings(max_examples=300, deadline=None)
+@given(ops=st.lists(st.sampled_from(["claim", "write", "write-refused", "end"]), max_size=12))
+def test_property_the_gate_never_writes_after_it_ends_and_writes_at_most_once(ops):
+    """open → claimed → sent, and any state may end; nothing leaves `ended`. A write
+    begins only from claimed and only while its in-memory check holds."""
+    title, writes, ended = SessionTitle("cv", "m", clock=lambda: 0), 0, False
+    for op in ops:
+        before = title.state
+        if op == "claim":
+            assert title.claim(1.0) == (before == OPEN)
+        elif op.startswith("write"):
+            began = title.begin_write(lambda: op == "write")
+            assert began == (before == CLAIMED and op == "write")
+            writes += began
+            assert not (began and ended)
+        else:
+            assert title.end("stopped") == before
+            ended = True
+            assert title.state == ENDED and not title.holding
+    assert writes <= 1 and (title.state == ENDED) == ended
 
 
-@pytest.mark.parametrize("reply", [None, response("unused", "error"), response()])
-def test_same_turn_relay_does_not_wait_for_title_before_serving_a_reply(relayed, reply):
-    runner, clock, server, adir = relayed(recorded=True)
-    runner._apply(runner.driver.start())
-    runner._apply(runner.driver.feed(INIT_OK, 0))
-    runner._apply(runner.driver.feed(ACCEPTED, 1))    # the request follows the provider's acceptance
-    frames = read_log(adir / "stdin.jsonl")
-    assert [row["tag"] for row in frames][-1] == TITLE_FRAME, (
-        runner.store.conversation(runner.conversation_id), runner.replayed_message, runner.recorded)
-    assert [row["tag"] for row in frames].index("user-message") < len(frames) - 1
-    # The very next stdout lines can complete the real turn, even if its title
-    # never responds. Receiving a title through that same stream is optional.
-    lines = ([reply] if reply else []) + [json.dumps({"type": "assistant", "message": {
-        "id": "reply", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done"}]}}),
-        json.dumps({"type": "result", "is_error": False, "subtype": "success"})]
-    (adir / "stdout").write_text("\n".join(lines) + "\n")
-    runner._read_stdout()
-    assert runner.driver.outcome.state == "complete"
-    assert runner.final_text == "Done" and runner.stop_reason is None
-    assert runner.store.conversation(runner.conversation_id)["title_source"] == (
-        "generated" if reply == response() else "fallback")
-
-
-def test_failed_optional_title_frame_in_relay_log_does_not_fail_turn_on_replay(relayed, tmp_path):
-    adir = tmp_path / "a1"
-    adir.mkdir()
-    records = [logged_intent(1, TITLE_FRAME, "title request"), {"kind": "failed", "seq": 1, "errno": 32}]
-    (adir / "stdin.jsonl").write_text("".join(json.dumps(row) + "\n" for row in records))
-    runner, clock, server, adir = relayed()
-    assert runner._handshake()
-    assert runner.sent[TITLE_FRAME] == "failed"
-    assert runner.stop_reason is None and not runner.relay_failed
-
-
+def test_ending_the_gate_never_waits_on_a_write_under_way():
+    """A stop ends the title while the runner writes its line: the end returns at once
+    (the gate's lock is never held across I/O) and the write goes on."""
+    title = SessionTitle("cv", "m")
+    assert title.claim(1.0) and title.begin_write(lambda: True) and title.state == SENT
+    ender = threading.Thread(target=title.end, args=("stopped",))
+    ender.start()
+    ender.join(1)
+    assert not ender.is_alive() and title.state == ENDED and title.why == "stopped"
 
 
 # --- the runner's title discipline -----------------------------------------------------
-# The title request is optional metadata the runner keeps out of its ordered outbox: it
-# goes after the provider has taken the message this runner handed over, only when no
-# frame of the turn waits, never after a stop, a cancel, a close or an outcome, never
-# again on a replay, and through nothing but the relay interface (status, send, close).
+# The title request is asked of the first turn's own process after its reply, at a
+# quiescent point (titles.py): the provider's successful result is read and recorded, it
+# is idle and reading stdin, and nothing else of the conversation waits. Its one line
+# goes to an idle reader, never after a stop, a close or an outcome other than that
+# success, never on a replay, and through nothing but the relay interface (status,
+# send, close). The turn's stdin close waits for its answer, its budget, or anything
+# else for the conversation, whichever comes first.
 
-import ast
-import os
-import tempfile
-from contextlib import contextmanager
-
-from hypothesis import example, given, settings, strategies as st
-
-from subfleet import relay as relay_module
-from subfleet.conversations import runner as runner_module, titles as titles_module
-from subfleet.conversations.runner import TurnRunner
-from subfleet.conversations.titles import TITLE_CANCEL_FRAME, TITLE_DESCRIPTION_MAX, TITLE_LINE_MAX, request_line
-from subfleet.conversations.turn import Frame, TurnSpec
-from subfleet.relay import Ack, FrameTooLarge, RelayError
-from tests.unit.test_turn_runner import SID, STEER_CAPS, STEER_MID, claim_steer
-
-CLAUDE = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
+ACCEPTED = json.dumps({"type": "command_lifecycle", "command_uuid": MID, "state": "started"})
 RESULT = json.dumps({"type": "result", "subtype": "success", "is_error": False})
+FAILED = json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": ""})
 STOPPED_AT = "2026-09-28T12:00:00.000Z"
+UNSUPPORTED = json.dumps({"type": "control_request", "request_id": "hook-1", "request": {"subtype": "hook_callback"}})
 
 
-def reply(text="Still responding"):
+def reply(text="Done"):
     return json.dumps({"type": "assistant", "message": {
         "id": "reply", "model": "claude-opus-5-5", "content": [{"type": "text", "text": text}]}})
 
 
+def lifecycle(mid, state):
+    return json.dumps({"type": "command_lifecycle", "command_uuid": mid, "state": state})
+
+
 class InterfaceRelay:
-    """Exactly the relay interface: `status`, `send` and `close`, with no timeout,
-    socket or cap attribute to reach for (`__slots__`), applied through a real
-    RelayServer's `apply` and log. `fail_next_title` makes the next title write lose
-    its answer after (`reached`) or before (`unreached`) the relay took it, be
-    `refused`, or exceed the cap (`large`); `failed` lists those it applied. `sends`
-    records, for each frame sent, how many frames of the turn waited, whether a
-    handover lock was held and how many commands (a stop, a steer, an answer) waited."""
+    """Exactly the relay interface: `status`, `send` and `close`, with no timeout, socket
+    or cap attribute to reach for (`__slots__`), applied through a real RelayServer's
+    `apply` and log. `fail_next_title` makes the next title write lose its answer after
+    (`reached`) or before (`unreached`) the relay took it, be `refused`, or exceed the cap
+    (`large`). `sends` records, for each frame, the tags waiting in the outbox, whether
+    the runner held its handover lock or the store's lock, and how many commands waited.
+    `during_title` runs while the title's line is being handed over."""
 
-    __slots__ = ("server", "runner", "fail_next_title", "failed", "sends")
+    __slots__ = ("server", "runner", "store", "fail_next_title", "failed", "sends", "during_title")
 
-    def __init__(self, server):
-        self.server, self.runner, self.fail_next_title, self.failed, self.sends = server, None, None, [], []
+    def __init__(self, server, store):
+        self.server, self.store, self.runner, self.fail_next_title, self.failed = server, store, None, None, []
+        self.sends, self.during_title = [], None
 
     def status(self):
         return self.server.status()["status"]
 
     def send(self, seq, op, *, line=None, tag=None, sig=None):
         runner = self.runner
-        self.sends.append((tag, len(runner.outbox), runner.handover.locked(), runner.commands.qsize()))
+        held = self.store._lock.held
+        self.sends.append((tag, [frame.tag for frame in runner.outbox], runner.handover.locked(),
+                           held is not None and held[0] == threading.get_ident(), runner.commands.qsize()))
+        if tag == TITLE_FRAME and self.during_title is not None:
+            self.during_title()
         frame = {"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
                  "sha256": relay_module.frame_sha256(op, line, sig)}
-        failure = self.fail_next_title if tag in (TITLE_FRAME, TITLE_CANCEL_FRAME) else None
+        failure = self.fail_next_title if tag == TITLE_FRAME else None
         if failure:
             self.fail_next_title = None
             self.failed.append((tag, failure))
@@ -296,45 +334,45 @@ class InterfaceRelay:
 
 
 class TitleTurn:
-    """The first Claude turn of a fresh conversation: its store, relay and stdout.
-    `runner()` makes the attempt's runner, again for a later daemon's replay."""
+    """The first Claude turn of a fresh conversation, run by the real service's store and
+    Stop: its relay, its stdout, its title's clock. `runner()` makes the attempt's runner,
+    again for a later daemon's replay."""
 
-    def __init__(self, root: Path, *, title=None):
+    def __init__(self, root: Path, *, title=None, text="Fix the importer", clocks=Clocks()):
+        (root / "state").mkdir()
+        self.daemon = FakeDaemon(root / "state")
+        self.svc = ConversationService(self.daemon)
+        self.store = self.svc.store
         self.adir = root / "a1"
         self.adir.mkdir()
         (self.adir / "stdout").write_bytes(b"")
-        self.store = ConversationStore(root / "state")
+        claude = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
         self.cid = self.store.create_conversation(provider="claude", workspace=str(root), workspace_kind="in-place",
-                                                  settings=CLAUDE, origin="new", title=title)[0]["conversation_id"]
-        self.store.submit_message(conversation_id=self.cid, message_id=MID, after_message_id=None,
-                                  text="Fix the importer", attachments=[], settings=CLAUDE)
-        self.spec = TurnSpec(provider="claude", message_id=MID, text="Fix the importer", model_id="opus[1m]",
+                                                  settings=claude, origin="new", title=title)[0]["conversation_id"]
+        self.store.submit_message(conversation_id=self.cid, message_id=MID, after_message_id=None, text=text,
+                                  attachments=[], settings=claude)
+        self.store.set_state(MID, "starting", expect=("queued",))
+        self.claude = claude
+        self.spec = TurnSpec(provider="claude", message_id=MID, text=text, model_id="opus[1m]",
                              permission="ask", native_session_id=None, new_session_id=SID, cwd=str(root))
         self.server = RelayServer(root / "unused.sock", self.adir / "stdin.jsonl")
         self.server._pipe = os.open(os.devnull, os.O_WRONLY)
-        self.relay = InterfaceRelay(self.server)
+        self.relay = InterfaceRelay(self.server, self.store)
         self.now = [1000.0]
+        self.clocks = clocks
         self.root = root
-        # `on_claim` runs once inside the title's claim, before its transaction: what a
-        # store transaction the claim waited behind (a stop's, a steer's) committed.
-        self.on_claim = None
-        claim = self.store.claim_title_generation
-
-        def claim_after_a_race(*args):
-            race, self.on_claim = self.on_claim, None
-            if race is not None:
-                race()
-            return claim(*args)
-
-        self.store.claim_title_generation = claim_after_a_race
+        self.runners = 0
 
     def runner(self) -> TurnRunner:
+        self.runners += 1
         runner = TurnRunner(store=self.store, attempt={"attempt_id": "job/a1"}, spec=self.spec,
                             conversation_id=self.cid, attempt_dir=self.adir,
-                            control_socket=str(self.root / "unused.sock"),
-                            on_outcome=lambda r: None, on_contain=lambda a: None)
+                            control_socket=str(self.root / "unused.sock"), on_outcome=lambda r: None,
+                            on_contain=lambda a: None, clocks=self.clocks, clock=lambda: self.now[0],
+                            handover=Held(self.svc._handover(MID)), handover_for=self.svc._handover)
         runner.relay, self.relay.runner = self.relay, runner
         runner.title.clock = lambda: self.now[0]
+        self.svc.runners[f"job/a1#{self.runners}"] = runner
         runner._apply(runner.driver.start())
         runner._read_stdout()                  # a replay reads what the provider already said
         return runner
@@ -344,24 +382,46 @@ class TitleTurn:
             out.write(b"".join(line.encode() + b"\n" for line in lines))
         runner._read_stdout()
 
+    def tick(self, runner, n=1):
+        """What the runner's loop does each turn, bar reading stdout."""
+        for _ in range(n):
+            runner._drain_commands()
+            runner._send_outbox()
+            runner._timers()
+            if runner._flush_due():
+                runner._flush()
+
+    def to_result(self, runner, *, result=RESULT):
+        self.say(runner, INIT_OK, ACCEPTED, reply(), result)
+
+    def stop(self):
+        """A person's Stop, as the app sends it (`turn.interrupt`)."""
+        self.svc.op_turn_interrupt({"message_id": MID}, None)
+
     def logged(self):
-        return logged(self.adir)
+        return [row["tag"] for row in read_log(self.adir / "stdin.jsonl")]
 
     def requested(self):
-        return self.store.one("SELECT title_requested_at FROM conversations WHERE conversation_id=?",
-                              (self.cid,))["title_requested_at"]
+        return self.store.conversation(self.cid)["title_requested_at"]
+
+    def title(self):
+        conversation = self.store.conversation(self.cid)
+        return conversation["title"], conversation["title_source"]
 
     def title_sends(self):
         return [send for send in self.relay.sends if send[0] in (TITLE_FRAME, TITLE_CANCEL_FRAME)]
 
     def titles_yielded(self):
-        """Every title write went with no frame and no command of the turn waiting and no lock held."""
-        return all(waiting == 0 and not locked and queued == 0 for _, waiting, locked, queued in self.title_sends())
+        """Every title write went with nothing of the turn waiting but its held close, no
+        command waiting, and neither the handover lock nor the store's lock held."""
+        return all(waiting == ["close"] and not handover and not store_lock and queued == 0
+                   for _, waiting, handover, store_lock, queued in self.title_sends())
 
     def close(self):
+        self.svc.close()
+        self.daemon.store.close()
         if self.server._pipe is not None:
             os.close(self.server._pipe)
-        self.store.close()
 
 
 @contextmanager
@@ -374,335 +434,373 @@ def title_turn(**kwargs):
             turn.close()
 
 
-def test_the_title_request_waits_for_acceptance_and_for_every_frame_of_the_turn():
+def test_the_title_is_asked_after_the_first_reply_and_its_answer_frees_the_close():
     with title_turn() as turn:
         runner = turn.runner()
-        turn.say(runner, INIT_OK)
-        # The message was handed over, but the provider has not taken it: nothing yet.
+        turn.say(runner, INIT_OK, ACCEPTED, reply())
+        turn.tick(runner, 3)
         assert turn.logged() == ["init", "user-message", "settings"] and turn.requested() is None
-        runner.outbox.append(Frame("probe", "write", "{}"))
-        runner.resends, runner.resend_at = 1, runner.clock() + 3600     # a turn frame waits its turn
-        turn.say(runner, ACCEPTED)
-        assert turn.logged() == ["init", "user-message", "settings"]
-        runner.resends = 0
-        runner._send_outbox()
-        assert turn.logged() == ["init", "user-message", "settings", "probe", TITLE_FRAME]
-        assert turn.title_sends() == [(TITLE_FRAME, 0, False, 0)]       # nothing waited; no lock held
-        assert turn.requested() is not None
+        turn.say(runner, RESULT)
+        # Asked once the result is read and recorded; the turn's stdin close waits for it.
+        assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME]
+        assert json.loads((turn.adir / "turn.json").read_text())["state"] == "complete"
+        assert turn.requested() == 1000.0 and runner.title.state == SENT and [f.op for f in runner.outbox] == ["close"]
+        assert turn.titles_yielded()
+        turn.tick(runner, 3)
+        assert turn.logged()[-1] == TITLE_FRAME                        # held while the provider titles
+        turn.now[0] += 1.2
+        turn.say(runner, response("Importer repairs"))
+        assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME, "close"]
+        turn.tick(runner)
+        assert turn.title() == ("Importer repairs", "generated") and runner.title.why == "answered"
+        request = json.loads(read_log(turn.adir / "stdin.jsonl")[3]["line"])
+        assert request["request"] == {"subtype": "generate_session_title", "description": "Fix the importer",
+                                      "persist": False}
 
 
-@pytest.mark.parametrize("barrier", ["recorded-stop", "asked-stop", "close", "outcome"])
-def test_no_title_is_written_after_a_stop_a_cancel_a_close_or_an_outcome(barrier):
-    """A recorded stop is a person's Stop or a message.cancel of the running turn
-    (`stop_requested_at`, not yet drained); an asked one is turn.interrupt's, the wall
-    limit's or a kill's command; an outcome is the provider's result (here an early one)."""
+def test_the_close_waits_for_the_title_only_until_its_budget():
     with title_turn() as turn:
         runner = turn.runner()
-        turn.say(runner, INIT_OK)
+        turn.to_result(runner)
+        turn.now[0] += TITLE_BUDGET_S - 0.01
+        turn.tick(runner)
+        assert turn.logged()[-1] == TITLE_FRAME
+        turn.now[0] += 0.01
+        turn.tick(runner)
+        assert turn.logged()[-2:] == [TITLE_FRAME, "close"] and runner.title.why == "budget"
+        turn.say(runner, response("Too late"))                        # handled whenever it comes
+        turn.tick(runner)
+        assert turn.title() == ("the importer", "fallback")
+        assert TITLE_CANCEL_FRAME not in turn.logged()                   # the close ends it; nothing cancels
+
+
+@pytest.mark.parametrize("barrier", [
+    "recorded-stop", "persons-stop", "daemon-stop", "queued-answer", "next-message", "steering-message",
+    "failed-result", "stopped-result", "eof", "model-mismatch", "relay-failed", "frame-refused",
+    "person-title", "not-first-message", "unread-steer", "unread-bytes"])
+def test_a_first_turn_that_ends_without_a_quiescent_point_is_never_titled(barrier):
+    """Every way the first turn's end is not a quiescent point: the title is not asked,
+    nothing waits for it (its stdin close goes at once), and the conversation keeps its
+    fallback. The store refuses what only it knows: a stop recorded, another message."""
+    text = "Fix the importer " + "with every detail of it " * 400 if barrier == "unread-bytes" else "Fix the importer"
+    with title_turn(title="Chosen" if barrier == "person-title" else None, text=text) as turn:
+        if barrier == "not-first-message":
+            with turn.store.transaction() as tx:          # an earlier message of the conversation was its first
+                tx.execute("UPDATE conversations SET title_message_id='an-earlier-message' WHERE conversation_id=?",
+                           (turn.cid,))
+        runner = turn.runner()
+        turn.say(runner, INIT_OK, STEER_CAPS, ACCEPTED, reply())
+        result = RESULT
         if barrier == "recorded-stop":
-            runner.store.update_message(MID, stop_requested_at=STOPPED_AT)
-        elif barrier == "asked-stop":
-            runner.interrupt("stopped")
-        elif barrier == "close":
-            runner.outbox.append(Frame("close", "close"))
-            runner._send_outbox()
+            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)   # the runner has not heard yet
+        elif barrier == "persons-stop":
+            turn.stop()
+            turn.tick(runner)
+        elif barrier == "daemon-stop":
+            runner.interrupt("wall-limit")
+            turn.tick(runner)
+        elif barrier == "queued-answer":
+            runner.respond("an-answered-request", "allow")
+        elif barrier in ("next-message", "steering-message"):
+            other = str(uuid.uuid4())
+            turn.store.submit_message(conversation_id=turn.cid, message_id=other, after_message_id=MID,
+                                      text="and then this", attachments=[], settings=turn.claude)
+            if barrier == "steering-message":
+                turn.store.set_state(other, "steering", reason=f"steer:{MID}", expect=("queued",))
+        elif barrier == "failed-result":
+            result = FAILED
+        elif barrier == "stopped-result":
+            runner.driver.interrupt_requested = True          # a person's cancel-turn answer, say
+        elif barrier == "relay-failed":
+            runner._relay_lost("simulated")
+        elif barrier == "frame-refused":
+            runner.frame_refused = "approval:x"
+        elif barrier == "unread-steer":
+            runner.replay_caught_up = True
+            claim_steer(runner)
+            runner.steer(STEER_MID)
+            turn.tick(runner)
+            assert f"steer:{STEER_MID}" in turn.logged()
+            runner.driver._steer_pending.clear()               # the provider never said it read it
+            turn.store.set_state(STEER_MID, "steered", reason=f"steer:{MID}", expect=("steering",))
+        elif barrier == "unread-bytes":
+            turn.say(runner, *[UNSUPPORTED.replace("hook-1", f"hook-{n}") for n in range(60)])   # 60 refusals
+        if barrier == "eof":
+            (turn.adir / "exit.json").write_text("{}")
+            runner._apply(runner.driver.eof(runner.offset))
+        elif barrier == "model-mismatch":
+            turn.say(runner, json.dumps({"type": "assistant", "message": {
+                "id": "m2", "model": "claude-haiku-4-5", "content": [{"type": "text", "text": "hi"}]}}))
         else:
+            turn.say(runner, result)
+        turn.tick(runner, 3)
+        tags = turn.logged()
+        assert TITLE_FRAME not in tags and TITLE_CANCEL_FRAME not in tags, tags
+        if barrier not in ("eof", "relay-failed", "frame-refused"):
+            assert tags[-1] == "close", tags                   # the close went at once: nothing held it
+        assert turn.title()[1] == ("person" if barrier == "person-title" else "fallback")
+        # Refused by the store (a stop recorded, another message, a person's name, not the
+        # first message), or never asked of it: either way no request is claimed.
+        assert turn.requested() is None and runner.title.state in (OPEN, ENDED)
+
+
+@pytest.mark.parametrize("release", ["persons-stop", "daemon-stop", "command", "next-message", "rename",
+                                     "late-signal", "bad-answer", "provider-exit"])
+def test_anything_else_for_the_conversation_frees_the_held_close_at_once(release):
+    """While the title is asked, a stop, a command (an answer, a steer), the conversation's
+    next message, a rename, a signal of the turn or the provider's own answer frees the
+    close within one turn of the runner's loop. Nothing else is written: no second
+    request and no cancellation."""
+    clocks = Clocks(after_result_s=1.0) if release == "late-signal" else Clocks()
+    with title_turn(clocks=clocks) as turn:
+        runner = turn.runner()
+        turn.to_result(runner)
+        turn.tick(runner)
+        assert turn.logged()[-1] == TITLE_FRAME and runner.title.holding
+        if release == "persons-stop":
+            turn.stop()
+        elif release == "daemon-stop":
+            runner.interrupt("wall-limit")
+        elif release == "command":
+            runner.respond("late-request", "allow")
+        elif release == "next-message":
+            turn.store.submit_message(conversation_id=turn.cid, message_id=str(uuid.uuid4()), after_message_id=MID,
+                                      text="and then this", attachments=[], settings=turn.claude)
+        elif release == "rename":
+            turn.store.rename_conversation(turn.cid, "Mine")
+        elif release == "late-signal":
+            turn.now[0] += 1.0
+        elif release == "bad-answer":
+            turn.say(runner, response(None))
+        else:
+            (turn.adir / "exit.json").write_text("{}")
+            runner.end_title("provider-ended")                 # `_run`'s first step once the provider is gone
+        turn.tick(runner)
+        tags = turn.logged()
+        assert tags.count(TITLE_FRAME) == 1 and TITLE_CANCEL_FRAME not in tags
+        if release != "provider-exit":
+            assert "close" in tags and tags.index("close") > tags.index(TITLE_FRAME), (release, tags)
+        assert not runner.title.holding and not runner.relay_failed
+
+
+def test_no_stop_steer_or_message_waits_on_the_title_write():
+    """While the title's line is handed to the relay, the runner holds neither its
+    handover lock nor the store's lock, so a person's Stop, a steer's claim and the next
+    message's submission, each on its own thread, finish at once (they need exactly
+    those). The Stop ends the title, frees the held close and settles nothing twice."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        finished = {}
+
+        def elsewhere(name, work):
+            thread = threading.Thread(target=lambda: finished.setdefault(name, work() or True), daemon=True)
+            thread.start()
+            thread.join(2)
+            assert not thread.is_alive(), f"{name} waited on the title write"
+
+        def during_title():
+            elsewhere("stop", turn.stop)
+            elsewhere("message", lambda: turn.store.submit_message(
+                conversation_id=turn.cid, message_id=STEER_MID, after_message_id=MID, text="next", attachments=[],
+                settings=turn.claude))
+            elsewhere("steer", lambda: turn.store.set_state(STEER_MID, "steering", reason=f"steer:{MID}",
+                                                            expect=("queued",)))
+
+        turn.relay.during_title = during_title
+        turn.to_result(runner)
+        assert set(finished) == {"stop", "message", "steer"}
+        assert turn.titles_yielded()
+        turn.tick(runner)
+        assert turn.logged()[-2:] == [TITLE_FRAME, "close"] and runner.title.why == "stopped"
+
+
+def test_the_claim_rides_the_batch_that_records_the_first_turns_result():
+    """The claim is never a transaction of its own (review of 66d692a0, P2): a titled
+    first turn makes exactly the store transactions of an untitled one up to its result."""
+    counts = {}
+    for title in (None, "Chosen"):
+        with title_turn(title=title) as turn:
+            transactions, claims = [0], []
+            transaction, append = turn.store.transaction, turn.store.append_events
+
+            def counted(*args, **kwargs):
+                transactions[0] += 1
+                return transaction(*args, **kwargs)
+
+            def appended(**kwargs):
+                if kwargs.get("title") is not None and kwargs["title"].claim_at is not None:
+                    claims.append([event[3] for event in kwargs["events"]])
+                return append(**kwargs)
+
+            turn.store.transaction, turn.store.append_events = counted, appended
+            runner = turn.runner()
+            turn.to_result(runner)
+            counts[title] = transactions[0]
+            assert claims and all("turn.completed" in kinds for kinds in claims)
+            assert (turn.requested() is not None) == (title is None)
+    assert counts[None] == counts["Chosen"]
+
+
+# The reviewer's schedules for the two guards 66d692a0's review showed are not redundant
+# (review-titles/astra.md, "Tests and mutations"), as they fall in this design.
+
+def test_a_stop_the_runner_has_before_its_gate_ends_asks_for_no_title():
+    """The stop-fields schedule, before the claim: `interrupt()` has set the runner's
+    stop but not yet ended the title's gate or queued its command when the provider's
+    result arrives. The stop fields alone keep the turn from being a quiescent point:
+    nothing is claimed, nothing written, the close goes."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        paused, resume = threading.Event(), threading.Event()
+        end_title = runner.end_title
+
+        def paused_end_title(why):
+            paused.set()
+            resume.wait(10)
+            end_title(why)
+
+        runner.end_title = paused_end_title
+        stopper = threading.Thread(target=runner.interrupt, args=("stopped",))
+        turn.say(runner, INIT_OK, ACCEPTED, reply())
+        stopper.start()
+        try:
+            assert paused.wait(5) and runner.stop_reason == "stopped" and runner.commands.empty()
             turn.say(runner, RESULT)
-        turn.say(runner, ACCEPTED, reply())
-        runner._drain_commands()
-        runner._send_outbox()
-        turn.now[0] += TITLE_BUDGET_S
-        runner._timers()
-        runner._send_outbox()
-        assert TITLE_FRAME not in turn.logged() and TITLE_CANCEL_FRAME not in turn.logged()
-        assert turn.requested() is None and turn.store.conversation(turn.cid)["title_source"] == "fallback"
-        assert not runner.relay_failed and runner.frame_refused is None
+            assert TITLE_FRAME not in turn.logged() and turn.requested() is None
+            assert turn.logged()[-1] == "close"
+        finally:
+            resume.set()
+            stopper.join(5)
+
+
+def test_a_stop_between_the_claim_and_the_write_stops_the_write():
+    """The stop-fields schedule, between the claim and the write: the stop lands after
+    the result's transaction claimed the title, and after the held close was checked,
+    but before the runner writes the title, with its gate not ended yet (another
+    thread's `interrupt()` at its first statement). The write's own check under the
+    gate sees it: the conversation keeps its claimed-but-unasked fallback, and the
+    close goes."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        send_frames = runner._send_frames
+
+        def frames_then_stop():
+            send_frames()
+            if runner.title.state == CLAIMED:
+                runner.stop_reason = "stopped"  # `interrupt()`'s first statement, and no more yet
+
+        runner._send_frames = frames_then_stop
+        turn.to_result(runner)
+        assert turn.requested() is not None and TITLE_FRAME not in turn.logged()
+        assert turn.logged()[-1] == "close" and runner.title.why == "not-quiescent"
+
+
+@pytest.mark.parametrize("ending", ["failed-result", "eof", "model-mismatch", "stopped-before-send"])
+def test_only_the_providers_successful_result_is_a_quiescent_point(ending):
+    """The outcome schedule: a turn that ended any other way (an error result, stdout's
+    end, the driver's own stop, a stop before the message went) never asks, even with
+    the provider accepting its message and nothing else waiting."""
+    with title_turn() as turn:
+        runner = turn.runner()
+        if ending == "stopped-before-send":
+            runner.withhold("legacy-owner")
+            turn.say(runner, INIT_OK)
+        else:
+            turn.say(runner, INIT_OK, ACCEPTED, reply())
+        if ending == "failed-result":
+            turn.say(runner, FAILED)
+        elif ending == "eof":
+            runner._apply(runner.driver.eof(runner.offset))
+        elif ending == "model-mismatch":
+            turn.say(runner, json.dumps({"type": "assistant", "message": {
+                "id": "m2", "model": "claude-haiku-4-5", "content": [{"type": "text", "text": "hi"}]}}))
+        turn.tick(runner, 2)
+        assert runner.driver.outcome is not None and runner.driver.outcome.state != "complete"
+        assert TITLE_FRAME not in turn.logged() and turn.requested() is None
 
 
 @pytest.mark.parametrize("how", ["stop-before-handover", "legacy-withhold"])
 def test_a_withheld_message_never_asks_for_a_title(how):
     with title_turn() as turn:
-        runner = turn.runner()
         if how == "stop-before-handover":
-            runner.store.update_message(MID, stop_requested_at=STOPPED_AT)
-        else:
+            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
+        runner = turn.runner()
+        if how == "legacy-withhold":
             runner.withhold("legacy-owner")
-        turn.say(runner, INIT_OK, ACCEPTED)
-        runner._send_outbox()
+        turn.say(runner, INIT_OK, ACCEPTED, RESULT)
+        turn.tick(runner)
         assert turn.logged() == ["init", "close"] and runner.withheld
         assert runner.driver.outcome.reason == "stopped-before-send" and turn.requested() is None
 
 
-def test_a_relay_with_only_status_send_and_close_carries_a_titled_turn_and_its_stop():
-    """The runner reaches for no relay attribute outside the interface: InterfaceRelay
-    has no `timeout_s`, `_sock` or `frame_max`, and a first turn, its title and its
-    stop all go through it."""
+@pytest.mark.parametrize("crash", ["after-the-claim", "after-the-write", "during-the-hold"])
+def test_a_replay_never_asks_for_a_title_again(crash):
+    """A later daemon's runner replays what the provider said. It writes no title
+    request, whether the first runner died after claiming (the conversation keeps its
+    fallback), after writing, or while the close waited; it closes stdin. An answer the
+    provider gave meanwhile still names the conversation, within the budget."""
+    with title_turn() as turn:
+        first = turn.runner()
+        if crash == "after-the-claim":
+            send_title = first._send_title
+
+            def crash_once_claimed():
+                if first.title.state == CLAIMED:
+                    raise RuntimeError("simulated daemon crash between the claim and the write")
+                return send_title()
+
+            first._send_title = crash_once_claimed
+            with pytest.raises(RuntimeError, match="simulated"):
+                turn.to_result(first)
+        else:
+            turn.to_result(first)
+        first.stop()
+        replay = turn.runner()
+        assert replay.replayed_message and replay.recorded is not None
+        if crash == "during-the-hold":
+            turn.say(replay, response("Importer repairs"))
+        turn.tick(replay, 2)
+        tags = turn.logged()
+        assert tags.count(TITLE_FRAME) == (0 if crash == "after-the-claim" else 1)
+        assert tags[-1] == "close" and tags.count("close") == 1 and tags.count("user-message") == 1
+        assert turn.requested() is not None
+        assert turn.title() == (("Importer repairs", "generated") if crash == "during-the-hold"
+                                else ("the importer", "fallback"))
+        assert not replay.relay_failed
+
+
+def test_a_steer_the_provider_consumed_leaves_a_quiescent_point():
+    """A steer during the turn, read and consumed by the provider (its lifecycle): the
+    result is still a quiescent point, and the title follows it, behind the steer."""
     with title_turn() as turn:
         runner = turn.runner()
-        turn.say(runner, INIT_OK, ACCEPTED)
-        runner.interrupt("stopped")
-        runner._drain_commands()
-        assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME, "interrupt"]
-        assert not runner.relay_failed and runner.frame_refused is None and runner.outbox == []
+        turn.say(runner, INIT_OK, STEER_CAPS, ACCEPTED)
+        runner.replay_caught_up = True
+        claim_steer(runner)
+        runner.steer(STEER_MID)
+        turn.tick(runner)
+        turn.say(runner, lifecycle(STEER_MID, "started"), lifecycle(STEER_MID, "completed"), reply())
+        turn.store.set_state(STEER_MID, "steered", reason=f"steer:{MID}", expect=("steering",))
+        turn.say(runner, json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                     "user_message_uuids": [MID, STEER_MID]}))
+        tags = turn.logged()
+        assert tags.index(f"steer:{STEER_MID}") < tags.index(TITLE_FRAME) and turn.titles_yielded()
 
 
 @pytest.mark.parametrize("failure", ["reached", "unreached", "refused", "large"])
 def test_a_lost_refused_or_oversized_title_write_is_never_retried_and_never_fails_the_turn(failure):
+    """The held close then goes once, after resynchronizing with the relay's log (a lost
+    answer may have taken a frame number), and the relay stays up."""
     with title_turn() as turn:
         runner = turn.runner()
-        turn.say(runner, INIT_OK)
         turn.relay.fail_next_title = failure
-        turn.say(runner, ACCEPTED)
-        assert turn.logged().count(TITLE_FRAME) == (failure == "reached")
-        assert not runner.relay_failed and runner.stop_reason is None and runner.frame_refused is None
-        assert runner.outbox == [] and runner.handshaken             # stdout is still read, nothing resent
-        turn.say(runner, reply())
-        assert runner.final_text == "Still responding"
-        runner._send_outbox()
-        # The turn's next frame resynchronizes with the relay first, then goes once.
-        runner.interrupt("stopped")
-        runner._drain_commands()
-        assert turn.logged()[-1] == "interrupt" and not runner.relay_failed
-        assert [send[0] for send in turn.title_sends()] == [TITLE_FRAME]       # asked once, never again
-        turn.now[0] += TITLE_BUDGET_S
-        runner._timers()
-        runner._send_outbox()
-        assert TITLE_CANCEL_FRAME not in turn.logged()                # nor cancelled after the stop
-
-
-@pytest.mark.parametrize("stopped", [None, "asked", "recorded"])
-def test_the_title_cancellation_goes_once_after_the_budget_and_never_after_a_stop(stopped):
-    """A recorded stop is one the service has committed before its `interrupt` reached
-    the runner (`ConversationService._interrupt`): the cancellation already yields to it."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK, ACCEPTED)
-        if stopped == "asked":
-            runner.interrupt("stopped")
-            runner._drain_commands()
-        elif stopped == "recorded":
-            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
-        for _ in range(3):
-            turn.now[0] += TITLE_BUDGET_S
-            runner._timers()
-            runner._send_outbox()
-        assert turn.logged().count(TITLE_CANCEL_FRAME) == (0 if stopped else 1)
-        assert turn.titles_yielded()
-
-
-@pytest.mark.parametrize("barrier", ["recorded-stop", "asked-stop", "close", "outcome"])
-def test_a_title_waiting_behind_a_command_is_never_written_after_a_barrier(barrier):
-    """The title waits while a person's answer is queued; a barrier that falls meanwhile
-    (here after the provider took the message) ends it before the runner drains."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK)
-        runner.respond("an-answered-request", "allow")
-        turn.say(runner, ACCEPTED, reply())
-        assert TITLE_FRAME not in turn.logged()                      # waiting behind the answer
-        if barrier == "recorded-stop":
-            turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
-        elif barrier == "asked-stop":
-            runner.interrupt("stopped")
-        elif barrier == "close":
-            runner.outbox.append(Frame("close", "close"))
-        else:
-            turn.say(runner, RESULT)
-        runner._drain_commands()
-        runner._send_outbox()
-        turn.now[0] += TITLE_BUDGET_S
-        runner._timers()
-        runner._send_outbox()
-        assert TITLE_FRAME not in turn.logged() and TITLE_CANCEL_FRAME not in turn.logged()
-        # Not even tried: after a close the relay would refuse the write and hide it.
-        assert turn.requested() is None and not runner.optional_ack_lost
-        assert not runner.relay_failed and runner.frame_refused is None
-
-
-@pytest.mark.parametrize("accepted_first", [True, False])
-def test_a_replay_never_sends_a_title_request_again(accepted_first):
-    """A later daemon's runner replays what the provider said. It sends no title request:
-    not the one the first runner wrote, and none for a message the first runner wrote
-    (its conversation keeps the fallback title)."""
-    with title_turn() as turn:
-        first = turn.runner()
-        turn.say(first, INIT_OK, *([ACCEPTED] if accepted_first else []))
-        replay = turn.runner()
-        assert replay.replayed_message
-        turn.say(replay, *([] if accepted_first else [ACCEPTED]), reply())
-        replay._send_outbox()
-        assert turn.logged().count(TITLE_FRAME) == (1 if accepted_first else 0)
-        assert turn.logged().count("user-message") == 1 and not replay.relay_failed
-
-
-def test_a_stop_is_recorded_while_a_title_write_is_held_by_the_relay(relayed):
-    """A title write takes no handover lock: a person's Stop (recorded under the
-    message's handover lock, `ConversationService._interrupt`) never waits for it."""
-    held, release = threading.Event(), threading.Event()
-
-    class SlowTitleRelay(RelayServer):
-        def apply(self, frame):
-            if frame.get("tag") == TITLE_FRAME:
-                held.set()
-                release.wait(5)
-            return super().apply(frame)
-
-    runner, clock, server, adir = relayed(recorded=True, server_class=SlowTitleRelay)
-    runner._apply(runner.driver.start())
-    runner._apply(runner.driver.feed(INIT_OK, 0))
-    worker = threading.Thread(target=lambda: runner._apply(runner.driver.feed(ACCEPTED, 1)))
-    worker.start()
-    try:
-        assert held.wait(5), "the first turn asks its own process for its title"
-        assert runner.handover.acquire(timeout=1), "a stop would wait behind the title write"
-        try:
-            runner.store.update_message(MID, stop_requested_at=STOPPED_AT)
-        finally:
-            runner.handover.release()
-    finally:
-        release.set()
-        worker.join(10)
-    assert not worker.is_alive()
-    assert logged(adir) == ["init", "user-message", "settings", TITLE_FRAME]
-    assert not runner.relay_failed and runner.stop_reason is None
-    runner.interrupt("stopped")
-    runner._drain_commands()
-    assert logged(adir)[-1] == "interrupt"
-
-
-@pytest.mark.parametrize("barrier", ["recorded-stop", "persons-stop", "daemon-stop"])
-def test_a_title_claim_that_waits_behind_a_stop_writes_nothing(barrier):
-    """The claim is a store transaction, so it can wait behind a person's Stop (recorded
-    under a handover lock the title never takes; `interrupt` follows) or just miss the
-    daemon's own stop (a wall limit or a kill: `interrupt` alone). Whichever lands first,
-    nothing is written after it: the claim refuses a recorded stop, and the runner looks
-    again once it has its claim. No cancellation follows a request never written."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK)
-
-        def stop():
-            if barrier != "daemon-stop":
-                turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
-            if barrier != "recorded-stop":
-                runner.interrupt("stopped" if barrier == "persons-stop" else "wall-limit")
-
-        turn.on_claim = stop
-        turn.say(runner, ACCEPTED)
-        runner._drain_commands()
-        runner._send_outbox()
-        turn.now[0] += TITLE_BUDGET_S
-        runner._timers()
-        runner._send_outbox()
-        assert turn.on_claim is None, "the claim ran"
-        assert TITLE_FRAME not in turn.logged() and TITLE_CANCEL_FRAME not in turn.logged()
-        # A recorded stop refuses the claim itself; the daemon's is seen right after it.
-        assert (turn.requested() is None) == (barrier != "daemon-stop")
-        assert not runner.relay_failed and runner.frame_refused is None
-
-
-def test_a_steer_queued_while_the_title_is_claimed_is_written_first():
-    """A person's steer (or answer) can be queued while the runner claims its title: the
-    service claims the steer on the same store. The claimed title then waits until the
-    runner has drained its commands, so the steer is not delayed by it."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK, STEER_CAPS)
-        runner.replay_caught_up = True
-
-        def steer():
-            claim_steer(runner)
-            runner.steer(STEER_MID)
-
-        turn.on_claim = steer
-        turn.say(runner, ACCEPTED)
-        assert turn.requested() is not None and TITLE_FRAME not in turn.logged()   # claimed; waiting
-        runner._drain_commands()
-        runner._send_outbox()
+        turn.to_result(runner)
+        turn.tick(runner, 2)
         tags = turn.logged()
-        assert tags.index(f"steer:{STEER_MID}") < tags.index(TITLE_FRAME) and tags.count(TITLE_FRAME) == 1
-        assert turn.titles_yielded() and not runner.relay_failed
-
-
-@pytest.mark.parametrize("failure", ["reached", "unreached", "refused"])
-def test_a_steer_after_an_unanswered_title_write_keeps_its_handover(failure):
-    """A title write whose answer was lost may have taken a frame number. The steer that
-    follows resynchronizes with the relay first, then goes once, at the head of the
-    outbox, under its handover locks, and the host's relay stays up."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK, STEER_CAPS)
-        runner.replay_caught_up = True
-        turn.relay.fail_next_title = failure
-        turn.say(runner, ACCEPTED)
-        assert runner.optional_ack_lost
-        claim_steer(runner)
-        runner.steer(STEER_MID)
-        runner._drain_commands()
-        tag = f"steer:{STEER_MID}"
-        assert turn.logged().count(tag) == 1 and turn.logged()[-1] == tag
-        assert [send for send in turn.relay.sends if send[0] == tag] == [(tag, 1, True, 0)]
-        assert runner.steer_written(STEER_MID) and not runner.relay_failed and runner.stop_reason is None
-        assert runner.steer_facts()[STEER_MID]["frame"] == "written"
-
-
-@pytest.mark.parametrize("failure", ["reached", "unreached", "refused"])
-def test_a_title_cancellation_goes_only_for_a_request_the_relay_took(failure):
-    """After an unanswered or refused title write, the turn's next frame (one that is not
-    a stop) resynchronizes with the relay's log. The budget's cancellation then goes once
-    if that log holds the request, and never for one the provider never had."""
-    with title_turn() as turn:
-        runner = turn.runner()
-        turn.say(runner, INIT_OK)
-        turn.relay.fail_next_title = failure
-        turn.say(runner, ACCEPTED)
-        runner.outbox.append(Frame("probe", "write", "{}"))
-        runner._send_outbox()
-        assert not runner.optional_ack_lost and turn.logged()[-1] == "probe"
-        assert runner.sent.get(TITLE_FRAME) == ("written" if failure == "reached" else None)
-        for _ in range(2):
-            turn.now[0] += TITLE_BUDGET_S
-            runner._timers()
-            runner._send_outbox()
-        assert turn.logged().count(TITLE_CANCEL_FRAME) == (failure == "reached")
-        assert not runner.relay_failed and runner.stop_reason is None and turn.titles_yielded()
-
-
-@pytest.mark.parametrize("text", ["\U0001F600" * TITLE_DESCRIPTION_MAX, "漢" * TITLE_DESCRIPTION_MAX,
-                                  '"\\\n\x01' * 5000, "x" * TITLE_DESCRIPTION_MAX],
-                         ids=["emoji", "cjk", "escapes", "ascii"])
-def test_the_title_line_fits_a_pipe_the_provider_is_not_reading(text):
-    """The relay writes a frame into the provider's stdin with a blocking write, under the
-    lock the stop's interrupt and SIGINT need next (relay.py). The title's line fits the
-    pipe behind an unread frame with no reader at all, so its write never waits on the
-    provider (it once reached 196,752 bytes; a pipe holds 64 KiB here)."""
-    read_end, write_end = os.pipe()
-    try:
-        os.set_blocking(write_end, False)
-        ahead = b'{"type":"control_request","request_id":"subfleet-settings","request":{"subtype":"get_settings"}}\n'
-        assert os.write(write_end, ahead) == len(ahead)
-        line = (request_line(text) + "\n").encode()
-        assert os.write(write_end, line) == len(line)     # a short write or EAGAIN would be a wait
-    finally:
-        os.close(read_end)
-        os.close(write_end)
-
-
-@settings(max_examples=300, deadline=None)
-@given(text=st.one_of(st.text(), st.builds(lambda head, character, count, tail: head + character * count + tail,
-                                             st.text(max_size=40), st.characters(), st.integers(0, 20_000),
-                                             st.text(max_size=40))))
-def test_property_the_title_line_is_bounded_and_describes_the_longest_prefix_that_fits(text):
-    line = request_line(text)
-    assert line.isascii() and len(line.encode()) <= TITLE_LINE_MAX
-    request = json.loads(line)
-    assert (request["type"], request["request_id"]) == ("control_request", TITLE_REQUEST_ID)
-    description = request["request"].pop("description")
-    assert request["request"] == {"subtype": "generate_session_title", "persist": False}
-    offered = text[:TITLE_DESCRIPTION_MAX]
-    assert offered.startswith(description)
-    if description != offered:
-        assert len(titles_module._request_line(offered[:len(description) + 1])) > TITLE_LINE_MAX
+        assert tags.count(TITLE_FRAME) == (failure == "reached") and tags[-1] == "close" and tags.count("close") == 1
+        assert [send[0] for send in turn.title_sends()] == [TITLE_FRAME]          # asked once, never again
+        assert not runner.relay_failed and runner.stop_reason is None and runner.frame_refused is None
+        assert not runner.optional_ack_lost and runner.handshaken
 
 
 def test_the_runner_reaches_its_relay_only_through_status_send_and_close():
@@ -725,132 +823,217 @@ def test_the_runner_reaches_its_relay_only_through_status_send_and_close():
     assert set(uses) == {"=", "status", "send", "close"}, uses
 
 
-# Actions of one generated schedule. `init`, `accept`, `answer`, `text` and `result`
-# are the provider's stdout; the barriers are a recorded stop (a person's Stop or a
-# cancel), an asked stop (turn.interrupt, a limit, a kill), a close and an outcome;
-# `race-*` makes a stop land while the runner's next title claim waits for the store;
-# `queue-answer` leaves a command for the runner to drain (a person's answer);
-# `lose-*`, `refused` and `large` make the next title write fail; `expire` runs the
-# title budget out; `restart` hands the attempt to a later daemon's runner.
-PROVIDER = ("init", "accept", "answer", "text", "result")
-INTERVENTIONS = ("recorded-stop", "asked-stop", "close", "race-recorded-stop", "race-asked-stop", "queue-answer",
-                 "lose-reached", "lose-unreached", "refused", "large", "expire", "restart", "tick")
+def test_a_relay_with_only_status_send_and_close_carries_a_titled_turn():
+    with title_turn() as turn:
+        runner = turn.runner()
+        turn.to_result(runner)
+        turn.say(runner, response())
+        assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME, "close"]
+        assert not runner.relay_failed and runner.frame_refused is None and runner.outbox == []
 
 
-# Half of the drawn actions move the provider on, so most schedules reach acceptance;
-# the examples pin each barrier and a restart between the handover and the acceptance.
-@settings(max_examples=150, deadline=None)
-@given(actions=st.lists(st.one_of(st.sampled_from(PROVIDER), st.sampled_from(INTERVENTIONS)), min_size=1,
-                        max_size=16),
-       person_title=st.sampled_from([False, False, False, True]))
-@example(actions=["init", "recorded-stop", "accept", "tick"], person_title=False)
-@example(actions=["init", "asked-stop", "accept", "tick"], person_title=False)
-@example(actions=["init", "close", "accept", "tick"], person_title=False)
-@example(actions=["init", "result", "accept", "tick"], person_title=False)
-@example(actions=["init", "restart", "accept", "tick"], person_title=False)
-@example(actions=["init", "accept", "expire", "recorded-stop", "expire"], person_title=False)
-@example(actions=["init", "lose-unreached", "accept", "expire", "asked-stop", "expire"], person_title=False)
-@example(actions=["init", "accept", "answer", "restart", "expire", "text", "result"], person_title=False)
-@example(actions=["init", "race-recorded-stop", "accept", "tick"], person_title=False)
-@example(actions=["init", "race-asked-stop", "accept", "tick"], person_title=False)
-@example(actions=["init", "queue-answer", "accept", "text", "tick"], person_title=False)
-@example(actions=["init", "accept", "recorded-stop", "expire"], person_title=False)
-@example(actions=["init", "queue-answer", "accept", "result", "tick"], person_title=False)
-def test_property_a_title_is_asked_at_most_once_after_acceptance_and_never_past_a_barrier(actions, person_title):
+# --- the title's line never waits on the provider ---------------------------------------
+
+@pytest.mark.parametrize("text", ["\U0001F600" * TITLE_DESCRIPTION_MAX, "漢" * TITLE_DESCRIPTION_MAX,
+                                  '"\\\n\x01' * 5000, "x" * TITLE_DESCRIPTION_MAX],
+                         ids=["emoji", "cjk", "escapes", "ascii"])
+def test_the_title_line_and_all_the_provider_may_not_have_read_fit_a_pipe_with_no_reader(text):
+    """At the quiescent point the runner allows at most PIPE_FLOOR bytes the provider may
+    not have read, the title's line included (`_title_fits`). A pipe here takes that much
+    with no reader at all, so the relay's write of the line never waits on the provider."""
+    line = (request_line(text) + "\n").encode()
+    read_end, write_end = os.pipe()
+    try:
+        os.set_blocking(write_end, False)
+        ahead = b"x" * (PIPE_FLOOR - len(line))
+        assert os.write(write_end, ahead) == len(ahead)
+        assert os.write(write_end, line) == len(line)     # a short write or EAGAIN would be a wait
+    finally:
+        os.close(read_end)
+        os.close(write_end)
+
+
+@settings(max_examples=300, deadline=None)
+@given(text=st.one_of(st.text(), st.builds(lambda head, character, count, tail: head + character * count + tail,
+                                             st.text(max_size=40), st.characters(), st.integers(0, 20_000),
+                                             st.text(max_size=40))))
+def test_property_the_title_line_is_bounded_and_describes_the_longest_prefix_that_fits(text):
+    line = request_line(text)
+    assert line.isascii() and len(line.encode()) <= TITLE_LINE_MAX < PIPE_FLOOR
+    request = json.loads(line)
+    assert (request["type"], request["request_id"]) == ("control_request", TITLE_REQUEST_ID)
+    description = request["request"].pop("description")
+    assert request["request"] == {"subtype": "generate_session_title", "persist": False}
+    offered = text[:TITLE_DESCRIPTION_MAX]
+    assert offered.startswith(description)
+    if description != offered:
+        assert len(titles_module._request_line(offered[:len(description) + 1])) > TITLE_LINE_MAX
+
+
+# --- every schedule --------------------------------------------------------------------
+# One generated schedule interleaves the provider's rows with everything else that can
+# touch the conversation. Provider: `init`, `accept`, `text`, `result` (successful),
+# `failed` (an error result), `answer` and `bad-answer` (the title's), `exit` (the
+# provider ends). Others: `stop` (a person's Stop, through the service), `daemon-stop`
+# (a wall limit or a kill), `steer` (a person's steer: claimed, then the command),
+# `respond` (a person's answer, queued), `message` (the conversation's next message),
+# `rename`, `lose-*`/`refused`/`large` (the next title write fails), `expire` (the
+# title's budget runs out), `tick` (a turn of the runner's loop), `restart` (a later
+# daemon's runner replays the attempt).
+PROVIDER = ("init", "accept", "text", "result", "failed", "answer", "bad-answer", "exit")
+OTHERS = ("stop", "daemon-stop", "steer", "respond", "message", "rename", "lose-reached", "lose-unreached",
+          "refused", "large", "expire", "tick", "tick", "restart")
+
+
+# Each schedule builds a service and two stores (about 2 s here under load, most of it
+# fsync); SUBFLEET_TITLE_SCHEDULES runs more of them (400 ran for the review record).
+SCHEDULES = int(os.environ.get("SUBFLEET_TITLE_SCHEDULES", "60"))
+
+
+@settings(max_examples=SCHEDULES, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(actions=st.lists(st.one_of(st.sampled_from(PROVIDER), st.sampled_from(OTHERS)), min_size=1, max_size=18))
+@example(actions=["init", "accept", "text", "result", "tick", "answer", "tick"])
+@example(actions=["init", "accept", "result", "stop", "tick"])
+@example(actions=["init", "accept", "stop", "result", "tick"])
+@example(actions=["init", "accept", "message", "result", "tick"])
+@example(actions=["init", "accept", "result", "message", "tick"])
+@example(actions=["init", "accept", "steer", "result", "tick"])
+@example(actions=["init", "accept", "result", "steer", "tick"])
+@example(actions=["init", "accept", "respond", "result", "tick"])
+@example(actions=["init", "accept", "result", "expire", "answer", "tick"])
+@example(actions=["init", "accept", "result", "restart", "answer", "tick"])
+@example(actions=["init", "accept", "restart", "result", "tick"])
+@example(actions=["init", "accept", "lose-reached", "result", "tick", "stop", "tick"])
+@example(actions=["init", "accept", "result", "daemon-stop", "answer", "tick"])
+@example(actions=["init", "accept", "failed", "tick"])
+@example(actions=["init", "accept", "result", "exit", "restart", "tick"])
+def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(actions):
     """Invariants, for every schedule:
-    1. at most one title request and one cancellation are ever written, across replays;
-    2. a title request follows the message frame and the provider's acceptance of it;
-    3. once a stop, a cancel, a close or an outcome falls, no title frame is written,
-       even when the stop lands while the title's claim waits for the store;
-    4. no title frame is written while a frame or a command of the turn waits or a
-       handover lock is held, and none is ever in the outbox;
-    5. title failures never fail the relay, refuse a frame or stop the turn;
-    6. liveness: a first turn accepted by the runner that handed it over, with no
-       barrier and no failed title write, asks for its title (unless a person named it).
+    1. at most one title request is ever written, replays included, and no cancellation;
+    2. a title request is written only after this runner's own first turn ended with the
+       provider's successful result, recorded (its event and turn.json), and with the
+       claim recorded in the same batch as that result;
+    3. none is written after a recorded stop (a person's or the daemon's), after the
+       close, after an outcome recorded by an earlier runner, or while the conversation's
+       next message waits;
+    4. no stop, steer or message waits on a title write or claim: none is written while
+       a lock they need is held or a command waits, and the claim has no transaction of
+       its own;
+    5. the close is held only while the title is outstanding: after the answer, the
+       budget, a stop, a command or the next message, the next turn of the loop writes it;
+    6. title failures never fail the relay, refuse a frame or stop the turn;
+    7. liveness: a first turn ending in the provider's success with nothing else before
+       it, and no title write failure, asks exactly once.
     """
-    with title_turn(title="Chosen name" if person_title else None) as turn:
-        runner, epoch = turn.runner(), 0
-        said: list[str] = []
-        frozen = None                          # (requests, cancellations) when the first barrier fell
-        raced: list[tuple[int, int]] = []      # the same, when a stop raced a claim
+    with title_turn() as turn:
+        runner, epoch, gone = turn.runner(), 0, False
+        said, barrier = set(), None             # the log length when the first barrier fell
+        claims = []
+        append = turn.store.append_events
 
-        def race(kind):
-            def land():
-                tags = turn.logged()
-                raced.append((tags.count(TITLE_FRAME), tags.count(TITLE_CANCEL_FRAME)))
-                if kind == "race-recorded-stop":
-                    turn.store.update_message(MID, stop_requested_at=STOPPED_AT)
-                else:
-                    runner.interrupt("stopped")     # the runner of the moment the claim runs
-            return land
+        def appended(**kwargs):
+            title = kwargs.get("title")
+            result = append(**kwargs)
+            if title is not None and title.claim_at is not None:
+                claims.append(([event[3] for event in kwargs["events"]], title.claimed))
+            return result
 
-        writer = accepted_at = accepted_by = None
+        turn.store.append_events = appended
+
+        def at_title_write():
+            outcome = json.loads((turn.adir / "turn.json").read_text())
+            assert outcome["state"] == "complete" and outcome["ended_by"] == "provider"            # 2
+            kinds, granted = claims[-1]
+            assert turn.requested() is not None and granted and "turn.completed" in kinds              # 4
+            assert not turn.store.query("SELECT 1 FROM messages WHERE conversation_id=? AND message_id<>? "
+                                        "AND state IN ('queued','waiting','steering')", (turn.cid, MID))  # 3
+            assert not runner.replayed_message and runner.recorded is None                              # 2
+
+        turn.relay.during_title = lambda: at_title_write()
+        failed_write = clean = False
+        released = None                          # the log length when the hold should have ended
         for action in actions:
+            if gone and action != "restart":
+                continue
+            before = runner.title.holding
             if action == "init" and "init" not in said:
-                said.append("init")
-                turn.say(runner, INIT_OK)
-                if "user-message" in turn.logged() and writer is None:
-                    writer = epoch
+                said.add("init")
+                turn.say(runner, INIT_OK, STEER_CAPS)
+                runner.replay_caught_up = True
             elif action == "accept" and "init" in said and "accept" not in said:
-                said.append("accept")
-                accepted_at, accepted_by = len(turn.logged()), epoch
+                said.add("accept")
                 turn.say(runner, ACCEPTED)
-            elif action == "answer" and "accept" in said and "answer" not in said:
-                said.append("answer")
-                turn.say(runner, response())
             elif action == "text" and "accept" in said:
                 turn.say(runner, reply())
-            elif action == "result" and "init" in said and "result" not in said:
-                said.append("result")
-                turn.say(runner, RESULT)
-            elif action == "recorded-stop":
-                runner.store.update_message(MID, stop_requested_at=STOPPED_AT)
-            elif action == "asked-stop":
-                runner.interrupt("stopped")
-                runner._drain_commands()
-            elif action == "close":
-                runner.outbox.append(Frame("close", "close"))
-                runner._send_outbox()
-            elif action.startswith("race-"):
-                turn.on_claim = race(action)
-            elif action == "queue-answer":
+            elif action in ("result", "failed") and "accept" in said and not said & {"result", "failed"}:
+                said.add(action)
+                clean = action == "result" and barrier is None and epoch == 0 and not failed_write
+                turn.say(runner, RESULT if action == "result" else FAILED)
+            elif action in ("answer", "bad-answer"):
+                turn.say(runner, response() if action == "answer" else response(None, "error"))
+            elif action == "exit":
+                (turn.adir / "exit.json").write_text("{}")
+                runner.end_title("provider-ended")
+                runner._read_stdout()
+                if runner.driver.outcome is None:
+                    runner._apply(runner.driver.eof(runner.offset))
+                runner._flush()
+                gone = True
+            elif action == "stop":
+                try:
+                    turn.stop()
+                except ConversationError:
+                    pass                          # not running (no message state for it to stop)
+                barrier = len(turn.logged()) if barrier is None else barrier
+            elif action == "daemon-stop":
+                runner.interrupt("wall-limit")
+                barrier = len(turn.logged()) if barrier is None else barrier
+            elif action == "steer" and "steer" not in said and "init" in said:
+                said.add("steer")
+                claim_steer(runner)
+                runner.steer(STEER_MID)
+                barrier = len(turn.logged()) if barrier is None else barrier
+            elif action == "respond":
+                # Waits only until the runner drains it: no title goes meanwhile (4), and one
+                # asked already frees the close (5). Drained before the result, it is gone.
                 runner.respond("an-answered-request", "allow")
+            elif action == "message" and "message" not in said:
+                said.add("message")
+                turn.store.submit_message(conversation_id=turn.cid, message_id=str(uuid.uuid4()),
+                                          after_message_id=MID, text="next", attachments=[], settings=turn.claude)
+                barrier = len(turn.logged()) if barrier is None else barrier
+            elif action == "rename":
+                turn.store.rename_conversation(turn.cid, "Mine")
+                barrier = len(turn.logged()) if barrier is None else barrier
             elif action in ("lose-reached", "lose-unreached", "refused", "large"):
                 turn.relay.fail_next_title = action.removeprefix("lose-")
             elif action == "expire":
                 turn.now[0] += TITLE_BUDGET_S
-                runner._timers()
-                runner._send_outbox()
             elif action == "restart":
-                runner, epoch = turn.runner(), epoch + 1
-            else:
-                runner._drain_commands()
-                runner._send_outbox()
+                runner.stop()
+                runner.finished.set()             # its thread ended: the service no longer finds it
+                runner, epoch, gone = turn.runner(), epoch + 1, False
+                if runner.driver.outcome is None and (turn.adir / "exit.json").exists():
+                    gone = True
+            turn.tick(runner)
+            if turn.relay.failed and turn.relay.failed[-1][0] == TITLE_FRAME:
+                failed_write = True
             tags = turn.logged()
-            requests, cancellations = tags.count(TITLE_FRAME), tags.count(TITLE_CANCEL_FRAME)
-            assert requests <= 1 and cancellations <= 1                                           # 1
-            if requests:
-                assert tags.index("user-message") < tags.index(TITLE_FRAME)                       # 2
-                assert accepted_at is not None and tags.index(TITLE_FRAME) >= accepted_at
-            if frozen is None and raced:
-                frozen = raced[0]
-            if frozen is None and (action in ("recorded-stop", "asked-stop", "close")
-                                   or (action == "result" and "result" in said)):
-                frozen = (requests, cancellations)
-            if frozen is not None:
-                assert (requests, cancellations) == frozen                                         # 3
-            assert turn.titles_yielded()                                                            # 4
-            assert not any(frame.tag in (TITLE_FRAME, TITLE_CANCEL_FRAME) for frame in runner.outbox)
-            if frozen is None:
-                assert not runner.relay_failed and runner.frame_refused is None                  # 5
+            assert tags.count(TITLE_FRAME) <= 1 and TITLE_CANCEL_FRAME not in tags                    # 1
+            if TITLE_FRAME in tags:
+                if barrier is not None:
+                    assert tags.index(TITLE_FRAME) < barrier                                            # 3
+                if "close" in tags:
+                    assert tags.index(TITLE_FRAME) < tags.index("close")                                # 3
+            assert turn.titles_yielded()                                                                # 4
+            if before and not runner.title.holding and not gone:
+                released = released if released is not None else len(tags)
+            if released is not None and not gone and not runner.relay_failed:
+                assert "close" in tags, (action, tags)                                                  # 5
+            if barrier is None and epoch == 0:
+                assert not runner.relay_failed and runner.frame_refused is None                        # 6
                 assert runner.stop_reason is None
-        runner._drain_commands()
-        runner._send_outbox()
-        tags = turn.logged()
-        unwritten = any(tag == TITLE_FRAME and failure != "reached" for tag, failure in turn.relay.failed)
-        clean = (not person_title and frozen is None and not unwritten and accepted_by is not None
-                 and accepted_by == writer)
-        if clean:
-            assert tags.count(TITLE_FRAME) == 1                                                    # 6
-        if person_title:
-            assert TITLE_FRAME not in tags
+        if clean and not gone and not failed_write:
+            assert turn.logged().count(TITLE_FRAME) == 1, actions                                      # 7
+        assert all(kinds.count("turn.completed") == 1 for kinds, _ in claims)                           # 2, 4
+        assert sum(granted for _, granted in claims) <= 1                                               # 1

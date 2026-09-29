@@ -20,6 +20,7 @@ import stat
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
@@ -284,6 +285,17 @@ def _publish(path: Path, data: bytes) -> None:
         os.close(dfd)
 
 
+@dataclass
+class TitleUpdate:
+    """The first turn's optional title work for one events batch (`append_events`)."""
+
+    claim_at: float | None = None               # claim the conversation's one request, as of this time
+    answer: tuple[str, float] | None = None     # a generated title, and when it was received
+    claimed: bool = False                       # set by the store: the claim was granted
+    recorded: bool = False                      # set by the store: the answer is the conversation's title
+    error: str | None = None                    # set by the store: the title's statements failed
+
+
 class ConversationStore:
     def __init__(self, root: str | Path):
         self.root = Path(root)
@@ -534,29 +546,33 @@ class ConversationStore:
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
 
-    def claim_title_generation(self, conversation_id: str, message_id: str, now: float) -> bool:
-        """At most one request, from the first person message's Claude process, and
-        none once a stop of that message is recorded. A person's stop is a transaction
-        on this store too (`update_message`, `withdraw`), so a claim that waited
-        behind one sees it (`TurnRunner._send_title`)."""
-        with self.transaction() as tx:
-            return bool(tx.execute(
-                "UPDATE conversations SET title_requested_at=? WHERE conversation_id=? AND provider='claude' "
-                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL "
-                "AND NOT EXISTS (SELECT 1 FROM messages WHERE message_id=? AND stop_requested_at IS NOT NULL)",
-                (now, conversation_id, message_id, message_id)).rowcount)
+    def _claim_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str, at: float) -> bool:
+        """The conversation's one title request, for its first person message's Claude
+        process, only while nothing else of the conversation waits: no stop of that
+        message recorded, no other message queued, waiting or steering. Run only
+        inside the transaction that records the turn's result (`append_events`):
+        it takes no lock and adds no commit of its own (review of 66d692a0, P2)."""
+        return bool(tx.execute(
+            "UPDATE conversations SET title_requested_at=? WHERE conversation_id=? AND provider='claude' "
+            "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM messages WHERE message_id=? AND stop_requested_at IS NOT NULL) "
+            "AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id=? AND message_id<>? "
+            "AND state IN ('queued','waiting','steering'))",
+            (at, conversation_id, message_id, message_id, conversation_id, message_id)).rowcount)
 
-    def generated_title(self, conversation_id: str, message_id: str, title: str, now: float) -> bool:
+    def _record_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str, title: str,
+                      received_at: float) -> bool:
+        """A generated title, received within the budget of its claim, unless a person
+        named the conversation meanwhile (a rename always wins)."""
         from .titles import TITLE_BUDGET_S
-        with self.transaction() as tx:
-            changed = tx.execute(
-                "UPDATE conversations SET title=?,title_source='generated',updated_at=? WHERE conversation_id=? "
-                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NOT NULL "
-                "AND title_requested_at<=? AND title_requested_at>?",
-                (title, utcnow(), conversation_id, message_id, now, now - TITLE_BUDGET_S)).rowcount
-            if changed:
-                self._change(tx, conversation_id, None, None)
-            return bool(changed)
+        changed = tx.execute(
+            "UPDATE conversations SET title=?,title_source='generated',updated_at=? WHERE conversation_id=? "
+            "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NOT NULL "
+            "AND title_requested_at<=? AND title_requested_at>?",
+            (title, utcnow(), conversation_id, message_id, received_at, received_at - TITLE_BUDGET_S)).rowcount
+        if changed:
+            self._change(tx, conversation_id, None, None)
+        return bool(changed)
 
     def by_request(self, request_id: str) -> dict | None:
         row = self.one("SELECT * FROM conversations WHERE request_id=?", (request_id,))
@@ -1249,12 +1265,31 @@ class ConversationStore:
             "attempt_id": attempt_id, "stdout_offset": 0, "stdin_seq": 0, "compacted": 0}
 
     def append_events(self, *, conversation_id: str, message_id: str, attempt_id: str,
-                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
+                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int,
+                      title: "TitleUpdate | None" = None) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
-        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6)."""
+        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6).
+
+        `title` carries the first turn's optional title work (titles.py) into the same
+        transaction: its claim, with the batch that records the turn's result, and a
+        generated title the provider answered. It has a savepoint of its own, so a
+        failure there costs the title, never the batch; the store sets its results."""
         now = utcnow()
         written = 0
         with self.transaction() as tx:
+            if title is not None:
+                tx.execute("SAVEPOINT title")
+                try:
+                    if title.claim_at is not None:
+                        title.claimed = self._claim_title(tx, conversation_id, message_id, title.claim_at)
+                    if title.answer is not None:
+                        title.recorded = self._record_title(tx, conversation_id, message_id, *title.answer)
+                    tx.execute("RELEASE title")
+                except sqlite3.Error as exc:
+                    tx.execute("ROLLBACK TO title")
+                    tx.execute("RELEASE title")
+                    title.claimed = title.recorded = False
+                    title.error = f"{type(exc).__name__}: {exc}"
             mark = tx.execute("SELECT compacted FROM attempt_marks WHERE attempt_id=?", (attempt_id,)).fetchone()
             compacted = bool(mark and mark["compacted"])
             for source, position, ordinal, kind, data in events:

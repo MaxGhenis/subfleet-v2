@@ -823,6 +823,13 @@ class ConversationService:
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
             raise ConversationError("not-running", f"the message is {message['state']}")
         with self._handover(message_id):
+            # The title's gate first (titles.py): no title write begins after the stop
+            # is recorded, and ending it never waits on one. A runner found only after
+            # this look hands the message over after the stop (the handover lock orders
+            # them), or replays one an earlier runner wrote: neither asks for a title.
+            runner = self._runner_for_message(message_id)
+            if runner is not None:
+                runner.end_title("stopped")
             # Recorded before the runner is looked up (a runner started meanwhile
             # reads it), and under the handover lock: a runner about to write the
             # message sees it first, or has already handed the message over (C-24.7).

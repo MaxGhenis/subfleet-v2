@@ -34,8 +34,8 @@ def quiet_claude(tmp_path):
         process.stdin.write(json.dumps(row) + "\n")
         process.stdin.flush()
 
-    def receive():
-        return rows.get(timeout=10)
+    def receive(timeout=10):
+        return rows.get(timeout=timeout)
 
     try:
         send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}})
@@ -83,3 +83,25 @@ def test_title_control_is_serviced_during_a_turn_and_interrupt_stays_responsive(
     process.stdin.close()
     assert process.wait(timeout=10) == 0
     assert process.stderr.read() == ""
+
+
+def test_the_title_control_is_serviced_after_the_result_and_dropped_at_the_end_of_input(quiet_claude):
+    """The runner asks for the title once the turn's result is in (titles.py). The fake, like
+    Claude Code 2.1.280, services it while idle, and ends at stdin's end without waiting for
+    a title still being generated: the runner holds the close until the answer."""
+    process, send, receive = quiet_claude
+    send({"type": "control_request", "request_id": "interrupt", "request": {"subtype": "interrupt"}})
+    assert receive()["response"]["request_id"] == "interrupt"
+    assert receive()["type"] == "result"
+    assert receive()["type"] == "command_lifecycle"     # the message's own, after its result
+    send({"type": "control_request", "request_id": "title", "request": {
+        "subtype": "generate_session_title", "description": "Fix the importer", "persist": False}})
+    row = receive()
+    assert (row["type"], row["response"]["request_id"]) == ("control_response", "title")
+    assert row["response"]["response"] == {"title": "Fixture session title"}
+    send({"type": "control_request", "request_id": "late", "request": {
+        "subtype": "generate_session_title", "description": "Fix it [fake:title-delayed]", "persist": False}})
+    process.stdin.close()
+    assert process.wait(timeout=10) == 0
+    with pytest.raises(queue.Empty):            # the title still being generated was dropped
+        receive(timeout=3)

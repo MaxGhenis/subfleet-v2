@@ -31,9 +31,9 @@ from . import attachments as attachment_store
 from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
-from .store import ConversationError, ConversationStore
-from .turn import APPROVAL_NEEDED, RUNNING, Event, Frame, Image, Outcome, Step, TurnSpec
-from .titles import SessionTitle, TITLE_FRAME, TITLE_CANCEL_FRAME
+from .store import ConversationError, ConversationStore, TitleUpdate
+from .turn import APPROVAL_NEEDED, COMPLETE, RUNNING, Event, Frame, Image, Outcome, Step, TurnSpec
+from .titles import CLAIMED, OPEN, PIPE_FLOOR, SessionTitle, TITLE_CANCEL_FRAME, TITLE_FRAME, request_line
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
@@ -57,6 +57,16 @@ IDLE_GRACE_S = 2.0
 STEER_GRACE_S = 15.0
 RESEND_MAX = 5
 RESEND_BASE_S = 0.2
+# A Claude steer's fates that come from the provider's own rows (a lifecycle, an echo,
+# an interrupt's receipt): each shows the provider read the steer's line from stdin.
+STEER_READ_FATES = ("delivered", "consumed", "cancelled", "refused")
+# While the title holds the close (titles.py): what, besides the runner's own state,
+# ends the hold. A stop the service recorded, another message of the conversation
+# queued, waiting or steering, or a name a person gave it meanwhile.
+TITLE_WATCH_SQL = ("SELECT (SELECT stop_requested_at FROM messages WHERE message_id=?) AS stopped, "
+                   "EXISTS (SELECT 1 FROM messages WHERE conversation_id=? AND message_id<>? "
+                   "AND state IN ('queued','waiting','steering')) AS waiting, "
+                   "(SELECT title_source FROM conversations WHERE conversation_id=?) AS source")
 
 
 @dataclass(frozen=True)
@@ -116,7 +126,8 @@ class TurnRunner:
         self.clocks = clocks
         self.clock = clock
         self.log = log
-        self.title = SessionTitle(store, conversation_id, spec.message_id, log=log)
+        # The first turn's title (titles.py): asked after the reply, at a quiescent point.
+        self.title = SessionTitle(conversation_id, spec.message_id)
         self.commands: "queue.Queue[tuple]" = queue.Queue()
         self.driver = make_driver(spec, self._read_attachment,
                                   frame_recorded=lambda tag: tag in self.sent,
@@ -132,11 +143,8 @@ class TurnRunner:
         self.handshake_done_once = False
         self.relay_failed = False
         self.handshaken = False
-        # The first turn's title (titles.py) is optional metadata kept out of the
-        # outbox: `_send_title` writes it when nothing of the turn waits.
-        self.title_asked = False               # this runner's one title request was decided
-        self.title_frame: Frame | None = None  # claimed, not yet written: the request or its cancellation
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
+        self.wrote_bytes: dict[str, int] = {}  # tag → bytes of each stdin line this runner wrote
         self.relay_version: int | None = None
         self.resends = 0                       # consecutive unacknowledged sends of the head frame
         self.resend_at = 0.0
@@ -192,6 +200,7 @@ class TurnRunner:
 
     def stop(self) -> None:
         """End the loop after the iteration under way (the service's close())."""
+        self.end_title("closing")
         self._stopping.set()
 
     def join(self, timeout: float) -> bool:
@@ -203,10 +212,20 @@ class TurnRunner:
         return not thread.is_alive()
 
     def interrupt(self, reason: str = "stopped") -> None:
+        # The runner's own record of the stop, then the title's gate (`end_title`):
+        # whichever the runner thread sees first, no title write begins after it.
         self.stop_reason = self.stop_reason or reason
+        self.end_title("stopped")
         if not self.handshaken:
             self._stop_on_catch_up = True
         self.commands.put(("interrupt",))
+
+    def end_title(self, why: str) -> None:
+        """No title write begins from now on (titles.py); one already begun goes on,
+        and the stdin close it held follows. Safe on any thread and never waits on
+        I/O or a lock held across it: a person's stop calls it before the stop is
+        recorded (`ConversationService._interrupt`)."""
+        self.title.end(why)
 
     def withhold(self, reason: str) -> None:
         """Stop the turn without ever writing its message, if it was not written.
@@ -217,6 +236,7 @@ class TurnRunner:
         `initialize` cannot send it (C-30.4). One the log shows handed over is
         stopped like any other, after the replay (D-13).
         """
+        self.end_title("withheld")
         if "user-message" in self.sent:
             self.stop_reason = self.stop_reason or reason
             self._stop_on_catch_up = True
@@ -334,6 +354,7 @@ class TurnRunner:
                 if self._flush_due():
                     self._flush()
                 if self._process_gone():
+                    self.end_title("provider-ended")
                     while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
                         pass
                     # Ended-attempt replay may never reach an empty read in the main
@@ -407,6 +428,10 @@ class TurnRunner:
             except queue.Empty:
                 return worked
             worked = True
+            if self.title.holding:
+                # A stop, an answer or a steer wants the conversation: the stdin close
+                # the title held goes next (a steer after the result is missed, queued).
+                self.end_title("command")
             if command[0] == "interrupt":
                 if self.stop_at is None:
                     self.stop_at = self.clock()
@@ -573,7 +598,10 @@ class TurnRunner:
             if not self.store.approvals(message_id=self.message_id) and self.driver.outcome is None:
                 self.store.set_state(self.message_id, RUNNING, expect=("approval-needed",))
         if step.outcome is not None:
-            self._flush()
+            # The batch that records the turn's result also claims the conversation's
+            # title, when the first turn ended quiescent (titles.py): no transaction of
+            # its own, so no stop, steer or message ever waits on the claim.
+            self._flush(claim_title=self._title_quiescent())
             self.ended_at = self.clock()
             self._write_outcome()
         catalog = getattr(self.driver, "catalog", None)
@@ -658,11 +686,14 @@ class TurnRunner:
             self.resend_at = self.clock() + RESEND_BASE_S * 2 ** (self.resends - 1)
 
     def _send_outbox(self) -> None:
-        self._send_frames()
-        self._send_title()                      # only when no frame of the turn is left (`_title_may_go`)
+        self._send_frames()                     # stops at a stdin close the title holds (`_title_holds`)
+        if self._send_title():                  # its one line went, or it ended: the close may be free
+            self._send_frames()
 
     def _send_frames(self) -> None:
         while self.outbox:
+            if self.outbox[0].op == "close" and self._title_holds():
+                return                          # the title's answer, its budget, or anything else first
             if self.relay_failed:
                 self._discard_steers("relay-failed")
                 self.outbox.clear()
@@ -745,6 +776,8 @@ class TurnRunner:
         if ack.ok:
             self.sent[frame.tag] = "written"
             self.next_seq += 1
+            if frame.op == "write":
+                self.wrote_bytes[frame.tag] = len((frame.line or "").encode()) + 1
             self.outbox.pop(0)
             if frame.tag.startswith("steer:"):
                 self.driver.steer_written(frame.tag.removeprefix("steer:"))
@@ -759,79 +792,129 @@ class TurnRunner:
         self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
         return False
 
-    def _title_closed(self) -> bool:
-        """No title frame may be written any more: this is not the first Claude turn
-        this runner handed its message over for, or the turn was stopped, cancelled,
-        closed or ended (a stop's own frames still go; a title never does)."""
-        return (self.spec.provider != "claude" or self.replayed_message or self.recorded is not None
-                or self.ended or self.withheld or self.relay_failed or self.frame_refused is not None
-                or self.stop_reason is not None or self.stop_at is not None or self.driver.outcome is not None
-                or getattr(self.driver, "interrupt_requested", False) or "close" in self.sent
-                or any(frame.op == "close" for frame in self.outbox))
+    # --- the first turn's title (titles.py) ---------------------------------------
 
-    def _title_may_go(self) -> bool:
-        """Whether the title frame may be written now. One that never may is dropped
-        for good (`_drop_title`): after a barrier, after an unanswered title write
-        (the relay's log, read at the next handshake, says what it holds), or a
-        cancellation of a request that log does not show written."""
-        if (self._title_closed() or self.optional_ack_lost
-                or (self.title_frame is not None and self.title_frame.tag == TITLE_CANCEL_FRAME
-                    and self.sent.get(TITLE_FRAME) != "written")):
-            self._drop_title()
+    def _title_quiescent(self) -> bool:
+        """Whether the turn that just ended is a quiescent point for the title: this
+        runner's own first Claude turn (never a replay), ended by the provider's
+        successful result, with nothing of the turn left to write but its stdin close,
+        no stop of any kind, no command waiting (a stop, a steer, an answer), and a
+        provider that has read everything large this runner gave it (`_title_fits`).
+        The store adds what only it knows, in the same transaction (`_claim_title`):
+        no stop recorded, no other message of the conversation queued."""
+        outcome = self.driver.outcome
+        return (self.title.state == OPEN and self.spec.provider == "claude"
+                and not self.replayed_message and self.recorded is None and not self.ended
+                and outcome is not None and outcome.state == COMPLETE and outcome.ended_by == "provider"
+                and self.sent.get(USER_FRAME) == "written"
+                and self.stop_reason is None and self.stop_at is None
+                and not getattr(self.driver, "interrupt_requested", False)
+                and not self.relay_failed and self.frame_refused is None
+                and self.commands.empty() and self._title_idle() and self._title_fits())
+
+    def _title_idle(self) -> bool:
+        """The provider is idle, reading stdin, with no turn in flight: its result is in,
+        nothing of the turn but the stdin close waits to be written, and every steer
+        this runner wrote shows, in the provider's own rows, that it was read."""
+        steers = getattr(self.driver, "steers", {})
+        return ([frame.op for frame in self.outbox] == ["close"] and "close" not in self.sent
+                and all(steers.get(tag.removeprefix("steer:"), {}).get("fate") in STEER_READ_FATES
+                        for tag in self.wrote_bytes if tag.startswith("steer:")))
+
+    def _title_fits(self) -> bool:
+        """The title's line and every byte the provider may not have read yet fit the
+        smallest pipe buffer, so the relay's write of it never waits on the provider
+        (review of 66d692a0, P1: a write that waits holds the relay's lock and this
+        thread). Read, by the provider's own answers: its `initialize` answer, the
+        message it accepted, every tool answer its successful result waited for (a
+        `can_use_tool` answer has no timeout), and each steer it reported."""
+        unread = sum(size for tag, size in self.wrote_bytes.items()
+                     if tag not in ("init", USER_FRAME) and not tag.startswith(("approval:", "steer:")))
+        return unread + len(request_line(self.spec.text)) + 1 <= PIPE_FLOOR
+
+    def _title_may_write(self) -> bool:
+        """Checked under the title's lock at the moment of the write (`begin_write`):
+        in-memory state only, never I/O."""
+        return (self.stop_reason is None and self.stop_at is None and self.commands.empty()
+                and not getattr(self.driver, "interrupt_requested", False)
+                and not self.relay_failed and self.handshaken and not self.optional_ack_lost
+                and not self.resends and self._title_idle())
+
+    def _send_title(self) -> bool:
+        """Write the claimed title request: one line, at most TITLE_LINE_MAX bytes, to
+        an idle provider, sized so its write does not wait on it (`_title_fits`). Only this thread
+        writes it; the decision is ordered against every stop by the title's gate
+        (`SessionTitle.begin_write`, `end_title`), and nothing of the turn is behind
+        it but the stdin close it holds. A refused, oversized or unanswered write is
+        never retried and never fails the relay: the close resynchronizes first
+        (`_send_frames`). It uses only the relay's `send`. Whether anything changed."""
+        if self.title.state != CLAIMED:
             return False
-        if (self.outbox or not self.commands.empty() or not self.handshaken
-                or self.sent.get(USER_FRAME) != "written" or not getattr(self.driver, "accepted", False)):
-            return False                        # not yet: considered again at the next send
-        row = self.store.one("SELECT stop_requested_at FROM messages WHERE message_id=?", (self.message_id,))
-        if row and row["stop_requested_at"]:
-            self._drop_title()                  # a person's stop, recorded before `interrupt` reached us
-            return False
+        if not self.title.begin_write(self._title_may_write):
+            self.end_title("not-quiescent")
+            return True
+        line = request_line(self.spec.text)
+        try:
+            ack = self.relay.send(self.next_seq, "write", line=line, tag=TITLE_FRAME)
+        except FrameTooLarge:
+            self.end_title("too-large")     # nothing reached the relay
+            return True
+        except RelayError:
+            self.optional_ack_lost = True       # the relay's log, read at the next handshake, decides
+            self.end_title("unanswered")
+            return True
+        if ack.ok:
+            self.sent[TITLE_FRAME] = "written"
+            self.next_seq += 1
+            self.wrote_bytes[TITLE_FRAME] = len(line) + 1
+        else:
+            self.optional_ack_lost = True
+            self.end_title("refused")
         return True
 
-    def _drop_title(self) -> None:
-        """No title frame is written any more: none is pending, and no cancellation
-        follows (a request never written needs none; none goes after a barrier)."""
-        self.title_asked, self.title_frame = True, None
-        self.title.deadline = None
+    def _title_holds(self) -> bool:
+        """Whether the turn's stdin close waits for the title: only while it is claimed
+        or sent and nothing else wants the conversation (`_title_release`). The CLI's
+        end-of-input teardown does not wait for the title's answer (titles.py)."""
+        if not self.title.holding:
+            return False
+        why = self._title_release()
+        if why is None:
+            return True
+        self.end_title(why)
+        return False
 
-    def _send_title(self) -> None:
-        """Write the first turn's title request, or its cancellation after the budget.
+    def _title_release(self) -> str | None:
+        """What ends the title's hold now, from the runner's own state, or None."""
+        if self.title.answered:
+            return "answered"
+        if self.title.expired():
+            return "budget"
+        if (self.stop_reason is not None or self.stop_at is not None or self.relay_failed or self.ended
+                or self.frame_refused is not None or getattr(self.driver, "interrupt_requested", False)):
+            return "stopped"
+        if not self.commands.empty():
+            return "command"
+        if len(self.outbox) != 1:
+            return "frame"                      # a signal (D-15) or another frame waits behind the close
+        return None
 
-        Optional metadata (titles.py), so it yields to everything else: it goes
-        only once the provider has taken the message this runner handed over, only
-        when no frame and no command of the turn waits (a stop, a steer, an answer),
-        and never after a stop, a cancel, a close or an outcome, recorded or asked
-        for (`_title_may_go`). It takes no handover lock, so no stop is recorded
-        behind it. The claim is a store transaction that may wait behind a stop's or
-        a steer's: it refuses once a stop is recorded (`claim_title_generation`),
-        and everything is checked again before the write. A refused or unanswered
-        write is never retried and never closes stdin or fails the relay: the turn's
-        next frame resynchronizes first (`_send_frames`). It uses only the relay's
-        `send`.
-        """
-        if self.title_asked and self.title_frame is None:
+    def _watch_title(self) -> None:
+        """Once per loop turn while the title holds the close: what only the store
+        knows ends the hold too (a stop recorded, another message of the conversation,
+        a name a person gave it). A read: it commits nothing. The close then goes."""
+        if not self.title.holding:
             return
-        if not self._title_may_go():
-            return
-        if not self.title_asked:
-            self.title_asked = True
-            self.title_frame = self.title.request(self.spec.text)   # claims the conversation's one request
-            if self.title_frame is None or not self._title_may_go():
-                return                          # refused, or a stop or a command came meanwhile
-        frame, self.title_frame = self.title_frame, None
-        try:
-            ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
-        except FrameTooLarge:
-            self.title.deadline = None          # nothing reached the relay: nothing to cancel
-            return
-        except RelayError:
-            self.optional_ack_lost = True
-            return
-        if ack.ok:
-            self.sent[frame.tag] = "written"
-            self.next_seq += 1
-        else:
-            self.optional_ack_lost = True       # the relay's log, read at the next handshake, decides
+        row = self.store.one(TITLE_WATCH_SQL, (self.message_id, self.conversation_id, self.message_id,
+                                               self.conversation_id))
+        if row and row["stopped"]:
+            self.end_title("stopped")
+        elif row and row["waiting"]:
+            self.end_title("message-waiting")
+        elif row and row["source"] != "fallback":
+            self.end_title("renamed")
+        if not self._title_holds():
+            self._send_outbox()
 
     def _handover_verdict(self) -> str:
         """Whether the message frame at the head of the outbox may be handed over
@@ -928,9 +1011,6 @@ class TurnRunner:
                 self._apply(self.driver.expire_steers())
         else:
             self.steer_wait_since = None
-        cancellation = self.title.expire()
-        if cancellation is not None:
-            self.title_frame = cancellation     # `_send_title` writes it only if still allowed
         if getattr(self.driver, "idle_pending", False) and self.driver.outcome is None:
             if self.idle_since is None:
                 self.idle_since = now
@@ -968,21 +1048,35 @@ class TurnRunner:
                 self.approval_seen.pop(request_id, None)
                 self.stop_reason = self.stop_reason or "approval-timeout"
                 self.commands.put(("interrupt",))
+        self._watch_title()                     # last: a frame queued above ends the title's hold
 
     # --- persistence -----------------------------------------------------------
 
     def _flush_due(self) -> bool:
-        return bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
+        return (bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
+                or self.title.pending)
 
-    def _flush(self) -> None:
-        if not self.batch:
+    def _flush(self, *, claim_title: bool = False) -> None:
+        """One events batch and the watermark (C-25.4), with the title's work riding in
+        the same transaction (titles.py): its claim, only in the batch that records the
+        first turn's result, and a generated title the provider answered."""
+        answer = self.title.take()
+        if not self.batch and answer is None and not claim_title:
             self.last_flush = self.clock()
             return
+        title = (TitleUpdate(claim_at=self.title.clock() if claim_title else None, answer=answer)
+                 if claim_title or answer is not None else None)
         batch, self.batch, self.batch_bytes = self.batch, [], 0
         self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
                                  attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
-                                 stdin_seq=self.next_seq - 1)
+                                 stdin_seq=self.next_seq - 1, title=title)
         self.last_flush = self.clock()
+        if title is None:
+            return
+        if title.error and self.log:
+            self.log.debug("optional session title for %s unavailable: %s", self.conversation_id, title.error)
+        if claim_title and not (title.claimed and self.title.claim(title.claim_at)):
+            self.end_title("refused")           # the store refused, or a stop ended it meanwhile
 
     def _write_outcome(self) -> None:
         recorded = self.recorded

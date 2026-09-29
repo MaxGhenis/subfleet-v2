@@ -2,6 +2,7 @@
 
 import time
 
+from subfleet.conversations.store import TitleUpdate
 from tests.frontend.test_core_store import harness, store  # noqa: F401
 
 
@@ -21,8 +22,13 @@ def test_first_title_and_rename_arrive_on_watch(core_probe, tmp_path, harness):
 
     assert sidebar_title() == "Parser.swift decoding errors"
     now = time.time()
-    assert harness.store.claim_title_generation(cid, message["message_id"], now)
-    assert harness.store.generated_title(cid, message["message_id"], "Parser.swift decoding", now + 1)
+    # The runner's own path (titles.py): the claim rides the batch that records the first
+    # turn's result, and the provider's answer a later batch.
+    claim, answer = TitleUpdate(claim_at=now), TitleUpdate(answer=("Parser.swift decoding", now + 1))
+    for n, title in enumerate((claim, answer)):
+        harness.store.append_events(conversation_id=cid, message_id=message["message_id"], attempt_id="job/a1",
+                                    events=[], stdout_offset=n, stdin_seq=n, title=title)
+    assert claim.claimed and answer.recorded
     generated = harness.call("conversation.watch", after=fallback["next"])
     steps.append({"watch": generated})
     assert sidebar_title() == "Parser.swift decoding"
