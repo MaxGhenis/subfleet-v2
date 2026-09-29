@@ -148,7 +148,9 @@ def test_c13_4_retention_resumes_after_worktree_removed_before_row_commit(owned)
 
 def test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref(owned):
     """C-13.4, C-8.4: the salvage ref is referenced elsewhere once the archive's
-    bundle holds it; retention removes the tree and never touches the ref."""
+    verified anchor reaches its commit (the anchor is the bundle's only head;
+    review of a9a6cbf4, B1); retention removes the tree and never touches the
+    ref."""
     store, root, repository, worktree = owned
     (worktree / "tracked").write_text("salvaged changes")
     snapshot = record_salvage(store, worktree)
@@ -157,7 +159,10 @@ def test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref(owned
     assert not worktree.exists()
     assert git(repository, "show", snapshot.ref + ":tracked") == "salvaged changes"
     manifest = json.loads((root / "archive" / "job" / "manifest.json").read_text())
-    assert manifest["git"]["bundle_heads"][snapshot.ref] == snapshot.commit
+    anchor = manifest["git"]
+    assert anchor["bundle_heads"] == {anchor["anchor_ref"]: anchor["anchor"]}
+    assert snapshot.commit in anchor["salvage_in_anchor"]
+    assert [(s["ref"], s["commit"]) for s in manifest["salvage"]] == [(snapshot.ref, snapshot.commit)]
 
 
 @pytest.mark.parametrize("damage", ["new-edit", "missing-ref"])

@@ -828,11 +828,113 @@ def test_salvage_is_bundled_and_its_ref_kept(world):
     w.store.add_artifact("job-salvage/a1", "salvage", "refs/subfleet-salvage/job-salvage/1", "d", 0)
     result = run(w)
     assert result["pruned"] == ["job-salvage"], result
-    heads = rgit.bundle_heads(w.root / "archive" / "job-salvage" / "commits.bundle")
-    assert heads["refs/subfleet-salvage/job-salvage/1"] == tree_commit
+    archive = w.root / "archive" / "job-salvage"
+    manifest = json.loads((archive / "manifest.json").read_text())
+    anchor = manifest["git"]["anchor"]
+    # The anchor is the bundle's only head; the salvage commit is its ancestor.
+    assert rgit.bundle_heads(archive / "commits.bundle") == {manifest["git"]["anchor_ref"]: anchor}
+    assert manifest["git"]["salvage_in_anchor"] == [tree_commit]
     assert git(w.repo, "rev-parse", "refs/subfleet-salvage/job-salvage/1") == tree_commit
-    rows = json.loads((w.root / "archive" / "job-salvage" / "rows.json").read_text())
+    rows = json.loads((archive / "rows.json").read_text())
     assert rows["rows"]["artifacts"][0]["path"] == "refs/subfleet-salvage/job-salvage/1"
+    fresh = w.base / "fresh-salvage"
+    git(w.base, "clone", "--quiet", str(w.remote), str(fresh))
+    git(fresh, "fetch", "--quiet", str(archive / "commits.bundle"), "+refs/*:refs/r/*")
+    assert git(fresh, "cat-file", "-t", tree_commit) == "commit"
+    report = rarch.restore(w.root, "job-salvage", to=w.base / "restored", repository=fresh)
+    assert report["refs"] == {"refs/subfleet-restored/job-salvage/subfleet-salvage/job-salvage/1": tree_commit}
+    assert git(fresh, "rev-parse", "refs/subfleet-restored/job-salvage/subfleet-salvage/job-salvage/1") == tree_commit
+
+
+@pytest.mark.parametrize("registration", [True, False], ids=["with-registration", "without-registration"])
+def test_salvage_a_network_remote_already_holds_retires(world, registration):
+    """Review of a9a6cbf4, B1: a salvage ref pushed as a PR branch and fetched is
+    reachable from `refs/remotes/*`, so `git bundle` left it out: the bundle
+    lacked it (with a registration) or was empty (without one), and the job
+    was rolled back every attempt, for ever. The anchor is now built whenever
+    the repository is known and is the bundle's only head; the salvage commit
+    is its ancestor, and the job retires in the first pass."""
+    w = world
+    wt = w.job("job-pushed")
+    w.attempt("job-pushed")
+    (wt / "work.txt").write_text("salvaged work\n")
+    commit = git(wt, "commit-tree", git(wt, "write-tree"), "-p", w.head(), "-m", "salvage")
+    ref = "refs/subfleet-salvage/job-pushed/1"
+    git(w.repo, "update-ref", ref, commit)
+    w.store.add_artifact("job-pushed/a1", "salvage", ref, "d", 0)
+    w.push(f"{ref}:refs/heads/pr-job-pushed")
+    assert git(w.repo, "branch", "-r", "--contains", commit)
+    if not registration:
+        shutil.rmtree(w.admin("job-pushed"))         # pruned earlier, e.g. by an old repository-wide prune
+    result = run(w, state=retention.RetentionState(), clock=Clock())
+    assert result["pruned"] == ["job-pushed"], result["deferred"]
+    archive = w.root / "archive" / "job-pushed"
+    manifest = json.loads((archive / "manifest.json").read_text())
+    assert manifest["git"]["salvage_in_anchor"] == [commit]
+    assert rgit.bundle_heads(archive / "commits.bundle") == {manifest["git"]["anchor_ref"]: manifest["git"]["anchor"]}
+    assert git(w.repo, "rev-parse", ref) == commit                  # the ref itself is never touched
+    assert rarch.check_archive(w.root, "job-pushed")["ok"]
+    report = rarch.restore(w.root, "job-pushed", to=w.base / "restored")
+    assert report["refs"] == {"refs/subfleet-restored/job-pushed/subfleet-salvage/job-pushed/1": commit}
+    assert (w.base / "restored" / "worktree" / "work.txt").read_text() == "salvaged work\n"
+
+
+def test_an_anchor_a_network_remote_already_holds_needs_no_bundle(world):
+    """If the anchor itself is reachable from `refs/remotes/*` (its ref pushed
+    and fetched back), every commit it reaches is held and a bundle would be
+    empty: the archive records that instead of failing."""
+    w = world
+    make_dirty_detached(w, "job-held")
+    calls = []
+
+    def busy_at_second_check(watches, **_):
+        calls.append(1)
+        return {"job-held": ["pid 1 (editor): open for writing"]} if len(calls) == 2 else {}
+
+    state, clock = retention.RetentionState(), Clock()
+    assert run(w, holders=busy_at_second_check, state=state, clock=clock)["pruned"] == []
+    anchor_ref = git(w.repo, "for-each-ref", "--format=%(refname)", "refs/subfleet-archive/job-held/")
+    w.push(f"{anchor_ref}:refs/heads/mirrored-anchor")
+    clock.advance(rarch.DEFER_BUSY_S + 1)
+    result = run(w, state=state, clock=clock)
+    assert result["pruned"] == ["job-held"], result["deferred"]
+    manifest = json.loads((w.root / "archive" / "job-held" / "manifest.json").read_text())
+    assert manifest["git"]["anchor_held"] is True and manifest["git"]["bundle"] is None
+    assert not (w.root / "archive" / "job-held" / "commits.bundle").exists()
+    assert rarch.check_archive(w.root, "job-held")["ok"]
+
+
+def test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move(world, monkeypatch):
+    """Review of a9a6cbf4, N12: the bundle cache was keyed on the held globs, not
+    their values; a branch deleted on the server after the first attempt left
+    the cached bundle with prerequisites no remote-tracking ref held."""
+    w = world
+    wt = w.job("job-cache")
+    (wt / "f.txt").write_text("x")
+    git(wt, "add", "f.txt")
+    git(wt, "commit", "--quiet", "-m", "on a pushed branch")
+    topic = git(wt, "rev-parse", "HEAD")
+    w.push(f"{topic}:refs/heads/topic")                              # the commit is held by origin/topic
+    calls = []
+
+    def busy_at_second_check(watches, **_):
+        calls.append(1)
+        return {"job-cache": ["pid 1 (editor): open for writing"]} if len(calls) == 2 else {}
+
+    state, clock = retention.RetentionState(), Clock()
+    assert run(w, holders=busy_at_second_check, state=state, clock=clock)["pruned"] == []
+    git(w.remote, "update-ref", "-d", "refs/heads/topic")              # the server drops the branch
+    git(w.repo, "fetch", "--quiet", "--prune", str(w.remote), "+refs/heads/*:refs/remotes/origin/*")
+    made = []
+    original = rgit.create_bundle
+    monkeypatch.setattr(rgit, "create_bundle", lambda *a, **k: made.append(1) or original(*a, **k))
+    clock.advance(rarch.DEFER_BUSY_S + 1)
+    assert run(w, state=state, clock=clock)["pruned"] == ["job-cache"]
+    assert made == [1]                                                 # rebuilt, not reused
+    fresh = w.base / "fresh-cache"
+    git(w.base, "clone", "--quiet", str(w.remote), str(fresh))
+    git(fresh, "fetch", "--quiet", str(w.root / "archive" / "job-cache" / "commits.bundle"), "+refs/*:refs/r/*")
+    assert git(fresh, "cat-file", "-t", topic) == "commit"
 
 
 def test_in_place_salvage_still_pins(world):

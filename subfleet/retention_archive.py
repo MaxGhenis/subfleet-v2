@@ -445,8 +445,7 @@ class Retirement:
                 raise Defer("rows.json did not read back", DEFER_ERROR_S)
             digest = hashlib.sha256(data).hexdigest()
             self.save(state="committing", rows_sha256=digest, archive=name)
-            landed = {s["artifact_id"] for s in j["salvage"]
-                      if manifest.get("git", {}).get("bundle_heads", {}).get(s["ref"]) == s["commit"]}
+            landed = landed_salvage(manifest, j["salvage"])
             data_event = {"pool": j["pool"], "bytes": pool_bytes, "archive": str(self.root / "archive" / name),
                           "archived_bytes": manifest["totals"]["archived_bytes"],
                           "omitted_bytes": manifest["totals"]["omitted_bytes"],
@@ -679,6 +678,18 @@ class Retirement:
             os.rmdir(self.work)
         except OSError:
             pass
+
+
+def landed_salvage(manifest: dict[str, Any], salvage: list[dict[str, Any]]) -> set[int]:
+    """Salvage artifacts the verified archive holds: their commit is an ancestor
+    of the anchor, and the anchor is the verified bundle's head or a network
+    remote already reaches it. Their pins are released at commit (C-8.4)."""
+    git = manifest.get("git") or {}
+    anchor, ref = git.get("anchor"), git.get("anchor_ref")
+    if not anchor or not (git.get("anchor_held") or (git.get("bundle_heads") or {}).get(ref) == anchor):
+        return set()
+    inside = set(git.get("salvage_in_anchor") or ())
+    return {s["artifact_id"] for s in salvage if s["commit"] in inside}
 
 
 def _read_small(path: Path) -> str | None:
@@ -989,41 +1000,55 @@ class _Builder:
                                 "objects": sorted(bad)[:20], "count": len(bad)})
 
     def _git(self, reg: rgit.Registration | None, common: Path, fmt: str) -> dict[str, Any]:
-        """The anchor, its ref, and the bundle, each read back before it counts."""
+        """The anchor, its ref, and the bundle, each read back before it counts.
+
+        The anchor is built whenever the repository is known. Its parents are
+        every commit the admin directory names (when the job has a
+        registration), the salvage commits and the baseline; its tree holds the
+        staged blobs and the trees and blobs the admin directory names. The
+        anchor's ref is the bundle's only head: `git bundle` leaves out any
+        head a network remote already holds, so a salvage ref pushed as a
+        branch made the bundle lack it, or be empty (review of a9a6cbf4, B1).
+        A salvage commit is recorded instead, and counts as archived when it is
+        an ancestor of the anchor, which puts it in the bundle or on a remote.
+        """
         j = self.j
         self._tick()
         info: dict[str, Any] = {}
         remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
         held = rgit.held_arguments(remotes)
-        refs: list[str] = []
-        expected: dict[str, str] = {}
+        objects = rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel) if reg is not None else rgit.no_objects()
+        extra = [s["commit"] for s in j["salvage"]]
+        baseline = j.get("baseline")
+        if baseline and rgit.classify(common, [baseline], cancel=self.ctx.cancel)["commit"]:
+            extra.append(baseline)
+        if not extra and not any(objects[kind] for kind in ("commit", "tree", "blob", "tag")):
+            return info            # nothing names a commit or object: nothing to anchor
+        anchor = rgit.make_anchor(common, self.r.job_id, objects, extra, cancel=self.ctx.cancel)
+        ref = rgit.anchor_ref(self.r.job_id, anchor)
+        rgit.create_ref(common, ref, anchor, cancel=self.ctx.cancel)
+        info.update(anchor=anchor, anchor_ref=ref)
         if reg is not None:
-            objects = rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel)
-            extra = [s["commit"] for s in j["salvage"]]
-            baseline = j.get("baseline")
-            if baseline and rgit.classify(common, [baseline], cancel=self.ctx.cancel)["commit"]:
-                extra.append(baseline)
-            anchor = rgit.make_anchor(common, self.r.job_id, objects, extra, cancel=self.ctx.cancel)
-            ref = rgit.anchor_ref(self.r.job_id, anchor)
-            rgit.create_ref(common, ref, anchor, cancel=self.ctx.cancel)
-            refs.append(ref)
-            expected[ref] = anchor
-            info.update(anchor=anchor, anchor_ref=ref,
-                        admin_objects={k: len(v) for k, v in objects.items()},
+            info.update(admin_objects={k: len(v) for k, v in objects.items()},
                         admin_missing=sorted(objects["missing"])[:100],
                         head=rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel))
             if objects["tag"]:
                 info["admin_tags_peeled"] = sorted(objects["tag"])
-        for s in j["salvage"]:
-            if s["ref"] not in expected:
-                refs.append(s["ref"])
-                expected[s["ref"]] = s["commit"]
-        if not refs:
+        info["salvage_in_anchor"] = sorted({s["commit"] for s in j["salvage"]
+                                            if rgit.is_ancestor(common, s["commit"], anchor, cancel=self.ctx.cancel)})
+        expected = {ref: anchor}
+        state = rgit.held_state(common, remotes, cancel=self.ctx.cancel)
+        info.update(held=held, held_remotes=remotes)
+        if rgit.held_commit(common, anchor, held, cancel=self.ctx.cancel):
+            # A remote already reaches the anchor itself (its ref was pushed):
+            # every commit it reaches is held, and a bundle would be empty.
+            (self.dir / "commits.bundle").unlink(missing_ok=True)     # an earlier attempt's
+            info.update(bundle=None, anchor_held=True)
             return info
         bundle = self.dir / "commits.bundle"
         cached = self.progress.get("bundle", {})
         if not (cached.get("expected") == expected and cached.get("held") == held and bundle.exists()
-                and cached.get("size") == bundle.stat().st_size):
+                and cached.get("state") == state and cached.get("size") == bundle.stat().st_size):
             temporary = self.dir / "commits.bundle.tmp"
             temporary.unlink(missing_ok=True)
             fd = os.open(self.dir, rfs.O_DIR)
@@ -1032,15 +1057,15 @@ class _Builder:
                     raise Defer("low-space", DEFER_BUSY_S, "not enough free space for the bundle")
             finally:
                 os.close(fd)
-            rgit.create_bundle(common, temporary, refs, held, timeout=self.ctx.git_timeout_s * 6,
+            rgit.create_bundle(common, temporary, [ref], held, timeout=self.ctx.git_timeout_s * 6,
                                cancel=self.ctx.cancel)
             rgit.verify_bundle(common, temporary, expected, fmt, self.r.work / "verify.git",
                                timeout=self.ctx.git_timeout_s * 6, cancel=self.ctx.cancel)
             os.replace(temporary, bundle)
             rfs.sync_path(self.dir)
-            self._note({"k": "bundle", "expected": expected, "held": held, "size": bundle.stat().st_size})
-        info.update(bundle="commits.bundle", bundle_heads=expected, held=held, held_remotes=remotes,
-                    bundle_bytes=bundle.stat().st_size)
+            self._note({"k": "bundle", "expected": expected, "held": held, "state": state,
+                        "size": bundle.stat().st_size})
+        info.update(bundle="commits.bundle", bundle_heads=expected, bundle_bytes=bundle.stat().st_size)
         return info
 
     def _verify_store(self, trees: dict[str, dict[str, Any]]) -> None:
@@ -1179,12 +1204,26 @@ def restore(root: Path, name: str, *, to: Path | None = None, repository: Path |
     fmt = git.get("object_format") or "sha1"
     sources = [p for p in (repository, Path(git["common"]) if git.get("common") else None) if p]
     source = next((p for p in sources if p.exists()), None)
-    report: dict[str, Any] = {"archive": name, "restored": {}, "fetched": None}
-    if git.get("bundle") and source is not None:
+    report: dict[str, Any] = {"archive": name, "restored": {}, "fetched": None, "refs": {}}
+    if source is not None and (git.get("bundle") or manifest.get("salvage")):
         target = _git_dir(source)
-        rgit.run(["fetch", "--no-write-fetch-head", str(base / git["bundle"]),
-                  f"+refs/*:refs/subfleet-restored/{manifest['job_id']}/*"], git_dir=target, timeout=3600)
-        report["fetched"] = str(target)
+        prefix = f"refs/subfleet-restored/{manifest['job_id']}/"
+        if git.get("bundle"):
+            rgit.run(["fetch", "--no-write-fetch-head", str(base / git["bundle"]), f"+refs/*:{prefix}*"],
+                     git_dir=target, timeout=3600)
+            report["fetched"] = str(target)
+        # Salvage refs are recorded in the manifest, not bundle heads (their
+        # commits are ancestors of the anchor): recreate each under the prefix.
+        for s in manifest.get("salvage") or ():
+            ref = s.get("ref") or ""
+            if not ref.startswith("refs/") or not s.get("commit"):
+                continue
+            restored = prefix + ref[len("refs/"):]
+            if rgit.resolve(target, s["commit"]) != s["commit"]:
+                report["refs"][restored] = f"missing: {s['commit']} is not in {target}"
+                continue
+            rgit.run(["update-ref", "--no-deref", restored, s["commit"]], git_dir=target)
+            report["refs"][restored] = s["commit"]
     for label, tree in manifest["trees"].items():
         original = Path(tree["original"]) if tree.get("original") else None
         destination = (to / label) if to is not None else original
