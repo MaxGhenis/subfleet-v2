@@ -113,6 +113,10 @@ HANDOFF_KEEPS = ("unblock-note",)
 # The source's `blocked_by` from just before a handoff cancels a waiting message's
 # job until its commit: `handoff:<request id>` (C-30.3, D-18).
 HANDOFF_FENCE = "handoff:"
+# The service's block while a previous turn attempt is quarantined; the tick lifts it
+# once none is (C-24.5, C-5.7, C-5.7b).
+QUARANTINED_TURN = "quarantined-turn"
+QUARANTINE_LIFT_S = 60.0
 
 
 class ConversationService:
@@ -142,6 +146,9 @@ class ConversationService:
         self._handovers = tuple(threading.Lock() for _ in range(HANDOVER_STRIPES))
         self.log = daemon.log
         self.clock = time.monotonic
+        # C-24.5: when the tick next looks for a `quarantined-turn` block to lift;
+        # a released quarantine (`quarantine_released`) makes it due at once.
+        self._quarantine_lift_at = 0.0
         # message id -> (refusals in a row, monotonic time of the next try)
         self._deferred: dict[str, tuple[int, float]] = {}
         self._catalog_lock = threading.RLock()
@@ -1173,6 +1180,38 @@ class ConversationService:
                 with self._lock:
                     self._handing_off.discard(cid)
 
+    def quarantine_released(self) -> None:
+        """The daemon released a quarantined turn (C-5.7, C-5.7b): look for a
+        `quarantined-turn` block to lift on the next tick (C-24.5)."""
+        self._quarantine_lift_at = 0.0
+
+    def _lift_resolved_quarantines(self) -> None:
+        """Tick, C-24.5: lift `quarantined-turn` once no turn attempt of the
+        conversation is quarantined any more (an operator's `--confirm-dead` or
+        `--force-release`, or the daemon's recheck, C-5.7b, resolved it).
+
+        `_previous_released` sets the block and nothing else lifted it: the
+        dispatcher skips a blocked conversation, a re-admitted message's job is
+        held `conversation-blocked`, and `conversation.unblock` takes only an
+        unfinished turn, so the conversation stayed blocked for good. It looks
+        when a release asks it to and otherwise every `QUARANTINE_LIFT_S`, which
+        also covers a release made before a restart (C-5.11: not every tick):
+        one query on the conversation store, and one on the main store for each
+        conversation so blocked."""
+        now = self.clock()
+        if now < self._quarantine_lift_at:
+            return
+        self._quarantine_lift_at = now + QUARANTINE_LIFT_S
+        rows = self.store.query("SELECT conversation_id FROM conversations WHERE blocked_by=?",
+                                (QUARANTINED_TURN,))
+        for row in rows:
+            cid = row["conversation_id"]
+            if self.daemon.store.one("SELECT 1 FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' "
+                                     "AND j.name=? AND a.state='quarantined'", (f"turn-{cid}",)):
+                continue
+            if self.store.lift_block(cid, QUARANTINED_TURN):
+                self.log.info("conversation %s: its quarantined turn was resolved; unblocked", cid)
+
     def _handoff_origin(self, source: dict) -> tuple[dict | None, str, str | None, str | None]:
         """(conversation, provider, native id, Codex home) the handoff comes from. A
         native session some conversation already holds hands off as that
@@ -1371,7 +1410,8 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
+        for step in (self._lift_stale_fences, self._lift_resolved_quarantines, self._catalog_tick,
+                     self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
@@ -1777,8 +1817,8 @@ class ConversationService:
             "SELECT 1 FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' AND j.name=? AND a.state='quarantined'",
             (f"turn-{conversation['conversation_id']}",))
         if quarantined:
-            if conversation["blocked_by"] != "quarantined-turn":
-                self.store.update_conversation(conversation["conversation_id"], blocked_by="quarantined-turn")
+            if conversation["blocked_by"] != QUARANTINED_TURN:
+                self.store.update_conversation(conversation["conversation_id"], blocked_by=QUARANTINED_TURN)
             return False
         return True
 

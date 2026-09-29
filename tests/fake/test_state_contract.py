@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -454,20 +454,24 @@ def test_c8_3_state_export_recovery_publishes_after_terminal_commit(state_daemon
 
 
 def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, monkeypatch):
-    """C-5.4, C-5.6 kill escalates and individually signals only previously verified group members."""
+    """C-5.4, C-5.6 kill escalates and individually signals only members a table proved owned."""
     daemon, harness = state_daemon
     job_id, attempt, adir = reserve(daemon, harness)
+    started = "Sat Sep  5 10:00:00 2026"
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 child_pid=42002, pgid=42001, boot_id="unit-test-boot",
-                                proc_start="unit-test-start", started_at=daemon_module.utcnow())
+                                proc_start=started, started_at=daemon_module.utcnow())
     attempt = daemon.store.get_attempt(attempt["attempt_id"])
-    guardian = ProcessIdentity(42001, "unit-test-boot", "unit-test-start")
-    child = ProcessIdentity(42002, "unit-test-boot", "unit-test-start")
+    guardian = ProcessIdentity(42001, "unit-test-boot", started)
+    child = ProcessIdentity(42002, "unit-test-boot", started)
     members = Containment(group_pids=frozenset({42001, 42002}),
                           identities={42001: guardian, 42002: child})
     census = iter([members, Containment(group_pids=frozenset({42002}), identities={42002: child}),
                    Containment()])
     monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))
+    # The table the kill proves ownership from: the guardian leads its group, the child is in it.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable(
+        {42001: (1, 42001, "Ss", started), 42002: (42001, 42001, "S", started)}, "unit-test-boot"))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     signals = []
@@ -494,7 +498,7 @@ def test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audit
     job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
     survivor = Containment(marker_pids=frozenset({42099}))
     daemon._quarantine(attempt, survivor, "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: survivor)
+    monkeypatch.setattr(daemon, "_quarantine_census", lambda attempt, reads=None: survivor)
     args = protocol.KillArgs(job_id, confirm_dead=True)
     daemon._resolve_quarantine(attempt, args)
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"

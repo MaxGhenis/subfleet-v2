@@ -34,12 +34,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
+from . import boot_identity, capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    OWNED_CENSUS_INTERVAL_S, OWNED_PERSIST_S, QUARANTINE_FAILURES_NOTICE, QUARANTINE_RECHECK_S,
+    QUARANTINE_RETRY_CEILING_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S,
+    TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -173,6 +175,90 @@ def revive_lease_key(session_id: str) -> str:
 def native_session_lease_key(lane_id: str, session_id: str) -> str:
     """A read-only continuation still writes its provider's native transcript."""
     return f"native-session:{lane_id}:{session_id}"
+
+
+def recorded_identities(values: Any) -> list[procs.ProcessIdentity]:
+    """The identities in a JSON record: a map keyed by pid (`owned_identities`, a
+    census's `identities`) or a list (a quarantine's `recorded`), once per
+    (pid, start). A malformed entry is skipped: it identifies nothing, and a record
+    that cannot be read must not stop a kill or a recheck."""
+    found: dict[tuple[int, str], procs.ProcessIdentity] = {}
+    entries = values.values() if isinstance(values, dict) else values if isinstance(values, list) else ()
+    for value in entries:
+        try:
+            ident = procs.ProcessIdentity(int(value["pid"]), str(value["boot_id"]), str(value["proc_start"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if ident.pid > 0 and ident.proc_start:
+            found.setdefault((ident.pid, ident.proc_start), ident)
+    return list(found.values())
+
+
+@dataclasses.dataclass(frozen=True)
+class Owned:
+    """C-5.6: what an attempt owns: processes by identity, and the process groups
+    owned processes led when they were recorded (pgid -> that leader)."""
+    processes: dict[int, procs.ProcessIdentity] = dataclasses.field(default_factory=dict)
+    groups: dict[int, procs.ProcessIdentity] = dataclasses.field(default_factory=dict)
+    # pgid -> end (monotonic) of the table that first found the group vacant; a
+    # table read after that end must agree before the group is dropped
+    # (`procs.group_state`). In memory only: a restart looks twice again.
+    ending: dict[int, float] = dataclasses.field(default_factory=dict, compare=False)
+
+    @classmethod
+    def of(cls, evidence: dict) -> "Owned":
+        """The owned record an attempt's `evidence_json` holds; a group is keyed by
+        its leader's pid, which is its id."""
+        groups = evidence.get("owned_groups")
+        leaders = recorded_identities(list(groups.values())) if isinstance(groups, dict) else []
+        return cls({ident.pid: ident for ident in recorded_identities(evidence.get("owned_identities"))},
+                   {ident.pid: ident for ident in leaders})
+
+    def into(self, evidence: dict) -> dict:
+        """`evidence` with this record in it (C-5.6's two keys)."""
+        return {**evidence,
+                "owned_identities": {str(pid): dataclasses.asdict(ident) for pid, ident in sorted(self.processes.items())},
+                "owned_groups": {str(pgid): dataclasses.asdict(ident) for pgid, ident in sorted(self.groups.items())}}
+
+    def signature(self) -> tuple[frozenset, frozenset]:
+        return (frozenset((pid, ident.proc_start) for pid, ident in self.processes.items()), frozenset(self.groups))
+
+
+def quarantine_evidence(a: dict) -> dict:
+    """An attempt's quarantine evidence as a dict (`{}` when there is none or it
+    does not parse): the reason, the latest census, and, since C-5.7b, `recorded`
+    (every identity a census of this quarantine found live, once per pid and
+    start) and `groups_ended` (recorded groups a census has seen end)."""
+    try:
+        value = json.loads(a.get("quarantine_reason") or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def merged_evidence(before: dict, census, *, reason: str | None = None) -> dict:
+    """C-5.7, C-5.7b: quarantine evidence after `census`: its reason (`reason`, or
+    the one `before` gave), the census itself, `recorded`, every identity any
+    census of this quarantine found live, once per pid and start, and
+    `groups_ended`, every recorded group a census has proved ended (another
+    process holds its id) or found vacant twice running (`groups_ending` holds the
+    first sighting). `recorded` and `groups_ended` only grow; nothing else in
+    `before` is kept but a `recheck_error`."""
+    recorded = {(ident.pid, ident.proc_start): ident for ident in
+                recorded_identities(before.get("recorded")) + recorded_identities(before.get("identities"))
+                + list(census.identities.values())}
+    kept = {key: before[key] for key in ("recheck_error",) if key in before}
+    reason = reason if reason is not None else before.get("reason")
+    # A group another process's pid proves ended is ended at once; one this census
+    # found vacant is ended only if the census before it (whose reads ended before
+    # this one's began: it was written before this row was read) found it vacant
+    # too, and is otherwise noted in `groups_ending` (`procs.group_state`).
+    pending = set(before.get("groups_ending") or ())
+    ended = set(before.get("groups_ended") or ()) | set(census.ended_groups) | (set(census.vacant_groups) & pending)
+    return {**({"reason": reason} if reason else {}), **census.to_dict(), **kept,
+            "recorded": [dataclasses.asdict(recorded[key]) for key in sorted(recorded)],
+            "groups_ended": sorted(ended),
+            "groups_ending": sorted(set(census.vacant_groups) - ended)}
 
 
 def imported_external(attempt: dict) -> bool:
@@ -380,6 +466,8 @@ class Daemon:
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
+                 quarantine_recheck_s: float = QUARANTINE_RECHECK_S,
+                 owned_persist_s: float = OWNED_PERSIST_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
@@ -391,6 +479,22 @@ class Daemon:
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
         self.inspect_interval_s = inspect_interval_s
+        # C-5.7b: the quarantine recheck's period, when it is next due (the first
+        # sweep runs once recovery is complete), attempt id -> its consecutive
+        # failed rechecks (logged on powers of two), and the lock that keeps an
+        # operator's resolution and the sweep off the same attempt at once.
+        self.quarantine_recheck_s = quarantine_recheck_s
+        self._quarantine_due = 0.0
+        self._quarantine_failures: dict[str, tuple[int, float]] = {}
+        self._quarantine_lock = threading.Lock()
+        # C-5.6, C-5.12: attempt id -> what it owns (written to its evidence at
+        # most every OWNED_PERSIST_S), the end of the last table that added to it
+        # (a table read before that may add but never drops), and when and what
+        # was last written.
+        self.owned_persist_s = owned_persist_s
+        self._owned: dict[str, Owned] = {}
+        self._owned_table_at: dict[str, float] = {}
+        self._owned_saved: dict[str, tuple[float, tuple[frozenset, frozenset]]] = {}
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -2460,7 +2564,7 @@ class Daemon:
         itself raised "dictionary changed size during iteration" whenever a
         worker added an entry mid-walk (review of 5841d8b). Popping is safe.
         """
-        for pacing in (self._inspect_next,):
+        for pacing in (self._inspect_next, self._owned, self._owned_table_at, self._owned_saved):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
         for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
@@ -2486,6 +2590,10 @@ class Daemon:
                     # C-26.9: turns also have a pass of their own, so a person's
                     # turn never waits for a detached pass to reach it.
                     self._schedule("admission:turns", self._admit_turns, paced=True)
+                    if time.monotonic() >= self._quarantine_due:
+                        # C-5.7b: one sweep over every quarantined attempt per
+                        # period; the store is not read until it is due.
+                        self._schedule("quarantine-recheck", self._recheck_quarantines, paced=True)
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
@@ -4319,7 +4427,61 @@ class Daemon:
         return True
 
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
+        """C-5.5: a live attempt's census (`_census`)."""
+        return self._census(a)
+
+    def _quarantine_census(self, a: dict, reads: procs.CensusReads | None = None):
+        """C-5.7b: a quarantined attempt's census, which `--confirm-dead` also runs."""
+        return self._census(a, reads, quarantine=True)
+
+    def _census(self, a: dict, reads: procs.CensusReads | None = None, *, quarantine: bool = False):
+        """C-5.5, C-5.7b: the three sources, rooted also at what the attempt recorded.
+
+        Recorded are the guardian, the owned processes and the groups they led
+        (in memory while this daemon runs the attempt, else its evidence), and,
+        for a quarantine, every identity its quarantine evidence has listed, less
+        the groups a census has seen end. The guardian is a walk root only while
+        the table shows it with its recorded start, and the child pid a receipt
+        named is never one: both have exited by the time a receipt is read, and a
+        pid of theirs may be a stranger's by then (C-5.7b). A quarantined attempt
+        whose boot session is not this one (C-5.3: both UUIDs, and different) has
+        nothing left alive, so only its marker is looked for.
+        """
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        owned = (None if quarantine else self._owned.get(a["attempt_id"])) or Owned.of(evidence)
+        recorded = list(owned.processes.values())
+        groups: dict[int, procs.ProcessIdentity | None] = dict(owned.groups)
+        guardian = None
+        if a.get("guardian_pid") and a.get("proc_start"):
+            guardian = procs.ProcessIdentity(a["guardian_pid"], a.get("boot_id") or "", a["proc_start"])
+            recorded.append(guardian)
+        pgid = a.get("pgid")
+        if quarantine:
+            if self._rebooted(a, reads):
+                return procs.containment(None, None, None, a["attempt_id"], root=str(self.root), reads=reads)
+            listed = quarantine_evidence(a)
+            recorded += recorded_identities(listed.get("recorded")) + recorded_identities(listed.get("identities"))
+            ended = set(listed.get("groups_ended") or ())
+            groups = {group: leader for group, leader in groups.items() if group not in ended}
+            if pgid in ended:
+                pgid = None
+        return procs.containment(pgid, a.get("guardian_pid"), None if guardian else a.get("child_pid"),
+                                 a["attempt_id"], root=str(self.root), recorded=recorded, groups=groups,
+                                 guardian=guardian, reads=reads)
+
+    @staticmethod
+    def _rebooted(a: dict, reads: procs.CensusReads | None) -> bool:
+        """C-5.3: the attempt's boot session UUID and this boot's are both known and differ.
+        A read that fails, or a legacy `kern.boottime` record, is not an answer."""
+        recorded = boot_identity.session_uuid(a.get("boot_id") or "")
+        if not recorded:
+            return False
+        try:
+            now = reads.table.boot() if reads is not None and reads.table is not None else procs.boot_id()
+        except procs.InspectionError:
+            return False
+        current = boot_identity.session_uuid(now)
+        return bool(current) and current != recorded
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
@@ -4401,28 +4563,158 @@ class Daemon:
             self._table_lock.release()
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
-        """C-5.6: remember the group's members while the recorded guardian leads it.
+        """C-5.6, C-5.12: remember what the table proves the attempt owns, while
+        the recorded guardian leads the recorded group.
 
         Both facts come from the one table, so the leader is known to be ours at
-        the instant its members were listed. Only group members are recorded,
-        which is why the marker scan of a full census is not run here. The
-        leader is ours by C-5.3's rule, the one `same_process` applies before
-        the kill protocol records members, so a legacy boot timestamp that
-        matches counts.
+        the instant the rest were listed. Ownership follows the guardian's and
+        each recorded process's children and the groups they lead
+        (`procs.owned_closure`): a provider runs its tool commands in sessions of
+        their own (Claude Code's Bash tool as `/bin/zsh`, Codex's commands and
+        its code-mode host), which the recorded group never held (incident:
+        2026-09-29, a cancelled attempt's `uv run pytest` in group 46802 ran on
+        after its kill, reached only by the marker and never signalled). The
+        marker scan of a full census is not run here. The leader is ours by
+        C-5.3's rule, the one `same_process` applies before the kill protocol
+        records members, so a legacy boot timestamp that matches counts.
+
+        The record is kept in memory and written at most every
+        `OWNED_PERSIST_S` (`_persist_owned`); the kill protocol and a quarantine
+        write it whole (C-5.12: measured 2026-09-29, 34 running attempts gained
+        a process 433 times a minute, each write an event and a waiter wake).
         """
         guardian = a["guardian_pid"]
         if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
                 or table.rows[guardian][1] != a["pgid"]):
             return
-        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
-        evidence = json.loads(a["evidence_json"] or "{}")
-        before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
-        if owned != before:
-            evidence["owned_identities"] = owned
-            with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+        owned = self._update_owned(a, table, guardian_leads=True)
+        self._persist_owned(a, owned)
+
+    def _update_owned(self, a: dict, table: procs.ProcessTable, *, guardian_leads: bool) -> Owned:
+        """C-5.6, C-5.12: this table's proof merged into the attempt's owned record
+        (in memory, seeded from its evidence), which it returns.
+
+        A process the table shows gone is dropped, and so is a group it shows no
+        process in, but only by a table whose read began after the last table
+        that added to the record ended: a table read earlier cannot show a
+        process born since, and would drop it. Raises `InspectionError` when a
+        root's boot identity cannot be read."""
+        aid = a["attempt_id"]
+        prior = self._owned.get(aid) or Owned.of(json.loads(a.get("evidence_json") or "{}"))
+        roots = list(prior.processes.values())
+        if guardian_leads:
+            roots.insert(0, procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"]))
+        proven = procs.owned_closure(table, roots)
+        led = {pid: ident for pid, ident in proven.items() if table.rows[pid][1] == pid}
+        began = table.began_at if table.began_at is not None else table.taken_at
+        last = self._owned_table_at.get(aid)
+        if last is None or began >= last:
+            groups, ending = {}, {}
+            for group, leader in prior.groups.items():
+                state = procs.group_state(table, group, leader)
+                if state == "reused":
+                    continue                        # proof: the recorded group ended
+                if state == "vacant":
+                    first = prior.ending.get(group)
+                    if first is not None and began >= first:
+                        continue                    # vacant in two tables read one after the other
+                    ending[group] = first if first is not None else table.taken_at
+                groups[group] = leader
+            owned = Owned(proven, {**groups, **led},
+                          {group: at for group, at in ending.items() if group not in led})
+        else:
+            owned = Owned({**prior.processes, **proven}, {**prior.groups, **led}, dict(prior.ending))
+        if any(pid not in prior.processes or prior.processes[pid].proc_start != ident.proc_start
+               for pid, ident in proven.items()) or set(led) - set(prior.groups):
+            self._owned_table_at[aid] = max(last or table.taken_at, table.taken_at)
+        self._owned[aid] = owned
+        return owned
+
+    def _persist_owned(self, a: dict, owned: Owned, *, force: bool = False) -> None:
+        """Write the owned record into the attempt's evidence when it differs from
+        what was last written, at most every `owned_persist_s` unless `force`d
+        or never written by this daemon. What a crash can lose is at most that
+        long of processes recorded since, of which only those orphaned in that
+        time and never seen again matter (C-5.12)."""
+        aid = a["attempt_id"]
+        signature = owned.signature()
+        saved = self._owned_saved.get(aid)
+        if saved is not None and (saved[1] == signature
+                                  or (not force and time.monotonic() - saved[0] < self.owned_persist_s)):
+            return
+        with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=aid) as tx:
+            row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=?", (aid,)).fetchone()
+            evidence = owned.into(json.loads((row["evidence_json"] if row else None) or "{}"))
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), aid))
+        self._owned_saved[aid] = (time.monotonic(), signature)
+
+    def _owned_now(self, a: dict) -> tuple[Owned, dict[int, procs.ProcessIdentity], dict[int, procs.ProcessIdentity]]:
+        """C-5.6: the owned record proved again from one fresh table (`_update_owned`,
+        from the guardian while it leads the recorded group and from every
+        recorded process), then the owned processes that lead a group other than
+        the recorded one, and the owned processes in neither, which only an
+        individual signal reaches. When the table or a boot identity cannot be
+        read, nothing new is proven: the record stands, each of its processes may
+        lead a group, and `signal_group` and `signal_process` re-check every
+        identity before they signal (C-5.4)."""
+        try:
+            table = procs.snapshot()
+            if self._young_in(a, table):
+                # A process started in the second this table's read began is not
+                # owned through it (`procs.owned_closure`); one a tool session
+                # just forked would go unsignalled and, once its parent is
+                # killed, be no one's. Read again once the second has turned.
+                wait = int(table.began_wall) + 1.05 - time.time() if table.began_wall is not None else 0
+                if wait > 0 and self.stopping.wait(min(wait, 1.1)):
+                    raise procs.InspectionError("stopping")
+                table = procs.snapshot()
+            guardian = a.get("guardian_pid")
+            leads = bool(guardian and table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
+                         and table.rows[guardian][1] == a["pgid"])
+            owned = self._update_owned(a, table, guardian_leads=leads)
+        except procs.InspectionError:
+            owned = self._owned.get(a["attempt_id"]) or Owned.of(json.loads(a.get("evidence_json") or "{}"))
+            # Which of them lead a group is unknown: each is offered as a leader,
+            # and one that is not (or not the same process) is signalled singly,
+            # each after its own identity check (`_signal_owned`).
+            maybe = {pid: ident for pid, ident in owned.processes.items() if pid != a.get("pgid")}
+            return owned, maybe, maybe
+        leaders = {pid: ident for pid, ident in owned.processes.items()
+                   if pid != a.get("pgid") and table.shows(ident) and table.rows[pid][1] == pid}
+        # The recorded group's signal reaches its members only while the guardian
+        # leads it (C-5.4); once it is gone, its owned members are signalled singly.
+        covered = {*leaders, *([a.get("pgid")] if leads else [])}
+        loose = {pid: ident for pid, ident in owned.processes.items()
+                 if table.shows(ident) and table.rows[pid][1] not in covered}
+        return owned, leaders, loose
+
+    def _young_in(self, a: dict, table: procs.ProcessTable) -> bool:
+        """Would this table's proof of the attempt's ownership pass over a process
+        too new to own in it (`procs.owned_closure`'s `deferred`)?"""
+        prior = self._owned.get(a["attempt_id"]) or Owned.of(json.loads(a.get("evidence_json") or "{}"))
+        roots = list(prior.processes.values())
+        if a.get("guardian_pid") and a.get("proc_start"):
+            roots.append(procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"]))
+        deferred: set[int] = set()
+        procs.owned_closure(table, roots, deferred=deferred)
+        return bool(deferred)
+
+    @staticmethod
+    def _signal_owned(leaders: dict[int, procs.ProcessIdentity], loose: dict[int, procs.ProcessIdentity],
+                      sig: int) -> None:
+        """C-5.4, C-5.6: signal each group an owned process leads, besides the
+        recorded one, and each owned process in none of the groups signalled.
+        `signal_group` and `signal_process` confirm the identity afresh (and that
+        a leader still leads its group) before they signal. A process in both
+        maps (no table said which leads a group) is signalled singly only when
+        its group could not be."""
+        signalled = set()
+        for pid, ident in sorted(leaders.items()):
+            if procs.signal_group(pid, sig, boot_id=ident.boot_id, proc_start=ident.proc_start):
+                signalled.add(pid)
+        for pid, ident in sorted(loose.items()):
+            if pid not in signalled:
+                procs.signal_process(ident, sig)
 
     def _unlaunched(self, a: dict, detail: str) -> None:
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
@@ -4447,32 +4739,42 @@ class Daemon:
         self._notify()
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
-        census = self._contain(a)
-        evidence = json.loads(a["evidence_json"] or "{}")
-        # Only group members observed while the recorded leader is still ours
-        # may become additional signal targets. Escaped/new marker pids remain
-        # evidence for quarantine, never authority inferred from a PID alone.
-        owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
-        leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
-        if leader_live:
-            owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
-        evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
+        # C-5.6: only what a table proves the attempt owns (the recorded group
+        # while its leader is ours, the guardian's descendants, the groups they
+        # lead) may become a signal target beyond the recorded group. A marker
+        # pid found nowhere in that closure remains evidence for quarantine,
+        # never authority inferred from a PID alone. Authority is recorded
+        # before any signal.
+        owned, leaders, loose = self._owned_now(a)
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=?", (a["attempt_id"],)).fetchone()
+            evidence = owned.into(json.loads((row["evidence_json"] if row else None) or "{}"))
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
+        self._owned_saved[a["attempt_id"]] = (time.monotonic(), owned.signature())
+        a = {**a, "evidence_json": json.dumps(evidence)}
+        census = self._contain(a)
         if a.get("pgid"):
             procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        self._signal_owned(leaders, loose, signal.SIGTERM)
         deadline = time.monotonic() + self.term_grace_s
         while not census.verified_empty and time.monotonic() < deadline:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
                 return
             census = self._contain(a)
         escalated = not census.verified_empty
-        if escalated and a.get("pgid"):
-            procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        if escalated:
+            # What SIGTERM left may have started more (a shell's cleanup, a
+            # test runner's workers): prove ownership again from a fresh table.
+            owned, leaders, loose = self._owned_now(a)
+            self._persist_owned(a, owned, force=True)
+            if a.get("pgid"):
+                procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
+            self._signal_owned(leaders, {}, signal.SIGKILL)
+        owned_now = self._owned.get(a["attempt_id"]) or owned
         census = self._contain(a)
         for pid in census.live_pids:
-            if pid in owned:
-                procs.signal_process(owned[pid], signal.SIGKILL)
+            if pid in owned_now.processes:
+                procs.signal_process(owned_now.processes[pid], signal.SIGKILL)
         # Signalled processes leave the process table only when the kernel has
         # finished tearing them down, and under load that takes longer than one
         # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
@@ -4501,9 +4803,17 @@ class Daemon:
         self._begin_finalizing(a, receipt)
 
     def _quarantine(self, a: dict, census, reason: str) -> None:
-        detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
+        """C-5.7: the attempt keeps its leases (its lane slot excepted); its job ends
+        `lost` or `cancelled`. Its owned record is written with it, whole, since
+        C-5.7b's census reads the evidence and not this daemon's memory."""
+        detail = json.dumps(merged_evidence({}, census, reason=reason), sort_keys=True)
+        owned = self._owned.get(a["attempt_id"])
         with self.store.transaction("attempt.quarantined", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"containment": census.to_dict()}) as tx:
             job = self._job(a["job_id"])
+            if owned is not None:
+                row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=?", (a["attempt_id"],)).fetchone()
+                evidence = owned.into(json.loads((row["evidence_json"] if row else None) or "{}"))
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
             tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=? WHERE attempt_id=?", (detail, utcnow(), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
@@ -4512,26 +4822,205 @@ class Daemon:
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
-        census = self._contain(a)
-        if not args.force_release and not census.verified_empty:
-            with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
-                tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
-            return
+        """C-5.7: an operator's `--confirm-dead` (released only on C-5.7b's census
+        verified empty) or `--force-release` (the override, recorded). A request
+        that finds the attempt already released (by the recheck, C-5.7b) is
+        recorded with its note, not dropped."""
+        with self._quarantine_lock:
+            current = self.store.get_attempt(a["attempt_id"])
+            if current is None or current["state"] != "quarantined":
+                self.store.add_event("quarantine.request_after_release", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                     data={"operator_note": args.operator_note, "override": args.force_release,
+                                           "state": current["state"] if current else None})
+                return
+            a = dict(current)
+            census = self._quarantine_census(a)
+            if not args.force_release and not census.verified_empty:
+                self._note_live(a, census, locked=True)
+                return
+            self._release_quarantine(
+                a, census, "quarantine.force_release" if args.force_release else "quarantine.confirmed_dead",
+                {"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release},
+                one_shot=True)
+
+    def _release_quarantine(self, a: dict, census, kind: str, data: dict, *, one_shot: bool) -> None:
+        """Release a quarantined attempt (C-5.7, C-5.7b); the caller holds `_quarantine_lock`.
+
+        A turn's end snapshot (C-26.14) or a writable job's salvage (C-13.1)
+        comes first, while the leases still keep every other writer out; then
+        one transaction releases the leases and ends the attempt `lost`, or
+        `interrupted` when its job was cancelled. The job's state, rc and notice
+        stay as the quarantine set them. `one_shot` is an operator's request,
+        never offered again, so a turn's snapshot failure is recorded at once;
+        the recheck offers the attempt again, so there it raises until C-26.14's
+        tries are spent, and a salvage that fails raises, leaving the attempt
+        quarantined: released without its salvage, retention could later delete
+        the work.
+        """
         artifacts = []
         job = self._job(a["job_id"])
         if job["kind"] == "turn":
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
-            # when nothing can still be writing (C-26.14). An operator's one-shot
-            # request is never retried, so a git failure is recorded, not raised.
-            self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
+            # when nothing can still be writing (C-26.14).
+            self._turn_trees(job, a, retry=not one_shot, error=None if census.verified_empty else
                              "released from quarantine with writers still live; no end snapshot")
         elif census.verified_empty:
             artifacts, _ = self._salvage(job, a)
-        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
-            for artifact in artifacts:
-                self.store.add_artifact(a["attempt_id"], **artifact)
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
-            tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
+        with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"], data=data) as tx:
+            ended = tx.execute("UPDATE attempts SET state=? WHERE attempt_id=? AND state='quarantined'",
+                               ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost",
+                                a["attempt_id"])).rowcount
+            if ended:
+                for artifact in artifacts:
+                    self.store.add_artifact(a["attempt_id"], **artifact)
+                tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+        self._quarantine_failures.pop(a["attempt_id"], None)
+        conversations = getattr(self, "conversations", None)
+        if job["kind"] == "turn" and conversations is not None:
+            conversations.quarantine_released()        # C-24.5: its tick lifts `quarantined-turn`
+        self._notify()
+
+    def _note_live(self, a: dict, census, *, locked: bool = False) -> None:
+        """C-5.7, C-5.7b: add what a census found to a live quarantine's evidence,
+        under its reason. `recorded` and `groups_ended` only ever grow (once per
+        pid and start; a group seen ended is never the attempt's again), so no
+        census, however old its table, can drop an identity a newer one wrote;
+        the rest is the latest census, for `runs show`. Written only when
+        something changed, under `_quarantine_lock` and on the row as it is now.
+        A census that could not verify (a `ps` failed) still records what its
+        other sources did establish: a process found only this once, through a
+        recorded shell that then exits, would otherwise be no census's to find
+        (review of 9d7d4f5b)."""
+        with (contextlib.nullcontext() if locked else self._quarantine_lock), \
+                self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                       data=census.to_dict()) as tx:
+            # Read inside the write transaction, so an operator's hand edit (C-3.4)
+            # is never overwritten by a merge made from the row before it.
+            current = tx.execute("SELECT state, quarantine_reason FROM attempts WHERE attempt_id=?",
+                                 (a["attempt_id"],)).fetchone()
+            if current is None or current["state"] != "quarantined":
+                return
+            before = quarantine_evidence(dict(current))
+            after = merged_evidence(before, census)
+            if census.unverifiable:
+                # Only what it established is kept: identities, and ends that
+                # reuse proves. It neither starts nor finishes a vacancy's second
+                # look, and the census shown stays the last one that could verify.
+                after = {**before, "recorded": after["recorded"],
+                         "groups_ended": sorted(set(before.get("groups_ended") or ()) | set(census.ended_groups)),
+                         "groups_ending": sorted(before.get("groups_ending") or ())}
+            if (set(recorded_identities(after["recorded"])) == set(recorded_identities(before.get("recorded")))
+                    and after["groups_ended"] == sorted(before.get("groups_ended") or [])
+                    and after["groups_ending"] == sorted(before.get("groups_ending") or [])
+                    and after.get("live_pids") == before.get("live_pids")):
+                return                              # nothing written: no event either
+            tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?",
+                       (json.dumps({**after, "rechecked_at": utcnow()}, sort_keys=True), a["attempt_id"]))
+
+    def _recheck_quarantines(self) -> None:
+        """C-5.7b: re-census every quarantined attempt and release each in which
+        nothing the attempt could own is left.
+
+        One sweep per `quarantine_recheck_s`. With nothing quarantined it runs one
+        query and starts no process. Otherwise one process table and one
+        environment scan (`procs.census_reads`) serve every quarantined attempt;
+        the attempts they find empty are censused again from one fresh pair of
+        reads before any is released (C-5.12: a census that decides is read
+        fresh), so a sweep starts at most four `ps` however many it releases. A
+        recheck that raises (a salvage, a turn's snapshot, the store) leaves that
+        attempt quarantined, offered again after a backoff (`_recheck_failed`),
+        and never stops the others.
+        """
+        self._quarantine_due = time.monotonic() + self.quarantine_recheck_s
+        rows = [dict(row) for row in self.store.query(
+            "SELECT * FROM attempts WHERE state='quarantined' ORDER BY finished_at, attempt_id")]
+        held = {row["attempt_id"] for row in rows}
+        for aid in [aid for aid in self._quarantine_failures.copy() if aid not in held]:
+            self._quarantine_failures.pop(aid, None)
+        now = time.monotonic()
+        rows = [row for row in rows if not imported_external(row)
+                and self._quarantine_failures.get(row["attempt_id"], (0, 0.0))[1] <= now]
+        if not rows:
+            return
+        reads = procs.census_reads()
+        candidates = []
+        for a in rows:
+            if self.stopping.is_set():
+                return
+            try:
+                census = self._quarantine_census(a, reads)
+                if census.verified_empty:
+                    candidates.append(a)
+                else:
+                    self._note_live(a, census)
+            except Exception as exc:
+                self._recheck_failed(a, exc, "census")
+        if not candidates:
+            return
+        fresh = procs.census_reads()
+        for a in candidates:
+            if self.stopping.is_set():
+                return
+            try:
+                with self._quarantine_lock:
+                    current = self.store.get_attempt(a["attempt_id"])
+                    if current is None or current["state"] != "quarantined":
+                        continue                    # an operator resolved it meanwhile (C-5.7)
+                    current = dict(current)
+                    if (current["quarantine_reason"], current["evidence_json"]) != (
+                            a["quarantine_reason"], a["evidence_json"]):
+                        # Another census (an operator's, under this lock) recorded
+                        # something since this sweep began, perhaps a process born
+                        # after `fresh` was read: that census is newer than these
+                        # reads, so this sweep does not decide (review of 9d7d4f5b).
+                        continue
+                    census = self._quarantine_census(current, fresh)
+                    if not census.verified_empty:
+                        self._note_live(current, census, locked=True)
+                        continue
+                    self._release_quarantine(current, census, "quarantine.auto_resolved",
+                                             {"by": "recheck", "containment": census.to_dict()}, one_shot=False)
+            except Exception as exc:
+                self._recheck_failed(a, exc, "release")
+                continue
+            self.log.info("quarantine of %s resolved: nothing it could own is left", a["attempt_id"])
+
+    def _recheck_failed(self, a: dict, exc: Exception, stage: str) -> None:
+        """C-5.7b, C-5.10: a recheck that raised. The attempt is offered again after
+        `quarantine_recheck_s`, doubling per failure in a row to
+        `QUARANTINE_RETRY_CEILING_S`; `daemon.log` gets the type, never the message
+        (a git or provider error can carry a path or a secret), on the 1st, 2nd,
+        4th, ...; at `QUARANTINE_FAILURES_NOTICE` in a row the failure goes into
+        the quarantine's evidence (`runs show`) and to the operator as a service
+        notice, once, since only `--force-release` can end a quarantine whose
+        salvage keeps failing. The count is in memory: a restart forgives it."""
+        aid = a["attempt_id"]
+        count = self._quarantine_failures.get(aid, (0, 0.0))[0] + 1
+        delay = min(QUARANTINE_RETRY_CEILING_S, self.quarantine_recheck_s * 2 ** (count - 1))
+        self._quarantine_failures[aid] = (count, time.monotonic() + delay)
+        if count & (count - 1) == 0:
+            self.log.error("quarantine recheck of %s failed at its %s: %s (%d in a row; next try in %g s)",
+                           aid, stage, type(exc).__name__, count, delay)
+        if count != QUARANTINE_FAILURES_NOTICE:
+            return
+        with self._quarantine_lock:
+            current = self.store.get_attempt(aid)
+            if current is None or current["state"] != "quarantined":
+                return
+            evidence = {**quarantine_evidence(dict(current)),
+                        "recheck_error": {"stage": stage, "error_type": type(exc).__name__, "failures": count,
+                                          "at": utcnow()}}
+            session = self.policy.get("alerts", {}).get("operator_session") or "operator"
+            text = (f"subfleet: the quarantine of {a['job_id']} cannot be resolved: its recheck failed at its "
+                    f"{stage} {count} times in a row ({type(exc).__name__})."
+                    + (" Nothing it could own is left alive." if stage == "release" else "")
+                    + f" Check its workspace, then `subfleet kill {a['job_id']} --force-release --note ...`.")
+            with self.store.transaction("quarantine.recheck_failing", job_id=a["job_id"], attempt_id=aid,
+                                        data=evidence["recheck_error"]) as tx:
+                tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=? AND state='quarantined'",
+                           (json.dumps(evidence, sort_keys=True), aid))
+                tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
+                           (session, text, utcnow()))
         self._notify()
 
     def _lost(self, a: dict) -> None:

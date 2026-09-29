@@ -46,7 +46,7 @@ class FakeAdapter(Adapter):
             if line.lstrip().startswith("{"):
                 try:
                     parsed, _ = decoder.raw_decode(prompt[offset:].lstrip())
-                    if isinstance(parsed, dict) and set(parsed) & {"scenario", "delay_s", "marker"}:
+                    if isinstance(parsed, dict) and set(parsed) & {"scenario", "delay_s", "marker", "linger_s"}:
                         settings = parsed
                         break
                 except ValueError:
@@ -55,7 +55,8 @@ class FakeAdapter(Adapter):
         env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
-                              ("marker", "SUBFLEET_FAKE_MARKER")):
+                              ("marker", "SUBFLEET_FAKE_MARKER"),
+                              ("linger_s", "SUBFLEET_FAKE_LINGER_S")):
             if key in settings:
                 env_add[variable] = str(settings[key])
         scenario = env_add.get("SUBFLEET_FAKE_SCENARIO",

@@ -244,6 +244,12 @@ def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatc
     ps.starts[CHILD] = later                  # the child exited; a sibling now has its pid
     expire(daemon)
     daemon._process_attempt(ATTEMPT)
+    # C-5.12: the kill path signals from the daemon's own record at once; the
+    # evidence gets it within OWNED_PERSIST_S, or at once when a kill writes it.
+    record = daemon._owned[ATTEMPT].processes
+    assert record[CHILD] == procs.ProcessIdentity(CHILD, BOOT, later)
+    assert record[GUARDIAN].proc_start == STARTED
+    daemon._persist_owned(daemon.store.get_attempt(ATTEMPT), daemon._owned[ATTEMPT], force=True)
     assert owned(daemon)[str(CHILD)] == {"pid": CHILD, "boot_id": BOOT, "proc_start": later}
     assert owned(daemon)[str(GUARDIAN)]["proc_start"] == STARTED
 

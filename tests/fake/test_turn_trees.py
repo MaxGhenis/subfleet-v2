@@ -152,7 +152,7 @@ def test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref(state_daemo
     job_id, attempt, adir, mid, _, start = writable_turn(daemon, harness)
     (harness.workdir / "tracked.txt").write_text("changed before the quarantine\n")
     daemon._quarantine(attempt, Containment(), "fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_quarantine_census", lambda attempt, reads=None: Containment())
     daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
                                protocol.KillArgs(job_id, confirm_dead=True))
     assert git(harness.workdir, "for-each-ref", "refs/subfleet-salvage") == ""
@@ -163,7 +163,7 @@ def test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref(state_daemo
     job2, attempt2, adir2, _, _, _ = writable_turn_again(daemon, harness)
     survivor = Containment(marker_pids=frozenset({42099}))
     daemon._quarantine(attempt2, survivor, "fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: survivor)
+    monkeypatch.setattr(daemon, "_quarantine_census", lambda attempt, reads=None: survivor)
     monkeypatch.setattr(turn_diff, "end_snapshot", lambda *a, **k: pytest.fail("no snapshot with writers live"))
     daemon._resolve_quarantine(daemon.store.get_attempt(attempt2["attempt_id"]),
                                protocol.KillArgs(job2, force_release=True, operator_note="fixture"))
@@ -182,7 +182,7 @@ def test_c26_13_a_quarantine_release_tries_the_end_snapshot_once(state_daemon, m
     assert daemon.store.acquire_lease(f"worktree:{harness.workdir}", job_id)
     daemon._quarantine(attempt, Containment(), "fixture")
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_quarantine_census", lambda attempt, reads=None: Containment())
     calls: list[int] = []
 
     def late(*args, **kwargs):
@@ -252,3 +252,41 @@ def test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it(state_daemon, tur
         assert "provider_verdict" not in json.loads(finished["evidence_json"])
     else:
         assert job["state"] == "cancelled" and finished["outcome_class"] != "ok"
+
+
+def test_c24_5_a_resolved_quarantine_lifts_quarantined_turn_and_no_other_block(state_daemon):
+    """C-24.5, C-5.7b: `quarantined-turn` stays while the conversation's turn attempt is
+    quarantined and is lifted once the recheck releases it (the release asks the tick
+    to look at once); a block set since is never cleared in its place; and without a
+    release the tick looks only every QUARANTINE_LIFT_S, not every tick (C-5.11)."""
+    from subfleet.conversations.service import QUARANTINE_LIFT_S
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    service, store = daemon.conversations, daemon.conversations.store
+    cid = store.message(mid)["conversation_id"]
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE jobs SET name=? WHERE job_id=?", (f"turn-{cid}", job_id))
+    daemon._quarantine(daemon.store.get_attempt(attempt["attempt_id"]), Containment(), "fixture")
+    store.update_conversation(cid, blocked_by="quarantined-turn")
+    clock = [1000.0]
+    service.clock = lambda: clock[0]
+    service._lift_resolved_quarantines()
+    assert store.conversation(cid)["blocked_by"] == "quarantined-turn"      # its turn is still quarantined
+    looked: list[int] = []
+    real_query = store.query
+    store.query = lambda sql, params=(): looked.append(1) or real_query(sql, params)
+    clock[0] += 1
+    service._lift_resolved_quarantines()
+    assert looked == []                                                      # paced: nothing asked
+    daemon._recheck_quarantines()                                            # the fixture's census is empty
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "lost"
+    service._lift_resolved_quarantines()
+    assert store.conversation(cid)["blocked_by"] is None
+    store.update_conversation(cid, blocked_by="unfinished-turn")
+    service.quarantine_released()
+    service._lift_resolved_quarantines()
+    assert store.conversation(cid)["blocked_by"] == "unfinished-turn"
+    looked.clear()
+    clock[0] += QUARANTINE_LIFT_S
+    service._lift_resolved_quarantines()
+    assert looked                                                            # and it looks again in time

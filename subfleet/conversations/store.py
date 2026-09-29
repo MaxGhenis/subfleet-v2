@@ -684,6 +684,19 @@ class ConversationStore:
                 self._change(tx, conversation_id, None, None)
         return bool(done)
 
+    def lift_block(self, conversation_id: str, value: str) -> bool:
+        """Unblock a conversation blocked by exactly `value`; False when it is not
+        (another block took its place meanwhile, or none was set), and then
+        nothing changed. The service's own lifts use this, never a blind
+        `update_conversation(blocked_by=None)`, which could clear a block set
+        since it looked (C-24.5)."""
+        with self.transaction() as tx:
+            done = tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
+                              "AND blocked_by=?", (utcnow(), conversation_id, value)).rowcount
+            if done:
+                self._change(tx, conversation_id, None, None)
+        return bool(done)
+
     def restore_after_handoff(self, conversation_id: str, fence: str, restores: list[dict]) -> list[str]:
         """Undo what a handoff that never committed did to its source (C-30.3, D-18).
 
