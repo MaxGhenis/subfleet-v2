@@ -2519,13 +2519,20 @@ class Daemon:
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
-    def _contain_probe(self, record: dict) -> bool:
+    def _contain_probe(self, record: dict, *, save_contained: bool = True) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases.
 
         C-5.7a: whatever it finds starts or backs off the probe's recheck clock
         when it is not verified empty, and it writes only what changes: a
         quarantined probe found as it was, with its job held, adds no row and
         commits no transaction.
+
+        `save_contained=False` is an operator's `--confirm-dead`
+        (`_resolve_probe`): a verified-empty census is not saved as `contained`
+        on its own, because the `probe.confirmed_dead` transaction that follows
+        saves the finished record. If that transaction fails, the record still
+        says `quarantined`, and the request, put back, is acted on again rather
+        than found moot by a record its own first try left behind.
         """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
@@ -2560,7 +2567,7 @@ class Daemon:
         self._pace_probe(record["holder"], census.verified_empty)
         changed = probe_evidence(record) != probe_evidence(self._probe_record(record["holder"]))
         if census.verified_empty:
-            if changed:
+            if changed and save_contained:
                 self._save_probe(record)
             return True
         if not changed and not (record["job_id"] and self.store.one(
@@ -2836,7 +2843,7 @@ class Daemon:
         # The record is quarantined, so this is a census and nothing else: no
         # signal (C-5.7). It paces the clock and records changed evidence as
         # any look does.
-        if not self._contain_probe(record):
+        if not self._contain_probe(record, save_contained=False):
             self.store.add_event("probe.still_live", job_id=record["job_id"], lane_id=record["lane_id"],
                                  data={**resolution, "containment": record.get("containment")})
             return

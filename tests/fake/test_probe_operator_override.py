@@ -26,7 +26,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from hypothesis import HealthCheck, event, given, settings
+from hypothesis import HealthCheck, event, example, given, settings
 from hypothesis import strategies as st
 
 from subfleet import cli, daemon as daemon_module, procs, protocol, render
@@ -531,14 +531,19 @@ def test_c5_7a_offline_status_and_show_list_the_same_probes(routing_state, monke
     service, harness = routing_state
     job_id, world = admission_probe(service, harness, monkeypatch)
     started_turn(service, "keepalive", (second_lane(service),))       # one row with a job, one without
+    kill(service, job_id, confirm_dead=True, operator_note="looked")
+    service._recover_probes()                           # a `probe.still_live`: the operator's last look
     online = service._probe_rows()
     shared = ("holder", "lane_id", "lane_ids", "job_id", "kind", "state", "created_at", "recorded_at",
-              "live_pids", "unverifiable", "errors", "containment", "resolve")
+              "live_pids", "unverifiable", "errors", "containment", "operator_look", "resolve")
     offline = Offline(service.root)
     assert [{key: row[key] for key in shared} for row in offline.status()["probes"]] == \
         [{key: row[key] for key in shared} for row in online]
-    assert len(online) == 2
-    assert [row["holder"] for row in offline.show_job(job_id)["probes"]] == [HOLDER]
+    assert len(online) == 2 and online[0]["operator_look"]["operator_note"] == "looked"
+    shown = offline.show_job(job_id)
+    assert [row["holder"] for row in shown["probes"]] == [HOLDER]
+    assert shown["probe_resolutions"] == service.dispatch("show", {"job_id": job_id})["probe_resolutions"]
+    assert [event["event"] for event in shown["probe_resolutions"]] == ["probe.still_live"]
 
 
 # --- the design review's findings (2026-09-27) -----------------------------------------
@@ -717,6 +722,36 @@ def test_c5_7a_merging_requests_is_associative_and_keeps_every_request(first, se
     assert (merged["requested_at"], merged["via"]) == (asked[-1]["requested_at"], asked[-1]["via"])
 
 
+def test_c5_7a_a_confirm_dead_whose_finish_raises_stays_quarantined_and_keeps_the_request(routing_state, monkeypatch):
+    """A verified-empty census on a `--confirm-dead` finishes the probe in one
+    `probe.confirmed_dead` transaction. If that transaction fails, nothing was
+    written ahead of it: the record still says quarantined (not `contained`), the
+    lease is held and the request kept, and the next pass finishes it as the
+    operator's (`probe.confirmed_dead`, with the note), never as an ordinary
+    look's `probe.completed` with an outcome read from the old receipt."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, confirm_dead=True, operator_note="checked")
+    world.table = EMPTY
+
+    def broken(record, outcome, **kwargs):
+        raise RuntimeError("store unavailable")
+    service._finish_probe = broken                     # the instance's, removed below
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._finish_probe
+    assert service._probe_record(HOLDER)["state"] == "quarantined"
+    assert service.store.list_leases(HOLDER)
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "checked"
+    service._recover_probes()
+    [confirmed] = kinds(service, "probe.confirmed_dead")
+    assert confirmed["data"]["operator_note"] == "checked" and not service.store.list_leases(HOLDER)
+    assert not service.store.query("SELECT 1 FROM events WHERE kind='probe.completed'")
+    assert [record["state"] for record in records(service, HOLDER)][-1] == "completed"
+
+
 def test_c5_7a_the_receipt_is_kept_with_a_confirm_dead(routing_state, monkeypatch):
     """The finish records an `unknown` outcome (C-5.7a), and the directory goes,
     so what the turn's receipt said is kept in the event."""
@@ -827,7 +862,7 @@ VALUES = {"pass": st.sampled_from([.05, .5, 1, 3, 30, 61]),
           "force": st.sampled_from(["kill", "lane", "holder"]),
           "cancel": st.none(), "restart": st.none(), "turn": st.sampled_from([.05, 1, 30]),
           "stale": st.sampled_from(["kill", "lane"]), "turn-ends": st.none(),
-          "fault": st.tuples(st.sampled_from(["resolve", "lease"]), st.sampled_from([.05, 1, 61])),
+          "fault": st.tuples(st.sampled_from(["resolve", "lease", "finish"]), st.sampled_from([.05, 1, 61])),
           "leader": st.booleans()}
 OPS = st.lists(st.sampled_from(["pass"] * 5 + ["table"] * 3 + ["confirm"] * 3 + ["force"] * 2
                                + ["cancel", "restart", "turn", "stale", "turn-ends", "fault", "leader"])
@@ -839,7 +874,18 @@ LEASE_CHECK = "SELECT 1 FROM leases WHERE holder=?"
 TABLES = {"survivor": census(SURVIVOR), "other": census(OTHER), "empty": EMPTY, "unverifiable": NOT_VERIFIABLE}
 
 
+#: Sequences the property always runs, whatever it draws: a `--confirm-dead`
+#: whose census comes back empty and whose finishing transaction fails, then a
+#: pass that finishes it; for an admission probe (by job) and a re-enrolment's
+#: (by holder, with the guardian alive).
+ALWAYS = [("admission", [("confirm", "kill"), ("table", "empty"), ("fault", ("finish", 1)), ("pass", 1)]),
+          ("enroll", [("leader", True), ("confirm", "holder"), ("table", "empty"), ("fault", ("finish", 61)),
+                      ("pass", 1), ("pass", 61)])]
+
+
 @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@example(kind=ALWAYS[0][0], ops=ALWAYS[0][1])
+@example(kind=ALWAYS[1][0], ops=ALWAYS[1][1])
 @given(kind=st.sampled_from(["admission", "keepalive", "enroll"]), ops=OPS)
 def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_or_a_recorded_override(
         tmp_path_factory, kind, ops):
@@ -939,14 +985,16 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
                 elif op == "leader":
                     leader["alive"] = value
                 elif op == "fault":
-                    # The next pass raises after it has taken a pending request
-                    # (a store error reading the lease again, or while resolving):
-                    # it acts on nothing and keeps the request.
+                    # The next pass raises after it has taken a pending request: a
+                    # store error reading the lease again, while resolving, or in
+                    # the transaction that finishes a verified-empty
+                    # `--confirm-dead`. It acts on nothing and keeps the request,
+                    # and (checked below) the record still says quarantined.
                     where, step = value
                     pending = service._probe_resolutions.get(holder)
                     one = service.store.one
 
-                    def broken(*args):
+                    def broken(*args, **kwargs):
                         raise RuntimeError("store unavailable")
 
                     def locked(sql, params=()):
@@ -955,18 +1003,28 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
                         return one(sql, params)
                     if where == "resolve":
                         service._resolve_probe = broken
+                    elif where == "finish":
+                        service._finish_probe = broken
                     else:
                         service.store.one = locked
                     world.now += step
                     try:
-                        if pending is not None and held:
+                        if pending is not None and held and where != "finish":
                             with pytest.raises(RuntimeError, match="store unavailable"):
                                 service._recover_probes()
                             assert service._probe_resolutions.get(holder) == pending, "the request is kept"
+                        elif pending is not None and held:
+                            # Only a --confirm-dead whose census comes back empty
+                            # reaches the finish; any other resolution completes.
+                            try:
+                                service._recover_probes()
+                            except RuntimeError:
+                                assert service._probe_resolutions.get(holder) == pending, "the request is kept"
                         elif where == "resolve":
                             service._recover_probes()
                     finally:
                         service.__dict__.pop("_resolve_probe", None)
+                        service.__dict__.pop("_finish_probe", None)
                         service.store.__dict__.pop("one", None)
                 now_held = bool(service.store.list_leases(holder))
                 record = service._probe_record(holder)
