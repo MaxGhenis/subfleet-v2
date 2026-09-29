@@ -542,6 +542,27 @@ def _reference(record: dict, key: str, flag: str) -> bool | None:
     return value if isinstance(value, bool) else base
 
 
+def _decide_flag(copies: Iterable[tuple[bool, bool | None]], recorded: Any,
+                 bootstrap: bool) -> bool:
+    """One flag's decision from `(value, reference)` per copy.
+
+    A copy votes only when it differs from its own reference (the value the
+    last decision gave it or read there), so the mirror's own writes never
+    vote, whatever became of the pass that made them (review round 5, F2).
+    Votes that agree win; with no vote the last decision (`recorded`) stands;
+    votes that disagree fall back to the change from it. With no decision yet
+    every copy votes, and `bootstrap` wins a disagreement (archived-anywhere,
+    v1's rule for the historical backlog). This is `decide` in
+    `tests/mirror_flags_model.py`.
+    """
+    votes = {value for value, reference in copies if value != reference}
+    if not votes:
+        return recorded
+    if len(votes) == 1:
+        return votes.pop()
+    return (not recorded) if isinstance(recorded, bool) else bootstrap
+
+
 def _resolve_publish(row: dict, landed: set[str], restored: set[str],
                      current: dict[str, dict[str, bool]]) -> dict | None:
     """The merge-base record a flag publish leaves, from what its files show.
@@ -552,10 +573,7 @@ def _resolve_publish(row: dict, landed: set[str], restored: set[str],
     `landed` holds the copies whose rename ran, `restored` those put back
     since, and `current` what each copy the publish did not reach holds now.
 
-    * No copy reached (none landed, or every one put back), or a bootstrap
-      publish (no prior record) that did not reach every copy: nothing
-      changes. With no base every copy votes, so the next pass decides the
-      bootstrap again by the same rule.
+    * No copy reached (none landed, or every one put back): nothing changes.
     * Every copy reached: `next`, whose references are all the decision.
     * Otherwise the decision stands (the prior record with the decided
       flags, stamped with the publish's time) and a copy it did not reach
@@ -573,11 +591,12 @@ def _resolve_publish(row: dict, landed: set[str], restored: set[str],
     prior = prior if isinstance(prior, dict) else None
     targets = {copy[0]: copy[3] for copy in row.get("copies") or ()}
     reached = {key for key in targets if key in landed and key not in restored}
-    if targets and (not reached or (prior is None and reached != set(targets))):
+    if targets and not reached:
         return prior
     if reached == set(targets):
         return dict(following)
-    record = {key: value for key, value in prior.items() if key not in ("refs", "published")}
+    record = {key: value for key, value in (prior or {}).items()
+              if key not in ("refs", "published")}
     for flag in FLAGS:
         record[flag] = following[flag]
     refs: dict[str, dict[str, bool]] = {}
@@ -1958,20 +1977,9 @@ class Mirror:
             prior = base_all.get(identity) or {}
             base = {key: value for key, value in prior.items() if key not in ("refs", "published")}
             for flag, bootstrap in (("isArchived", True), ("isStarred", True)):
-                # A copy votes only when it differs from its own reference:
-                # the value the last decision gave it or read there. So the
-                # mirror's own writes never vote, whatever became of the pass
-                # that made them (review round 5, finding F2). With no
-                # decision yet every copy votes, and archived-anywhere wins.
-                recorded = base.get(flag)
-                votes = {bool(data.get(flag)) for path, name, data in copies
-                         if bool(data.get(flag)) != _reference(prior, _copy_key(path, name), flag)}
-                if not votes:
-                    resolved = recorded
-                elif len(votes) == 1:
-                    resolved = votes.pop()
-                else:
-                    resolved = (not recorded) if isinstance(recorded, bool) else bootstrap
+                resolved = _decide_flag(
+                    ((bool(data.get(flag)), _reference(prior, _copy_key(path, name), flag))
+                     for path, name, data in copies), base.get(flag), bootstrap)
                 if any(bool(data.get(flag)) != resolved for _p, _n, data in copies):
                     for path, name, data in copies:
                         if bool(data.get(flag)) != resolved:

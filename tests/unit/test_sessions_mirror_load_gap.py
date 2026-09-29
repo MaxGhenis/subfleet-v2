@@ -1747,3 +1747,68 @@ def test_an_app_save_after_the_rollback_is_not_restamped(world, monkeypatch):
     running.run_once()
     assert json.loads(b_copy.read_text())["lastFocusedAt"] == 42
     assert running.load_gap()["pending"] == 0, "the app rewrote it, so it holds it"
+
+
+class _Crash(BaseException):
+    """The process dies: nothing in it runs again, not even `except OSError`."""
+
+
+def a_flag_write_into_the_loaded_folder(world):
+    """B, copied at 10:30 and loaded by the app at 11:00; A archives at 11:30,
+    so the pass that follows writes the archive into B (and C)."""
+    home, store, _root, log = world
+    for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_C, ORG_C)):
+        openable(home, store, ONE, account, org, settings={"ultracode": True})
+    running = engine(world)
+    running.now = lambda: fx.NOW - timedelta(hours=1)
+    running.run_once()                        # B copied at 10:30
+    say(log, *loads(store, ACCOUNT_B, ORG_B, BEFORE))   # the app loads B at 11:00
+    running.now = lambda: fx.NOW
+    a_copy = store / ACCOUNT_A / ORG_A / f"local_{ONE}.json"
+    rewrite(a_copy, {**json.loads(a_copy.read_text()), "isArchived": True})
+    return store, running
+
+
+def test_a_flag_write_is_journaled_before_the_publish_record_goes(world, monkeypatch):
+    """C-23.28, F2: the journal is saved before the merge base, and the
+    publish record only after it. So a process that dies once the record is
+    gone (here in the report's own save) still leaves the write journaled,
+    and the report still counts it."""
+    store, running = a_flag_write_into_the_loaded_folder(world)
+
+    def dies(engine, options):
+        raise _Crash()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.Mirror, "_settle", dies)
+        with pytest.raises(_Crash):
+            running.run_once()
+    assert not running.publish_path.exists(), "the record went with the base write"
+    b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
+    assert json.loads(b_copy.read_text())["isArchived"] is True
+    assert engine(world).load_gap()["stale"] == 1
+
+
+def test_recovery_journals_the_writes_that_still_stand(world, monkeypatch):
+    """C-23.28, F2: the process dies after the write into B and before the
+    journal was saved. The next process resolves the publish record and
+    journals B's write, since the file is still the mirror's, so the report
+    counts it."""
+    store, running = a_flag_write_into_the_loaded_folder(world)
+    c_copy = store / ACCOUNT_C / ORG_C / f"local_{ONE}.json"
+    install = mirror._install
+
+    def dies_at_c(temporary, destination, **kwargs):
+        if destination == c_copy and kwargs.get("keep"):
+            raise _Crash()
+        return install(temporary, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_install", dies_at_c)
+        with pytest.raises(_Crash):
+            running.run_once()
+    assert running.publish_path.exists()
+    assert engine(world).load_gap()["stale"] == 0, "not journaled yet"
+    fresh = engine(world)
+    assert fresh.run_once().state == "ok"
+    assert fresh.load_gap()["stale"] == 1

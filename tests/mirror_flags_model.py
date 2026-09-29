@@ -42,10 +42,9 @@ Three rules decide a session, so the checker can compare them:
   the last decision stands; voters that disagree fall back to the change from
   the last decision. A publish is recorded before its first write, and what
   the files show afterwards (which writes landed, which were put back)
-  resolves the record: a publish that reached no target, or a bootstrap
-  publish (decided with no base) that did not reach every target, changes
-  nothing; otherwise the decision stands, and a target it did not reach takes
-  what its file holds as its reference.
+  resolves the record: a publish that reached no target changes nothing;
+  otherwise the decision stands, and a target it did not reach takes what its
+  file holds as its reference.
 
 Faults (`faults=True`): a rollback write that raises (`rollback_write_fails`),
 a merge-base write that raises (`commit_fails`), and a crash anywhere after
@@ -75,9 +74,12 @@ copy's value was derived from, and a value the mirror writes is derived from
 the copies it read that held the decided value. So a user who archives in one
 account and unarchives in the same account, or in another account after
 seeing the archive there, means "unarchived", whatever the mirror wrote in
-between. Both ghosts exempt the bootstrap rule: `intent` and `latest` are
-checked only by a pass with a base, and `latest` guards only actions taken
-while a base was recorded. The provenance behind `latest` makes the state
+between. Both ghosts exempt the bootstrap rule (archived-anywhere, v1's rule
+for sessions never synced), which may override the user by design: `intent`
+and `latest` are checked only by a pass with a base, a decision taken with no
+base clears `intent`, `latest` guards only actions taken while a base was
+recorded, and a bootstrap decision is itself an actor, known only where its
+writes are seen. The provenance behind `latest` makes the state
 space large (tens of gigabytes for three accounts with faults, 2026-09-29), so
 with `CAUSAL` on the space is explored only to a state limit.
 
@@ -98,10 +100,11 @@ CONFLICT = "conflict"
 BASE, MINE, REFS = "base", "mine", "refs"
 RULES = (BASE, MINE, REFS)
 EMPTY: frozenset[int] = frozenset()
-#: Track the causal ghost (`latest`). Off, every provenance stays empty and
-#: `latest` stays None, which leaves every other property as it is and makes
-#: the state space several times smaller.
-CAUSAL = True
+#: Track the causal ghost (`latest`). Off (the default), every provenance
+#: stays empty and `latest` stays None, which leaves every other property as
+#: it is. On, the space for three accounts runs to tens of gigabytes
+#: (2026-09-29), so `explore` must be given a `limit`; use `causal()`.
+CAUSAL = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,10 +282,7 @@ def resolve(state: State) -> tuple[bool | None, tuple[bool | None, ...]]:
     """The record a publish leaves, from what its files show now.
 
     A publish none of whose writes stands (none landed, or every one put back)
-    changes nothing, and neither does a bootstrap publish (one decided with no
-    base) that did not reach every target: with no base every copy votes, so
-    the next pass decides it again by the same rule. Otherwise its decision
-    stands: the base is the value
+    changes nothing. Otherwise its decision stands: the base is the value
     decided and every copy has it as its reference, except a target the
     publish did not reach, whose reference is what its file holds now. That
     is the value the pass read there, or the decided value if someone wrote
@@ -291,7 +291,7 @@ def resolve(state: State) -> tuple[bool | None, tuple[bool | None, ...]]:
     """
     decided, targets, prior_ref, prior_base = state.wal
     reached = {t for t in targets if t in state.landed and t not in state.restored}
-    if targets and (not reached or (prior_base is None and len(reached) < len(targets))):
+    if targets and not reached:
         return prior_base, prior_ref
     ref = tuple(state.copy[a] if a in targets and a not in reached else decided
                 for a in range(len(state.copy)))
@@ -394,14 +394,20 @@ def pass_decide(state: State) -> State | None:
     decided = decide(state)
     sup, know = _sets(state.sup, n), _sets(state.know, n)
     supporters = [a for a in range(n) if state.copy[a] == decided]
-    # With no base the bootstrap rule (archived-anywhere) may override the
-    # user by design: an intent from before it is exempt.
+    dsup = frozenset().union(*(sup[a] for a in supporters))
+    dknow = frozenset().union(*(know[a] for a in supporters))
+    bootstrap = state.base is None
+    if bootstrap and CAUSAL:
+        # The bootstrap rule (archived-anywhere) is itself an actor: what it
+        # decides is known only where its writes are seen.
+        rule = _fresh(state)
+        dsup, dknow = dsup | {rule}, dknow | {rule}
+    # With no base the bootstrap rule may override the user by design: an
+    # intent from before its decision is exempt.
     return _canon(replace(state, phase=DECIDED, snap=state.copy, decided=decided,
                           smine=state.mine,
-                          intent=state.intent,
-                          dsup=frozenset().union(*(sup[a] for a in supporters)),
-                          dknow=frozenset().union(*(know[a] for a in supporters)),
-                          ssup=sup, sknow=know))
+                          intent=None if bootstrap else state.intent,
+                          dsup=dsup, dknow=dknow, ssup=sup, sknow=know))
 
 
 def dirty(state: State) -> tuple[int, ...]:
@@ -691,6 +697,30 @@ def converges_in_one_clean_pass(state: State) -> bool:
             and all(r == value for r in refs(after)) and after.wal is None)
 
 
+class causal:
+    """Track `latest` inside a `with` block."""
+
+    def __enter__(self) -> None:
+        global CAUSAL
+        self._was, CAUSAL = CAUSAL, True
+
+    def __exit__(self, *_exc) -> None:
+        global CAUSAL
+        CAUSAL = self._was
+
+
+def replay(state: State, labels: tuple[str, ...] | list[str], *, stale: bool = False,
+           faults: bool = False) -> list[tuple[State, str, State]]:
+    """Take the named steps from `state`: `[(before, label, after), ...]`."""
+    steps = []
+    for label in labels:
+        after = dict(successors(state, stale=stale, faults=faults)).get(label)
+        assert after is not None, f"{label} is not enabled after {[s[1] for s in steps]}"
+        steps.append((state, label, after))
+        state = after
+    return steps
+
+
 def explore(accounts: int = 3, *, stale: bool, faults: bool = False, rule: str = REFS,
             roots: list[State] | None = None, limit: int | None = None
             ) -> tuple[int, dict[str, tuple]]:
@@ -717,6 +747,7 @@ def explore(accounts: int = 3, *, stale: bool, faults: bool = False, rule: str =
             steps.append(label)
             state = before
 
+    assert limit is not None or not CAUSAL, "the causal space is explored only to a limit"
     while queue and (limit is None or len(parent) < limit):
         state = queue.popleft()
         if not converges_in_one_clean_pass(state) and "convergence" not in broken:
