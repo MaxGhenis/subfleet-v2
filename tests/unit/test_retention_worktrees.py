@@ -262,3 +262,12 @@ def test_c13_4_retention_rejects_worktree_paths_outside_owned_root(owned, path_k
     assert result["errors"] or result["kept"]
     assert store.get_job("job") is not None
     assert (repository / "tracked").exists()
+
+
+def test_w2_a_workdir_that_is_no_longer_a_repository_registers_nothing(owned):
+    """A workdir whose `.git` is gone cannot hold a registration; the job is not kept forever."""
+    store, root, repository = owned
+    worktree = add_job(store, root, repository, "job")
+    shutil.rmtree(worktree)
+    shutil.rmtree(repository / ".git")
+    assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]

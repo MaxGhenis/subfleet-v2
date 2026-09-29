@@ -271,7 +271,9 @@ def _registered_checkouts(workdir: str) -> list[str] | None:
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode:
-        return None
+        # No repository there any more registers nothing; any other failure
+        # (a timeout, a lock, an unreadable config) leaves the answer unknown.
+        return [] if "not a git repository" in result.stderr else None
     admins = Path(result.stdout.strip()) / "worktrees"
     checkouts = []
     try:
