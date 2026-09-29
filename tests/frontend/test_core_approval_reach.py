@@ -33,6 +33,7 @@ import tempfile
 import uuid
 
 from hypothesis import HealthCheck, event, given, settings, strategies as st
+import pytest
 
 from subfleet.conversations.store import REPAIR_ORIGINS
 from tests.frontend.conftest import needs_swift, run_probe, write_json
@@ -223,18 +224,23 @@ def test_c27_5_a_card_known_from_approval_list_first_is_ordered_by_when_it_was_a
     assert result["pending_items"] == ["approval:m1:ap-early", later]
 
 
-def test_c27_5_a_listed_card_moves_to_where_its_request_came(core_probe):
+@pytest.mark.parametrize("request_ids", [True, False], ids=["view-names-request", "older-daemon"])
+def test_c27_5_a_listed_card_moves_to_where_its_request_came(core_probe, request_ids):
     """Joined to its event, a card `approval.list` made first sits below what the
-    turn did before asking (review of 6e1b505)."""
+    turn did before asking, whether the view names its request or not (reviews
+    of 6e1b505 and ed1f40fe)."""
     log = Log()
     log.add("m1", "accepted")
     log.add("m1", "text", block="0", text="Let me clean up.")
     ask(log, "m1", "perm-j", "rm j")
-    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]},
-                               {"approvals": [listed("ap-j", "m1", "rm j", 3)]}, log.page()])
+    view = listed("ap-j", "m1", "rm j", 3, request_id="perm-j" if request_ids else None)
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "running")]}, {"approvals": [view]}, log.page()])
     assert [item["type"] for item in items_of(result, "m1")] == ["person", "text", "approval"]
-    card = items_of(result, "m1", "approval")[0]["card"]
-    assert card["approval_id"] == "ap-j" and card["request_id"] == "perm-j"
+    row = items_of(result, "m1", "approval")[0]
+    assert row["id"] == "approval:m1:ap-j" and row["ts"] == ts(3)
+    assert row["card"]["approval_id"] == "ap-j" and row["card"]["request_id"] == "perm-j"
+    # The request moves the turn forward, as a card the event makes does.
+    assert result["turns"]["m1"]["state"] == "approval-needed"
 
 
 def test_c27_5_a_card_of_an_ended_turn_is_withdrawn(core_probe):
@@ -377,8 +383,44 @@ def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe):
         assert pending[0]["card"]["request_id"] == "r2", request_ids
         answered = [item["card"] for item in items_of(result, "m1", "approval") if item["card"]["state"] != "pending"]
         assert [card["request_id"] for card in answered] == ["r1"], request_ids
-        if request_ids:
-            assert result["pending_items"] == ["approval:m1:ap2"] or result["pending_items"] == [waiting]
+        # Named by its request, the listed card is the waiting one, moved to its event;
+        # from an older daemon the event made it, and the listed card became r1's.
+        assert result["pending_items"] == (["approval:m1:ap2"] if request_ids else [waiting]), request_ids
+        assert rows_of(result, "m1")[-1] == result["pending_items"][0], request_ids
+
+
+def test_c27_5_asking_again_for_the_same_conversation_asks_again(core_probe):
+    """A standing request that nothing answered yet (the log still being read)
+    is answered once it can be; a second request after that is its own."""
+    log = Log()
+    log.add("m1", "accepted")
+    card = ask(log, "m1", "perm-again")
+    first = log.page()
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"reveal": True}, first,
+                               log.page(), {"reveal": True}, {}])
+    assert result["scrolls"] == [None, None, None, card, card, None]
+
+
+def test_c27_5_a_card_made_again_after_letting_go_has_its_own_row(core_probe):
+    """From an older daemon: the listed card took the first of two identical
+    requests and was answered; the daemon still lists the approval as pending
+    before the second request's event is read, so a new card is made for it.
+    The row of the card that let go keeps its id; the new one has its own
+    (SwiftUI shows each id once), and the second request's event joins it."""
+    log = Log()
+    log.add("m1", "accepted")
+    ask(log, "m1", "r1", "git status")
+    log.add("m1", "approval.resolved", request_id="r1", decision="allow")
+    view = listed("ap2", "m1", "git status", 3)
+    first = log.page()
+    ask(log, "m1", "r2", "git status")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"pending": [view]}, first,
+                               {"pending": [view]}, log.page()])
+    ids = [item["id"] for item in result["items"]]
+    assert len(ids) == len(set(ids))
+    cards = [item["card"] for item in items_of(result, "m1", "approval")]
+    assert [(card["request_id"], card["state"]) for card in cards] == [("r1", "answered:allow"), ("r2", "pending")]
+    assert cards[1]["approval_id"] == "ap2" and result["review_label"] == "Review"
 
 
 def test_c27_5_a_view_joins_the_card_of_its_own_request_in_any_order(core_probe):
@@ -537,7 +579,7 @@ def timelines(draw):
         # Live states twice as often, so cards stay pending in more timelines.
         final[mid] = draw(st.sampled_from(STATES + ["running", "approval-needed", "queued"]))
         receipts.append(receipt(mid, index + 1, final[mid], origin=origin, continues=continues))
-    log, steps, truth = Log(), [], {}
+    log, steps, truth, ended = Log(), [], {}, set()
     for _ in range(draw(st.integers(0, 16))):
         mid = draw(st.sampled_from(mids))
         action = draw(st.sampled_from(["text", "tool", "ask", "ask", "answer", "complete", "accepted", "loose",
@@ -548,7 +590,8 @@ def timelines(draw):
             log.add(None, "text", block=str(len(log.events)), text="for the conversation")
         elif action == "tool":
             log.add(mid, "tool.started", id=f"t{len(log.events)}", name="Bash", summary="ls")
-        elif action == "ask":
+        elif action == "ask" and mid not in ended:
+            # A completed turn asks nothing more (its approvals went with it).
             request = f"r{len(truth)}"
             command = draw(st.sampled_from(["git status", "git status", "ls", f"cmd {request}"]))
             ask(log, mid, request, command=command)
@@ -562,6 +605,7 @@ def timelines(draw):
                 log.add(approval["view"]["message_id"], "approval.resolved", request_id=approval["request"],
                         decision="allow")
         elif action == "complete":
+            ended.add(mid)
             log.add(mid, "turn.completed", state="complete")
             for approval in truth.values():
                 if approval["view"]["message_id"] == mid and approval["state"] == "pending":
@@ -710,6 +754,18 @@ def test_c27_5_property_the_strip_review_order_and_follow_hold_for_every_timelin
     event(f"display order differs from sequence order: {result['display_order'] != result['order']}")
     event(f"a queued message below a turn: {any(waits_in_queue(result, m) for m in result['order'])}")
     event(f"identical requests: {len({json.dumps(a['view']['display']) for a in case['pending'].values()}) < len(case['pending'])}")
+
+
+@PROPERTY
+@given(case=timelines())
+def test_c27_5_property_rows_sit_in_the_order_their_events_came(core_probe, case):
+    """Once the log is read, each turn's rows are in the order their events came:
+    a card `approval.list` made first has moved to where its request came."""
+    result = fold(core_probe, case["steps"])
+    for mid in result["order"]:
+        stamps = [when(item["ts"]) for item in result["items"]
+                  if item["message_id"] == mid and item["id"] != f"person:{mid}" and item["ts"] is not None]
+        assert stamps == sorted(stamps), (mid, rows_of(result, mid))
 
 
 @PROPERTY

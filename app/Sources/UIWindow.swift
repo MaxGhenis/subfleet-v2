@@ -143,7 +143,7 @@ struct SidebarView: View {
                     ForEach(section.entries) { entry in
                         SidebarRow(entry: entry) {
                             // The hand badge opens the conversation at its oldest waiting card.
-                            if case .conversation(let id) = entry.target { model.approvalReveal = id }
+                            if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
                             selection = entry.id
                         }
                         .tag(entry.id)
@@ -363,7 +363,7 @@ struct ConversationView: View {
     private func reviewOldest() {
         guard let card = model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.first?.pendingCard
         else { return }
-        model.approvalReveal = conversation.conversation_id
+        model.revealApprovals(in: conversation.conversation_id)
         review(card)
     }
 
@@ -381,9 +381,9 @@ struct ConversationView: View {
     private func followApprovals(_ proxy: ScrollViewProxy) {
         let id = conversation.conversation_id
         guard let timeline = model.state.timelines[id] else { return }
-        var reveal = model.approvalReveal == id
+        var reveal = model.approvalReveal?.conversationID == id
         let target = approvals.target(in: timeline, reveal: &reveal)
-        if model.approvalReveal == id && !reveal { model.approvalReveal = nil }
+        if !reveal { model.revealed(id) }
         guard let target else { return }
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.

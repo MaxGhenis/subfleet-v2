@@ -429,10 +429,16 @@ struct Timeline: Equatable {
             let kind = fields.removeValue(forKey: "kind")?.string ?? "tool"
             let options = fields.removeValue(forKey: "options")?.array?.compactMap(\.string) ?? []
             let display = ApprovalDisplay(fields: fields)
-            // Known already: this event read again, or a view that carries its request id.
-            if let requestID, turn.items.contains(where: { $0.card?.requestID == requestID }) { break }
-            // Known from a view without the request id (an older daemon): by kind and display.
-            if let index = turn.items.firstIndex(where: {
+            // Known already from a view that carries its request id: the card moves to where
+            // the request came, below what the turn did before asking.
+            if let requestID, let index = turn.items.firstIndex(where: { $0.card?.requestID == requestID }) {
+                // This event read again: nothing to do.
+                guard turn.items[index].id != "approval:\(id):\(requestID)" else { break }
+                var row = turn.items.remove(at: index)
+                row.ts = event.ts ?? row.ts
+                turn.items.append(row)
+            } else if let index = turn.items.firstIndex(where: {
+                // Known from a view without the request id (an older daemon): by kind and display.
                 if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
                 return false
             }), case .approval(var card) = turn.items[index].content {
@@ -441,6 +447,7 @@ struct Timeline: Equatable {
                 card.requestID = requestID
                 var row = turn.items.remove(at: index)
                 row.content = .approval(card)
+                row.ts = event.ts ?? row.ts
                 turn.items.append(row)
             } else {
                 let card = ApprovalCard(requestID: requestID,
@@ -659,8 +666,11 @@ struct Timeline: Equatable {
                 let card = ApprovalCard(requestID: approval.request_id, approvalID: approval.approval_id,
                                         kind: approval.kind, display: approval.display, options: approval.options,
                                         state: .pending)
-                turn.items.append(TimelineItem(id: "approval:\(approval.message_id):\(approval.approval_id)",
-                                               messageID: approval.message_id, content: .approval(card),
+                // A row id is shown once (SwiftUI's ForEach): a card that let go of this
+                // approval keeps the id it was made with.
+                var rowID = "approval:\(approval.message_id):\(approval.approval_id)"
+                if turn.items.contains(where: { $0.id == rowID }) { rowID += ":\(turn.items.count)" }
+                turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
             }
             Timeline.withdrawIfEnded(&turn)

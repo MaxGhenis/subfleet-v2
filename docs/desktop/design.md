@@ -1028,7 +1028,8 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   strip is shown whenever a card is pending, even when the newest live turn
   has already answered; its Stop shows only when it has something to act on.
   A card is joined to its approval by the provider's request id, which both
-  the `approval.requested` event and the daemon's view carry. A card whose
+  the `approval.requested` event and the daemon's view carry; a card the view
+  made first moves, when its event arrives, to where the request came. A card whose
   message has ended, or whose delivery is unknown, is withdrawn: the daemon
   withdraws an attempt's approvals before it settles the message (C-27.3), and
   a turn that ends without `result` writes no event withdrawing its requests.

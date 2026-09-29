@@ -12,6 +12,12 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
+/// One request to bring a conversation's oldest waiting card into view.
+struct ApprovalReveal: Equatable {
+    let conversationID: String
+    let token: Int
+}
+
 @MainActor
 final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
@@ -29,9 +35,13 @@ final class UIModel: ObservableObject {
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
     private var turnChangesAsked: Set<String> = []
-    /// A conversation whose oldest waiting card the person asked to see (the
-    /// sidebar's hand badge, the strip's Review); cleared once it is in view.
-    @Published var approvalReveal: String?
+    /// The person asked to see a conversation's oldest waiting card (the sidebar's
+    /// hand badge, the strip's Review); cleared once it is in view.
+    @Published private(set) var approvalReveal: ApprovalReveal?
+    private var reveals = 0
+    /// What the stale-approvals check last read, per conversation (the daemon's
+    /// count and the cards shown), so an unchanged mismatch is read once.
+    private var staleRead: [String: [Int]] = [:]
 
     let paths: AppPaths
     let drafts: DraftStore
@@ -523,12 +533,28 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// Bring a conversation's oldest waiting card into view. Each request is its
+    /// own, so asking again for the same conversation asks again.
+    func revealApprovals(in conversationID: String) {
+        reveals += 1
+        approvalReveal = ApprovalReveal(conversationID: conversationID, token: reveals)
+    }
+
+    /// The view brought the requested card into view.
+    func revealed(_ conversationID: String) {
+        if approvalReveal?.conversationID == conversationID { approvalReveal = nil }
+    }
+
     /// The daemon counts fewer pending approvals in the focused conversation than
     /// the timeline shows cards: one ended with no event saying so (C-27.5).
-    /// Read the pending set again, which withdraws the cards it no longer lists.
+    /// Read the pending set again, which withdraws the cards it no longer lists;
+    /// a mismatch that reading leaves as it was is not read again.
     private func refreshApprovalsIfStale() {
         guard let engine, let id = state.focusedConversationID, let timeline = state.timelines[id],
               let count = state.pendingApprovals[id], count < timeline.pendingApprovalItems.count else { return }
+        let seen = [count, timeline.pendingApprovalItems.count]
+        guard staleRead[id] != seen else { return }
+        staleRead[id] = seen
         Task {
             if let approvals = try? await onOutbox({ try engine.approvals(conversationID: id) }) {
                 state.apply(approvals: approvals, conversationID: id)
