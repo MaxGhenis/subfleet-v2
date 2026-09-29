@@ -63,6 +63,10 @@ MEASURE_S = 30.0
 #: was left by a submit that returned early; the daemon's submit lock means no
 #: live submit holds one this long.
 FENCE_STALE_S = 600.0
+#: A job whose size could not be measured is not measured again for this long,
+#: doubling on each failure up to `SIZE_ERROR_MAX_S` (review of a9a6cbf4, N2).
+SIZE_ERROR_S = 3600.0
+SIZE_ERROR_MAX_S = 24 * 3600.0
 
 
 class _Interrupted(Exception):
@@ -240,9 +244,17 @@ class RetentionState:
     """
     deferred: dict[str, tuple[float, str]] = field(default_factory=dict)
     sizes: dict[str, tuple[int, float]] = field(default_factory=dict)
+    #: job id -> (retry at, backoff seconds, error): a size that could not be
+    #: measured. Such a job is decided (its size is unknown), not waiting to be
+    #: measured, so it never keeps a pass reporting more work.
+    unmeasurable: dict[str, tuple[float, float, str]] = field(default_factory=dict)
+    #: Jobs whose deferral this state already knows (it deferred them, or took
+    #: the deferral an idle journal kept across a restart, N8).
+    recalled: set[str] = field(default_factory=set)
 
     def defer(self, job_id: str, seconds: float, reason: str, now: float) -> None:
         self.deferred[job_id] = (now + seconds, reason)
+        self.recalled.add(job_id)
 
     def deferral(self, job_id: str, now: float) -> str | None:
         found = self.deferred.get(job_id)
@@ -325,6 +337,12 @@ class _Pass:
         self.errors: list[dict[str, str]] = progress["errors"]
         self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit)
         self.sizes: dict[str, int] = {}
+        #: Jobs whose size could not be measured: decided, size unknown (N2).
+        self.unknown: set[str] = set()
+        #: What this pass changed (a size measured, a job started, archived with
+        #: new work, deferred, retired or reclaimed). A pass that reports more
+        #: work but changed nothing tells the daemon to back off.
+        self.acted = 0
 
     # pins ------------------------------------------------------------------------
 
@@ -373,15 +391,19 @@ class _Pass:
         self._measure(jobs, in_flight, counts, protected)
         totals = {name: 0 for name in self.budgets}
         unmeasured = {name: 0 for name in self.budgets}
+        unknown = {name: 0 for name in self.budgets}
         for job in jobs:
             pool = _pool(job)
             if job["job_id"] in self.sizes:
                 totals[pool] += self.sizes[job["job_id"]]
+            elif job["job_id"] in self.unknown:
+                unknown[pool] += 1            # could not be measured: decided, not waiting
             else:
                 unmeasured[pool] += 1
         before = sum(totals.values())
         self.progress["bytes_before"] = before
         pools = {name: {"jobs_before": counts[name], "bytes_before": totals[name], "unmeasured": unmeasured[name],
+                        "unknown_size": unknown[name],
                         "max_jobs": self.budgets[name][0], "max_bytes": self.budgets[name][1]} for name in self.budgets}
         self.progress["pools"] = pools
 
@@ -446,7 +468,10 @@ class _Pass:
                 continue
             if outcome == "parked":
                 self.progress["in_flight"].append(job_id)
+                if retirement.last_work:
+                    self.acted += 1       # a slice that only re-walked cached entries changed nothing
             else:
+                self.acted += 1
                 archived[job_id] = retirement
         self._check_holders(archived, second=True)
         for job_id, retirement in archived.items():
@@ -464,7 +489,8 @@ class _Pass:
             pools[name].update(jobs_after=jobs_after[name], bytes_after=after[name])
         # More work is waiting when a job was parked or held back by the batch or
         # the deadline, or when a pool's byte total is still only a lower bound
-        # within its budget (its unmeasured jobs may put it over).
+        # within its budget (its unmeasured jobs may put it over). A job whose
+        # size could not be measured is decided, not unmeasured (N2).
         undecided = any(unmeasured[p] and counts[p] <= self.budgets[p][0] and totals[p] <= self.budgets[p][1]
                         for p in self.budgets)
         more = waiting or bool(self.progress["in_flight"]) or undecided
@@ -473,7 +499,8 @@ class _Pass:
         remaining = [job["job_id"] for job in jobs if job["job_id"] not in self.progress["pruned"]]
         return {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
                 "bytes_before": before, "bytes_after": sum(after.values()),
-                "jobs_after": len(remaining), "pools": pools, "more": more, "pin_reasons": reasons}
+                "jobs_after": len(remaining), "pools": pools, "more": more, "progressed": self.acted > 0,
+                "pin_reasons": reasons}
 
     # recovery --------------------------------------------------------------------
 
@@ -506,6 +533,12 @@ class _Pass:
                     row = self.store.get_job(job_id)
                     if row is None or now - float(journal.get("idle_since") or 0) > rarch.CACHE_KEEP_S:
                         retirement.drop_cache()
+                    elif job_id not in self.state.recalled:
+                        # A restart forgot the deferral; the idle journal kept it (N8).
+                        self.state.recalled.add(job_id)
+                        if float(journal.get("defer_until") or 0) > now:
+                            self.state.defer(job_id, float(journal["defer_until"]) - now,
+                                             str(journal.get("reason") or "deferred"), self.clock())
                     continue
                 if state == "committing":
                     retirement.save(state="archived" if self.store.get_job(job_id) else "committed")
@@ -551,9 +584,15 @@ class _Pass:
         for job in jobs:
             job_id = job["job_id"]
             cached = self.state.sizes.get(job_id)
+            failed = self.state.unmeasurable.get(job_id)
             if cached is not None and (now - cached[1] < SIZE_TTL_S or job_id in in_flight):
                 self.sizes[job_id] = cached[0]
                 known[_pool(job)] += cached[0]
+            elif failed is not None and now < failed[0] and job_id not in in_flight:
+                # Measured and failed, not due again yet: decided, size unknown,
+                # kept this pass as when it failed (review of a9a6cbf4, N2).
+                self.unknown.add(job_id)
+                protected.add(job_id)
             elif job_id not in in_flight:
                 todo.append(job)
                 if cached is not None:
@@ -568,6 +607,7 @@ class _Pass:
             job_id = job["job_id"]
             if Path(job_id).name != job_id or job_id in (".", ".."):
                 continue
+            self.acted += 1
             try:
                 size = _size(self.root / "jobs" / job_id, cancel=self.cancel)
                 worktree = _owned_worktree(job, self.root)
@@ -576,9 +616,14 @@ class _Pass:
             except _Interrupted:
                 raise rarch.Interrupted("cancelled") from None
             except (OSError, ValueError) as exc:
+                previous = self.state.unmeasurable.get(job_id)
+                backoff = SIZE_ERROR_S if previous is None else min(SIZE_ERROR_MAX_S, previous[1] * 2)
+                self.state.unmeasurable[job_id] = (self.clock() + backoff, backoff, str(exc))
                 self.errors.append({"job_id": job_id, "error": str(exc)})
+                self.unknown.add(job_id)
                 protected.add(job_id)
                 continue
+            self.state.unmeasurable.pop(job_id, None)
             known[pool] += size - self.sizes.get(job_id, 0)
             self.sizes[job_id] = size
             self.state.sizes[job_id] = (size, self.clock())
@@ -612,9 +657,11 @@ class _Pass:
         if reason is not None:
             protected.add(job_id)
             if reason == "resume in progress":
+                self.acted += 1
                 self.state.defer(job_id, 60, reason, self.clock())
                 self.progress["deferred"][job_id] = reason
             return None
+        self.acted += 1
         retirement = rarch.Retirement(self.ctx, job_id)
         try:
             retirement.begin(job, _pool(job))
@@ -673,6 +720,7 @@ class _Pass:
             protected.add(job_id)
             self._rollback(retirement, why, rarch.DEFER_PINNED_S, "")
             return
+        self.acted += 1
         self.progress["pruned"].append(job_id)
         self.state.sizes.pop(job_id, None)
         self._complete(retirement)
@@ -689,6 +737,7 @@ class _Pass:
         if not report["done"]:
             self._incomplete(retirement, "; ".join(e["error"] for e in report["errors"][:3]))
             return
+        self.acted += 1
         self.progress["reclaimed"].append(job_id)
         data = {"deleted": report["deleted"], "bytes": report["bytes"], "errors": report["errors"][:20]}
         if report["kept"]:
@@ -717,12 +766,22 @@ class _Pass:
                 pass
 
     def _rollback(self, retirement: rarch.Retirement, reason: str, seconds: float, detail: str) -> None:
+        """Put the job back and defer it. The archive built so far is kept (an
+        idle cache), so the next attempt reads only what changed, unless the
+        job is in use again; an error defers it longer each time it repeats
+        (review of a9a6cbf4, N10: a dropped cache re-archived the whole tree
+        after every persistent error)."""
         job_id = retirement.job_id
-        transient = reason in ("busy", "holder scan failed", "changed", "changed after archive", "swapped",
-                               "tree vanished")
+        self.acted += 1
+        failures = int((retirement.journal or {}).get("failures") or 0)
+        if seconds == rarch.DEFER_ERROR_S:
+            failures += 1
+            seconds = min(rarch.DEFER_ERROR_MAX_S, rarch.DEFER_ERROR_S * 2 ** (failures - 1))
+        keep_cache = not reason.startswith(_IN_USE_AGAIN)
         try:
             if retirement.journal is not None:
-                retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=transient)
+                retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
+                                    failures=failures, defer_until=time.time() + seconds)
             else:
                 with self.store.transaction("retention.rolled_back", job_id=job_id, data={"reason": reason}) as conn:
                     conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{job_id}",))
@@ -734,6 +793,10 @@ class _Pass:
             self.errors.append({"job_id": job_id, "error": f"rollback failed: {type(exc).__name__}: {exc}"})
         self.state.defer(job_id, seconds, reason, self.clock())
         self.progress["deferred"][job_id] = reason + (f": {detail}" if detail else "")
+
+
+#: Rollback reasons after which the job is in use again: its cache is dropped.
+_IN_USE_AGAIN = ("pinned", "rows kept changing", "retire lease lost", "worktree lease lost")
 
 
 def _utc() -> str:
