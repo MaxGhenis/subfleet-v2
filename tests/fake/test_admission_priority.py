@@ -37,7 +37,7 @@ def live_session(tmp_path, monkeypatch, *, pid=None, start=None):
     directory = tmp_path / "claude" / "sessions"
     directory.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(tmp_path / "claude"))
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     pid = pid or os.getpid()
     (directory / f"{pid}.json").write_text(json.dumps({
         "pid": pid, "sessionId": LIVE_SESSION, "entrypoint": "sdk-cli", "status": "idle",
@@ -140,8 +140,7 @@ def test_c10_3_the_desktop_signal_is_read_by_reads_and_recorded_only_by_admissio
     it and write nothing; the admission pass records the first answer and each
     change, once."""
     daemon, harness = state_daemon
-    monkeypatch.setattr(daemon_module, "DESKTOP_IN_USE_TTL_S", 0)
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     _registry(tmp_path, monkeypatch)
     daemon.dispatch("lanes", {})
     daemon.dispatch("daemon.status", {})
@@ -172,8 +171,7 @@ def test_c10_3_the_desktop_signal_is_read_by_reads_and_recorded_only_by_admissio
 
 def test_c10_3_an_unreadable_registry_is_use(state_daemon, tmp_path, monkeypatch):
     daemon, harness = state_daemon
-    monkeypatch.setattr(daemon_module, "DESKTOP_IN_USE_TTL_S", 0)
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     monkeypatch.setattr(daemon_module.registry, "listing", lambda directory=None: None)
     assert daemon._desktop_in_use() is True
 
@@ -230,8 +228,7 @@ def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon,
 
     daemon, harness = state_daemon
     register("claude", FakeAdapter)
-    monkeypatch.setattr(daemon_module, "DESKTOP_IN_USE_TTL_S", 0)
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     daemon.store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                                Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
     idle = {"status": "idle", "statusUpdatedAt": time.time() * 1000 - 40 * 60_000}
@@ -270,8 +267,7 @@ def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(st
 
     daemon, harness = state_daemon
     register("claude", FakeAdapter)
-    monkeypatch.setattr(daemon_module, "DESKTOP_IN_USE_TTL_S", 0)
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     daemon.store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                                Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
     _registry(tmp_path, monkeypatch, status="idle", statusUpdatedAt=time.time() * 1000 - 40 * 60_000)
@@ -344,16 +340,17 @@ def test_c10_3_a_slow_idle_read_never_replaces_a_newer_busy_one(state_daemon, mo
     older.start()
     assert entered.wait(10)
     assert daemon._desktop_in_use() is True                       # the newer read, kept
-    kept = daemon._desktop_use[0]
+    kept = daemon._registry[0]
     release.set()
     older.join(10)
     assert answers == [True]                                       # the older read yields to the newer
-    assert daemon._desktop_use[0] == kept and daemon._desktop_use[1] is True
+    assert daemon._registry[0] == kept and daemon._registry[1]["in_use"] is True
     # The rows the priority classes read (C-6.9) are the newer read's too.
-    assert [row.status for row in daemon._registry_rows[1]["rows"]] == ["busy"]
+    assert [row.status for row in daemon._registry[1]["found"]["rows"]] == ["busy"]
     assert daemon._desktop_answer() is True
     # An answer older than the bound is use, whatever it said.
-    daemon._desktop_use = (time.monotonic() - daemon_module.DESKTOP_IN_USE_MAX_AGE_S - 1, False, {})
+    daemon._registry = (time.monotonic() - daemon_module.DESKTOP_IN_USE_MAX_AGE_S - 1,
+                        {"found": {"rows": [], "unreadable": [], "groups": {}}, "in_use": False, "evidence": {}})
     assert daemon._desktop_answer() is True
 
 
@@ -365,7 +362,7 @@ def test_c10_3_a_slow_answer_never_replaces_a_newer_one_after_the_registry_read(
     from subfleet.sessions import registry as registry_module
 
     daemon, harness = state_daemon
-    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)        # each refresh reads the registry
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)        # each refresh reads the registry
     now = time.time() * 1000
     idle = registry_module.SessionRow(session_id="s", pid=os.getpid(), socket=None, name=None, cwd=None,
                                       started_at=now, alive=True, socket_present=False, registry_path="x",
@@ -389,11 +386,10 @@ def test_c10_3_a_slow_answer_never_replaces_a_newer_one_after_the_registry_read(
     older = threading.Thread(target=lambda: answers.append(daemon._desktop_in_use()))
     older.start()
     assert entered.wait(10)
-    daemon._desktop_use = (0.0, None, None)                          # no cached answer: read again
-    assert daemon._desktop_in_use() is True
+    assert daemon._desktop_in_use() is True                          # TTL 0: the newer read, kept
     release.set()
     older.join(10)
-    assert answers == [True] and daemon._desktop_use[1] is True
+    assert answers == [True] and daemon._registry[1]["in_use"] is True
 
 
 @pytest.mark.parametrize("clock", ["due", "running"])
@@ -444,3 +440,41 @@ def test_c10_3_a_newer_unreadable_registry_supersedes_an_older_idle_read(state_d
     release.set()
     older.join(10)
     assert answers == [True] and daemon._desktop_answer() is True
+
+
+
+def test_c10_3_a_newer_unreadable_read_supersedes_an_older_answer_being_judged(state_daemon, monkeypatch):
+    """Review of PR #72 (fresh PR gate, round 1): an older read of an empty registry
+    is held while it judges its rows; a newer read (priority discovery) finds the
+    registry unreadable. With one cache, the older read yields to the newer one,
+    rows and answer together: the answer is use."""
+    import threading
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
+    now = time.time() * 1000
+    idle = registry_module.SessionRow(session_id="s", pid=os.getpid(), socket=None, name=None, cwd=None,
+                                      started_at=now, alive=True, socket_present=False, registry_path="x",
+                                      entrypoint="claude-desktop", status="idle",
+                                      status_updated_at=now - 40 * 60_000)
+    reads = []
+    monkeypatch.setattr(daemon_module.registry, "listing", lambda directory=None: reads.append(None) or (
+        registry_module.Listing((idle,), ()) if len(reads) == 1 else None))
+    entered, release = threading.Event(), threading.Event()
+    judged = daemon._subfleet_processes
+
+    def slow_first(found):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(10)
+        return judged(found)
+    monkeypatch.setattr(daemon, "_subfleet_processes", slow_first)
+    answers = []
+    older = threading.Thread(target=lambda: answers.append(daemon._desktop_in_use()))
+    older.start()
+    assert entered.wait(10)
+    assert daemon._session_rows() is None                             # the newer read: unreadable
+    release.set()
+    older.join(10)
+    assert answers == [True] and daemon._desktop_answer() is True and daemon._session_rows() is None

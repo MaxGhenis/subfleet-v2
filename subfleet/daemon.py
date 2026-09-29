@@ -111,10 +111,9 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy"})
-#: C-10.3: how long one reading of whether Claude Code uses the desktop login
-#: serves; C-6.9: how long one reading of which callers are live serves.
-DESKTOP_IN_USE_TTL_S = 5
-LIVENESS_TTL_S = 2
+#: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
+#: which callers are live, and whether Claude Code uses the desktop login.
+REGISTRY_READ_TTL_S = 2
 #: C-10.3: a reservation treats an in-use answer older than this as use (its
 #: registry read began that long ago; the reservation refreshed it just before).
 DESKTOP_IN_USE_MAX_AGE_S = 10
@@ -555,12 +554,11 @@ class Daemon:
         self._turn_check_errors: dict[str, str] = {}
         # C-10.3: (monotonic time read, in use); `_desktop_use_lock` orders the
         # reads that record a change, so each change is one `desktop.in_use` event.
-        self._desktop_use: tuple[float, bool | None, dict | None] = (0.0, None, None)
         self._desktop_use_recorded: bool | None = None
         self._desktop_use_lock = threading.Lock()
-        # C-6.9, C-10.3: the registry rows the classes and the desktop signal were
-        # read from (`_session_rows`), reused for a moment.
-        self._registry_rows: tuple[float, dict | None] = (0.0, None)
+        # C-6.9, C-10.3: the last registry read (`_registry_read`): the instant it
+        # began, and the rows and desktop answer it found; reused for a moment.
+        self._registry: tuple[float, dict | None] = (0.0, None)
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass:
         # C-26.9's turn pass and the detached pass each replace their own, and
@@ -919,7 +917,7 @@ class Daemon:
         return self.timers.enrich_view(view, rows["timers"])
 
     def _session_rows(self) -> dict | None:
-        """Claude Code's live-session registry, read at most every `LIVENESS_TTL_S`.
+        """Claude Code's live-session registry, read at most every `REGISTRY_READ_TTL_S`.
 
         `rows` are the readable rows, each alive only while its pid is still the
         process that wrote it (`registry.validated`, against one process table
@@ -929,17 +927,29 @@ class Daemon:
         cannot be listed: whoever reads that must treat it as unknown. An absent
         directory is no rows.
         """
-        return self._session_read()[1]
+        return self._registry_read()[1]["found"]
 
-    def _session_read(self) -> tuple[float, dict | None]:
-        """`_session_rows` with the monotonic instant its registry read began.
+    def _desktop_in_use(self) -> bool:
+        """C-10.3: whether Claude Code is using the desktop login now, as the latest
+        registry read (`_registry_read`) found. Never written from here: read ops
+        (`status`, `why`, `lanes`) ask too. A registry that cannot be read is use:
+        this answer only ever keeps the desktop lane out."""
+        return self._registry_read()[1]["in_use"]
 
-        Two threads may read at once (admission, a read op, the timers). Each
-        answer is kept only if no answer read later was kept meanwhile, so a
-        slow read never replaces a newer one (review of PR #72's plan)."""
-        read_at, found = self._registry_rows
-        if found is not None and time.monotonic() - read_at < LIVENESS_TTL_S:
-            return read_at, found
+    def _registry_read(self) -> tuple[float, dict]:
+        """The registry as last read: the monotonic instant the read began, and
+        what it found (`found`, see `_session_rows`) with the desktop answer it
+        gives (`in_use`, `evidence`).
+
+        One cache, one generation: the rows the priority classes read and the
+        answer the desktop lane is judged by always come from the same read, and
+        a read is kept only if none that began later was kept meanwhile, so a
+        slow read never replaces a newer one, whatever either found (review of
+        PR #72: with two caches, an older idle answer could be published after
+        a newer read that found the registry unreadable)."""
+        read_at, reading = self._registry
+        if reading is not None and time.monotonic() - read_at < REGISTRY_READ_TTL_S:
+            return read_at, reading
         started = time.monotonic()
         listed = registry.listing()
         if listed is None:
@@ -959,15 +969,21 @@ class Daemon:
                 unreadable = [pid for pid in listed.unreadable if registry.pid_alive(pid)]
                 groups = {}
             found = {"rows": rows, "unreadable": unreadable, "groups": groups}
+        if found is None:
+            in_use, evidence = True, {"error": "the Claude Code session registry could not be read"}
+        else:
+            owned_pids, owned_sessions = self._subfleet_processes(found)
+            in_use, evidence = registry.desktop_login_in_use(
+                found["rows"], now_ms=time.time() * 1000,
+                recent_s=admission_settings(self.policy)["desktop_recent_s"],
+                owned_pids=owned_pids, owned_sessions=owned_sessions, unreadable=len(found["unreadable"]))
+        reading = {"found": found, "in_use": in_use, "evidence": evidence}
         with self._desktop_use_lock:
-            if started >= self._registry_rows[0]:
-                self._registry_rows = (started, found)
+            if started >= self._registry[0]:
+                self._registry = (started, reading)         # replaced whole: other threads read it
             else:
-                # A later read was kept meanwhile; an unreadable registry (None)
-                # included, which is use and must supersede an older idle read
-                # (review of PR #72).
-                started, found = self._registry_rows
-        return started, found
+                started, reading = self._registry          # a read that began later was kept meanwhile
+        return started, reading
 
     def _subfleet_processes(self, found: dict) -> tuple[frozenset[int], frozenset[str]]:
         """C-10.3: the registry rows' pids that belong to a live Subfleet attempt (its
@@ -982,54 +998,25 @@ class Daemon:
                          and (row.pid in children or found["groups"].get(row.pid) in pgids))
         return pids, sessions
 
-    def _desktop_in_use(self) -> bool:
-        """C-10.3: whether Claude Code is using the desktop login now.
-
-        Read from Claude Code's own registry (`registry.desktop_login_in_use`) at
-        most every `DESKTOP_IN_USE_TTL_S`, and never written from here: read ops
-        (`status`, `why`, `lanes`) ask too. A registry that cannot be read is use:
-        this answer only ever keeps the desktop lane out.
-        """
-        read_at, value, _ = self._desktop_use
-        if value is not None and time.monotonic() - read_at < DESKTOP_IN_USE_TTL_S:
-            return value
-        observed, found = self._session_read()
-        if found is None:
-            in_use, evidence = True, {"error": "the Claude Code session registry could not be read"}
-        else:
-            owned_pids, owned_sessions = self._subfleet_processes(found)
-            in_use, evidence = registry.desktop_login_in_use(
-                found["rows"], now_ms=time.time() * 1000,
-                recent_s=admission_settings(self.policy)["desktop_recent_s"],
-                owned_pids=owned_pids, owned_sessions=owned_sessions, unreadable=len(found["unreadable"]))
-        with self._desktop_use_lock:
-            # Kept only if observed after the answer kept now, and aged from its
-            # registry read, never from when it was computed: a slow read that
-            # finishes after a newer one never replaces it, nor looks fresher
-            # than it is (review of PR #72's plan). Replaced whole: other
-            # threads read it.
-            if observed >= self._desktop_use[0]:
-                self._desktop_use = (observed, in_use, evidence)
-            return self._desktop_use[1]
-
     def _desktop_answer(self) -> bool | None:
         """C-10.3: the in-use answer a reservation reads inside its transaction.
 
-        None before any read; True once the answer is older than
-        `DESKTOP_IN_USE_MAX_AGE_S` (the reservation refreshed it just before,
-        so an answer that old means the refresh could not replace it): this
-        answer only ever keeps the desktop lane out."""
-        read_at, value, _ = self._desktop_use
-        if value is None:
+        None before any read; True once the read it comes from began more than
+        `DESKTOP_IN_USE_MAX_AGE_S` ago (the reservation refreshed it just
+        before, so an answer that old means the refresh could not replace it):
+        this answer only ever keeps the desktop lane out."""
+        read_at, reading = self._registry
+        if reading is None:
             return None
-        return True if time.monotonic() - read_at > DESKTOP_IN_USE_MAX_AGE_S else value
+        return True if time.monotonic() - read_at > DESKTOP_IN_USE_MAX_AGE_S else reading["in_use"]
 
     def _record_desktop_use(self) -> None:
         """C-10.3: each change of the in-use answer, and the first after a start, is
         one `desktop.in_use` event carrying the rows that decided it, so a job
         placed on the desktop lane can be explained. Written by the detached
         admission pass, which writes anyway; never by a read op."""
-        _, in_use, evidence = self._desktop_use
+        _, reading = self._registry
+        in_use, evidence = (reading["in_use"], reading["evidence"]) if reading else (None, None)
         with self._desktop_use_lock:
             if in_use is None or in_use == self._desktop_use_recorded:
                 return
@@ -3704,7 +3691,7 @@ class Daemon:
             decision, basis = early
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
             for tries in range(1, ROUTE_TRIES + 1):
-                # C-10.3: refreshed off the lock, at most `DESKTOP_IN_USE_TTL_S` old; the
+                # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry.
                 self._desktop_in_use()
                 try:
