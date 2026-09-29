@@ -415,7 +415,7 @@ class Offline:
                 "errors": containment.get("errors", []),
                 "containment": containment or None,
                 "operator_look": ({"event_id": look["event_id"], "at": look["ts"],
-                                   **{key: said.get(key) for key in ("operator_note", "containment")}}
+                                   **{key: said.get(key) for key in ("operator_note", "containment", "requests")}}
                                   if isinstance(said, dict) else None),
                 "resolve": probe_resolutions(lane_ids[0], owner) if state == "quarantined" else None,
             })

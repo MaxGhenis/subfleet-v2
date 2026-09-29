@@ -1996,9 +1996,14 @@ def _await_probe_resolution(client: Client, answer: dict[str, Any],
     The daemon acts on the request at its next admission pass, never in the
     request handler (C-16.4), so the answer is looked for in `lanes`: the
     holder no longer holds a slot (released), or an operator look recorded
-    after the request (`probe.still_live`, still quarantined).
+    after the request that acted on it (`probe.still_live`, still quarantined).
+    Another operator's look, taken while this request waited, is not this
+    command's answer: a look answers only if its `requests` name this request's
+    id (a daemon that predates request ids names none, and any newer look is
+    taken, as before).
     """
     holder, since = answer.get("holder"), int(as_number(answer.get("since_event")) or 0)
+    mine = answer.get("request_id")
     deadline = time.monotonic() + (30.0 if timeout is None else timeout)
     while True:
         try:
@@ -2009,7 +2014,9 @@ def _await_probe_resolution(client: Client, answer: dict[str, Any],
         if not rows:
             return {"outcome": "released"}
         look = rows[0].get("operator_look")
-        if isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since:
+        if isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since and (
+                not mine or not isinstance(look.get("requests"), list)
+                or any(isinstance(entry, dict) and entry.get("id") == mine for entry in look["requests"])):
             return {"outcome": "still quarantined", "probe": rows[0]}
         if time.monotonic() >= deadline:
             return {"outcome": "pending", "probe": rows[0]}
@@ -2023,8 +2030,9 @@ def _report_probe_outcome(answer: dict[str, Any], args: argparse.Namespace, *, p
     if args.json:
         emit({"release_probe": answer} if not prefix else {"job_id": prefix.strip(), "probe": answer})
     elif outcome == "released":
-        out(f"{prefix}{_probe_target(answer)}: released ("
-            + ("the override is recorded" if args.force_release else "its census came back verified empty") + ")")
+        # Released by this request, by another, or by the probe's own look: the
+        # slot is free either way, and which one is in the events, not here.
+        out(f"{prefix}{_probe_target(answer)}: released (it no longer holds a lane slot)")
     elif outcome == "still quarantined":
         out(f"{prefix}{_probe_target(answer)}: still quarantined")
         for line in render.probe_lines(answer.get("probe") or {}):

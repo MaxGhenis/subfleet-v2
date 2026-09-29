@@ -626,7 +626,50 @@ def test_c5_7a_a_pass_that_raises_keeps_the_request(routing_state, monkeypatch):
         service._recover_probes()
     pending = service._probe_resolutions[HOLDER]
     assert pending["force_release"] is True and len(pending["requests"]) == 2
+    # The request the pass took is the older one: the one asked meanwhile is
+    # newer, and its note, time and route are the merged request's.
+    assert [entry["operator_note"] for entry in pending["requests"]] == ["first", "asked meanwhile"]
+    assert (pending["operator_note"], pending["via"]) == ("asked meanwhile", "lanes release-probe")
     monkeypatch.undo()
+
+
+def test_c5_7a_each_request_has_an_id_that_the_look_acting_on_it_names(routing_state, monkeypatch):
+    """`--wait` takes a look as its answer only if the look acted on its own
+    request: each request gets an id, the answers return it, and the event of
+    the look that acts on it (and `operator_look` in the probe rows, online and
+    offline) lists it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    by_kill = kill(service, job_id, confirm_dead=True)
+    by_lane = release_probe(service, "codex-1", confirm_dead=True)
+    ids = [by_kill["probes"][0]["request_id"], by_lane["request_id"]]
+    assert all(ids) and len(set(ids)) == 2
+    service._recover_probes()
+    [look] = kinds(service, "probe.still_live")
+    assert [entry["id"] for entry in look["data"]["requests"]] == ids
+    [row] = service._probe_rows()
+    assert [entry["id"] for entry in row["operator_look"]["requests"]] == ids
+    assert Offline(service.root).status()["probes"][0]["operator_look"] == row["operator_look"]
+    later = release_probe(service, "codex-1", confirm_dead=True)["request_id"]
+    assert later not in ids and all(entry["id"] != later for entry in service._probe_rows()[0]["operator_look"]["requests"])
+
+
+def test_c5_7a_a_pass_keeps_the_clock_and_request_of_a_holder_a_turn_owns(routing_state, monkeypatch):
+    """A timer turn can take its lease, quarantine its probe (setting the clock)
+    and be asked about after a pass read the leases: the pass does not prune
+    what belongs to a holder a turn still owns."""
+    service, _ = routing_state
+    holder = "probe:timer:" + str(uuid4())
+    service.timers.active_holders.add(holder)
+    service._probe_rechecks[holder] = (1, 5.0)
+    service._probe_resolutions[holder] = daemon_module.merge_probe_requests(None, {
+        "force_release": False, "operator_note": None, "requested_at": utcnow(), "via": "kill",
+        "requests": [{"id": "x", "mode": "confirm-dead", "operator_note": None, "at": utcnow(), "via": "kill"}]})
+    service._recover_probes()
+    assert holder in service._probe_rechecks and holder in service._probe_resolutions
+    service.timers.active_holders.discard(holder)
+    service._recover_probes()                          # let go, with no lease: pruned
+    assert holder not in service._probe_rechecks and holder not in service._probe_resolutions
 
 
 def test_c5_7a_a_pass_that_raises_with_nothing_asked_meanwhile_keeps_its_request(routing_state, monkeypatch):

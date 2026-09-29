@@ -2521,9 +2521,10 @@ class Daemon:
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
         mode = "--force-release" if args.force_release else "--confirm-dead"
         result["since_event"] = self.store.one("SELECT max(event_id) AS n FROM events")["n"]
-        for row in probes:
+        for row, reached in zip(probes, result["probes"]):
             answer = self._request_probe_resolution(row["holder"], force_release=bool(args.force_release),
                                                     operator_note=args.operator_note, via="kill")
+            reached["request_id"] = answer["request_id"]
             notes.insert(0, f"{mode} of quarantined probe {row['holder']} on {', '.join(row['lane_ids'])} requested"
                          + (f" ({answer['absorbed']})" if answer.get("absorbed") else ""))
         if probes:
@@ -2971,7 +2972,7 @@ class Daemon:
                                    "at": request["requested_at"], "via": request["via"],
                                    "requests": len(request["requests"])} if request else None),
                     "operator_look": ({"event_id": look["event_id"], "at": look["ts"],
-                                       **{key: said.get(key) for key in ("operator_note", "containment")}}
+                                       **{key: said.get(key) for key in ("operator_note", "containment", "requests")}}
                                       if isinstance(said, dict) else None),
                     "resolve": render.probe_resolutions(lane_ids[0], job) if state == "quarantined" else None,
                 })
@@ -2999,16 +3000,20 @@ class Daemon:
         race the admission worker's own look at the same probe: a look that
         re-held the job after a release would leave it `uncertain` with nothing
         left to resolve. `_recover_probes` acts on it at its next pass, whatever
-        the probe's recheck clock says.
+        the probe's recheck clock says. Each request gets an id, kept in its
+        entry of `requests` and so in the event of the look that acts on it:
+        `--wait` takes a look as its answer only if it names that id.
         """
-        at = utcnow()
+        at, request_id = utcnow(), uuid4().hex
         mode = "force-release" if force_release else "confirm-dead"
         request = {"force_release": bool(force_release), "operator_note": operator_note, "requested_at": at,
-                   "via": via, "requests": [{"mode": mode, "operator_note": operator_note, "at": at, "via": via}]}
+                   "via": via, "requests": [{"id": request_id, "mode": mode, "operator_note": operator_note,
+                                             "at": at, "via": via}]}
         with self._probe_resolution_lock:
             pending = self._probe_resolutions.get(holder)
             merged = self._probe_resolutions[holder] = merge_probe_requests(pending, request)
-        answer = {"mode": "force-release" if merged["force_release"] else "confirm-dead", "requested_at": at}
+        answer = {"mode": "force-release" if merged["force_release"] else "confirm-dead", "requested_at": at,
+                  "request_id": request_id}
         if merged["force_release"] and not force_release:
             answer["absorbed"] = ("a --force-release asked earlier is pending, and this --confirm-dead "
                                   "does not replace it")
@@ -3343,10 +3348,13 @@ class Daemon:
         # its account (one lease each), and a look that has just released it
         # must not be followed by another through its second lease.
         holders = list(dict.fromkeys(lease["holder"] for lease in leases))
-        for gone in set(self._probe_rechecks) - set(holders):
+        # A holder a turn still owns may have taken its lease, and been paced or
+        # asked about, after the read above: it is the turn's, and not pruned.
+        kept = set(holders) | set(self.timers.active_holders)
+        for gone in set(self._probe_rechecks) - kept:
             self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
         with self._probe_resolution_lock:
-            for gone in set(self._probe_resolutions) - set(holders):
+            for gone in set(self._probe_resolutions) - kept:
                 self._probe_resolutions.pop(gone, None)   # released another way: nothing to resolve
         for holder in holders:
             if holder in self.timers.active_holders:
