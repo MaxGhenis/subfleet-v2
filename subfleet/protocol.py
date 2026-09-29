@@ -198,6 +198,9 @@ class KillArgs:
     confirm_dead: bool = False
     force_release: bool = False
     operator_note: str | None = None
+    # C-5.7a: when the operator issued the resolution (UTC, ISO 8601), minted once
+    # per command so a request sent again (C-16.3) reaches the same probes.
+    issued_at: str | None = None
 
 
 @dataclass
@@ -242,6 +245,9 @@ class LanesArgs:
     owner: str | None = None            # for transfer: "v1" | "v2"
     dry_run: bool = False               # transfer: print the diff, write nothing
     confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
+    force_release: bool = False         # release-probe: the override, not --confirm-dead (C-5.7a)
+    operator_note: str | None = None    # release-probe: recorded with the resolution
+    issued_at: str | None = None        # release-probe: as KillArgs.issued_at (C-5.7a)
 
 
 @dataclass
