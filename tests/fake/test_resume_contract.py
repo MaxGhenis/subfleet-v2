@@ -316,3 +316,19 @@ def test_c12_resume_and_revive_share_native_session_lease(state_daemon, monkeypa
     assert daemon.store.get_job(jobs[0])["state"] == "running"
     assert daemon.store.get_job(jobs[1])["state"] == "waiting"
     assert daemon.store.list_attempts(jobs[1]) == []
+
+
+def test_c8_4_resume_is_refused_while_retention_archives_its_source(state_daemon):
+    """C-8.4 (review Astra 9): the `retire:` lease is checked in the transaction that inserts
+    the child, so a resume that read a source's files mid-archive is never created."""
+    daemon, harness = state_daemon
+    source_id, _ = finished_source(daemon, harness)
+    daemon.store.acknowledge_notices("fake-session", [row["notice_id"] for row in daemon.store.list_notices()])
+    assert daemon.store.acquire_lease(f"retire:{source_id}", f"retention:{source_id}")
+    with pytest.raises(AdapterError, match="being archived by retention") as error:
+        daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))
+    assert error.value.fix
+    assert [job["job_id"] for job in daemon.store.list_jobs()] == [source_id]
+    daemon.store.release_leases(f"retention:{source_id}")
+    resumed = daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))
+    assert daemon.store.get_job(resumed["job_id"])["parent_job_id"] == source_id

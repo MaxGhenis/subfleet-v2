@@ -474,6 +474,26 @@ def delete_archived(job_dir: Path, manifest: Mapping[str, Any], *,
     return kept
 
 
+def _relinked_by_us(root_fd, entry, st, entries) -> bool:
+    """A hard link whose only change is the ctime an earlier, interrupted deletion gave it.
+
+    Everything but ctime must match, and the drop in the link count must be exactly
+    the number of this inode's archived paths that are already gone."""
+    if entry["type"] != "file" or entry["nlink"] < 2 or \
+            not unchanged(entry, st, st.st_ctime_ns if st.st_ctime_ns > entry["ctime_ns"] else None):
+        return False
+    group = [e["path"] for e in entries.values() if (e.get("dev"), e.get("ino")) == (entry["dev"], entry["ino"])]
+    gone = 0
+    for path in group:
+        try:
+            os.stat(path, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            gone += 1
+        except OSError:
+            return False
+    return gone > 0 and st.st_nlink == entry["nlink"] - gone
+
+
 def _empty(root_fd, directory, entries, kept, relinked) -> None:
     try:
         fd = os.open(directory, _DIR, dir_fd=root_fd) if directory else os.dup(root_fd)
@@ -510,7 +530,7 @@ def _empty(root_fd, directory, entries, kept, relinked) -> None:
                     pass                             # not empty: what it holds was kept already
                 continue
             identity = (st.st_dev, st.st_ino)
-            if not unchanged(entry, st, relinked.get(identity)):
+            if not unchanged(entry, st, relinked.get(identity)) and not _relinked_by_us(root_fd, entry, st, entries):
                 kept.append(path)
                 continue
             if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:

@@ -108,3 +108,38 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
     assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
     assert seen['pins'] == service.conversations.retention_pins
+
+
+def test_retention_catch_up_after_progress_is_not_a_failure(state_daemon, monkeypatch):
+    """C-8.4 (section 5): a pass that stops at its deadline after making progress is logged
+    as catch-up and offered again in 5 seconds; only a pass that did nothing raises."""
+    service, _ = state_daemon
+    clock = [7200.0]
+    monkeypatch.setattr(daemon_module.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(daemon_module, 'after', lambda seconds: f'due:{clock[0] + seconds:g}')
+    seen = {}
+
+    def maintenance(store, root, **kwargs):
+        seen.update(kwargs)
+        return {'interrupted': 'deadline', 'made_progress': True, 'pruned': ['a'], 'measured': 3}
+    monkeypatch.setattr(daemon_module, 'maintenance', maintenance)
+    service._retention()
+    assert service.timers.status()['retention']['next_due'] == 'due:7205'
+    assert service.timers.status()['retention']['last_error_type'] is None
+    assert service._last_maintenance == 7200 - 3600 + 5
+    assert seen['state'] is service._retention_state and seen['archiver'] is None
+    assert any(event['kind'] == 'retention.progress' for event in service.store.list_events())
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: {'interrupted': 'deadline'})
+    with pytest.raises(TimeoutError):
+        service._retention()
+
+
+def test_retention_hands_the_policy_archiver_to_maintenance(state_daemon, monkeypatch):
+    """C-8.4, C-13.4: the policy's worktree archiver reaches the pass unchanged."""
+    service, _ = state_daemon
+    config = {'argv': ['/x/sweep'], 'per_worktree': ['--only', '{path}'], 'timeout_s': 60.0}
+    service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'worktree_archiver': config}}
+    seen = {}
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: seen.update(kwargs) or {})
+    service._retention()
+    assert seen['archiver'] == config

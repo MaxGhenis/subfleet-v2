@@ -83,6 +83,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     destination = Path(args.to).expanduser().resolve() / args.job if args.to else root / "jobs" / args.job
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
         skipped = archive.restore(path, destination)
     except FileExistsError:
         return cli.fail(Exit.INVALID_INPUT, f"retention restore: {destination} already exists",
