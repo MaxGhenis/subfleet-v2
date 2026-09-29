@@ -1444,8 +1444,9 @@ def test_the_mirror_syncs_what_it_writes_before_the_rename(world, monkeypatch):
     monkeypatch.setattr(mirror.os, "fsync", lambda fd: synced.append(fd) or fsync(fd))
     result = engine(world).run_once()
     assert result.added == 1 and result.flag_synced == 0
-    assert len(synced) == 4, "the copy, the ultracode rewrites of both copies, and the " \
-        "merge base; the journal and the sidecar only feed reports and are not synced"
+    assert len(synced) == 7, "the copy, the ultracode rewrites of both copies, the " \
+        "publish record and its folder twice (made, then removed), and the merge base; " \
+        "the journal and the sidecar only feed reports and are not synced"
 
 
 def test_a_batch_split_by_a_racing_save_is_rolled_back(world, monkeypatch):
@@ -1496,7 +1497,8 @@ def the_app_saves_first(monkeypatch, victim: Path, before=None) -> None:
             raced["once"] = False
             if before is not None:
                 before()
-            temporary.unlink()
+            if not kwargs.get("keep"):          # as `_install` itself does
+                temporary.unlink()
             return False
         return install(temporary, destination, **kwargs)
 
@@ -1582,16 +1584,16 @@ def test_a_rollback_that_cannot_write_journals_the_write_it_left(world, monkeypa
     b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
     rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
     the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
-    write = mirror._write_json
+    prepare = mirror._prepare_json
     written = []
 
-    def refuse_the_rollback(path, value, **kwargs):
+    def refuse_the_rollback(path, value):
         if path == b_copy and written.count(path):
-            raise OSError("disk full")
+            raise OSError("disk full")          # the put-back cannot be written
         written.append(path)
-        return write(path, value, **kwargs)
+        return prepare(path, value)
 
-    monkeypatch.setattr(mirror, "_write_json", refuse_the_rollback)
+    monkeypatch.setattr(mirror, "_prepare_json", refuse_the_rollback)
     running.run_once()
     assert json.loads(b_copy.read_text())["isStarred"] is True
     rows = [row for row in running.journal.rows()
@@ -1677,17 +1679,17 @@ def test_an_app_save_right_after_the_rename_is_not_rolled_back(world, monkeypatc
     b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
     rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
     the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
-    write = mirror._write_json
+    install = mirror._install
     state = {"done": False}
 
-    def app_saves_b_after_rename(path, value, **kwargs):
-        result = write(path, value, **kwargs)
-        if path == b_copy and not state["done"] and kwargs.get("expect") is not None:
+    def app_saves_b_after_rename(temporary, destination, **kwargs):
+        result = install(temporary, destination, **kwargs)
+        if destination == b_copy and not state["done"] and kwargs.get("expect") is not None:
             state["done"] = True
             rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
         return result
 
-    monkeypatch.setattr(mirror, "_write_json", app_saves_b_after_rename)
+    monkeypatch.setattr(mirror, "_install", app_saves_b_after_rename)
     running.run_once()
     b = json.loads(b_copy.read_text())
     assert b.get("lastFocusedAt") == 42, "the app's save stands"
@@ -1701,17 +1703,17 @@ def test_a_failed_rollback_does_not_journal_the_apps_save(world, monkeypatch):
     b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
     rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
     the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
-    write = mirror._write_json
+    prepare = mirror._prepare_json
     written = []
 
-    def app_saves_b_then_disk_full(path, value, **kwargs):
+    def app_saves_b_then_disk_full(path, value):
         if path == b_copy and written.count(path):
             rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
-            raise OSError("disk full")
+            raise OSError("disk full")          # the put-back cannot be written
         written.append(path)
-        return write(path, value, **kwargs)
+        return prepare(path, value)
 
-    monkeypatch.setattr(mirror, "_write_json", app_saves_b_then_disk_full)
+    monkeypatch.setattr(mirror, "_prepare_json", app_saves_b_then_disk_full)
     running.run_once()
     rows = [row for row in running.journal.rows()
             if row.name == b_copy.name and row.folder == f"{ACCOUNT_B}/{ORG_B}"]
@@ -1731,17 +1733,17 @@ def test_an_app_save_after_the_rollback_is_not_restamped(world, monkeypatch):
     b_copy = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
     rewrite(a_copy, {**json.loads(a_copy.read_text()), "isStarred": True})
     the_app_saves_first(monkeypatch, store / ACCOUNT_C / ORG_C / f"local_{ONE}.json")
-    write = mirror._write_json
+    install = mirror._install
     written = []
 
-    def app_saves_b_after_rollback(path, value, **kwargs):
-        result = write(path, value, **kwargs)
-        if path == b_copy and written.count(path):
+    def app_saves_b_after_rollback(temporary, destination, **kwargs):
+        result = install(temporary, destination, **kwargs)
+        if destination == b_copy and written.count(destination):
             rewrite(b_copy, {**json.loads(b_copy.read_text()), "lastFocusedAt": 42})
-        written.append(path)
+        written.append(destination)
         return result
 
-    monkeypatch.setattr(mirror, "_write_json", app_saves_b_after_rollback)
+    monkeypatch.setattr(mirror, "_install", app_saves_b_after_rollback)
     running.run_once()
     assert json.loads(b_copy.read_text())["lastFocusedAt"] == 42
     assert running.load_gap()["pending"] == 0, "the app rewrote it, so it holds it"

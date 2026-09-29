@@ -512,6 +512,31 @@ def pass_publish(state: State) -> State:
     return state
 
 
+def recovered(state: State) -> State:
+    """The state once a pass has resolved any publish record left behind."""
+    if state.wal is not None and state.phase == IDLE:
+        return pass_recover(state)
+    return state
+
+
+def to_commit(state: State) -> State:
+    """Every remaining write and put-back, with nothing in between: the state
+    just before the base write (or idle, if the pass wrote nothing)."""
+    while state.phase == PUBLISHING:
+        state = pass_write(state)
+    while state.phase == ROLLING:
+        state = rollback_write(state)
+    return state
+
+
+def finish(state: State) -> State:
+    """Every remaining write, put-back and the base write, with nothing in between."""
+    state = to_commit(state)
+    if state.phase == COMMITTING:
+        state = pass_commit(state)
+    return state
+
+
 def full_pass(state: State) -> State:
     """Recovery (if a record is left), then one pass with nothing in between."""
     if state.wal is not None and state.phase == IDLE:

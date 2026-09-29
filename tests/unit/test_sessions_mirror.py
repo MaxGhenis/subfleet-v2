@@ -243,15 +243,15 @@ def test_cancellation_during_flag_publication_finishes_the_matching_merge_base(w
     data["isArchived"] = True
     rewrite(path, data)
     cancel = running.cancel = threading.Event()
-    write = mirror._write_json
+    install = mirror._install
 
-    def cancel_after_first_write(target, value, **kwargs):
-        inode = write(target, value, **kwargs)
-        if target.name.startswith("local_"):
-            cancel.set()
-        return inode
+    def cancel_after_first_write(temporary, destination, **kwargs):
+        placed = install(temporary, destination, **kwargs)
+        if destination.name.startswith("local_") and kwargs.get("keep"):
+            cancel.set()                        # after a flag publish's first rename
+        return placed
 
-    monkeypatch.setattr(mirror, "_write_json", cancel_after_first_write)
+    monkeypatch.setattr(mirror, "_install", cancel_after_first_write)
     result = running.run_once()
     assert result.state == "cancelled"
     assert all(row["isArchived"] for row in copies(store, ONE).values())

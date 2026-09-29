@@ -131,14 +131,14 @@ def test_service_base_only_flag_advance_increments_epoch(world, monkeypatch, fie
     """Already agreeing copies can still advance the base and invalidate a refresh (B2)."""
     running = world[2]
     copy_writes = []
-    original = mirror._write_json
+    original = mirror._prepare_json
 
-    def observe(path, body, **kwargs):
+    def observe(path, body):
         if Path(path).parent in {entry(world, account).parent for account in range(3)}:
             copy_writes.append(Path(path))
-        return original(path, body, **kwargs)
+        return original(path, body)
 
-    monkeypatch.setattr(mirror, "_write_json", observe)
+    monkeypatch.setattr(mirror, "_prepare_json", observe)       # every flag copy write
     for account in range(3):
         rewrite(entry(world, account), **{field: value})
 
@@ -154,14 +154,14 @@ def test_service_new_base_row_increments_epoch_without_copy_write(world, monkeyp
     for account, org in ACCOUNTS:
         fx.index_entry(world[1], account, org, identity, settings={"ultracode": True})
     writes = []
-    original = mirror._write_json
+    original = mirror._prepare_json
 
-    def observe(path, body, **kwargs):
+    def observe(path, body):
         if Path(path).name == f"local_{identity}.json":
             writes.append(path)
-        return original(path, body, **kwargs)
+        return original(path, body)
 
-    monkeypatch.setattr(mirror, "_write_json", observe)
+    monkeypatch.setattr(mirror, "_prepare_json", observe)       # every flag copy write
     assert service(world) == 1
     assert identity in read(world[2].flags_path)
     assert writes == []
@@ -188,29 +188,42 @@ def test_service_failed_base_publication_does_not_increment_epoch(world, monkeyp
 
 @pytest.mark.parametrize("rollback_fails", [False, True], ids=["put-back", "standing-write"])
 def test_service_epoch_tracks_writes_left_after_a_failed_batch(world, monkeypatch, rollback_fails):
-    """A held base invalidates only when a copy write survives the put-back (B2)."""
+    """A failed batch invalidates only when a copy write survives the put-back
+    (B2). One that survives makes the decision stand for the copies it reached
+    (review round 5, F2): the base advances, and the copy the batch did not
+    reach keeps its own value as its reference."""
     running = world[2]
     rewrite(entry(world), isArchived=True)
-    original = mirror._write_json
+    install, prepare = mirror._install, mirror._prepare_json
     attempted = []
 
-    def fail_batch(path, body, **kwargs):
-        path = Path(path)
-        if path == entry(world, 2):
+    def fail_last_copy(temporary, destination, **kwargs):
+        if Path(destination) == entry(world, 2):
             attempted.append("last-copy")
             raise OSError(errno.ENOSPC, "injected final copy failure")
-        if path == entry(world, 1) and body.get("isArchived") is False:
+        return install(temporary, destination, **kwargs)
+
+    def fail_put_back(path, body):
+        if Path(path) == entry(world, 1) and body.get("isArchived") is False:
             attempted.append("put-back")
             if rollback_fails:
                 raise OSError(errno.ENOSPC, "injected put-back failure")
-        return original(path, body, **kwargs)
+        return prepare(path, body)
 
-    monkeypatch.setattr(mirror, "_write_json", fail_batch)
+    monkeypatch.setattr(mirror, "_install", fail_last_copy)
+    monkeypatch.setattr(mirror, "_prepare_json", fail_put_back)
     assert service(world) == int(rollback_fails)
     assert attempted == ["last-copy", "put-back"]
     assert read(entry(world, 1))["isArchived"] is rollback_fails
-    assert not read(running.flags_path)[ONE]["isArchived"]
+    record = read(running.flags_path)[ONE]
+    assert record["isArchived"] is rollback_fails
+    if rollback_fails:
+        c_key = "/".join((*ACCOUNTS[2], f"local_{ONE}.json"))
+        assert record["refs"] == {c_key: {"isArchived": False}}
+    else:
+        assert "refs" not in record
     assert running.sidecar()["hot"]["flags_held"] == 1
+    assert not running.publish_path.exists(), "resolved into the base"
 
 
 
@@ -219,7 +232,7 @@ def test_unobservable_copy_write_invalidates_refresh_and_preserves_unarchive(wor
     running = world[2]
     original_checkpoint = running._checkpoint
     original_inventory = running._flag_inventory
-    original_write, original_signature = mirror._write_json, mirror._signature_of
+    original_write, original_signature = mirror._install, mirror._signature_of
     inventories, partial, epochs = [], [], []
     started = False
     fail_b_stat = False
@@ -232,16 +245,16 @@ def test_unobservable_copy_write_invalidates_refresh_and_preserves_unarchive(wor
             running._service_hot()  # An idle service makes the full pass refresh.
         return original_checkpoint(current, stage)
 
-    def write(path, body, **kwargs):
+    def write(temporary, destination, **kwargs):
         nonlocal fail_b_stat, failed_c
-        if Path(path) == entry(world, 2) and body.get("isArchived") and not failed_c:
+        if Path(destination) == entry(world, 2) and kwargs.get("keep") and not failed_c:
             failed_c = True
             raise OSError(errno.ENOSPC, "injected C write failure")
-        inode = original_write(path, body, **kwargs)
-        if Path(path) == entry(world, 1) and body.get("isArchived") and not failed_c:
-            assert inode is not None
+        placed = original_write(temporary, destination, **kwargs)
+        if Path(destination) == entry(world, 1) and kwargs.get("keep") and not failed_c:
+            assert placed
             fail_b_stat = True
-        return inode
+        return placed
 
     def signature(path):
         nonlocal fail_b_stat
@@ -260,13 +273,15 @@ def test_unobservable_copy_write_invalidates_refresh_and_preserves_unarchive(wor
             partial.extend(read(entry(world, account))["isArchived"] for account in range(3))
             epochs.append(running._hot_epoch)
             assert partial == [True, True, False]
-            assert not read(running.flags_path)[ONE]["isArchived"]
+            # B's write stands, so the archive stands for the copies it
+            # reached; C keeps its own value as its reference (F2).
+            assert read(running.flags_path)[ONE]["isArchived"]
             assert running.sidecar()["hot"]["flags_held"] == 1
         return snapshot
 
     monkeypatch.setattr(running, "_checkpoint", checkpoint)
     monkeypatch.setattr(running, "_flag_inventory", inventory)
-    monkeypatch.setattr(mirror, "_write_json", write)
+    monkeypatch.setattr(mirror, "_install", write)
     monkeypatch.setattr(mirror, "_signature_of", signature)
     full = running.run_once()
     assert full.state == "ok", full.error
@@ -292,27 +307,44 @@ def test_service_settings_only_copy_write_increments_epoch(world):
     assert read(running.flags_path) == before
 
 
-def test_failed_put_back_of_an_app_replacement_does_not_increment_epoch(world, monkeypatch):
-    """A write replaced by the app before a failed put-back is no longer ours (B2)."""
+def test_failed_put_back_of_an_app_replacement_is_not_journaled_and_its_change_wins(
+        world, monkeypatch):
+    """A write replaced by the app before a failed put-back is no longer ours
+    (B2): it is not journaled. The mirror's write did land, so the archive
+    stands for the copies it reached (F2), and the app's later unarchive of
+    that copy then reads as a change and wins."""
     running = world[2]
     rewrite(entry(world), isArchived=True)
-    original = mirror._write_json
+    install, prepare = mirror._install, mirror._prepare_json
     replaced = []
 
-    def app_replaces_then_disk_fails(path, body, **kwargs):
-        path = Path(path)
-        if path == entry(world, 2):
+    def fail_last_copy(temporary, destination, **kwargs):
+        if Path(destination) == entry(world, 2):
             raise OSError(errno.ENOSPC, "injected final copy failure")
+        return install(temporary, destination, **kwargs)
+
+    def app_replaces_then_disk_fails(path, body):
+        path = Path(path)
         if path == entry(world, 1) and body.get("isArchived") is False:
             rewrite(path, isArchived=False, lastFocusedAt=42)
             replaced.append(path)
             raise OSError(errno.ENOSPC, "injected put-back failure after app replacement")
-        return original(path, body, **kwargs)
+        return prepare(path, body)
 
-    monkeypatch.setattr(mirror, "_write_json", app_replaces_then_disk_fails)
-    assert service(world) == 0
+    monkeypatch.setattr(mirror, "_install", fail_last_copy)
+    monkeypatch.setattr(mirror, "_prepare_json", app_replaces_then_disk_fails)
+    assert service(world) == 1, "the base's decision moved"
     assert replaced == [entry(world, 1)]
     assert read(entry(world, 1))["lastFocusedAt"] == 42
+    b_name = f"local_{ONE}.json"
+    assert not [row for row in running.journal.rows()
+                if row.name == b_name and row.folder == "/".join(ACCOUNTS[1])
+                and row.ctime_ns == os.stat(entry(world, 1)).st_ctime_ns]
+    assert read(running.flags_path)[ONE]["isArchived"]
+    monkeypatch.setattr(mirror, "_install", install)
+    monkeypatch.setattr(mirror, "_prepare_json", prepare)
+    service(world)
+    assert not any(read(entry(world, account))["isArchived"] for account in range(3))
     assert not read(running.flags_path)[ONE]["isArchived"]
 
 
@@ -396,14 +428,14 @@ def test_full_pass_retries_only_the_identity_sync_flags_held(world, monkeypatch,
         unreadable(monkeypatch, bad)
     else:
         rewrite(entry(world), isArchived=True)
-        original = mirror._write_json
+        original = mirror._install
 
-        def fail_copy(path, body, **kwargs):
-            if Path(path) == bad:
-                return None
-            return original(path, body, **kwargs)
+        def fail_copy(temporary, destination, **kwargs):
+            if Path(destination) == bad:
+                return False                    # the app saved it after the check
+            return original(temporary, destination, **kwargs)
 
-        monkeypatch.setattr(mirror, "_write_json", fail_copy)
+        monkeypatch.setattr(mirror, "_install", fail_copy)
 
     full = running.run_once()
     assert full.flags_held == 1

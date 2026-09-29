@@ -134,6 +134,13 @@ FLAGS_NAME = "mirror-flags.json"
 LOCK_NAME = "mirror.lock"
 #: The copies and rewrites the mirror made, for the load-gap report.
 JOURNAL_NAME = "mirror-writes.json"
+#: The flag publishes not yet resolved into the merge base: one line, fsynced,
+#: before a session's first copy write, and one before its first put-back
+#: write. A crash or a failed base write leaves it for the next pass, which
+#: resolves it by what the files show (C-23.28, review round 5 finding F2).
+PUBLISH_NAME = "mirror-publish.jsonl"
+#: The flags a copy's reference and the publish record track.
+FLAGS = ("isArchived", "isStarred")
 
 #: A pass the sidecar records as in flight is healthy until this long after its
 #: recorded start (C-23.28). An 8.5-minute pass was observed on 2026-08-18
@@ -388,6 +395,11 @@ TEMPORARY_SUFFIX = ".tmp-subfleet"
 #: A temporary older than this is a pass's leftover (a daemon killed mid-write),
 #: which a sweep removes; a write finishes with its temporary in well under it.
 TEMPORARY_STALE_S = 3600
+#: The end of a flag publish's temporaries. The publish record names each one,
+#: and a temporary still standing is the proof that its rename never ran, so
+#: nothing removes one while a record is pending: not `_install` when the
+#: destination moved, and not a sweep (which removes `TEMPORARY_SUFFIX` ones).
+PUBLISH_SUFFIX = ".tmp-subfleet-publish"
 
 
 def _temporary(path: Path, suffix: str = TEMPORARY_SUFFIX) -> tuple[int, Path]:
@@ -433,7 +445,7 @@ def _signature_of(path: str | Path) -> tuple[int, ...]:
 
 
 def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | None,
-             exclusive: bool, inode: int | None = None) -> bool:
+             exclusive: bool, inode: int | None = None, keep: bool = False) -> bool:
     """Put a finished temporary file in place; False if the destination moved.
 
     `exclusive` is create-only: a hard link fails if the name was taken since
@@ -442,7 +454,9 @@ def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | No
     right before the rename, which narrows the window in which an app save can
     be lost to the rename itself. `inode` is the temporary the write made: a
     name that holds anything else by now (a FIFO put there) is never put in
-    place (`_same_file`).
+    place (`_same_file`). `keep` leaves the temporary where it is when the
+    destination moved: a flag publish's temporary is the record that its
+    rename never ran, until the publish is resolved.
     """
     if inode is not None:
         _same_file(temporary, inode)
@@ -460,10 +474,128 @@ def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | No
         except FileNotFoundError:
             current = None
         if current != expect:
-            temporary.unlink()
+            if not keep:
+                temporary.unlink()
             return False
     os.replace(temporary, destination)
     return True
+
+
+def _prepare_json(path: Path, value: Any) -> tuple[Path, int]:
+    """A flag publish's next version of `path`, written, synced and closed but
+    not yet put in place: `(temporary, inode)`.
+
+    It keeps the record's mtime (the sidebar's order) and is owner-only, as
+    `_write_json` is. Its name ends `PUBLISH_SUFFIX`; once the publish record
+    names it, only its rename (`_install`) or the publish's resolution
+    removes it.
+    """
+    try:
+        stamp: float | None = path.stat().st_mtime
+    except OSError:
+        stamp = None
+    handle, temporary = _temporary(path, PUBLISH_SUFFIX)
+    try:
+        with open(handle, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
+            stream.flush()
+            if stamp is not None:
+                os.utime(stream.fileno(), (stamp, stamp))
+            os.fsync(stream.fileno())          # a record the app loads: as it does
+            inode = os.fstat(stream.fileno()).st_ino
+    except BaseException:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
+    return temporary, inode
+
+
+def _sync_directory(path: Path) -> None:
+    """Make a name created or removed in `path` durable."""
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _copy_key(path: Path, name: str) -> str:
+    """A copy's name in the merge base: `<account>/<org>/<file>`."""
+    return f"{path.parent.name}/{path.name}/{name}"
+
+
+def _flag_values(data: dict) -> dict[str, bool]:
+    return {flag: bool(data.get(flag)) for flag in FLAGS}
+
+
+def _reference(record: dict, key: str, flag: str) -> bool | None:
+    """A copy's reference for `flag`: what the mirror's last decision gave it
+    or read there. None before the session's first decision."""
+    base = record.get(flag)
+    if not isinstance(base, bool):
+        return None
+    refs = record.get("refs")
+    override = refs.get(key) if isinstance(refs, dict) else None
+    value = override.get(flag) if isinstance(override, dict) else None
+    return value if isinstance(value, bool) else base
+
+
+def _resolve_publish(row: dict, landed: set[str], restored: set[str],
+                     current: dict[str, dict[str, bool]]) -> dict | None:
+    """The merge-base record a flag publish leaves, from what its files show.
+
+    `row` is the publish's record (`PUBLISH_NAME`): the session's record
+    before (`prior`), the one a publish that went through leaves (`next`),
+    and each copy it set out to write with the flags the pass read there.
+    `landed` holds the copies whose rename ran, `restored` those put back
+    since, and `current` what each copy the publish did not reach holds now.
+
+    * No copy reached (none landed, or every one put back), or a bootstrap
+      publish (no prior record) that did not reach every copy: nothing
+      changes. With no base every copy votes, so the next pass decides the
+      bootstrap again by the same rule.
+    * Every copy reached: `next`, whose references are all the decision.
+    * Otherwise the decision stands (the prior record with the decided
+      flags, stamped with the publish's time) and a copy it did not reach
+      keeps what its file holds as its reference, for each flag the pass
+      meant to change there. That is the
+      value the pass read, or the decided one if someone wrote it since,
+      which the decision already agrees with; either way a change made there
+      afterwards reads as one. A copy the publish reached, or read holding
+      the decided value, has the decision as its reference.
+
+    This is `resolve` in `tests/mirror_flags_model.py` and `Resolve` in
+    `docs/formal/MirrorFlags.tla`.
+    """
+    prior, following = row.get("prior"), row.get("next")
+    prior = prior if isinstance(prior, dict) else None
+    targets = {copy[0]: copy[3] for copy in row.get("copies") or ()}
+    reached = {key for key in targets if key in landed and key not in restored}
+    if targets and (not reached or (prior is None and reached != set(targets))):
+        return prior
+    if reached == set(targets):
+        return dict(following)
+    record = {key: value for key, value in prior.items() if key not in ("refs", "published")}
+    for flag in FLAGS:
+        record[flag] = following[flag]
+    refs: dict[str, dict[str, bool]] = {}
+    for key, read in targets.items():
+        if key in reached:
+            continue
+        holds = current.get(key, read)
+        override = {flag: holds[flag] for flag in FLAGS
+                    if read[flag] != record[flag] and holds[flag] != record[flag]}
+        if override:
+            refs[key] = override
+    if refs:
+        record["refs"] = refs
+    # Which publish this came from: a crash after the base was written and
+    # before the record was dropped must not resolve it a second time, from
+    # files that may have moved since.
+    record["published"] = row.get("at")
+    return record
 
 
 def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
@@ -962,6 +1094,152 @@ class Mirror:
     def flags_path(self) -> Path:
         return self.dir / FLAGS_NAME
 
+    @property
+    def publish_path(self) -> Path:
+        return self.dir / PUBLISH_NAME
+
+    # --- the flag publish record ---------------------------------------------
+
+    def _publish_append(self, row: dict) -> None:
+        """Append one line to the publish record and make it durable before
+        anything it describes is written."""
+        self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        created = not os.path.lexists(self.publish_path)
+        fd = os.open(self.publish_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+                     | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise transcripts.NotRegularFile(errno.EINVAL, "not a regular file",
+                                                 str(self.publish_path))
+            line = (json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+            while line:
+                line = line[os.write(fd, line):]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        if created:
+            _sync_directory(self.dir)
+
+    def _publish_rows(self) -> list[dict]:
+        """The publish record's lines; a torn last line (a crash mid-append)
+        described nothing that was written, and is skipped."""
+        try:
+            with transcripts.open_regular(self.publish_path, "r", encoding="utf-8") as stream:
+                text = stream.read()
+        except FileNotFoundError:
+            return []
+        rows = []
+        for line in text.splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and isinstance(row.get("session"), str):
+                rows.append(row)
+        return rows
+
+    def _publish_clear(self, temporaries: Iterable[str]) -> None:
+        """The merge base now holds every resolution: drop the record, durably,
+        and only then the temporaries it named (they were its evidence)."""
+        try:
+            os.unlink(self.publish_path)
+        except FileNotFoundError:
+            pass
+        _sync_directory(self.dir)
+        for name in temporaries:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+
+    def _copy_path(self, key: str) -> Path:
+        account, org, name = key.split("/", 2)
+        return store_dir() / account / org / name
+
+    def _holds(self, key: str) -> dict[str, bool] | None:
+        """What a copy's file holds now, or None when it cannot be read."""
+        try:
+            return _flag_values(_load(self._copy_path(key), strict=True))
+        except (OSError, ValueError):
+            return None
+
+    def _recover_publish(self, base_all: dict[str, Any], options: "Options",
+                         folder_files: dict[Path, dict[str, dict]]) -> dict[str, Any]:
+        """Resolve what a crashed or failed pass left in the publish record.
+
+        Which of its writes landed is read from the files: a temporary the
+        record names that no longer stands was renamed into place. A copy the
+        publish did not reach is resolved by what this pass's inventory read
+        there (`folder_files`), since the pass decides on that read: taking a
+        newer value as its reference would make the older read a vote. A copy
+        the inventory did not read is read now, and one that cannot be read
+        keeps the value the failed pass read. The resolved records go into
+        the merge base, the mirror's writes that still stand into the
+        journal, and only then is the record dropped.
+        """
+        rows = self._publish_rows()
+        if not rows and not os.path.lexists(self.publish_path):
+            return base_all
+        forward: dict[str, dict] = {}
+        back: dict[str, dict[str, str]] = {}
+        named: list[str] = []
+        for row in rows:
+            identity = row["session"]
+            if isinstance(row.get("copies"), list):
+                forward[identity] = row
+                back.pop(identity, None)
+                named += [copy[1] for copy in row["copies"]]
+            for key, temporary, _inode in row.get("back") or ():
+                back.setdefault(identity, {})[key] = temporary
+                named.append(temporary)
+        recovered = dict(base_all)
+        for identity, row in forward.items():
+            held = base_all.get(identity)
+            if isinstance(held, dict) and "published" in held and held["published"] == row.get("at"):
+                continue                        # the base already holds this resolution
+            landed = {key for key, temporary, _inode, _read in row["copies"]
+                      if not os.path.lexists(temporary)}
+            restored = {key for key, temporary in back.get(identity, {}).items()
+                        if not os.path.lexists(temporary)}
+            current = {}
+            for key, _temporary, _inode, _read in row["copies"]:
+                if key not in landed or key in restored:
+                    account, org, name = key.split("/", 2)
+                    seen = folder_files.get(store_dir() / account / org, {}).get(name)
+                    if seen and seen.get("cliSessionId") == identity:
+                        current[key] = _flag_values(seen)
+                    else:
+                        holds = self._holds(key)
+                        if holds is not None:
+                            current[key] = holds
+            record = _resolve_publish(row, landed, restored, current)
+            if record is None:
+                recovered.pop(identity, None)
+            else:
+                recovered[identity] = record
+            for key, temporary, inode, _read in row["copies"]:
+                if key in landed and key not in restored:
+                    # Still the mirror's write: journal it, as the pass would have.
+                    path = self._copy_path(key)
+                    try:
+                        info = os.stat(path)
+                    except OSError:
+                        continue
+                    if info.st_ino == inode:
+                        folder, name = key.rsplit("/", 1)
+                        title = str((record or {}).get("title") or "")
+                        self.journal.add(_Write(folder, name, identity, title, "updated",
+                                                float(row.get("at") or 0), info.st_ctime_ns))
+        if options.dry_run:
+            return recovered
+        if recovered != base_all:
+            self._flags_moved = True
+        self.journal.save(lambda _row: True)
+        if recovered != base_all:
+            _write_json(self.flags_path, recovered, sync=True)
+        self._publish_clear(named)
+        return recovered
+
     def sidecar(self) -> dict[str, Any]:
         return _load(self.sidecar_path)
 
@@ -1208,6 +1486,9 @@ class Mirror:
         # Clear only the old invalidation. An embedded hot write during this
         # listing or its reads must leave a fresh invalidation for the next scan.
         self._dirty.discard(path)
+        # A publish's temporaries are its record's evidence of which renames
+        # ran: never swept while a record is pending, however old they are.
+        sweep_published = sweep and not os.path.lexists(self.publish_path)
         try:
             with os.scandir(path) as listing:
                 # The same ~1.8k names recur in every folder; interned, the
@@ -1219,6 +1500,8 @@ class Mirror:
                     if item.name.startswith("local_") and item.name.endswith(".json"):
                         found.append((sys.intern(item.name), item))
                     elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
+                        leftovers.append(item.path)
+                    elif sweep_published and item.name.endswith(PUBLISH_SUFFIX):
                         leftovers.append(item.path)
                 found.sort(key=lambda row: row[0])
         except OSError as exc:
@@ -1619,7 +1902,7 @@ class Mirror:
         can write back a value the mirror changed there, and the merge base
         reads that re-save as a user's change. See the 2026-09-24 report.
         """
-        base_all = _load(self.flags_path)
+        base_all = self._recover_publish(_load(self.flags_path), options, folder_files)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
         for path, files in folder_files.items():
             for name, data in files.items():
@@ -1672,14 +1955,22 @@ class Mirror:
                 continue
             for path, name, _data in copies:
                 owners[(path, name)] = identity
-            base = base_all.get(identity) or {}
-            base = dict(base)
+            prior = base_all.get(identity) or {}
+            base = {key: value for key, value in prior.items() if key not in ("refs", "published")}
             for flag, bootstrap in (("isArchived", True), ("isStarred", True)):
-                values = {bool(data.get(flag)) for _p, _n, data in copies}
-                if len(values) == 1:
-                    resolved = values.pop()
+                # A copy votes only when it differs from its own reference:
+                # the value the last decision gave it or read there. So the
+                # mirror's own writes never vote, whatever became of the pass
+                # that made them (review round 5, finding F2). With no
+                # decision yet every copy votes, and archived-anywhere wins.
+                recorded = base.get(flag)
+                votes = {bool(data.get(flag)) for path, name, data in copies
+                         if bool(data.get(flag)) != _reference(prior, _copy_key(path, name), flag)}
+                if not votes:
+                    resolved = recorded
+                elif len(votes) == 1:
+                    resolved = votes.pop()
                 else:
-                    recorded = base.get(flag)
                     resolved = (not recorded) if isinstance(recorded, bool) else bootstrap
                 if any(bool(data.get(flag)) != resolved for _p, _n, data in copies):
                     for path, name, data in copies:
@@ -1769,12 +2060,15 @@ class Mirror:
             # inside this batch could mistake our partial writes for user edits.
             self._checkpoint(current, "publishing flags")
             held: set[str] = set()
+            failed: set[str] = set()
+            resolved_records: dict[str, dict | None] = {}
+            temporaries: list[str] = []
             batches: dict[str, list[tuple[Path, str]]] = {}
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
                 batches.setdefault(owners.get((path, name), ""), []).append((path, name))
             for identity, batch in batches.items():
                 # Check every copy first: a session is written whole or not at all.
-                ready: list[tuple[Path, dict, dict, dict, tuple[int, ...]]] = []
+                ready: list[tuple[Path, dict, dict, tuple[int, ...], dict[str, bool]]] = []
                 for path, name in batch:
                     resolved = folder_files[path].get(name)
                     original = originals.get((path, name))
@@ -1794,61 +2088,40 @@ class Mirror:
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
-                    ready.append((target, body, before, resolved, expect))
+                    ready.append((target, body, before, expect, _flag_values(original)))
                 else:
-                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
-                    for target, body, before, resolved, expect in ready:
-                        try:
-                            self._forget(target)
-                            inode = _write_json(target, body, keep_mtime=True, expect=expect,
-                                                sync=True)
-                        except (OSError, ValueError):
-                            inode = None
-                        if inode is None:
-                            # The app saved this copy in the instant after the
-                            # check. Put back the copies already written, so the
-                            # held merge base matches every file again (a copy
-                            # changed since the mirror's write is left alone).
-                            for done, old, done_inode, done_expect, was in reversed(written):
-                                try:
-                                    self._forget(done)
-                                    back = _write_json(done, old, keep_mtime=True,
-                                                       expect=done_expect, sync=True)
-                                except (OSError, ValueError):
-                                    # The mirror's write stands: journal it.
-                                    self._journal_write(done, done_inode, identity,
-                                                        folder_files[done.parent][done.name],
-                                                        "updated")
-                                    continue
-                                if back is not None:
-                                    self._journal_restamp(done, was, back)
-                            held.add(identity)
-                            break
-                        try:
-                            now_signature = _signature_of(target)
-                        except OSError:
-                            now_signature = None
-                            # This successful write cannot enter the rollback
-                            # list without its signature. It may survive a later
-                            # failed copy, even though no journal call sees it.
-                            self._flags_moved = True
-                        if now_signature is not None and now_signature[1] == inode:
-                            written.append((target, before, inode, now_signature, expect))
-                    else:
-                        for target, _before, inode, _signature, _was in written:
-                            self._journal_write(target, inode, identity,
-                                                folder_files[target.parent][target.name], "updated")
+                    outcome = self._publish(identity, ready, base_all.get(identity),
+                                            fresh[identity], temporaries)
+                    if outcome is None:
+                        held.add(identity)          # nothing written, nothing recorded
+                        continue
+                    through, record = outcome
+                    resolved_records[identity] = record
+                    if not through:
+                        failed.add(identity)
                     continue
                 held.add(identity)
             for identity in held:
-                current.flags_held += 1
-                self._why.setdefault(f"session {identity}", "a copy changed while the pass published")
                 if identity in base_all:
                     fresh[identity] = base_all[identity]
                 else:
                     fresh.pop(identity, None)
+            for identity, record in resolved_records.items():
+                if record is None:
+                    fresh.pop(identity, None)
+                else:
+                    fresh[identity] = record
+            for identity in held | failed:
+                current.flags_held += 1
+                self._why.setdefault(f"session {identity}", "a copy changed while the pass published")
             if retry is not None:
-                retry.update(held)
+                retry.update(held | failed)
+            recorded = os.path.lexists(self.publish_path)
+            if recorded:
+                # Journal before the base: once the base is written the
+                # publish record goes, and the load-gap report must still
+                # read these writes as the mirror's after a crash.
+                self.journal.save(lambda _row: True)
             if fresh != base_all:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
@@ -1862,7 +2135,138 @@ class Mirror:
                     for identity in fresh.keys() | base_all.keys()
                 ):
                     self._flags_moved = True
+            if recorded:
+                self._publish_clear(temporaries)
         return dirty
+
+    def _publish(self, identity: str,
+                 ready: list[tuple[Path, dict, dict, tuple[int, ...], dict[str, bool]]],
+                 prior: dict | None, following: dict,
+                 temporaries: list[str]) -> tuple[bool, dict | None] | None:
+        """Write one session's checked copies: `(went through, its record)`,
+        or None when nothing was written.
+
+        Every copy's next version is prepared first, then the publish record
+        names them and is made durable, and only then are they renamed into
+        place, in path order. A rename that finds its copy rewritten since the
+        check stops the publish: the copies already written are put back
+        (after a record of the put-backs), any rewritten since are left
+        alone. The record resolves the same way here as after a crash
+        (`_resolve_publish`), and `temporaries` collects what it named, for
+        removal once the merge base holds the resolution.
+        """
+        prepared: list[tuple[Path, Path, int, dict, tuple[int, ...], dict[str, bool]]] = []
+        try:
+            for target, body, before, expect, read in ready:
+                temporary, inode = _prepare_json(target, body)
+                prepared.append((target, temporary, inode, before, expect, read))
+        except (OSError, ValueError):
+            for _target, temporary, *_rest in prepared:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+            return None
+        row = {"v": 1, "session": identity, "at": self.now().timestamp(),
+               "prior": prior, "next": following,
+               "copies": [[_copy_key(target.parent, target.name), str(temporary), inode, read]
+                          for target, temporary, inode, _before, _expect, read in prepared]}
+        try:
+            self._publish_append(row)
+        except OSError:
+            for _target, temporary, *_rest in prepared:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+            return None
+        temporaries += [str(temporary) for _target, temporary, *_rest in prepared]
+        landed: set[str] = set()
+        written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
+        stopped = False
+        for target, temporary, inode, before, expect, _read in prepared:
+            self._forget(target)
+            try:
+                placed = _install(temporary, target, expect=expect, exclusive=False,
+                                  inode=inode, keep=True)
+            except OSError:
+                placed = False
+            if not placed:
+                stopped = True
+                break
+            landed.add(_copy_key(target.parent, target.name))
+            try:
+                now_signature = _signature_of(target)
+            except OSError:
+                # This write stands but cannot be put back without its
+                # signature; it may survive a later failed copy.
+                self._flags_moved = True
+                continue
+            if now_signature[1] == inode:
+                written.append((target, before, inode, now_signature, expect))
+        restored: set[str] = set()
+        if stopped:
+            # The app saved a copy in the instant after the check. Put back
+            # the copies already written (a copy changed since the mirror's
+            # write is left alone).
+            restored = self._put_back(identity, written, temporaries)
+        else:
+            for target, _before, inode, _signature, _was in written:
+                self._journal_write(target, inode, identity,
+                                    {"title": following.get("title")}, "updated")
+        current: dict[str, dict[str, bool]] = {}
+        for target, *_rest in prepared:
+            key = _copy_key(target.parent, target.name)
+            if key not in landed or key in restored:
+                holds = self._holds(key)
+                if holds is not None:
+                    current[key] = holds
+        return not stopped, _resolve_publish(row, landed, restored, current)
+
+    def _put_back(self, identity: str,
+                  written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]],
+                  temporaries: list[str]) -> set[str]:
+        """Put back a stopped publish's written copies, newest first: the copies
+        restored. A put-back is recorded before it runs; one that cannot be
+        prepared or recorded leaves the mirror's write standing, journaled."""
+        prepared = []
+        for target, old, inode, post, was in reversed(written):
+            try:
+                temporary, back_inode = _prepare_json(target, old)
+            except (OSError, ValueError):
+                self._journal_write(target, inode, identity, {"title": old.get("title")}, "updated")
+                continue
+            prepared.append((target, temporary, back_inode, inode, post, was, old))
+        if not prepared:
+            return set()
+        try:
+            self._publish_append({"v": 1, "session": identity,
+                                  "back": [[_copy_key(target.parent, target.name), str(temporary),
+                                            back_inode]
+                                           for target, temporary, back_inode, *_rest in prepared]})
+        except OSError:
+            for target, temporary, _back, inode, _post, _was, old in prepared:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+                self._journal_write(target, inode, identity, {"title": old.get("title")}, "updated")
+            return set()
+        temporaries += [str(temporary) for _target, temporary, *_rest in prepared]
+        restored: set[str] = set()
+        for target, temporary, back_inode, inode, post, was, old in prepared:
+            self._forget(target)
+            try:
+                placed = _install(temporary, target, expect=post, exclusive=False,
+                                  inode=back_inode, keep=True)
+            except OSError:
+                # The mirror's write stands: journal it.
+                self._journal_write(target, inode, identity, {"title": old.get("title")}, "updated")
+                continue
+            if placed:
+                restored.add(_copy_key(target.parent, target.name))
+                self._journal_restamp(target, was, back_inode)
+        return restored
 
     # --- one pass ------------------------------------------------------------
 

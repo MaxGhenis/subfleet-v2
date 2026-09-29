@@ -2,22 +2,25 @@
 
 A Hypothesis state machine drives the real `Mirror` on real files, with three
 account folders holding one session, and the model in
-`tests/mirror_flags_model.py` in lockstep. The rules interleave user archive
-and unarchive in the loaded account, account switches, the app's focus
-rewrites (a save that keeps the flag), the app's stale re-saves (a save that
-puts back a value it held), full passes, passes with app writes landing
+`tests/mirror_flags_model.py` (rule `refs`) in lockstep. The rules interleave
+user archive and unarchive in the loaded account, account switches, the app's
+focus rewrites (a save that keeps the flag), the app's stale re-saves (a save
+that puts back a value it held), full passes, passes with app writes landing
 between the read and the pre-check, passes with app writes landing between
 two of the publish's writes (so a write fails and the rollback runs), passes
-that cannot list a folder or read a copy, and passes cancelled before they
-publish. After every step every file's flag and
-the merge base must equal the model's. `test_mirror_flags_model.py` checks
-the model's invariants over every reachable state, so this ties the
-implementation to them; the same model is `docs/formal/MirrorFlags.tla`, which
-TLC has not been run on.
+whose put-back writes fail, passes whose merge-base write fails, passes that
+crash before a copy write, before the base write or after it (each followed
+by a new process), passes that cannot list a folder or read a copy, and
+passes cancelled before they publish. After every step every file's flag, the
+merge base, every copy's reference and the pending publish record must equal
+the model's. `test_mirror_flags_model.py` checks the model's invariants over
+every reachable state, so this ties the implementation to them; the same
+model is `docs/formal/MirrorFlags.tla`, which TLC has not been run on.
 """
 
 from __future__ import annotations
 
+import collections
 import itertools
 import json
 import os
@@ -50,6 +53,14 @@ def rewrite(path: Path, data: dict) -> None:
     temporary.replace(path)
 
 
+#: What the runs reached, per rule and outcome; the test asserts it covers the faults.
+REACHED: collections.Counter = collections.Counter()
+
+
+class _Crash(BaseException):
+    """The process dies: nothing in it runs again (not even `except OSError`)."""
+
+
 class MirrorAgainstModel(RuleBasedStateMachine):
     def __init__(self, base: Path, monkeypatch):
         super().__init__()
@@ -59,18 +70,25 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         fx.transcript(home, SESSION, fx.completed())
         self.root = base / "state"
         self.root.mkdir()
-        ticks = itertools.count()
-        # Each rule models exactly one flag transaction and injects its races
-        # once. test_sessions_mirror_safety.py exercises embedded services with
-        # a separate interleaving model; these hooks describe one transaction.
-        self.running = mirror.Mirror(
-            self.root, fx.policy(mirror_hot_interval_s=0),
-            now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
+        self.ticks = itertools.count()
+        self.running = self.process()
+        #: A crash after the base write leaves the record for the next pass,
+        #: which finds the base already holds it; the model has cleared it.
+        self.record_left = False
         self.state: model.State | None = None
         self.focus = itertools.count(1)
         #: Folders whose SESSION copy an earlier pass successfully read. A
         #: listing alone does not establish an unreadable copy's owner.
         self.listed: set[int] = set()
+
+    def process(self) -> mirror.Mirror:
+        """A new mirror process on the same state root and store.
+
+        Each rule models exactly one flag transaction and injects its races
+        once. test_sessions_mirror_safety.py exercises embedded services with
+        a separate interleaving model; these hooks describe one transaction."""
+        return mirror.Mirror(self.root, fx.policy(mirror_hot_interval_s=0),
+                             now=lambda: fx.NOW + timedelta(seconds=next(self.ticks)))
 
     # --- the two worlds -------------------------------------------------------
 
@@ -86,6 +104,11 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         flags = mirror._load(self.running.flags_path).get(SESSION) or {}
         value = flags.get("isArchived")
         return value if isinstance(value, bool) else None
+
+    def real_refs(self) -> tuple[bool | None, ...]:
+        record = mirror._load(self.running.flags_path).get(SESSION) or {}
+        return tuple(mirror._reference(record, f"{account}/{org}/local_{SESSION}.json",
+                                       "isArchived") for account, org in FOLDERS)
 
     def set_flag(self, account: int, value: bool) -> None:
         path = self.path(account)
@@ -137,15 +160,20 @@ class MirrorAgainstModel(RuleBasedStateMachine):
     def user_flip(self):
         self.flip()
 
+    def ran(self, result, expected: str = "ok") -> None:
+        assert result.state == expected, result.error
+        self.record_left = False
+        self.listed.update(range(len(FOLDERS)))
+
     @rule()
     def full_pass(self):
-        assert self.running.run_once().state == "ok"
-        self.state = model.pass_publish(model.pass_decide(self.state))
-        self.listed.update(range(len(FOLDERS)))
+        result = self.running.run_once()
+        self.state = model.full_pass(self.state)
+        self.ran(result)
 
     @rule(actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3))
     def pass_with_writes_between_read_and_publish(self, actions):
-        decided = model.pass_decide(self.state)
+        decided = model.pass_decide(model.recovered(self.state))
         sync = mirror.Mirror.sync_flags
 
         def interleave(engine, folder_files, *args, **kwargs):
@@ -156,46 +184,183 @@ class MirrorAgainstModel(RuleBasedStateMachine):
 
         with self.monkeypatch.context() as patch:
             patch.setattr(mirror.Mirror, "sync_flags", interleave)
-            assert self.running.run_once().state == "ok"
+            result = self.running.run_once()
         self.state = model.pass_publish(self.state)
-        self.listed.update(range(len(FOLDERS)))
+        self.ran(result)
 
-    @rule(flip=st.booleans(), k=st.integers(min_value=0, max_value=2),
-          actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3))
-    def pass_with_writes_during_publish(self, flip, k, actions):
-        """App and user writes land just before the publish's k-th write (after
-        a user's flip, so that there is something to publish)."""
+    def to_write(self, flip: bool, k: int) -> tuple[model.State, bool]:
+        """The model just before the publish's k-th write, and whether the
+        publish gets that far (after a user's flip, if asked, so that there
+        is something to publish)."""
         if flip:
             self.flip()
-        state = model.pass_check(model.pass_decide(self.state))
+        state = model.pass_check(model.pass_decide(model.recovered(self.state)))
         for _ in range(k):
             if state.phase != model.PUBLISHING:
                 break
             state = model.pass_write(state)
-        reached = state.phase == model.PUBLISHING
-        at_k = state
-        install = mirror._install
+        return state, state.phase == model.PUBLISHING
+
+    @rule(flip=st.booleans(), k=st.integers(min_value=0, max_value=2),
+          actions=st.lists(st.sampled_from(ENVIRONMENT), min_size=1, max_size=3),
+          failing=st.sets(st.integers(min_value=0, max_value=2), max_size=2))
+    def pass_with_writes_during_publish(self, flip, k, actions, failing):
+        """App and user writes land just before the publish's k-th write. If
+        that write fails, the put-backs of the copies in `failing` fail too
+        (disk full), so the mirror's write there stands."""
+        at_k, reached = self.to_write(flip, k)
+        install, prepare = mirror._install, mirror._prepare_json
         calls = itertools.count()
-        applied = []
+        applied, stopped = [], []
 
         def racing(temporary, destination, **kwargs):
-            if kwargs.get("expect") is not None and next(calls) == k:
+            if kwargs.get("keep") and next(calls) == k and not applied:
                 applied.append(destination)
                 self.state = at_k
                 for action in actions:
                     self.apply(action)
-            return install(temporary, destination, **kwargs)
+            placed = install(temporary, destination, **kwargs)
+            if kwargs.get("keep") and not placed:
+                stopped.append(destination)
+            return placed
+
+        def put_back(path, value):
+            if stopped and self.account(path) in failing:
+                raise OSError(28, "No space left on device")
+            return prepare(path, value)
 
         with self.monkeypatch.context() as patch:
             patch.setattr(mirror, "_install", racing)
-            assert self.running.run_once().state == "ok"
+            patch.setattr(mirror, "_prepare_json", put_back)
+            result = self.running.run_once()
         assert bool(applied) == reached, "the code and the model reach the same write"
-        if reached:
-            state = self.state
-            while state.phase == model.PUBLISHING:
-                state = model.pass_write(state)
-        self.state = state
-        self.listed.update(range(len(FOLDERS)))
+        REACHED["writes during publish"] += 1
+        REACHED["a write found its copy rewritten"] += bool(stopped)
+        state = self.state if reached else at_k
+        while state.phase == model.PUBLISHING:
+            state = model.pass_write(state)
+        while state.phase == model.ROLLING:
+            state = model.rollback_write(state, fails=state.back[0] in failing)
+        self.state = model.finish(state)
+        self.ran(result)
+
+    def account(self, path) -> int:
+        return next(i for i in range(len(FOLDERS)) if Path(path).parent == self.path(i).parent)
+
+    def base_moves(self, before: model.State, after: model.State) -> bool:
+        return (after.base, model.refs(after)) != (before.base, model.refs(before))
+
+    def base_moves(self, before: model.State, after: model.State) -> bool:
+        return (after.base, model.refs(after)) != (before.base, model.refs(before))
+
+    def base_write_fails(self, state: model.State) -> tuple[model.State, bool]:
+        """The model when the pass's first merge-base write fails (or the
+        process dies there): `(state after, whether that write happened)`.
+
+        The first base write is the recovery's, if a record was left and its
+        resolution moves the base; otherwise the pass's own, if its decision
+        moves the base. A publish that got as far as its base write keeps its
+        record; a decision with nothing to write is simply lost."""
+        after = model.recovered(state)
+        if self.base_moves(state, after):
+            return state, True
+        decided = model.pass_decide(after)
+        final = model.to_commit(model.pass_check(decided))
+        if final.phase == model.COMMITTING:
+            if self.base_moves(final, model.pass_commit(final)):
+                return model.commit_fails(final), True
+            return model.pass_commit(final), False
+        if self.base_moves(after, final):
+            return model.cancel(decided), True
+        return final, False
+
+    @rule(flip=st.booleans())
+    def pass_whose_base_write_fails(self, flip):
+        """The merge base cannot be written (disk full): the pass fails, and a
+        publish record stays for the next pass."""
+        if flip:
+            self.flip()
+        write = mirror._write_json
+        flags = self.running.flags_path
+        failed = []
+
+        def disk_full(path, value, **kwargs):
+            if Path(path) == flags:
+                failed.append(path)
+                raise OSError(28, "No space left on device")
+            return write(path, value, **kwargs)
+
+        with self.monkeypatch.context() as patch:
+            patch.setattr(mirror, "_write_json", disk_full)
+            result = self.running.run_once()
+        self.state, expected = self.base_write_fails(self.state)
+        REACHED["base write failed"] += bool(failed)
+        if expected:
+            assert failed
+        self.ran(result, "error" if failed else "ok")
+
+    @rule(flip=st.booleans(), point=st.sampled_from(("write-0", "write-1", "base", "cleared")))
+    def pass_that_crashes(self, flip, point):
+        """The process dies before a copy's rename, at the first merge-base
+        write, or once the base is written and before the publish record is
+        dropped. A new process takes over; its first pass resolves what was
+        left."""
+        k = int(point[-1]) if point.startswith("write") else -1
+        left = self.record_left
+        at_k, reached = self.to_write(flip, max(k, 0))
+        state = self.state
+        install, write, clear = mirror._install, mirror._write_json, mirror.Mirror._publish_clear
+        calls = itertools.count()
+        flags = self.running.flags_path
+        died = []
+
+        def dying_install(temporary, destination, **kwargs):
+            if kwargs.get("keep") and next(calls) == k:
+                died.append("write")
+                raise _Crash()
+            return install(temporary, destination, **kwargs)
+
+        def dying_write(path, value, **kwargs):
+            if point == "base" and Path(path) == flags:
+                died.append("base")
+                raise _Crash()
+            return write(path, value, **kwargs)
+
+        def dying_clear(engine, temporaries):
+            if point == "cleared":
+                died.append("cleared")
+                raise _Crash()
+            return clear(engine, temporaries)
+
+        with self.monkeypatch.context() as patch:
+            patch.setattr(mirror, "_install", dying_install)
+            patch.setattr(mirror, "_write_json", dying_write)
+            patch.setattr(mirror.Mirror, "_publish_clear", dying_clear)
+            try:
+                self.running.run_once()
+            except _Crash:
+                pass
+        self.running = self.process()
+        REACHED[f"crash at {point}"] += bool(died)
+        self.listed.clear()                         # a new process has read nothing
+        self.record_left = False
+        if k >= 0:
+            assert bool(died) == reached, "the code and the model reach the same write"
+            self.state = model.crash(at_k) if reached else model.finish(at_k)
+        elif point == "base":
+            self.state, expected = self.base_write_fails(state)
+            if expected:
+                assert died
+            if died and not expected and self.state.wal is None and at_k.phase == model.PUBLISHING:
+                self.record_left = True             # another session's base write died
+        else:
+            # "cleared": whatever the base holds stands; the record is left.
+            # A record left by an earlier such crash is cleared (and so dies)
+            # by this pass's recovery, before it decides anything.
+            recovering = state.wal is not None or left
+            self.state = model.recovered(state) if recovering else model.finish(at_k)
+            self.record_left = bool(died)
+            assert recovering <= bool(died)
 
     @rule(account=st.integers(min_value=0, max_value=2),
           mode=st.sampled_from(("unlisted", "unreadable", "both")))
@@ -232,11 +397,12 @@ class MirrorAgainstModel(RuleBasedStateMachine):
                 patch.setattr(mirror, "_read_entry", unreadable)
             result = self.running.run_once()
         assert result.state == "ok"
+        self.record_left = False
         if mode == "unlisted" and unchanged:
-            self.state = model.pass_publish(model.pass_decide(self.state))
+            self.state = model.pass_publish(model.pass_decide(model.recovered(self.state)))
             assert result.flags_held == 0
         else:
-            self.state = model.cancel(model.pass_decide(self.state))
+            self.state = model.cancel(model.pass_decide(model.recovered(self.state)))
             # A folder whose contents are unknown, or a copy never read before
             # (whose session nobody can name), holds both sessions.
             everything = mode != "unreadable" or account not in self.listed
@@ -257,7 +423,8 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             patch.setattr(mirror.Mirror, "_checkpoint", cancel_at_publish)
             assert running.run_once().state == "cancelled"
         running.cancel = None
-        self.state = model.cancel(model.pass_decide(self.state))
+        self.state = model.cancel(model.pass_decide(model.recovered(self.state)))
+        self.record_left = False
         self.listed.update(range(len(FOLDERS)))
 
     # --- the check --------------------------------------------------------------
@@ -268,6 +435,9 @@ class MirrorAgainstModel(RuleBasedStateMachine):
             return
         assert self.real_copy() == self.state.copy
         assert self.real_base() == self.state.base
+        assert self.real_refs() == model.refs(self.state)
+        pending = os.path.lexists(self.running.publish_path)
+        assert pending == (self.state.wal is not None or self.record_left)
 
 
 class _Always:
@@ -298,10 +468,30 @@ def test_a_listing_does_not_teach_the_model_an_unreadable_copys_owner(tmp_path, 
 def test_the_mirror_follows_its_flag_protocol_on_random_interleavings(
         seed, tmp_path_factory, monkeypatch):
     """C-23.28: implementation and model agree step by step, so the model's
-    exhaustively checked invariants hold for the mirror on every trace tried."""
+    exhaustively checked invariants hold for the mirror on every trace tried.
+    The run must reach every fault it models, and every way a publish
+    resolves, or it proves less than it says."""
+    resolve = mirror._resolve_publish
+
+    def counted(row, landed, restored, current):
+        record = resolve(row, landed, restored, current)
+        targets = {copy[0] for copy in row["copies"]}
+        reached = {key for key in targets if key in landed and key not in restored}
+        REACHED["resolved: went through" if reached == targets else
+                "resolved: decision stands" if (record or {}).get("published") else
+                "resolved: nothing changes"] += 1
+        return record
+
+    REACHED.clear()
+    monkeypatch.setattr(mirror, "_resolve_publish", counted)
     run_state_machine_as_test(
         lambda: MirrorAgainstModel(tmp_path_factory.mktemp("trace"), monkeypatch),
         settings=settings(max_examples=100, stateful_step_count=30, deadline=None,
                           derandomize=True, database=None,
                           suppress_health_check=[HealthCheck.too_slow,
                                                  HealthCheck.function_scoped_fixture]))
+    for reached in ("a write found its copy rewritten", "base write failed",
+                    "crash at write-0", "crash at write-1", "crash at base", "crash at cleared",
+                    "resolved: went through", "resolved: decision stands",
+                    "resolved: nothing changes"):
+        assert REACHED[reached] >= 5, (reached, dict(REACHED))
