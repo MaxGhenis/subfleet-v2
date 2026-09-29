@@ -261,6 +261,17 @@ class ClaudeTurn(SteerTracking):
         return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message))],
                     events=[Event("steer.sent", {"message_id": message_id}, f"cmd:steer:{message_id}")])
 
+    def drop_steer(self, message_id: str, detail: str) -> Step:
+        """A steer that is not written after all (a stop or its cancel won the
+        handover, its frame is over the relay cap, its input could not be built):
+        a result held only for it ends the turn now, not after the watchdog's two
+        rounds (C-26.5)."""
+        step = super().drop_steer(message_id, detail)
+        if self.outcome is None and self._last_result is not None:
+            self._refresh_steer_waiting()
+            step.extend(self._finish_held())
+        return step
+
     def expire_steers(self) -> Step:
         """The runner's watchdog: called once `steer_waiting` has held for 15 s, and
         again 15 s later (`runner.STEER_GRACE_S`).

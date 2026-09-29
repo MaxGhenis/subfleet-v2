@@ -900,6 +900,31 @@ def test_a_steer_s_own_turn_ends_with_its_result_even_one_that_does_not_list_it(
     assert end.outcome.steers[STEER]["fate"] == "delivered"
 
 
+@pytest.mark.parametrize("why", ["cancelled-before-handover", "frame-too-large"])
+def test_a_result_held_only_for_a_steer_that_was_never_written_ends_when_it_is_dropped(why):
+    """C-26.5: the host's result came while a steer's frame was still on its way; the
+    steer is then not written (Esc's cancel or a stop won its handover, or its frame is
+    over the relay cap). Nothing is left for the held result to wait for, so the turn
+    ends with it at once, not after the watchdog's two rounds."""
+    turn = steer_running()
+    assert turn.steer(STEER, "on its way").frames              # built, not yet written
+    assert steer_result(turn, [MID]).outcome is None and turn.steer_waiting
+    end = turn.drop_steer(STEER, why)
+    assert end.outcome.state == "complete" and end.outcome.ended_by == "provider"
+    assert [f.tag for f in end.frames] == ["close"] and not turn.steer_waiting
+    assert end.outcome.steers[STEER] == {"frame": "unsent", "fate": "refused", "detail": why}
+
+
+def test_a_steer_dropped_while_another_is_unseen_keeps_the_result_held():
+    """The held result still waits for the steer the CLI has not shown taking."""
+    turn = steer_running()
+    written_steer(turn, STEER, "written, unseen")
+    assert turn.steer(SECOND, "on its way").frames
+    assert steer_result(turn, [MID]).outcome is None
+    held = turn.drop_steer(SECOND, "cancelled-before-handover")
+    assert held.outcome is None and turn.steer_waiting
+
+
 def test_a_folded_steer_the_result_does_not_list_does_not_hold_the_turn():
     """A steer the CLI started before the host's result folded into that turn: the result
     ends it whether or not `user_message_uuids` names it, and no watchdog is needed."""
