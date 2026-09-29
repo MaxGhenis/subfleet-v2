@@ -576,3 +576,72 @@ def test_a_restart_at_each_steer_boundary_through_the_runner_loop_settles_as_an_
     assert restarted["steer"][:2] == reference["steer"][:2] and restarted["host"] == reference["host"]
     assert restarted["steer_frames"] == 1 and restarted["user_frames"] == 1
     assert restarted["tags"] == reference["tags"]
+
+
+# --- invariant 1 through the runner's own loop ---------------------------------------------------
+#
+# The generated histories of invariant 1 again, now with the runner's own loop on its thread
+# reading the provider's stdout as it is written, draining the steer commands, writing the
+# frames and settling when the process has exited: no runner method is called by hand.
+
+from hypothesis import HealthCheck
+
+
+@settings(max_examples=12, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(provider=st.sampled_from(["claude", "codex"]), picks=st.lists(st.integers(0, 5), min_size=1, max_size=3))
+def test_every_steer_settles_once_through_the_runner_loop(provider, picks):
+    """Invariant 1 (C-24.9) through `TurnRunner._run`: each steer ends in exactly one of
+    steered, queued, cancelled or delivery-unknown, as the provider's evidence says; each
+    is written at most once; and settling again changes nothing."""
+    import uuid
+    with world() as w:
+        if provider == "codex":
+            w.cid = conversation(w.service, provider="codex", settings=CODEX_SETTINGS)
+            w.host = submit(w.service, w.cid, "host")
+            w.service.store.set_state(w.host, "running")
+        provider_ = Provider(w, provider)
+        provider_.until_steerable()
+        r = live_runner(w, provider)
+        try:
+            wait_for(lambda: r.steerable)
+            names = CLAUDE_FATES if provider == "claude" else CODEX_FATES
+            fates, previous = [], w.host
+            for pick in picks:
+                mid = str(uuid.uuid4())
+                w.service.store.submit_message(conversation_id=w.cid, message_id=mid, after_message_id=previous,
+                                               text="correction", attachments=[],
+                                               settings=w.service.store.message(w.host)["settings"])
+                previous = mid
+                w.service.store.claim_steer(mid, w.host)
+                withdrawn = names[pick] == "withdrawn"
+                if withdrawn:                               # the person's cancel before handover
+                    assert w.service.store.withdraw(mid, expect=("steering",), stop_at="test")
+                r.steer(mid)
+                if withdrawn:
+                    wait_for(lambda: r.driver.steers.get(mid, {}).get("fate") == "cancelled")
+                else:                                       # handed over before the provider answers
+                    wait_for(lambda: any(row["tag"] == f"steer:{mid}" for row in read_log(w.adir / "stdin.jsonl")))
+                fates.append((mid, names[pick]))
+            rows, expected = (claude_history if provider == "claude" else codex_history)(w.host, fates)
+            provider_.write(*rows)
+            (w.adir / "exit.json").write_text(json.dumps({"rc": 0}))      # the process has exited
+            assert r.settled.wait(90), fates
+        finally:
+            r.stop()
+            assert r.join(30)
+        states = {mid: w.service.store.message(mid) for mid, _ in fates}
+        assert {mid: (row["state"], row["state_reason"] if row["state"] == "steered" else None)
+                for mid, row in states.items()} == expected, fates
+        tags = [row["tag"] for row in read_log(w.adir / "stdin.jsonl")]
+        for mid, fate in fates:
+            assert tags.count(f"steer:{mid}") == (0 if fate == "withdrawn" else 1), (mid, fate)
+            assert states[mid]["job_id"] is None
+            if states[mid]["state"] == "steered":
+                assert states[mid]["served"]["steered_into"] == w.host
+        assert w.service.store.steers(w.host) == [] and tags.count("user-message") == 1
+        changes = w.service.store.query("SELECT * FROM changes ORDER BY seq")
+        events = w.service.store.events_after(w.cid, 0)
+        w.service._on_outcome(r)                            # a second settlement, as after a restart
+        assert {mid: w.service.store.message(mid) for mid, _ in fates} == states
+        assert w.service.store.query("SELECT * FROM changes ORDER BY seq") == changes
+        assert w.service.store.events_after(w.cid, 0) == events
