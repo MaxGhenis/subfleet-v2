@@ -18,6 +18,16 @@ PROVIDERS = ("codex", "claude")
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
+#: C-13.1: where git finds a repository, its objects and its index when the
+#: environment names them, before `-C` and before discovery. Inherited by the
+#: daemon (a `subfleet daemon start` run from a git hook passes its caller's
+#: environment through), every salvage call went to that repository instead: a
+#: salvage wrote its ref there and reported success (adversarial review of the
+#: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
+#: temporary index a caller names), and so does the daemon's environment
+#: (`cli.STRIPPED_ENV`).
+GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
 
 
 class JobState(str, enum.Enum):  # C-4.1

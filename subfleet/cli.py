@@ -52,12 +52,11 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState,
-                        Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (GIT_LOCATION_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S,
+                        JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
-from .salvage import GIT_LOCATION_ENV
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .adapters.base import AdapterError
+from .contracts import GIT_LOCATION_ENV
 from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
@@ -52,14 +53,6 @@ _TRANSIENT_GIT = re.compile(
     r"|reftable: transaction (?:failure|prepare): I/O error)"
     r"|unable to write new index file|Out of memory, [^\n]*)$", re.M)
 
-#: Where git finds a repository, its objects and its index when the environment
-#: names them, before `-C` and before discovery. Inherited by the daemon (a
-#: `subfleet daemon start` run from a git hook passes its caller's environment
-#: through), every salvage call went to that repository instead: a salvage wrote
-#: its ref there and reported success (adversarial review of the round-3 branch).
-#: `_git_env` removes them; a temporary index a caller names is kept.
-GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
 
 
 class SalvageError(RuntimeError):

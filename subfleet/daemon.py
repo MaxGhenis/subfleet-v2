@@ -2667,7 +2667,7 @@ class Daemon:
             shutil.rmtree(directory, ignore_errors=True)
         return dataclasses.replace(outcome, evidence=evidence)
 
-    def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
+    def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
         """C-6.8: every git call here is capped by policy, and a call that did
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
