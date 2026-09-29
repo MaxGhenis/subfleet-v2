@@ -203,14 +203,37 @@ enum EscapeAction: Equatable {
 }
 
 /// The newest steer the provider has not read and the daemon may still give
-/// back; with none, Stop. `unrecallable` are steers the daemon already
-/// answered `too-late` for (their frame is written: the next step reads them).
-func escapeAction(timeline: Timeline?, unrecallable: Set<String> = []) -> EscapeAction {
+/// back; with none, Stop. `unrecallable` maps each steer the daemon answered
+/// `too-late` for (its frame is written: the next step reads it) to the turn it
+/// was in then (`tooLateBinding`). Esc passes over it only while it is still in
+/// that turn (`stillTooLate`): once it is back in the queue (the turn ended
+/// without reading it) or steered into another turn, Esc may take it back again.
+func escapeAction(timeline: Timeline?, unrecallable: [String: String] = [:]) -> EscapeAction {
     guard let timeline, let live = timeline.liveMessageID else { return .none }
-    if let steer = timeline.recallableSteers.last(where: { !unrecallable.contains($0) }) {
+    if let steer = timeline.recallableSteers.last(where: { !stillTooLate($0, in: timeline, unrecallable: unrecallable) }) {
         return .recall(messageID: steer)
     }
     return .stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
+}
+
+/// The turn a steer is in, as the app sees it: the host its receipt names, or,
+/// before that receipt, the live turn it was sent to.
+func tooLateBinding(_ messageID: String, in timeline: Timeline) -> String? {
+    timeline.turn(messageID)?.steeredInto ?? timeline.liveMessageID
+}
+
+/// Whether a steer the daemon answered `too-late` for is still in the turn it
+/// was in then: steering (or not yet seen to have left the queue for it) and
+/// bound to the same turn. An entry for which this is false is stale: drop it.
+func stillTooLate(_ messageID: String, in timeline: Timeline, unrecallable: [String: String]) -> Bool {
+    guard let host = unrecallable[messageID], let turn = timeline.turn(messageID),
+          tooLateBinding(messageID, in: timeline) == host else { return false }
+    switch turn.messageState {
+    case .steering: return true
+    case .queued: return turn.steerRequested && !turn.missedSteer     // its steer's receipt is not folded yet
+    case nil: return turn.state == "sending"
+    default: return false
+    }
 }
 
 /// The composer's one-line hint while it steers and the person's picks differ
@@ -851,16 +874,18 @@ final class ConversationEngine {
     /// submitted and then steered into the running turn (C-24.9): the caller has
     /// checked the daemon steers this provider (`composerSteerHost`).
     func send(conversation: String, text: String, staged: [StagedAttachment] = [], settings: ConversationSettings,
-              messageID: String = Outbox.newMessageID(), steer: Bool = false) throws -> OutboxEntry {
+              messageID: String = Outbox.newMessageID(), steer: Bool = false, into: String? = nil) throws -> OutboxEntry {
         try outbox.enqueueSubmit(conversation: conversation, messageID: messageID, text: text, staged: staged,
-                                 settings: settings, steer: steer)
+                                 settings: settings, steer: steer, into: into)
     }
 
     /// Journal a steer of a queued message (C-24.9); sending is `pump`. A refusal
-    /// leaves the message queued, and the report says why.
+    /// leaves the message queued, and the report says why. `into` is the running
+    /// turn the person steers into: a steer that reaches the daemon after that
+    /// turn ended is refused (`no-live-turn`), never joined to the next one.
     @discardableResult
-    func steer(messageID: String, conversationID: String) throws -> OutboxSteer {
-        try outbox.enqueueSteer(conversation: conversationID, messageID: messageID)
+    func steer(messageID: String, conversationID: String, into: String? = nil) throws -> OutboxSteer {
+        try outbox.enqueueSteer(conversation: conversationID, messageID: messageID, into: into)
     }
 
     /// Send what the outbox holds; keep the newest `keptClosedEntries` closed

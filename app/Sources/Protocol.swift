@@ -821,6 +821,9 @@ struct TurnInterruptArgs: Codable, Equatable {
 /// `message.steer`: a queued message, by its canonical lowercase id (C-24.9).
 struct MessageSteerArgs: Codable, Equatable {
     var message_id: String
+    /// The running turn the person steered into (C-24.9): the daemon refuses the
+    /// steer (`no-live-turn`) once another turn is the live one. Omitted when nil.
+    var into: String? = nil
 }
 
 /// A person's ruling on an ambiguous delivery; `confirm` is always the literal true (C-24.6).

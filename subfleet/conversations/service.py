@@ -2171,12 +2171,13 @@ class ConversationService:
             # limited message failed without it; it cannot dispatch while the
             # original is live.
             self._continue_elsewhere(conversation, message)
-        if settlement.block or steer_unknown:
+        block = "delivery-unknown" if steer_unknown else settlement.block
+        if block and self.store.conversation(conversation["conversation_id"])["blocked_by"] != block:
             # Before the message settles, so a settlement cut short (close() refusing
             # what a late runner writes) leaves it live, for a replay to settle whole,
-            # never settled with its conversation unblocked (C-24.8).
-            self.store.update_conversation(conversation["conversation_id"],
-                                           blocked_by="delivery-unknown" if steer_unknown else settlement.block)
+            # never settled with its conversation unblocked (C-24.8). A settlement run
+            # again writes nothing new: no second change row for the watch feed.
+            self.store.update_conversation(conversation["conversation_id"], blocked_by=block)
         if settlement.readmit:
             self.store.set_state(message["message_id"], WAITING, reason=settlement.reason, expect=live,
                                  turn_seq=message["turn_seq"] + 1, job_id=None)

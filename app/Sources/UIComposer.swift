@@ -268,12 +268,10 @@ struct ComposerView: View {
         }
         .padding(10)
         .onAppear {
-            loadDraft()
-            takeRecall()
+            takeRecall(loaded: loadDraft())
         }
         .onChange(of: conversation.conversation_id) { _, _ in
-            loadDraft()
-            takeRecall()
+            takeRecall(loaded: loadDraft())
         }
         .onChange(of: text) { _, _ in saveDraft() }
         .onChange(of: model.composerRecall[conversation.conversation_id]?.id) { _, _ in takeRecall() }
@@ -322,13 +320,19 @@ struct ComposerView: View {
     }
 
     /// Esc took an unread steer back: its words go into the composer ahead of
-    /// anything typed since, and its images are staged again.
-    private func takeRecall() {
+    /// anything typed since, and its images are staged again. `UIModel.escape`
+    /// already put them in the draft, so a composer that just loaded the draft
+    /// (`loaded`) has them; one on screen since merges them in and saves.
+    private func takeRecall(loaded: Bool = false) {
         let key = conversation.conversation_id
         guard let recall = model.composerRecall[key] else { return }
         model.composerRecall[key] = nil
-        text = text.isEmpty ? recall.text : recall.text + "\n\n" + text
-        for image in recall.staged where !staged.contains(image) { staged.append(image) }
+        guard !loaded else { return }
+        let merged = recalledDraft(Draft(text: text, attachments: staged, settings: settings, updated_at: ""),
+                                   text: recall.text, staged: recall.staged, now: "")
+        text = merged.text
+        staged = merged.attachments
+        saveDraft()                         // images alone change no text, so nothing else saves them
     }
 
     private func addImage(_ data: Data) {
@@ -342,8 +346,10 @@ struct ComposerView: View {
         Task { _ = await model.updateSettings(conversation, to: next, confirmedWiden: confirmed) }
     }
 
-    private func loadDraft() {
-        guard loadedDraftFor != conversation.conversation_id else { return }
+    /// Whether it read the draft from disk now (not already loaded for this conversation).
+    @discardableResult
+    private func loadDraft() -> Bool {
+        guard loadedDraftFor != conversation.conversation_id else { return false }
         loadedDraftFor = conversation.conversation_id
         settings = nil
         if let draft = model.drafts.load(conversation.conversation_id) {
@@ -354,6 +360,7 @@ struct ComposerView: View {
             text = ""
             staged = []
         }
+        return true
     }
 
     private func saveDraft() {

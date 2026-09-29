@@ -1,13 +1,13 @@
 """Steer in the app (C-24.9; DESIGN.md sections 6, 8 and 9 of the 2026-09-28 steer design).
 
 A message sent while a turn runs can be steered into that turn instead of
-queued behind it. The daemon side (`message.steer`, the `steering`/`steered`
-states, `steer.delivered`) is built in parallel against a fixed interface, so
-what it will answer is recorded here in exactly that shape, through the real
-store and handlers (`daemon_harness.RecordedSteer`, `record_state`,
-`record_steer_event`): receipts come from the real `_receipt`, change rows from
-the real `conversation.watch`, events from the real `conversation.events`.
-Everything else is the daemon's own code, as in the other core tests.
+queued behind it. `message.steer` is the daemon's own op here, steering into a
+real `TurnRunner` for the host (`daemon_harness.make_live`, `go_live_when_submitted`),
+so claims, refusals and receipts are the daemon's, and a refusal comes from the
+condition that causes it. Later states a settlement or the driver would write come
+from the store's own `set_state` and `append_events` (`record_state`,
+`record_steer_event`); receipts come from the real `_receipt`, change rows from the
+real `conversation.watch`, events from the real `conversation.events`.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ import pytest
 from subfleet import protocol
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
-    STEER_REFUSALS, RecordedSteer, ServiceHarness, ServiceServer, claude_assistant, claude_block, claude_init,
-    claude_result, record_state, record_steer_event,
+    STEER_REFUSALS, ServiceHarness, ServiceServer, after_submitted, claude_assistant, claude_block, claude_init,
+    claude_result, go_live_when_submitted, make_live, record_state, record_steer_event, steer_frames, steer_requests,
 )
 
 pytestmark = needs_swift
@@ -41,7 +41,7 @@ HINT = "Steering uses the running turn's settings; ⌘⏎ queues with yours"
 REFUSED_WORDS = {
     "not-queued": "Queued, not steered: it had already left the queue",
     "not-next": "Queued, not steered: a recovery message goes first",
-    "no-live-turn": "Queued, not steered: no turn was running to take it",
+    "no-live-turn": "Queued, not steered: the turn it was sent to had ended",
     "settings-narrower": "Queued, not steered: it asks for a narrower permission than the running turn has",
     "not-steerable": "Queued, not steered: the running turn could not take it",
     "unsupported": "Queued, not steered: this daemon cannot steer",
@@ -151,19 +151,20 @@ def change_rows(harness, mid: str) -> list[tuple]:
 
 
 def test_c25_2_the_steer_op_and_fields_round_trip(core_probe, tmp_path, harness):
-    """`message.steer` encodes `{message_id}` only; its receipt, the capability's
-    `steer_providers`, and `steered_into` on change rows and status entries survive
-    the Swift models."""
+    """`message.steer` encodes `{message_id}`, and `into` when the app knows the turn it
+    steers into; the daemon's receipt, the capability's `steer_providers`, and
+    `steered_into` on change rows and status entries survive the Swift models."""
     cid, host, _ = running_host(harness)
     mid = harness.submit(cid, "also the lexer", after=host)["message_id"]
-    line = run_probe(core_probe, "request", "message.steer", write_json(tmp_path / "a.json", {"message_id": mid}),
-                     "app-7", raw=True)
-    request = protocol.decode_request(line.encode())
-    assert (request.op, request.id, request.args) == ("message.steer", "app-7", {"message_id": mid})
+    for args in ({"message_id": mid}, {"message_id": mid, "into": host}):
+        line = run_probe(core_probe, "request", "message.steer", write_json(tmp_path / "a.json", args), "app-7",
+                         raw=True)
+        request = protocol.decode_request(line.encode())
+        assert (request.op, request.id, request.args) == ("message.steer", "app-7", args)
     assert "message.steer" in run_probe(core_probe, "ops")
 
-    harness.service.op_message_steer = RecordedSteer(harness, host)
-    receipt = harness.call("message.steer", message_id=mid)
+    make_live(harness, cid, host)
+    receipt = harness.call("message.steer", message_id=mid, into=host)
     assert (receipt["state"], receipt["state_reason"], receipt["steered_into"]) == ("steering", f"steer:{host}", host)
     record_state(harness, mid, "steered", f"steered:{host}", served={"steered_into": host})
     status = statuses(harness, mid)[0]
@@ -416,7 +417,7 @@ def test_c24_9_a_steered_message_is_drawn_once_where_the_turn_took_it(core_probe
               *claude_block("msg_1", 1, {"type": "tool_use", "id": "tu1", "name": "Bash",
                                          "input": {"command": "pytest -q"}}, ['{"command": "pytest -q"}']))
     steered = harness.submit(cid, "also check the lexer", after=host)["message_id"]
-    harness.service.op_message_steer = RecordedSteer(harness, host)
+    make_live(harness, cid, host)
     harness.call("message.steer", message_id=steered)
     before = page(harness, cid)
     early = statuses(harness, host, steered)
@@ -468,7 +469,7 @@ def test_c24_9_a_steer_that_missed_is_drawn_in_its_own_place_and_runs_next(core_
     turn of its own, once."""
     cid, host, turn = running_host(harness)
     steered = harness.submit(cid, "also check the lexer", after=host)["message_id"]
-    harness.service.op_message_steer = RecordedSteer(harness, host)
+    make_live(harness, cid, host)
     harness.call("message.steer", message_id=steered)
     record_steer_event(turn, "steer.delivered", steered)
     turn.feed(claude_result(ok=False, subtype="error_during_execution"))
@@ -499,7 +500,7 @@ def test_c24_9_a_steer_that_missed_is_drawn_in_its_own_place_and_runs_next(core_
 def test_c24_9_a_steer_is_its_submit_then_the_steer_in_journal_order(core_probe, tmp_path, daemon):
     harness, server = daemon
     host, steered, after = ids(3)
-    stand_in = harness.service.op_message_steer = RecordedSteer(harness, host)
+    runners = go_live_when_submitted(harness, host)
     out = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-s1"),
         {"do": "submit", "conversation": "@draft:req-s1", "message_id": host, "text": "fix the parser"},
@@ -520,8 +521,9 @@ def test_c24_9_a_steer_is_its_submit_then_the_steer_in_journal_order(core_probe,
     assert [s["message_id"] for s in report["steers"]] == [steered]
     orders = {e["key"]: e["order"] for e in out["entries"]}
     assert orders[steered] < steer["order"] < orders[after]
-    assert stand_in.calls == [steered]
+    assert steer_requests(server) == [steered]
     assert harness.store.message(steered)["state"] == "steering"
+    assert steer_frames(runners[host]) == [steered]                  # the provider gets it once
     assert harness.store.message(after)["state"] == "queued"
     assert out["chains"] == {harness.store.message(host)["conversation_id"]: after}
 
@@ -530,7 +532,7 @@ def test_c24_9_a_steer_under_way_at_a_restart_or_without_an_answer_is_sent_again
                                                                                             daemon):
     harness, server = daemon
     host, steered = ids(2)
-    stand_in = harness.service.op_message_steer = RecordedSteer(harness, host)
+    runners = go_live_when_submitted(harness, host)
     journal = tmp_path / "support" / "outbox.json"
     first = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-s2"),
@@ -542,8 +544,7 @@ def test_c24_9_a_steer_under_way_at_a_restart_or_without_an_answer_is_sent_again
     # The submit landed; its steer is refused a connection once, then journaled as sending
     # when the app stops.
     assert first["steers"][0]["state"] == "acknowledged"
-    record_state(harness, steered, "queued")                         # the recorded steer, undone for the rerun
-    stand_in.calls.clear()
+    record_state(harness, steered, "queued")                         # the first steer, undone for the rerun
     server.faults[("message.steer", steered)] = "drop"               # handled, answer lost
     again = run_steps(core_probe, tmp_path, server.path, [
         {"do": "steer", "key": steered, "conversation": "@conv:req-s2"},
@@ -557,23 +558,40 @@ def test_c24_9_a_steer_under_way_at_a_restart_or_without_an_answer_is_sent_again
     assert landed["acknowledged"] == [f"steer:{steered}"]
     steer = again["steers"][0]
     assert (steer["state"], steer["attempts"]) == ("acknowledged", 3)          # the begun send counts
-    assert stand_in.calls == [steered, steered]                                 # the repeat answered, not redone
+    assert steer_requests(server) == [steered] * 3                              # the repeat answered, not redone
     assert change_rows(harness, steered).count(("steering", f"steer:{host}")) == 2   # once per real steer
     assert [c for c in again["calls"] if "message.steer" in c] == [f"message.steer {steered} no-answer",
                                                                     f"message.steer {steered} answered"]
+    assert steer_frames(runners[host]) == [steered]                              # written once for all of it
 
 
 @pytest.mark.parametrize("code", STEER_REFUSALS)
 def test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing(core_probe, tmp_path, daemon, code):
+    """Each refusal the daemon gives, from the condition that causes it: the message was
+    withdrawn first, a repair message is queued, no turn runs, the message asks for a
+    narrower permission, or the runner is still catching up after a restart."""
     harness, server = daemon
     host, steered, after = ids(3)
-    harness.service.op_message_steer = RecordedSteer(harness, host, refuse=[code])
+    runners = go_live_when_submitted(harness, host) if code != "no-live-turn" else {}
+    submitted = {"do": "submit", "conversation": "@conv:req-r", "message_id": steered, "text": "also", "steer": True}
+    following = {"do": "submit", "conversation": "@conv:req-r", "message_id": after, "text": "then"}
+    if code == "not-queued":
+        after_submitted(harness, steered, lambda r: harness.call("message.cancel", message_id=steered))
+    elif code == "not-next":
+        after_submitted(harness, steered, lambda r: harness.store.submit_message(
+            conversation_id=r["conversation_id"], message_id=str(uuid.uuid4()), after_message_id=steered,
+            text="the stopped turn was left", attachments=[], settings=harness.settings(), origin="unblock-note"))
+    elif code == "settings-narrower":
+        # A narrower message narrows its conversation: the next one is as narrow.
+        submitted["settings"] = following["settings"] = harness.settings(permission="read-only")
+    elif code == "not-steerable":
+        after_submitted(harness, steered, lambda r: setattr(runners[host], "replay_caught_up", False))
     out = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-r"),
         {"do": "submit", "conversation": "@draft:req-r", "message_id": host, "text": "fix the parser"},
         {"do": "pump"},
-        {"do": "submit", "conversation": "@conv:req-r", "message_id": steered, "text": "also", "steer": True},
-        {"do": "submit", "conversation": "@conv:req-r", "message_id": after, "text": "then"},
+        submitted,
+        following,
         {"do": "pump"},
     ])
     report = out["results"][-1]["report"]
@@ -583,7 +601,8 @@ def test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing(core_
     assert steer["state"] == "refused"
     assert steer["failure"]["reason"] == code and steer["failure"]["retryable"] is False
     assert [s["state"] for s in report["steers"]] == ["refused"]
-    assert harness.store.message(steered)["state"] == "queued"
+    assert harness.store.message(steered)["state"] == ("cancelled" if code == "not-queued" else "queued")
+    assert all(steer_frames(runner) == [] for runner in runners.values())
 
 
 def scripted(tmp_path, answers: list[tuple[str, dict]]) -> str:
@@ -650,7 +669,7 @@ def test_c24_9_a_steer_without_an_answer_holds_its_conversation_briefly_then_giv
 def test_c24_9_a_steer_waits_behind_its_own_conversation_only(core_probe, tmp_path, daemon):
     harness, server = daemon
     host, steered, other = ids(3)
-    harness.service.op_message_steer = RecordedSteer(harness, host)
+    go_live_when_submitted(harness, host)
     server.faults[("message.steer", steered)] = "busy"
     out = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-a"), create_step(harness, "req-b"),
@@ -672,7 +691,7 @@ def test_c24_9_esc_takes_back_a_steer_the_provider_has_not_read(core_probe, tmp_
     its unsent steer taken back first. Either way its words come back for the composer."""
     harness, server = daemon
     host, queued, local = ids(3)
-    stand_in = harness.service.op_message_steer = RecordedSteer(harness, host)
+    go_live_when_submitted(harness, host)
     out = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-c"),
         {"do": "submit", "conversation": "@draft:req-c", "message_id": host, "text": "fix the parser"},
@@ -691,7 +710,7 @@ def test_c24_9_esc_takes_back_a_steer_the_provider_has_not_read(core_probe, tmp_
     steers = by_key(out["steers"], "message_id")
     assert steers[queued]["state"] == "withdrawn" and steers[local]["state"] == "withdrawn"
     assert by_key(out["entries"])[local]["state"] == "withdrawn"
-    assert stand_in.calls == [] and not any("message.steer" in c or local in c for c in out["calls"])
+    assert steer_requests(server) == [] and not any("message.steer" in c or local in c for c in out["calls"])
     assert out["results"][8]["report"]["sent"] == []
     assert harness.store.message(queued)["state"] == "cancelled"
 
@@ -785,7 +804,7 @@ def test_c28_3_an_older_journal_opens_and_steers_never_enter_its_entries(core_pr
     opens it (and drops the steers: their messages simply stay queued)."""
     harness, server = daemon
     host, steered = ids(2)
-    harness.service.op_message_steer = RecordedSteer(harness, host)
+    go_live_when_submitted(harness, host)
     journal = tmp_path / "support" / "outbox.json"
     journal.parent.mkdir(parents=True)
     journal.write_text(json.dumps({"version": 1, "nextOrder": 1, "entries": [], "chains": {}}))
@@ -883,3 +902,115 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
     # An answered one is its receipts' to show.
     done = store(core_probe, tmp_path, [{"open": opened}, {"steers": [journaled(pending, cid, "acknowledged")]}])
     assert done["statuses"][pending] == QUEUED
+
+
+# --- after the steer review (2026-09-28): Esc, the missed flag, recalled words, late steers ---
+
+
+def test_c24_9_esc_passes_over_a_too_late_steer_only_while_it_is_still_in_that_turn(core_probe, tmp_path, harness):
+    """Review finding 15. Esc on S, whose frame is written, answers too-late; the next Esc
+    stops the turn. Stopped, S goes back to the queue and A (queued for later) runs: Esc
+    now takes S back rather than stopping A. Steered into A, it is in another turn."""
+    cid, host, _ = running_host(harness)
+    queued_for_later = harness.submit(cid, "then the docs", after=host)["message_id"]
+    steered = harness.submit(cid, "also the lexer", after=queued_for_later)["message_id"]
+    make_live(harness, cid, host)
+    assert harness.call("message.steer", message_id=steered, into=host)["state"] == "steering"
+    first = statuses(harness, host, queued_for_later, steered)
+    record_state(harness, host, "interrupted", "stopped")
+    record_state(harness, steered, "queued", "steer-missed: interrupt-cancelled")
+    record_state(harness, queued_for_later, "running")
+    stopped = statuses(harness, host, queued_for_later, steered)
+    record_state(harness, steered, "steering", f"steer:{queued_for_later}")
+    again = statuses(harness, steered)
+    out = fold(core_probe, tmp_path, cid, [
+        {"receipts": first},
+        {"escape": {}},                                    # takes S back ...
+        {"escape": [steered]},                             # ... too late: the next Esc stops the turn
+        {"receipts": stopped},
+        {"escape": {steered: host}},                       # S is queued again: taken back, A runs on
+        {"receipts": again},
+        {"escape": {steered: host}},                       # steered into A: not the turn it was too late for
+        {"escape": {steered: queued_for_later}},           # too late in A as well: stop A
+    ])
+    assert [r for r in out["results"] if r.startswith("escape:")] == [
+        f"escape:recall:{steered}", f"escape:stop:{host}", f"escape:recall:{steered}",
+        f"escape:recall:{steered}", f"escape:stop:{queued_for_later}"]
+
+
+def test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn(core_probe, tmp_path, harness):
+    """Review finding 19: the missed flag belongs to the turn that missed it. Steered
+    again into the next turn ("Send now"), it is unread there, not "until the turn ends"."""
+    cid, host, turn = running_host(harness)
+    steered = harness.submit(cid, "also the lexer", after=host)["message_id"]
+    make_live(harness, cid, host)
+    harness.call("message.steer", message_id=steered)
+    record_steer_event(turn, "steer.missed", steered, why="stopped")
+    missed_here = statuses(harness, steered)
+    record_state(harness, host, "interrupted", "stopped")
+    record_state(harness, steered, "queued", "steer-missed: stopped")
+    requeued = statuses(harness, host, steered)
+    next_host = harness.submit(cid, "the next turn", after=steered)["message_id"]
+    record_state(harness, next_host, "running")
+    record_state(harness, steered, "steering", f"steer:{next_host}")
+    out = fold(core_probe, tmp_path, cid, [
+        {"receipts": missed_here}, {"page": page(harness, cid), "snapshot": True},
+        {"receipts": requeued, "snapshot": True},
+        {"receipts": statuses(harness, next_host, steered), "snapshot": True},
+        {"page": {"events": [], "next": 0, "reset": True}}, {"page": page(harness, cid), "snapshot": True},
+    ])
+    words = [snapshot["turns"][steered]["status_text"] for snapshot in out["snapshots"]]
+    assert words == [MISSED, MISSED, UNREAD, UNREAD]
+
+
+def test_c24_9_words_esc_takes_back_are_kept_in_the_draft(core_probe, tmp_path):
+    """Review finding 18: recalled words and images join the conversation's draft on disk,
+    ahead of what it held, so leaving the conversation or quitting keeps them."""
+    image = {"path": str(tmp_path / "shot.png"), "sha256": "a" * 64, "media_type": "image/png", "bytes": 10}
+    drafts = tmp_path / "drafts"
+    cases = [
+        ({"existing": None, "text": "also the lexer", "staged": []}, "also the lexer", []),
+        ({"existing": {"text": "half a thought", "attachments": [], "settings": None, "updated_at": "x"},
+          "text": "also the lexer", "staged": [image]}, "also the lexer\n\nhalf a thought", [image]),
+        ({"existing": None, "text": "", "staged": [image]}, "", [image]),       # images alone are kept too
+    ]
+    for index, (recall, text, staged) in enumerate(cases):
+        out = run_probe(core_probe, "recall-draft", drafts, f"cv-{index}", write_json(tmp_path / f"r{index}.json", recall))
+        assert out["draft"]["text"] == text and out["draft"]["attachments"] == staged
+        assert out["mode"] == "600"
+
+
+def test_c24_9_a_steer_that_arrives_after_its_turn_ended_is_refused_not_joined_to_the_next(core_probe, tmp_path,
+                                                                                            daemon):
+    """Review finding 17: the journaled steer names the turn it was sent to. The app
+    stops before it is answered; by the resend that turn has ended and the message
+    queued for later runs. The daemon refuses it (`no-live-turn`): it stays queued, to
+    run as its own turn, never inside another under that turn's settings."""
+    harness, server = daemon
+    host, later, steered = ids(3)
+    runners = go_live_when_submitted(harness, host)
+    journal = tmp_path / "support" / "outbox.json"
+    server.faults[("message.steer", steered)] = "refuse"          # the daemon never saw it
+    first = run_steps(core_probe, tmp_path, server.path, [
+        create_step(harness, "req-l"),
+        {"do": "submit", "conversation": "@draft:req-l", "message_id": host, "text": "fix the parser"},
+        {"do": "pump"},
+        {"do": "submit", "conversation": "@conv:req-l", "message_id": later, "text": "then the docs"},
+        {"do": "submit", "conversation": "@conv:req-l", "message_id": steered, "text": "also", "steer": True,
+         "into": host},
+        {"do": "pump"},
+    ], journal)
+    assert first["steers"][0]["into"] == host and first["steers"][0]["state"] == "queued"
+    cid = harness.store.message(host)["conversation_id"]
+    record_state(harness, host, "complete")
+    runners.pop(host).stop()
+    harness.service.runners.clear()
+    make_live(harness, cid, later)                                 # the next turn runs now
+    again = run_steps(core_probe, tmp_path, server.path, [
+        {"do": "reload"}, {"do": "advance", "seconds": 30}, {"do": "pump"},
+    ], journal)
+    (steer,) = again["steers"]
+    assert steer["state"] == "refused" and steer["failure"]["reason"] == "no-live-turn"
+    assert [r["args"] for r in server.requests if r["op"] == "message.steer"][-1] == {"message_id": steered,
+                                                                                     "into": host}
+    assert harness.store.message(steered)["state"] == "queued"

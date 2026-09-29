@@ -66,7 +66,7 @@ func project(_ entry: OutboxEntry) -> [String: Any] {
 
 func project(_ steer: OutboxSteer) -> [String: Any] {
     ["message_id": steer.messageID, "key": steer.key, "conversation": steer.conversation, "order": steer.order,
-     "state": steer.state.rawValue, "attempts": steer.attempts,
+     "state": steer.state.rawValue, "attempts": steer.attempts, "into": steer.into as Any? ?? NSNull(),
      "next_attempt_at": steer.nextAttemptAt as Any? ?? NSNull(),
      "failure": steer.failure.map { ["code": $0.code as Any? ?? NSNull(), "reason": $0.reason as Any? ?? NSNull(),
                                      "message": $0.message, "retryable": $0.retryable] } as Any? ?? NSNull(),
@@ -140,12 +140,13 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 let entry = try outbox.enqueueSubmit(conversation: resolve(step["conversation"]?.string),
                                                      messageID: step["message_id"]?.string ?? Outbox.newMessageID(),
                                                      text: step["text"]?.string ?? "", settings: settings,
-                                                     steer: step["steer"]?.bool ?? false)
+                                                     steer: step["steer"]?.bool ?? false, into: step["into"]?.string)
                 results.append(["do": action, "key": entry.key, "conversation": entry.conversation])
             case "steer":
                 // A queued bubble's Steer: `key` is the message id.
                 let steer = try ConversationEngine(client: client, outbox: outbox)
-                    .steer(messageID: resolve(step["key"]?.string), conversationID: resolve(step["conversation"]?.string))
+                    .steer(messageID: resolve(step["key"]?.string), conversationID: resolve(step["conversation"]?.string),
+                           into: step["into"]?.string)
                 results.append(["do": action, "steer": project(steer)])
             case "recall":
                 // Esc on an unread steer, from the state the app last saw.
@@ -509,6 +510,19 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         let mode = fileMode(path)
         store.delete(arguments[3])
         return ["path": path, "mode": mode, "round_trip": loaded == draft, "deleted": store.load(arguments[3]) == nil]
+    case "recall-draft":
+        // recall-draft <directory> <key> <recall.json>: Esc took a steer back (UIModel.escape):
+        // its words and images join the conversation's draft on disk; a fresh store (the
+        // app after a quit) reads them back.
+        let input = try JSONValue.parse(readFile(arguments[4]))
+        let store = DraftStore(directory: URL(fileURLWithPath: arguments[2]))
+        if let existing = input["existing"], !existing.isNull { try store.save(try existing.decode(Draft.self), for: arguments[3]) }
+        let staged = try input["staged"]?.decode([StagedAttachment].self) ?? []
+        let draft = recalledDraft(store.load(arguments[3]), text: input["text"]?.string ?? "", staged: staged,
+                                  now: "2026-09-28T12:00:00.000Z")
+        try store.save(draft, for: arguments[3])
+        let reread = DraftStore(directory: URL(fileURLWithPath: arguments[2])).load(arguments[3])
+        return ["draft": reread.map(jsonObject) as Any? ?? NSNull(), "mode": fileMode(store.fileURL(for: arguments[3]).path)]
     case "connect-current":
         // connect-current <home> <flavor> [SUBFLEET_HOME]: what the app does at launch
         let environment = arguments.count > 4 ? ["SUBFLEET_HOME": arguments[4]] : [:]

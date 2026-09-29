@@ -17,7 +17,7 @@ reinforces the design’s existing consumed-first settlement precedence.
 | Design section | Implementation and file anchors |
 | --- | --- |
 | §2 protocol and states | `subfleet/protocol.py:22` adds `message.steer` immediately after `message.cancel`; `subfleet/conversations/service.py:64` and `:243` advertise `steer.v1` and `steer_providers`. `subfleet/conversations/turn.py:23` adds live `steering` and terminal `steered`; `:111` adds `Outcome.steers`. `subfleet/conversations/store.py:1473` derives `steered_into` without changing schema 2; receipts, status and change rows carry it. |
-| §3 service validation and durable claim | `subfleet/conversations/service.py:675` validates person-only intent, queued state, runner availability and steerable phase, then durably claims before queueing the runner command. `subfleet/conversations/store.py:1045` checks queue head/repair priority, host state, stop/blocked/archive flags, and permission widening in the claim transaction. Idempotent `steering`/`steered` requests return receipts. |
+| §3 service validation and durable claim | `subfleet/conversations/service.py:675` validates person-only intent, queued state, runner availability and steerable phase, then durably claims before queueing the runner command. `subfleet/conversations/store.py` `claim_steer` refuses only while a repair message is queued (any queued person message may steer, DESIGN.md section 8), and checks host state, stop/blocked/archive flags, and permission widening in the claim transaction. Idempotent `steering`/`steered` requests return receipts. |
 | §3 runner and handover | `subfleet/conversations/runner.py:215` exposes current steerability; `:370` restores written tags before stdout replay and defers unwritten claims; `:399` handles the command and host-shaped attachments. `:593` and `:717` serialize actual writes against both host stop and steer cancel, taking striped locks in a consistent order. `:443`, `:733` and `:748` account for withdrawn, oversized and relay-lost frames. An oversized steer requeues without closing stdin. `:763` runs the bounded unseen-steer watchdog; `:860` merges provider and relay facts into `turn.json`, preserving recorded positive delivery evidence. |
 | §3 settlement and recovery | `subfleet/conversations/service.py:2093` settles children before the host; `:2162` maps consumed/delivered to `steered`, unanswered Codex echoes to `steered-unanswered`, proven misses to their original queue sequence, and uncertain writes to `delivery-unknown`. `:1903`, `:2021` and `:1575` extend replay, unstarted settlement and retention pins to child bindings. `:699` permits cancel only before handover; `:796` routes interrupt of a live steer to its host; `:1307` refuses handoff with a live steer and skips terminal steered history. |
 | §4 Claude driver | `subfleet/conversations/claude_turn.py:240` emits `priority:"next"` messages with the same content/image shape as the host, requiring `msg_lifecycle_v1`. `:252` bounds unseen messages after a result. `:668`, `:710` and `:734` process result consumption IDs, lifecycle ordering, and cancellation/interrupt receipts. Folded steers and steers that become their own provider turn both work; approvals remain active until the final result. Stop and cancel-turn approvals sweep queued commands when supported. Late cancellation cannot erase established delivery. |
@@ -203,3 +203,15 @@ cancellation receipt timing and result correlation, and Codex's actual response
 shape, error mapping, client-ID echo and answered/unanswered behavior. The
 implementation and tests accommodate either Claude fold or own-turn behavior;
 static claims and fake tests are not represented as live validation.
+
+## After the review (2026-09-28)
+
+The multi-lens review's findings were fixed on `feat/steer-r2`; the contract
+(C-24.5, C-24.7, C-24.9, C-25.2, C-26.5, C-26.6, C-29.7) now states what shipped.
+In short: a steer's images resolve by digest and no steer failure ends its host's
+runner; the Claude watchdog never runs during a steer's own turn and gives up only
+the steers its round named; eof keeps a held result; settlement reads its evidence
+outside the service lock; a missed steer runs next; `message.steer` takes `into`
+and refuses a steer whose turn has ended; the daemon refuses `/` and `!` input; the
+app's Esc passes over a too-late steer only while it is still in that turn, keeps
+recalled words in the draft, and keys the missed flag to its turn.

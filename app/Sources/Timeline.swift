@@ -124,8 +124,10 @@ struct TurnTimeline: Equatable {
     var steeredInto: String?
     /// The host whose `steer.delivered` placed this message: the provider read it.
     var steerDeliveredIn: String?
-    /// The host's `steer.missed`: its turn ended before reading this message.
-    var steerMissed = false
+    /// The host whose `steer.missed` said its turn ended before reading this
+    /// message. It describes that steer only: steered again into another turn,
+    /// the message is unread there until that turn says otherwise.
+    var steerMissedIn: String?
     /// This app journaled a steer of it and the daemon has not answered yet.
     var steerRequested = false
     /// The daemon's refusal of this app's last steer of it (the message stayed queued).
@@ -197,8 +199,13 @@ struct TurnTimeline: Equatable {
         }
     }
 
-    /// The turn ended before reading it: `steer-missed:` on its receipt, or the host's `steer.missed`.
-    var missedSteer: Bool { steerMissed || stateReason?.hasPrefix("steer-missed:") == true }
+    /// The turn ended before reading it: `steer-missed:` on its receipt, or the
+    /// `steer.missed` of the turn it is (or was last) steered into.
+    var missedSteer: Bool {
+        if stateReason?.hasPrefix("steer-missed:") == true { return true }
+        guard let missedIn = steerMissedIn else { return false }
+        return messageState == .steering ? steeredInto == missedIn : messageState == .queued && !steerRequested
+    }
 
     /// Read by the provider: its `steer.delivered`, or settled `steered`.
     var isReadSteer: Bool {
@@ -219,7 +226,7 @@ struct TurnTimeline: Equatable {
             return "Queued behind the current turn"
         case .steering:
             if steerDeliveredIn != nil { return TurnTimeline.read }
-            if steerMissed { return TurnTimeline.unreadUntilTurnEnds }
+            if missedSteer { return TurnTimeline.unreadUntilTurnEnds }
             return TurnTimeline.unreadWords(host: host, assistant: assistant)
         case .steered:
             // Codex recorded it after the model's last step: nothing answered it.
@@ -284,7 +291,7 @@ func steerRefusalWords(_ failure: OutboxFailure) -> String {
     switch failure.reason {
     case "not-queued": return "it had already left the queue"
     case "not-next": return "a recovery message goes first"
-    case "no-live-turn": return "no turn was running to take it"
+    case "no-live-turn": return "the turn it was sent to had ended"
     case "settings-narrower": return "it asks for a narrower permission than the running turn has"
     case "not-steerable": return "the running turn could not take it"
     case "unsupported": return "this daemon cannot steer"
@@ -370,7 +377,7 @@ struct Timeline: Equatable {
             turn.diff = nil
             turn.items = []
             turn.steerDeliveredIn = nil
-            turn.steerMissed = false
+            turn.steerMissedIn = nil
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -581,7 +588,7 @@ struct Timeline: Equatable {
         }
         if let missed, turns[missed]?.steerDeliveredIn == nil {
             ensureTurn(missed)
-            turns[missed]?.steerMissed = true
+            turns[missed]?.steerMissedIn = id
         }
     }
 

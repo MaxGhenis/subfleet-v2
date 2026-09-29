@@ -29,9 +29,11 @@ final class UIModel: ObservableObject {
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
     /// Words Esc took back from the running turn, per conversation, for its composer.
+    /// They are in the conversation's draft too (`recalledDraft`), so they outlive this.
     @Published var composerRecall: [String: ComposerRecall] = [:]
-    /// Steers the daemon answered `too-late` for: the next Esc passes over them.
-    private var unrecallable: Set<String> = []
+    /// Steers the daemon answered `too-late` for, each with the turn it was in then:
+    /// Esc passes over one only while it is still in that turn (`stillTooLate`).
+    private var unrecallable: [String: String] = [:]
     private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
@@ -423,13 +425,16 @@ final class UIModel: ObservableObject {
               steer: Bool = false) {
         guard let engine else { return }
         let messageID = Outbox.newMessageID()
+        // The turn the person steers into now: a steer that reaches the daemon after
+        // it ended is refused, never joined to the next turn (C-24.9).
+        let into = steer ? state.steerHost(forComposerOf: conversationID)?.messageID : nil
         state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
                               attachments: staged.map(\.sha256), settings: settings, steer: steer)
         Task {
             do {
                 _ = try await onOutbox {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
-                                    messageID: messageID, steer: steer)
+                                    messageID: messageID, steer: steer, into: into)
                 }
                 pump()
             } catch {
@@ -446,10 +451,13 @@ final class UIModel: ObservableObject {
         // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
         let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
         guard steerable(text: text) else { return }
+        let into = state.timelines[conversationID]?.liveMessageID
         state.requestSteer(conversationID: conversationID, messageID: messageID)
         Task {
             do {
-                _ = try await onOutbox { try engine.steer(messageID: messageID, conversationID: conversationID) }
+                _ = try await onOutbox {
+                    try engine.steer(messageID: messageID, conversationID: conversationID, into: into)
+                }
                 pump()
             } catch {
                 state.noteSteer(conversationID: conversationID, messageID: messageID, refusal: nil)
@@ -463,6 +471,11 @@ final class UIModel: ObservableObject {
     /// Stop keeps unread steers and queued messages: they run next.
     func escape(conversationID: String, assistant: String) {
         guard let engine, let timeline = state.timelines[conversationID] else { return }
+        // A steer that left the turn it was too late for (back in the queue, or
+        // steered into another turn) may be taken back again (C-24.9).
+        unrecallable = unrecallable.filter { id, _ in
+            timeline.turn(id) == nil || stillTooLate(id, in: timeline, unrecallable: unrecallable)
+        }
         let unread: String
         switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
         case .none: return
@@ -482,12 +495,23 @@ final class UIModel: ObservableObject {
                     if let receipt { state.apply(receipt: receipt) } else {
                         state.withdrawLocal(conversationID: conversationID, messageID: unread)
                     }
+                    // The words go into the draft first: the message is withdrawn, and they
+                    // must outlive leaving this conversation or quitting before it is shown.
+                    let draft = recalledDraft(drafts.load(conversationID), text: words, staged: staged,
+                                              now: ISO8601DateFormatter().string(from: Date()))
+                    do { try drafts.save(draft, for: conversationID) } catch { report(error) }
                     composerRecall[conversationID] = ComposerRecall(text: words, staged: staged)
                 case .tooLate(let receipt):
                     if let receipt { state.apply(receipt: receipt) }
-                    // Its frame is written: the turn's next step reads it. The next Esc stops the turn.
-                    unrecallable.insert(unread)
-                    problem = "\(assistant) already has it; it joins at the next step. Press Esc again to stop the turn."
+                    // Its frame is written: the turn's next step reads it.
+                    guard let now = state.timelines[conversationID] else { return }
+                    if let host = tooLateBinding(unread, in: now) { unrecallable[unread] = host }
+                    let next: String
+                    switch escapeAction(timeline: now, unrecallable: unrecallable) {
+                    case .recall: next = "Press Esc again to take back the message before it."
+                    case .stop, .none: next = "Press Esc again to stop the turn."
+                    }
+                    problem = "\(assistant) already has it; it joins at the next step. " + next
                 case .inFlight:
                     problem = "That message is still being sent; press Esc again in a moment."
                 }

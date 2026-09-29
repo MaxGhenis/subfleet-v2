@@ -23,7 +23,7 @@ from subfleet.conversations.service import CAPABILITIES
 from subfleet.conversations.store import ConversationError
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
-    RecordedSteer, ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
+    make_live, ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
 )
 
 pytestmark = needs_swift
@@ -151,12 +151,14 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     harness.store.set_state(unknown["message_id"], "delivery-unknown", reason="no-evidence")
     results["message.resolve"] = harness.call("message.resolve", message_id=unknown["message_id"],
                                               resolution="not-delivered", confirm=True)
-    # message.steer (C-24.9) answers a Receipt with `steered_into`; its shape is recorded
-    # (daemon_harness.RecordedSteer) where the frontend harness has no running turn to steer.
+    # message.steer (C-24.9) answers a Receipt with `steered_into`: the daemon's own op,
+    # steering into a live runner for a turn that runs (daemon_harness.make_live).
     steered = harness.submit(cid, "steer me", after=unknown["message_id"])
-    harness.service.op_message_steer = RecordedSteer(harness, fixture["second"]["message_id"])
-    results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
-    assert results["message.steer"]["steered_into"] == fixture["second"]["message_id"]
+    live = harness.submit(cid, "a running turn", after=steered["message_id"])
+    make_live(harness, cid, live["message_id"])
+    results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"],
+                                            into=live["message_id"])
+    assert results["message.steer"]["steered_into"] == live["message_id"]
     # approval.respond answers through the live runner; the harness stands in for it.
     runner = SimpleNamespace(driver=SimpleNamespace(outcome=None), respond=lambda *a: None,
                              interrupt=lambda reason: None, stop=lambda: None, join=lambda timeout: True,
