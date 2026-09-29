@@ -372,3 +372,47 @@ def test_d1_the_dry_run_agrees_with_a_real_pass_when_worktrees_are_involved(worl
     result = retention.maintenance(store, root, max_jobs=0)
     assert [row["job_id"] for row in preview["would_retire"]] == result["pruned"] == ["gone", "plain"]
     assert set(result["kept"]) == {"present", "quarantined"}
+
+
+def test_f1_a_deletion_that_fails_in_a_normal_pass_is_kept_and_the_pass_goes_on(world, monkeypatch):
+    """`_finish` isolates a failing deletion in the pass itself, not only in recovery."""
+    store, root, _ = world
+    add(store, root, "a", order=0)
+    add(store, root, "b", order=1)
+    original = archive.delete_archived
+
+    def refuse_a(job_dir, manifest, **kwargs):
+        if job_dir.name == "a":
+            raise PermissionError(1, "Operation not permitted")
+        return original(job_dir, manifest, **kwargs)
+    monkeypatch.setattr(archive, "delete_archived", refuse_a)
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == ["a", "b"] and store.list_leases() == []
+    assert (root / "retention-conflicts" / "a" / "stdout").exists() and not (root / "jobs" / "b").exists()
+
+
+def test_f1_an_unexpected_error_in_recovery_is_isolated(world):
+    """A manifest that verifies but is malformed raises something other than OSError or
+    ArchiveCorrupt; recovery still reports it, keeps the directory and releases the lease."""
+    store, root, _ = world
+    directory = half_retired(store, root, "job", {"stdout": b"x"})
+    path = root / "archive" / "job" / "manifest.json"
+    manifest = json.loads(path.read_bytes())
+    manifest["tree"] = "not a tree"
+    os.chmod(path, 0o600)
+    path.write_bytes(archive.canonical(manifest))
+    add(store, root, "next", order=1)
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == ["next"] and store.list_leases() == []
+    assert any("recovery" in error["error"] for error in result["errors"])
+    assert tree(root / "retention-conflicts" / "job") == {"stdout": b"x"} and not directory.exists()
+
+
+def test_w2_a_tree_set_aside_by_a_plain_rename_under_a_suffixed_name_is_present(world):
+    """A copy renamed beside the original as `<anything>.<name>`, without telling Git, is
+    still the tree: the suffix rule, not the registration or the quarantine name, finds it."""
+    store, root, repository = world
+    worktree = add_job(store, root, repository, "job")
+    os.rename(worktree, root / "worktrees" / f".set-aside.{worktree.name}")
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == [] and ".set-aside.job" in result["kept"]["job"]
