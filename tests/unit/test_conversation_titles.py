@@ -475,9 +475,9 @@ def test_the_close_waits_for_the_title_only_until_its_budget():
 
 
 @pytest.mark.parametrize("barrier", [
-    "recorded-stop", "persons-stop", "daemon-stop", "queued-answer", "next-message", "steering-message",
-    "failed-result", "stopped-result", "eof", "model-mismatch", "relay-failed", "frame-refused",
-    "person-title", "not-first-message", "unread-steer", "unread-bytes"])
+    "recorded-stop", "persons-stop", "gate-ended", "daemon-stop", "queued-answer", "frame-waiting",
+    "next-message", "steering-message", "failed-result", "stopped-result", "eof", "model-mismatch",
+    "relay-failed", "frame-refused", "person-title", "not-first-message", "unread-steer", "unread-bytes"])
 def test_a_first_turn_that_ends_without_a_quiescent_point_is_never_titled(barrier):
     """Every way the first turn's end is not a quiescent point: the title is not asked,
     nothing waits for it (its stdin close goes at once), and the conversation keeps its
@@ -496,6 +496,11 @@ def test_a_first_turn_that_ends_without_a_quiescent_point_is_never_titled(barrie
         elif barrier == "persons-stop":
             turn.stop()
             turn.tick(runner)
+        elif barrier == "gate-ended":
+            runner.end_title("stopped")        # a Stop's first step; its record and interrupt not yet in
+        elif barrier == "frame-waiting":
+            runner.outbox.append(Frame("probe", "write", "{}"))
+            runner.resends, runner.resend_at = 1, turn.now[0] + 3600    # a turn frame waits its resend
         elif barrier == "daemon-stop":
             runner.interrupt("wall-limit")
             turn.tick(runner)
@@ -536,7 +541,7 @@ def test_a_first_turn_that_ends_without_a_quiescent_point_is_never_titled(barrie
         turn.tick(runner, 3)
         tags = turn.logged()
         assert TITLE_FRAME not in tags and TITLE_CANCEL_FRAME not in tags, tags
-        if barrier not in ("eof", "relay-failed", "frame-refused"):
+        if barrier not in ("eof", "relay-failed", "frame-refused", "frame-waiting"):
             assert tags[-1] == "close", tags                   # the close went at once: nothing held it
         assert turn.title()[1] == ("person" if barrier == "person-title" else "fallback")
         # Refused by the store (a stop recorded, another message, a person's name, not the
