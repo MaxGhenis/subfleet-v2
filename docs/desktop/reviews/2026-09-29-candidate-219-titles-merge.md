@@ -268,7 +268,7 @@ run, but its notes do not name them.
 | R2-commands-wait | 2 | `:782`: send while a command waits | killed | steer-queued-while-the-title-is-claimed |
 | R2-acceptance | 2 | `:783`: send before the provider's acceptance | killed | title-waits-for-acceptance-and-every-frame |
 | R2-no-handover-lock | 2 | `:823`: write the title under the handover lock | killed | stop-recorded-while-a-title-write-is-held |
-| R2-line-bound | 2 | `titles.py:61`: never shorten the line | killed | title-line-fits-a-pipe [emoji, cjk] |
+| R2-line-bound | 2 | `titles.py:63`: never shorten the line | killed | title-line-fits-a-pipe [emoji, cjk] |
 | R3-withheld-only | 3 | `:767`: drop `withheld` | survived | the message was never written or accepted (`:783`); the stopped-before-send outcome (`:768`) |
 | R3-all-guards | 3 | Skip `_title_closed` and the written and accepted checks | killed | withheld-message [both] |
 | R4-replayed-message | 4 | `:766`: drop `replayed_message` | killed | replay-never-sends-again [False] |
