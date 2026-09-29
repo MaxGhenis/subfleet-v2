@@ -738,6 +738,49 @@ def test_every_pin_keeps_its_job(world, pin):
     assert not (w.admin("pinned") / "locked").exists()
 
 
+@pytest.mark.parametrize("state", ["queued", "running"])
+def test_a_job_still_to_run_inside_the_tree_keeps_it(world, state):
+    """Design review (Opus 9): a job an agent submitted from inside its worktree,
+    not yet ended, needs the tree; once it has ended, the tree may go."""
+    w = world
+    wt = w.job("host")
+    (wt / "sub").mkdir()
+    w.store.add_job(job_id="guest", request_id="guest", payload_digest="d", kind="dispatch",
+                    workdir=str(wt / "sub"), prompt_path="/p", sandbox="read-only", state=state)
+    first = run(w, referenced_job_ids=["guest"])
+    assert "host" not in first["pruned"] and first["pin_reasons"]["host"] == "worktree-in-use"
+    w.store.update_job("guest", state="succeeded")
+    assert run(w, referenced_job_ids=["guest"])["pruned"] == ["host"]
+
+
+def test_a_crash_between_the_two_quarantine_renames_moves_the_rest(world, monkeypatch):
+    """Recovery of `quarantining` finishes the move, so the job directory is
+    archived with the tree rather than left behind."""
+    w = world
+    wt = w.job("half-moved")
+    original = os.rename
+    calls = []
+
+    class Crash(BaseException):
+        pass
+
+    def rename_once(src, dst, *args, **kwargs):
+        calls.append(str(src))
+        if len(calls) == 2 and str(src).endswith("/jobs/half-moved"):
+            raise Crash()
+        return original(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(rarch.os, "rename", rename_once)
+    with pytest.raises(Crash):
+        run(w)
+    monkeypatch.setattr(rarch.os, "rename", original)
+    assert (w.root / "jobs" / "half-moved").exists() and not wt.exists()
+    assert run(w)["pruned"] == ["half-moved"]
+    manifest = json.loads((w.root / "archive" / "half-moved" / "manifest.json").read_text())
+    assert set(manifest["trees"]) == {"worktree", "job", "admin"}
+    assert not (w.root / "jobs" / "half-moved").exists()
+
+
 def test_salvage_is_bundled_and_its_ref_kept(world):
     """C-8.4: a salvage ref pins its job unless it is referenced elsewhere; the
     archive's verified bundle is that elsewhere. The ref itself is never touched."""

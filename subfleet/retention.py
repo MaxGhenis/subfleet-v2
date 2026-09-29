@@ -152,6 +152,14 @@ _PIN_QUERIES = (
                        "WHERE l.holder != 'retention:' || j.job_id"),
     ("retire-lease", "SELECT substr(lease_key, 8) AS job_id FROM leases WHERE lease_key LIKE 'retire:%' "
                      "AND holder != 'retention:' || substr(lease_key, 8)"),
+    # A job not yet ended whose directory is this job's allocated worktree or
+    # inside it (a job an agent submitted from its worktree, still queued):
+    # the tree must still be there when it runs (design review, Opus 9).
+    ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
+                        "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
+                        "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
+                        "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
+                        "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
 
 
@@ -512,7 +520,7 @@ class _Pass:
                     continue
                 if state == "quarantining":
                     retirement._reconcile_moves()
-                    retirement.save(state="quarantined")
+                    retirement.quarantine()          # moves whatever the crash left unmoved
                 elif state in ("selected", "locking"):
                     # Nothing has moved: finish the steps before the move.
                     retirement.lock()
@@ -676,8 +684,10 @@ class _Pass:
                 retirement.publish()
             report = retirement.reclaim()
         except (OSError, ValueError, rgit.GitError) as exc:
-            self.errors.append({"job_id": job_id, "error": f"reclaim: {type(exc).__name__}: {exc}"})
-            self.store.add_event("retention.reclaim_error", job_id=job_id, data={"error": str(exc)[:500]})
+            self._incomplete(retirement, f"{type(exc).__name__}: {exc}")
+            return
+        if not report["done"]:
+            self._incomplete(retirement, "; ".join(e["error"] for e in report["errors"][:3]))
             return
         self.progress["reclaimed"].append(job_id)
         data = {"deleted": report["deleted"], "bytes": report["bytes"], "errors": report["errors"][:20]}
@@ -693,6 +703,18 @@ class _Pass:
         for event in self.ctx.events:
             self.store.add_event(event.pop("kind"), job_id=event.pop("job_id", None), data=event)
         self.ctx.events.clear()
+
+    def _incomplete(self, retirement: rarch.Retirement, error: str) -> None:
+        """Deletion could not finish (a permission, a flag): the journal keeps it
+        for the next pass; the event is written once per retirement."""
+        job_id = retirement.job_id
+        self.errors.append({"job_id": job_id, "error": f"reclaim: {error}"[:500]})
+        if retirement.journal is not None and not retirement.journal.get("incomplete_reported"):
+            self.store.add_event("retention.reclaim_incomplete", job_id=job_id, data={"error": error[:500]})
+            try:
+                retirement.save(incomplete_reported=True)
+            except OSError:
+                pass
 
     def _rollback(self, retirement: rarch.Retirement, reason: str, seconds: float, detail: str) -> None:
         job_id = retirement.job_id

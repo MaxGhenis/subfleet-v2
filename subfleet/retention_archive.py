@@ -155,9 +155,12 @@ def owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
         return None
     allocated_root = state_root / "worktrees"
     # A symlinked container must not turn an external directory into our owner
-    # boundary. Individual paths are resolved to reject escapes the same way.
+    # boundary. Individual paths are resolved to reject escapes the same way,
+    # and a link in the job's own place (to another job's tree) is refused.
     if allocated_root.resolve() != allocated_root:
         raise ValueError("allocated worktree root is a symlink")
+    if os.path.islink(job["worktree"]):
+        raise ValueError("allocated worktree path is a symlink")
     worktree = Path(job["worktree"]).resolve()
     if worktree == allocated_root or allocated_root not in worktree.parents:
         raise ValueError("worktree path is outside the daemon's allocated worktrees")
@@ -509,25 +512,24 @@ class Retirement:
     # --- step 8: verified deletion ---------------------------------------------------------
 
     def reclaim(self) -> dict[str, Any]:
+        """Verified deletion of the quarantined trees, then of the admin directory.
+
+        The admin directory goes last, right after its own late check: a git
+        command in the quarantined tree during the tree's deletion (a commit,
+        an index write) shows up there, and then the registration is kept,
+        locked, with what it names anchored under a `late-` ref. `done` is
+        False while anything could not be removed or set aside; the journal
+        keeps the retirement for the next pass.
+        """
         j = self.journal
         assert j is not None
         self.save(state="reclaiming")
         manifest = self.manifest()
         trees = manifest["trees"]
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
-                                  "admin_kept": False}
-        admin = j.get("admin")
-        if admin and "admin" in trees and os.path.isdir(admin):
-            late = self._late_admin(trees["admin"], Path(admin))
-            if late is not None:
-                report["late_anchor"] = late.get("anchor")
-                report["admin_kept"] = True
-                report["kept"].append({"path": "admin", "reason": "changed after archive",
-                                       "where": admin, "files": late["files"][:50]})
-        for label, path in (("worktree", self.q_worktree), ("job", self.q_job),
-                            ("admin", Path(admin) if admin else None)):
-            if path is None or label not in trees or (label == "admin" and report["admin_kept"]):
-                continue
+                                  "admin_kept": False, "done": False}
+
+        def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
             deleter = rfs.Reclaim(entries, self.conflicts, label, check=self.ctx.check)
             deleter.run(path)
@@ -535,8 +537,20 @@ class Retirement:
             report["bytes"] += deleter.bytes
             report["kept"].extend({**k, "tree": label} for k in deleter.kept)
             report["errors"].extend({**e, "tree": label} for e in deleter.errors)
-        if report["admin_kept"] and j.get("lock"):
-            pass  # our lock stays: git keeps the registration and what it names
+
+        for label, path in (("worktree", self.q_worktree), ("job", self.q_job)):
+            if label in trees:
+                delete(label, path)
+        admin = j.get("admin")
+        if admin and "admin" in trees and os.path.isdir(admin):
+            late = self._late_admin(trees["admin"], Path(admin))
+            if late is not None:
+                report["late_anchor"] = late.get("anchor")
+                report["admin_kept"] = True
+                report["kept"].append({"path": "", "tree": "admin", "reason": "changed after archive",
+                                       "where": admin, "files": late["files"][:50]})
+            else:
+                delete("admin", Path(admin))
         leftovers = [p for p in (self.q_worktree, self.q_job) if os.path.lexists(p)]
         if leftovers:
             report["errors"].append({"path": str(leftovers[0]), "error": "could not be removed or set aside"})
@@ -548,6 +562,7 @@ class Retirement:
             os.rmdir(self.work)
         except OSError:
             pass
+        report["done"] = True
         return report
 
     def _late_admin(self, tree: dict[str, Any], admin: Path) -> dict[str, Any] | None:

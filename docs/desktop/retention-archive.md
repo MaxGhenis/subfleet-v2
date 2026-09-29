@@ -1,592 +1,312 @@
-# Job retention by archive: design
+# Job retention by archive
 
-Revision 1, 2026-09-28. Replaces the proof-based retention of rounds 1 to 4
-(`fix/retention-progress` 530d7bcb, `fix/retention-r2` 8da2bdf7 and 22014743,
-`fix/retention-r4` d1579deb). None of those reached `release/217`. The binding
-clauses are C-8.4 and C-13.4 in `docs/acceptance-contract.md`.
+Revision 2, 2026-09-29: as built, under Max's d635 ruling ("ship at the
+archive-sweep bar"). Revision 1 (ccc85387, 2026-09-28) was the design; its two
+reviews (`~/reviews/retention-2026-09-28/archive-design/review-design-{opus,astra}.md`)
+and the ruling changed it as section 2 lists. The binding clauses are C-8.4,
+C-13.4 and C-17.1 in `docs/acceptance-contract.md`. Code:
+`subfleet/retention.py` (the pass), `retention_archive.py` (one job's
+journaled retirement, restore), `retention_git.py`, `retention_fs.py`,
+`retention_holders.py`, `retention_survey.py`, `retention_cli.py`.
 
 ## 1. Decision
 
-Retention never decides whether a job's files are valuable. Before it deletes
-anything, it writes every byte of the job's allocated worktree and job
-directory into a compressed archive. It then verifies the archive by reading it
-back. It deletes an entry only if the archive holds that entry and the entry is
-unchanged since it was archived. The job's Git registration is locked, never
-removed, so Git itself keeps every commit, reflog entry and staged blob the
-worktree referred to.
+Before a finished job's trees are deleted, retention preserves everything in
+them that exists nowhere else, in an archive it owns, and reads the archive
+back:
 
-There is one exception to "every byte". A tracked file is left out of the
-archive when its raw bytes hash to the blob at the same path in HEAD's tree. The
-archive records that blob id, and a ref that retention creates keeps HEAD's
-commit reachable. Equality is checked on the file's actual bytes, not on Git's
-stat cache, filters or index.
+- **Files.** Every file of the job's allocated worktree and of its job
+  directory, uncommitted, untracked and ignored alike, byte for byte: an APFS
+  clone (`fclonefileat`, no space until either side changes), or a byte copy on
+  a volume without clones. The one exception: a tracked file whose raw bytes
+  hash to a blob that a network remote holds (section 6).
+- **Git.** The worktree's admin directory (`<repo>/.git/worktrees/<id>`) byte
+  for byte, and every object it names — HEAD, the index, `ORIG_HEAD`,
+  `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase and
+  sequencer state, every reflog entry — together with the job's salvage
+  commits, as one synthetic *anchor* commit, in a bundle of every commit no
+  network remote holds.
+- **Rows.** The job's database rows, as `rows.json`.
 
-So deletion is safe by construction, not by proof: nothing needs to be shown to
-exist elsewhere, because retention first puts it somewhere else. It is option
-(c) from the brief. It combines (a), archive before delete, with (b)'s
-safeguards, quiescence and re-validated signatures. Section 3 compares the
-options.
+Then it deletes only entries whose `lstat` signature is still the archived one,
+re-validated right before each unlink. Anything new or changed goes to a
+conflicts folder instead. Nothing depends on a repository retention does not
+control, and no proof about what a file means is needed: retention first puts
+it somewhere else.
 
-## 2. Why the proof approach failed
+## 2. What changed from revision 1
 
-Rounds 1 to 4 tried to prove, before `git worktree remove`, that nothing in the
-tree existed only there. Each round closed the previous round's findings and
-drew new High findings, because each proof leaned on a model of Git or the
-filesystem that some case contradicted:
-
-| Round | High findings |
-|---|---|
-| 1 (review of 530d7bcb) | Detached-HEAD commits; ignored output; nested repositories and worktrees; a killed `worktree remove` wedging the job |
-| 2 (hard and standard reviews) | An unheld baseline; the cache allow-list (a microcosm `.h5` under a real `build/` package); staged-only content; repository-wide `worktree prune` |
-| 3 | Stat-cache reuse; edits inside `node_modules` and `.venv`; lossy clean filters; edits during the proof; a symlink race in deletion; a reused registration; commits held only by `refs/worktree` |
-| 4 | Writes after the final check by a process whose cwd is inside the tree; commits held only by the reflog or `ORIG_HEAD`; an interrupted check livelocking the queue |
-
-The pattern is that every new kind of state (another ref namespace, another
-Git setting, another writer) needed another rule. An archive needs no rules
-about what the state means. It only has to copy bytes faithfully and to delete
-only bytes it copied.
-
-## 3. Options
-
-**(a) Archive, then delete.** Safe for every class of content at once, and
-reversible. It costs disk: section 9 estimates archives at about 15% of the
-tree bytes they replace. It still needs (b)'s safeguards. A process writing into
-the tree after the archive is taken would otherwise lose that write.
-
-**(b) Delete only a quiesced, re-validated tree.** Making the tree read-only
-and checking with `lsof` that no process has a cwd or open file inside it stops
-post-check writes. It says nothing about *what* is deleted, though, so it still
-needs the proof that failed four times. On its own, it is not enough.
-
-**(c) Hybrid: (a) with (b)'s quiescence and signatures.** Chosen. The
-archive removes the need for any proof about content. Quiescence and the
-per-entry signatures guarantee that the archive is complete for the tree that
-is actually deleted.
-
-One piece of (b) is deliberately left out: making the tree read-only.
-- New entries are already safe without it: deletion removes directories only
-  with `rmdir`, never recursively, so any entry the archive does not list is
-  never deleted.
-- It cannot stop writes through descriptors that are already open. Only the
-  holder check (section 5.4) addresses those.
-- It changes the modes being archived, which would need a journal of original
-  modes to undo on rollback.
-
-## 4. Scope
-
-**In scope:**
-- The allocated worktree of a `workspace-write`, not-in-place job:
-  `<state>/worktrees/<job id>`, owned under C-13.4.
-- The job directory `<state>/jobs/<job id>`, for every job.
-- The job's rows in `jobs`, `attempts`, `artifacts`, `readings`, `notices` and
-  `decisions`. These are deleted, as today, after being written to the archive
-  as JSON.
-
-**Never touched:**
-- An in-place job's workdir, or any path outside `<state>`.
-- The job's `-o` output.
-- Salvage refs.
-- Events.
-- The conversation store.
-- Orphan directories under `<state>/worktrees` that no job row owns.
-- The source repository. Retention adds exactly two things there, and neither
-  removes anything:
-  - a `locked` file in the job's own worktree registration;
-  - a ref `refs/subfleet-archive/<job id>/<commit>`.
-
-Resume jobs run in place in their parent's worktree (read-only survey: 6 such
-pairs live). The parent owns the tree. The parent is pinned while any child row
-exists. A resume submitted while its parent is being retired is refused (5.8).
-
-## 5. Protocol
-
-### 5.1 Layout
-
-```
-<state>/retention/<job>/journal.json      the retirement's journal, written before each step
-<state>/retention/<job>/worktree/         the renamed worktree (quarantine)
-<state>/retention/<job>/job/              the renamed job directory
-<state>/retention/<job>/archive.partial/  the archive while it is written
-<state>/archive/<job>/                    the verified archive:
-    manifest.json   every entry: path, type, mode, size, mtime, dev, ino, ctime,
-                    sha256 (archived) or blob id (omitted), link target, hard-link group
-    worktree.tar.zst, job.tar.zst         PAX tar, zstd level 3 (Python 3.14 `compression.zstd`)
-    rows.json       the job's database rows, as deleted
-<state>/retention-conflicts/<job>/        anything deletion refused to delete (5.7)
-```
-
-The quarantine and archive directories are on the same filesystem as
-`<state>/worktrees` and `<state>/jobs`. A rename that would cross devices is
-refused before anything moves.
-
-### 5.2 Steps
-
-Each step's intent is written to the journal (temp file, fsync, rename)
-before its effect. "Roll back" is defined in 5.6.
-
-1. **Select** (transaction `retention.selected`).
-   - Re-check pins (5.8) inside the transaction.
-   - Take `worktree:<realpath>` (owned worktree only) and `retire:<job>`, both
-     held by `retention:<job>`.
-   - As today, no filesystem work happens inside the transaction.
-2. **Lock the registration** (owned worktree only).
-   - Read `<tree>/.git`, a `gitdir:` file, to find the admin directory.
-   - Lock only if the admin directory's `gitdir` backlink names this tree,
-     so we never lock someone else's registration.
-   - If there is no `locked` file, write one whose text names the job and
-     the archive. The journal records that retention wrote it, so that
-     rollback removes only a lock that retention wrote.
-   - This comes before the rename: once the directory is gone, an unlocked
-     registration is prunable by any `git worktree prune` or `git gc`.
-3. **Move into quarantine.** Rename the worktree to `retention/<job>/worktree`
-   and the job directory to `retention/<job>/job`. After this no process can
-   reach either tree by path, except through the quarantine path, which only
-   retention uses.
-4. **Quiesce, check 1.** Every process that can still write into the trees
-   must hold a handle it had before the rename. Retention lists the handles of
-   all processes (5.4).
-   - Any cwd, root, directory descriptor, writable descriptor or mapping
-     inside either tree makes the job busy.
-   - Retention re-checks up to 3 times over about 10 s, then rolls back and
-     defers the job for an hour.
-5. **Archive.** Walk both trees with descriptor-relative calls (`openat` with
-   `O_NOFOLLOW`), in sorted byte order.
-   - For every entry, record its `lstat` signature in the manifest.
-   - Stream each regular file into the tar while computing its sha256.
-   - Re-`fstat` the file afterwards. A change in size, mtime or ctime while
-     it was read fails the attempt: the tree is not quiet, so roll back.
-   - Symlinks are stored as links and never followed. FIFOs and sockets are
-     recorded in the manifest with no content.
-   - An entry on another device (a mount point) or an unreadable entry fails
-     the attempt. Retention rolls back and defers the job for 24 h with the
-     reason.
-   - **Omission:** a regular file of the owned tree is left out if its raw
-     bytes hash (`blob <n>\0…`, in the repository's object format) to the
-     blob at the same path in the tree of HEAD's commit C. This applies only
-     when the admin directory is ours and the object store is outside the
-     tree. The manifest records the blob id and the file's actual mode and
-     mtime.
-6. **Verify.** Fsync the archive files and directory. Read the tars back, and
-   check each member's name, type, size, mode, link target and sha256 against
-   the manifest. Check with `git cat-file --batch-check` that every omitted
-   blob exists. Then rename `archive.partial` to `<state>/archive/<job>` and
-   fsync the parent.
-7. **Anchor** (only if any file was omitted). Create
-   `refs/subfleet-archive/<job>/<C>`, pointing at C, with `git update-ref`
-   (create-only). If this fails, roll back.
-8. **Quiesce, check 2.** The same holder check, matching also on the
-   manifest's (dev, ino) set. Busy means roll back.
-9. **Commit** (transaction `retention.pruned`).
-   - Write `rows.json` just before the transaction.
-   - Inside it, re-check pins and that the leases are still ours. If anything
-     is pinned, roll back after the transaction.
-   - Otherwise delete the rows and the leases, and record the event: bytes,
-     pool, archive path and size, omitted bytes.
-   - This is the point of no return. **While the job's rows exist, no byte of
-     its trees has been deleted.**
-10. **Verified deletion** (5.7), then remove the journal and the quarantine
-    directory.
-
-The pass deadline (60 s) is checked only between steps 1 and 2. A retirement
-that has started runs to the end. Only cancellation (daemon shutdown) or its
-own time cap stops it early; the cap is `max_archive_s`, default 1800 s.
-Either way it rolls back (5.6). A job that hits the cap is deferred for 24 h
-with the reason `archive-too-slow`.
-
-### 5.3 What the archive covers
-
-| Where work can live | How it survives retirement |
-|---|---|
-| Tracked files, modified or not | Archived. Unmodified ones are omitted only when their raw bytes equal the anchored blob |
-| Untracked and ignored files, including `build/`, `node_modules`, `.venv` and data | Archived |
-| Staged content | The index stays in the locked admin directory, and Git keeps its blobs reachable (E1) |
-| Detached HEAD, reflog-only, `ORIG_HEAD`, `refs/worktree/*` and rebase state | The locked admin directory stays intact, and gc treats it as reachable (E1). HEAD's commit is also anchored |
-| Nested repositories (`.git` directories, bare repositories) | Archived byte for byte, including their object stores and their own worktrees' admin directories |
-| Nested linked worktrees (a `.git` file inside the tree) | Archived. Their registration, in another repository, is locked like our own when its backlink names the nested path (5.5) |
-| The job directory: logs, prompts, attempt records | Archived |
-| The job's database rows | `rows.json` in the archive |
-
-### 5.4 Holder check
-
-On macOS it runs `lsof -n -P -w -F pcftaDin` once over all processes; on the
-reference machine that took 1.8 s for 219k lines (E3). On Linux it reads
-`/proc/*/{cwd,root,fd,fdinfo,maps}`.
-
-A process is a holder if it has any of these:
-- a cwd or root inside the watched paths;
-- a text or memory mapping of a watched file;
-- any descriptor on a watched directory;
-- a descriptor opened for writing on a watched file.
-
-"Inside" is matched two ways: by path prefix (the quarantine path and the
-original path), and at check 2 also by (device, inode) against the manifest.
-
-A read-only descriptor on a regular file is not a holder: it cannot change the
-file, and after deletion its reader keeps reading the unlinked inode.
-
-The check fails closed. If `lsof` is missing, errors or times out, the job
-counts as busy. E3 confirmed on this machine that `lsof` reports the
-post-rename path and inode for a cwd, a write descriptor, a read descriptor and
-a directory descriptor.
-
-### 5.5 Git handling
-
-Retention runs three Git commands, with `--git-dir=<admin>`, so no worktree is
-needed:
-- `rev-parse --verify HEAD^{commit}`, then `rev-parse --show-object-format`;
-- `ls-tree -r -z --full-tree <C>`;
-- `cat-file --batch-check`.
-
-Its only writes are `update-ref` (create-only) and the `locked` file.
-
-It never runs:
-- `worktree remove` or `worktree prune`;
-- `git gc`;
-- anything else that deletes.
-
-E1, run with Git 2.55 (script in the review folder):
-1. In a linked worktree: make detached commits U1 and U2; put U3 only in the
-   reflog; stage a blob only in the index; set and delete a `refs/worktree`
-   ref.
-2. Move the directory away.
-3. Run `worktree prune` and `gc --prune=now` with `gc.worktreePruneExpire=now`.
-
-With the admin directory locked, all four objects survived and the
-registration was listed as locked. Without the lock, all four were lost and
-the registration was pruned.
-
-A nested gitfile inside the tree is handled the same way as the root's. If its
-admin directory's backlink names the nested path, retention locks that
-registration too. That covers a nested linked worktree whose admin lives in
-another repository, the 2026-09-23 `yale-campaign-full-v2` case. Locking is
-additive and reversible; `git worktree unlock` or restore undoes it.
-
-### 5.6 Rollback and recovery
-
-Every pass starts by reading each `<state>/retention/<job>/journal.json`.
-
-| Journal | Job rows | Action |
+| Finding | Revision 1 | As built |
 |---|---|---|
-| any step before commit | present | Roll back |
-| archive verified | present | Roll back, then delete the verified archive (the trees are back) |
-| any | absent, verified archive present | Continue with verified deletion (5.7) |
-| any | absent, no verified archive | Keep the quarantine as a conflict. Never delete. Emit an event |
+| Opus 1, Astra 2: omitted files depended on the job's source clone | Omit a tracked file equal to HEAD's blob; lock the registration | Omit only a blob that a network remote's `refs/remotes/*` reach, in a repository that is not scratch; commits no network remote holds go into a bundle the archive owns |
+| Astra 1: a corrupted loose object passed `--batch-check` | Check that omitted blobs exist | Read every omitted blob whole (`cat-file --batch`) and hash it; a bad one is archived instead |
+| Opus 2, Astra 7: a create-only anchor wedged a rolled-back job | Create-only `update-ref`, roll back on failure | The anchor is deterministic (fixed identity and dates); an existing ref equal to it is success |
+| Opus 3, r4 finding 2: the locked registration did not keep `refs/worktree`, `refs/bisect`, `ORIG_HEAD`, `MERGE_HEAD`, `FETCH_HEAD` or reflog-only commits | Lock the registration for ever | Anchor every object the admin directory names (a token scan of its files, per-worktree refs and HEAD's reflog through git, the index), bundle it, archive the directory, and remove the registration |
+| Opus 5: thousands of locked registrations slow everyday git | Accumulate | Registrations are removed after archiving; none accumulate |
+| r4 finding 1: a write after the final check was deleted | Signatures checked before deletion | Every entry is re-validated right before its unlink; new or changed entries go to `retention-conflicts/<job>/`; admin files that changed keep the registration (locked) and a late anchor ref |
+| Opus 4, Astra 8, r4 finding 3: slow checks, 1-hour cycles, livelock | One job at a time, two `lsof` listings each, a 30-minute cap | A batch of jobs shares two listings; each job archives in a time slice and is parked with its progress (resumable across passes and restarts); busy or failing jobs are deferred; catch-up passes 5 s apart |
+| Opus 6, Astra 6: archives not durable on macOS; rows written unverified | `fsync` | `F_FULLFSYNC` for every archive file, journal and directory; `rows.json` is read back before the commit transaction, which compares it with the rows it deletes |
+| Opus 7: no free-space guard | none | Archiving is by clones (no new space); a byte copy or a bundle never takes free space below 2 GiB |
+| Opus 8: an interrupted deletion became a permanent conflict | Full signatures | Directories match on (type, device, inode); a file that had other links matches without its ctime |
+| Astra 4: rollback into an occupied path removed the lock | Remove the lock | The tree goes to conflicts and retention's lock stays |
+| Astra 5: nested registrations | Lock them too | A linked worktree nested inside the tree (its admin directory elsewhere) keeps the job; a submodule's gitdir inside the admin directory is archived with it |
+| Astra 9: a resume could read a job directory mid-retirement | Refuse when a `retire:` lease exists | A resume holds `retire:<source>` while it reads, released in the transaction that inserts its job; retention and a resume exclude each other |
+| Opus 9: the daemon's own repository-wide `git worktree prune` | Noted | `_discard_worktree` removes only its own registration |
+| Salvage | Stopped pinning | Still pins (C-8.4: "salvage refs referenced nowhere else"), and the archive's verified bundle is that elsewhere; a salvage ref that cannot be bundled keeps its job, as before |
 
-**Roll back:**
-1. Rename the trees back to their original paths, if those paths are free. An
-   occupied path moves our tree to `retention-conflicts/`; nothing is deleted.
-2. Remove the `locked` file, only if the journal says retention wrote it and
-   its text is ours.
-3. Remove `archive.partial`, a copy of trees that are back in place.
-4. Release the job's leases.
-5. Defer the job.
+## 3. Layout
 
-A `retention:` lease with no journal is a legacy lease; the installed code
-holds one only if it was killed mid-removal. Recovery releases it, and the job
-is retired normally from whatever remains. The live store had no `retention:`
-leases on 2026-09-28 (read-only query).
+```
+<state>/retention/<job>/journal.json   the retirement's state, written before each step
+<state>/retention/<job>/worktree/      the quarantined worktree
+<state>/retention/<job>/job/           the quarantined job directory
+<state>/retention/<job>/archive/       the archive while it is built (progress.jsonl makes it resumable)
+<state>/archive/<job>/                 the verified archive, published once the rows are gone:
+    manifest.json    every entry of every tree: path, lstat signature, sha256 and stored name, or the
+                     omitted blob id; link targets; hard-link groups
+    summary.json     totals, for `retention archives`
+    files/           the stored files (clones), named by the signature of the version archived
+    commits.bundle   the anchor and the salvage refs, with every commit no network remote holds
+    rows.json        the job's rows, as deleted
+<state>/retention-conflicts/<job>/     anything verified deletion found new or changed
+```
 
-Anchor refs are never deleted by retention, including on rollback. A
-rolled-back attempt can leave one harmless extra ref. Keeping it is safer than
-deleting a ref whose commit may since have lost its other references.
+The source repository gains only objects (the anchor's trees and commits) and
+create-only refs `refs/subfleet-archive/<job>/<anchor>` (and `late-<anchor>`),
+which retention never moves or deletes.
 
-### 5.7 Verified deletion
+## 4. One job's retirement
 
-The walk is descriptor-relative and post-order. Each directory is opened with
-`O_DIRECTORY | O_NOFOLLOW` and its (dev, ino) checked against the manifest.
-For every entry actually present:
+Every step writes the journal first (temp file, `F_FULLFSYNC`, rename, sync
+the directory), so a crash anywhere is resumed or undone by the next pass.
 
-- If the manifest does not list it, keep it.
-- If its `lstat` signature (type, mode, ino, size, mtime_ns, ctime_ns)
-  differs from the manifest's, keep it.
-- Otherwise unlink it, or recurse and `rmdir` it. An `rmdir` that fails
-  because the directory is not empty keeps the directory.
+1. **Select**, in one transaction: re-check the job's pins; take
+   `retire:<job>` and `worktree:<path>` for `retention:<job>`. A `retire:` held
+   by a resume, or a worktree lease held by anyone else, keeps the job.
+2. **Begin** (no transaction): find the registration (the tree's gitfile names
+   an admin directory directly under `<common>/worktrees` whose `gitdir`
+   backlink names this tree), or, when the tree is gone, the registration whose
+   backlink names its path; resolve every salvage ref; check the trees are on
+   the state root's volume. A backlink that names another tree, an
+   unresolvable salvage ref or another volume defers the job.
+3. **Lock** the registration with `locked` (text `subfleet retention: <job>`),
+   so no `git worktree prune` or `git gc` drops it while the tree is away. A
+   lock someone else wrote defers the job.
+4. **Quarantine**: rename the worktree and the job directory into
+   `retention/<job>/`. No process can reach them by path afterwards.
+5. **Holder check 1** (one `lsof` for the whole batch, section 7).
+6. **Archive**, within the job's time slice (default 120 s): walk the trees
+   descriptor-relative, never following a link, in byte order; clone or omit
+   each file, re-`fstat`ing it around the read (a change defers the job); walk
+   the admin directory in place; verify the omitted blobs whole; build the
+   anchor, create its ref, write and verify the bundle; write the manifest;
+   read every stored file back and check its size and sha256. A job whose
+   slice runs out is parked in quarantine with its progress and continues in
+   the next pass.
+7. **Holder check 2** (one `lsof`, also matching the archived inodes).
+8. **Final check**: walk every tree again; every entry must still be there with
+   its archived signature, and nothing may have been added.
+9. **Commit**, in one transaction: write `rows.json` and read it back first;
+   inside, compare the rows with it, ask every pin again (the conversation
+   service's included), check both leases are still retention's, then delete
+   the rows and the leases. This is the point of no return. While the rows
+   exist, no byte of the job has been deleted.
+10. **Publish**: rename the archive to `<state>/archive/<job>`.
+11. **Reclaim**: verified deletion (section 8) of the worktree, the job
+    directory and the admin directory, which removes the registration. If
+    anything in the admin directory changed after the final check, it is kept
+    (locked), and what it names is anchored under a `late-` ref.
 
-Two details:
-- **Hard links.** Unlinking one link changes the inode's ctime for the other
-  links (verified on APFS). So the deleter opens the inode first, unlinks, and
-  takes the new ctime from `fstat` as the expected value for the remaining
-  links.
-- **Directories without owner write permission** (Go's module cache uses
-  0555) get `fchmod` u+w after their signature check and before their entries
-  are removed.
+**Rollback** (any step before commit): rename the trees back (an occupied
+original path sends ours to conflicts and keeps the lock), remove the lock if
+retention wrote it, release the leases, and defer the job: 1 hour when busy or
+changed, 15 minutes when the listing failed, 6 hours on an error, 24 hours for
+a lasting condition (a nested linked worktree, a foreign lock, an unresolvable
+salvage ref, another volume). Anchor refs stay; they are harmless. A rollback
+for a passing reason keeps the archive cache, so the next attempt reads only
+what changed.
 
-If anything is kept, the quarantine directory is renamed to
-`<state>/retention-conflicts/<job>`. A `retention.conflict` event names the
-kept paths (up to 50) and the daemon log says so. Nothing there is ever
-deleted automatically.
+**Recovery** (start of every pass): a `retention:` lease with no journal is
+released (the old retention's, or a selection that died before its journal); a
+journal in `committing` is resolved by whether the rows exist; everything
+committed is published and reclaimed; everything before commit continues.
 
-Deletion is idempotent. An interrupted deletion resumes at the next pass from
-the journal, because entries already gone are simply absent.
+## 5. What the archive covers
 
-### 5.8 Pins
+| Where work can live | How it survives |
+|---|---|
+| Tracked files, modified or not | Archived byte for byte, unless the raw bytes equal a blob a network remote holds (section 6) |
+| Untracked and ignored files: `build/`, `node_modules`, `.venv`, data, logs | Archived byte for byte |
+| Staged content | The index file is archived; every blob it stages is in the anchor's `index/` tree, in the bundle |
+| Detached, reflog-only, `ORIG_HEAD`, `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase state | Every commit, tree and blob id the admin directory names is a parent or entry of the anchor, in the bundle; the directory itself is archived |
+| Salvage commits | Their refs are in the bundle; the refs themselves are never touched |
+| Nested repositories (`.git` directories, bare repositories) | Archived byte for byte, object stores included |
+| A submodule (gitdir inside the admin directory) | Archived with the admin directory |
+| A linked worktree nested in the tree (its admin directory elsewhere) | The job is kept |
+| Symlinks, hard links, FIFOs, modes, mtimes | Recorded and restored; links are never followed |
+| The job directory: prompts, logs, attempt records, deliverables | Archived byte for byte |
+| The job's rows | `rows.json` |
 
-Unchanged from `release/217`:
-- non-terminal jobs, gate reviews, quarantined or live attempts;
-- unread notices addressed to a session;
-- parents of any job;
-- job and attempt leases;
-- another holder's `worktree:` lease;
-- gate or merge evidence;
-- the conversation service's pins;
-- `turn_keep_days`.
+## 6. Omission
 
-Changed:
-- **Salvage no longer pins.** An unlanded salvage ref used to pin its job
-  forever, because deletion depended on the ref matching the tree. Retention
-  never deletes refs, and the tree is archived, so the pin protects nothing.
-  The daemon never supplied `salvage_referenced_elsewhere`, so on
-  `release/217` every salvage-bearing job was pinned.
-- **Resume refuses a source that holds a `retire:` lease**, with the message
-  "being archived by retention; retry in a minute". Before, a resume submitted
-  mid-retirement read a quarantined job directory and got a degraded manifest.
-  A writable resume was already refused by the `worktree:` lease. The child
-  pins its parent in any case, so the commit transaction rolls the parent back.
+A regular file of the worktree is left out of the byte archive only if all of
+these hold:
 
-### 5.9 Restore
+- the repository is not scratch: not under a temporary directory or the state
+  root, no path component named like `scratch` or `tmp`, its own complete
+  object store (no alternates, not shallow, not a partial clone), and at least
+  one remote whose URL names another machine (`https://`, `ssh://`,
+  `user@host:`); a local-path remote is another repository retention does not
+  control;
+- its raw bytes (read now, no filters, no stat cache) hash to the blob at the
+  same path in a commit that those remotes' `refs/remotes/*` reach — HEAD or
+  the job's baseline when they are pushed, else the held commits at the
+  boundary of their unpushed history;
+- that blob reads back whole from the object store and hashes to its id;
+- it has one link.
 
-`subfleet retention restore <job> [--to DIR] [--check]` runs offline and
-touches only its destination.
+The manifest records the blob id with the file's actual mode and mtime. When in
+doubt, the bytes are archived.
 
-1. Re-verify the archive: sha256 of every member, and that every omitted blob
-   exists.
-2. Extract `worktree.tar.zst`. The destination is the original worktree path,
-   or `DIR/worktree`, and it must not exist.
-3. Write each omitted file from its blob with `git cat-file blob`, checking
-   the blob hash of what was written.
-4. Apply the manifest's modes and mtimes, directories last.
-5. Extract the job directory to `<state>/jobs/<job>`, or `DIR/job`, if
-   absent. It comes back as an orphan directory: its rows are not re-inserted.
-6. If restored to the original path, remove retention's `locked` file.
+## 7. Holder check
 
-`--check` does step 1 only. `subfleet retention archives [--json]` lists
-archives with their dates, original paths, bytes, archive bytes and omitted
-bytes.
+`lsof -n -P -w -F pcftaDin` once per check per pass, for the whole batch. A
+process holds a job if it has its current or root directory, a text or memory
+mapping, any directory descriptor, or a descriptor open for writing, under the
+job's quarantine, its original paths, or its admin directory, or at the second
+check on one of the archived (device, inode) pairs. A read-only descriptor on a
+file is not a hold. The check fails closed: `lsof` missing, failing or timing
+out (15 minutes) defers the batch.
 
-## 6. Invariants
+## 8. Verified deletion
 
-Each is tested by property-based tests (Hypothesis) and by the probes in
-section 10.
+Descriptor-relative and post-order. For every entry present: unlisted or
+changed (type, device, inode, size, mtime, mode, and ctime unless the inode had
+other links) goes to `retention-conflicts/<job>/<tree>/<path>` by rename (a
+writer's open file keeps its data); a listed, unchanged file is unlinked; a
+directory is emptied (made owner-writable first if it was read-only) and
+removed with `rmdir`. Directories match on type, device and inode, so a
+deletion interrupted half way resumes cleanly. An entry that cannot be
+unlinked or moved stays, and its directory goes to conflicts as the
+remainder, so no half-deleted tree is left where retention works. A
+`retention.conflict` event names what was kept.
 
-- **I1, nothing lost.** For every retired job, restore reproduces every entry
-  that existed at archive time in the owned worktree and the job directory.
-  That means the same path, type, permission bits, content bytes, symlink
-  target, hard-link grouping and mtime.
-- **I2, delete only what is archived.** Retention unlinks an entry only if
-  the verified manifest lists it with a signature equal to its `lstat` at
-  unlink time. It removes directories only with `rmdir`. Any entry created or
-  changed after archiving remains on disk.
-- **I3, Git state kept.** Retention never removes or rewrites a worktree
-  registration; it only adds `locked`. It never deletes a ref, so every
-  object reachable before retirement stays reachable. The commit whose blobs
-  were omitted is reachable from a ref retention created.
-- **I4, confinement.** Retention modifies nothing except:
-  - `<state>/worktrees/<job>`, `<state>/jobs/<job>`,
-    `<state>/retention/<job>`, `<state>/archive/<job>` and
-    `<state>/retention-conflicts/<job>`;
-  - the `locked` files of 5.2 and 5.5, and `refs/subfleet-archive/<job>/*`.
+## 9. Pins
 
-  Symlinks, including ones swapped in during the pass, are never followed.
+A job is kept while any of these holds (C-8.4, unchanged from `release/217`
+except salvage): it is not terminal; it is a gate review; an attempt is live or
+quarantined; an unread notice addressed to a session; it is a parent of any
+job; it or an attempt holds a lease; another holder has its worktree lease; a
+resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
+cannot be bundled); gate or merge evidence names it; the conversation service
+names it (asked again inside the commit transaction); a turn job within
+`turn_keep_days`; an explicit reference.
+
+## 10. Progress
+
+- **Oldest first, a bounded batch** (32 jobs, in-flight ones included).
+- **No sizing before acting.** A pool over its job count needs no sizes. Sizes
+  are measured lazily, oldest first, cached for six hours, and only until a
+  pool's lower bound passes its byte budget. A stale size is a scheduling input
+  only: at worst a job is archived a little early, which restore reverses.
+- **Slices.** A job archives for at most 120 s per pass, then parks with its
+  progress. Other jobs of the batch go on.
+- **Deferral.** A busy, changed or failing job is put back and skipped until its
+  deferral ends, so the queue never waits on it.
+- **Pacing.** The daemon runs a pass hourly; while a pass reports more waiting
+  (a parked job, a full batch, undecided sizes) the next runs 5 s later
+  ("retention catch-up: ..." in the daemon log). A pass that did work never
+  raises `TimeoutError`; the daemon's worker pool has one more thread for it.
+
+## 11. Restore
+
+`subfleet retention restore <job> [--to DIR] [--repository R] [--check]`, offline:
+
+1. Re-verify the archive: every stored file's sha256 and the bundle's heads.
+2. Fetch the bundle into the source repository (or `--repository`, any clone of
+   the project) under `refs/subfleet-restored/<job>/`.
+3. Recreate each tree at its original path (which must not exist), or at
+   `DIR/worktree`, `DIR/job`, `DIR/admin`: directories, stored files (cloned
+   back), omitted files from their blobs (each checked against its id),
+   symlinks, hard links and FIFOs; then modes and mtimes, directories last.
+   Restored to its original place, the admin directory re-registers the
+   worktree (without retention's lock), with its HEAD, index and reflogs.
+
+Without Subfleet: `manifest.json` lists every entry; `files/<name>` holds each
+stored file; `git fetch <archive>/commits.bundle '+refs/*:refs/restored/*'` in
+any clone of the project brings back every commit (a bundle whose repository
+had no network remote has no prerequisites and fetches into an empty
+repository); `git cat-file blob <id>` there gives each omitted file.
+`subfleet retention archives [--json]` lists archives; `subfleet retention
+survey [--json]` is a read-only dry run of a pass over the live state.
+
+## 12. Invariants
+
+Each is tested (section 14).
+
+- **I1, nothing lost.** Restoring gives back every entry that existed at
+  archive time in the worktree, the job directory and the admin directory:
+  path, type, permission bits, bytes, link target, hard-link grouping, mtime.
+- **I2, delete only what is archived.** An entry is unlinked only if the
+  verified manifest lists it with a signature equal to its `lstat` just before
+  the unlink; directories only with `rmdir`. Anything created or changed after
+  archiving stays, in conflicts.
+- **I3, commits kept.** Every commit and staged blob the worktree reached
+  before retirement is in the bundle or reachable from a network remote's
+  refs, so a fresh clone of the remote plus the bundle holds all of them. No
+  ref is ever moved or deleted.
+- **I4, confinement.** Retention modifies only the job's paths under the state
+  root, the admin directory it archived, and `refs/subfleet-archive/<job>/`.
 - **I5, atomic by rows.** While a job's rows exist, none of its bytes has been
-  deleted. An interruption at any point before commit is rolled back by the
-  next pass, with the trees at their original paths. After commit, the next
-  pass finishes deletion from the verified archive.
-- **I6, pins.** A job pinned at selection or at commit keeps its rows and has
-  its trees back at their original paths.
-- **I7, quiescence.** No commit happens while any process holds a cwd, root,
-  directory descriptor, writable descriptor or mapping inside the trees. A
-  failed holder scan counts as busy.
+  deleted; any interruption before commit is resumed or undone; after commit,
+  deletion resumes from the journal until done.
+- **I6, pins.** A job pinned at selection or at commit keeps its rows and its
+  trees at their original paths.
+- **I7, quiescence.** No commit while a process holds a cwd, root, directory
+  descriptor, writable descriptor or mapping in the job's trees; a failed
+  listing counts as busy.
 - **I8, verified before deletion.** No deletion is authorized by an archive
-  that failed read-back verification, whether truncated, bit-flipped or
-  missing a member.
-- **I9, progress.** A pass that is over budget does at least one of these:
-  - archives a job;
-  - measures a size it did not have;
-  - finishes a deletion;
-  - reports a reason for every candidate it skipped.
+  whose stored files, bundle or omitted blobs did not read back.
+- **I9, progress.** Every pass retires, parks with progress, measures, or
+  defers each candidate with a reason; none waits on another.
+- **I10, idempotence.** The anchor for the same inputs is the same commit, and
+  every step can be run again after a crash.
 
-  A busy or failed candidate is deferred, so the next candidate gets its
-  turn; round 4's livelock cannot recur. A pass that makes progress never
-  raises `TimeoutError`.
-- **I10, accounting.** For each pool, `bytes_after` equals `bytes_before`
-  minus the bytes the archive walks measured for the jobs retired. `jobs_after`
-  equals `jobs_before` minus the number retired.
+## 13. Residual risks (accepted by the d635 ruling)
 
-## 7. Progress, sizes and the timeout
+- A write in the microseconds between an entry's final signature check and its
+  unlink.
+- A writable descriptor passed over a Unix socket and held by no process at the
+  moment of a listing, or any other deliberately adversarial same-user trick;
+  processes of other users are invisible to a non-root `lsof` (worktrees are
+  0700).
+- A remote-tracking ref whose commit the remote itself later dropped (a
+  force-push, then the server's gc): such a commit counted as held. The source
+  repository keeps its objects while it exists.
+- Extended attributes, ACLs and file flags are not in the manifest; a clone
+  keeps them, a byte copy and a restore do not.
+- Archives are never deleted automatically. With clones, an archive costs the
+  blocks of the files it keeps (they would otherwise have been freed); `retention
+  archives` lists them, and removing one is `rm -r <state>/archive/<job>` plus
+  its `refs/subfleet-archive/<job>/*`.
 
-The installed release sizes every job before pruning, under a 60 s deadline,
-and times out on every pass.
+## 14. Tests
 
-In the new design:
-- **Sizes are measured lazily and cached for the daemon's lifetime.** A walk
-  of a large tree resumes where the last pass stopped. The pass prunes as soon
-  as the measured lower bound exceeds the budget, or the job count does.
-- **Stale sizes cannot cause loss.** At worst a job is archived a little
-  earlier than needed, which restore reverses. They are never a safety input.
-- **Candidates are taken oldest first.** A deferred candidate (busy,
-  unreadable, too slow, pinned) is skipped until its deferral expires.
-- **The daemon's `_retention`:**
-  - a pass interrupted after progress logs "retention catch-up: archived N
-    jobs, measured M; continuing in 5 seconds" and runs again in 5 s;
-  - only an interrupted pass that did nothing raises `TimeoutError`;
-  - a completed pass rearms the hourly timer.
+`tests/unit/test_retention_archive.py` (real git repositories, a fake clock and
+a fake process listing), `test_retention_archive_properties.py` (Hypothesis),
+and the rewritten `test_retention_worktrees.py`, `test_timers_retention.py` and
+`test_policy_support.py`. One regression for each d635 item:
 
-## 8. Threat model and residual risk
-
-The adversary is accidental, not malicious: a background process left behind
-by a job, an agent that cds into an old worktree, a user's `git gc`. These
-cases remain:
-
-- **Processes of other users, including root, are invisible to a non-root
-  `lsof`.** Owned worktrees are mode 0700 (C-13.4 allocation), so only root
-  can write there, and root bypasses a read-only tree as well.
-- **A holder that `lsof` misses** (for example, a fork racing the scan) and
-  that then writes between an entry's signature check and its unlink. The
-  window is one system call. Check 2 runs minutes after check 1, and the
-  per-file re-`fstat` during archiving catches writers active while the
-  archive is taken.
-- **Extended attributes, ACLs and BSD file flags are not archived.** Python
-  has no `listxattr` on macOS. The ones seen on job trees (quarantine,
-  provenance) carry no job output. A `uchg` flag makes unlink fail, which
-  keeps the file as a conflict.
-- **SHA-1 blob collisions** would let a file be omitted wrongly. Git's own
-  collision detection guards the objects; a sha256 repository uses sha256.
-- **The source repository is deleted** (for example, a `/tmp` clone). The
-  omitted tracked files then go with it, and so does its history. This is no
-  worse than keeping the tree: its `.git` file would point at nothing, and its
-  untracked content is in the archive.
-- **Spotlight's `mdworker` (a same-user process) opening files.** It holds
-  read-only descriptors, which are not holders. A directory descriptor it
-  holds makes the job busy for a retry.
-
-## 9. Disk
-
-Measured read-only on 2026-09-28 over a random sample of 24 of the 279 live
-worktrees:
-- 9.22 GB in total, of which 4.85 GB (53%) is in the index;
-- the other 4.37 GB compresses with zstd level 3 to about 1.38 GB;
-- so an archive is about **15% of the tree**, and retention reclaims about
-  85%. "In the index" is an upper bound on omission; a modified tracked file
-  is archived.
-
-The live job directories hold 2.0 GB of mostly text logs.
-
-Archives are never deleted by the daemon; deleting one is deleting data that
-may exist nowhere else. At 90 allocated worktrees a day (the rate of
-2026-09-27 and 2026-09-28), archives would grow about 5 GB a day. Leaving the
-trees would grow about 35 GB a day. 215 GiB were free on 2026-09-28.
-
-- **Notice.** When archives exceed `ARCHIVE_NOTICE_BYTES` (25 GiB), the pass
-  writes a service notice to the operator session, at most once a day. It
-  gives the total and how to remove archives a person no longer wants
-  (`rm -rf <state>/archive/<job>` and the matching `refs/subfleet-archive/<job>`).
-- **Not in this change:**
-  - a cross-job content store: many worktrees carry identical `.venv` or
-    `node_modules` files, so this would cut archive growth several-fold;
-  - a `purge` verb.
-
-  Both are follow-ups. Neither changes the safety argument.
-
-## 10. Every prior finding
-
-"Probe" names the test in `tests/unit/test_retention_archive_probes.py`. Each
-probe builds the finding's scenario, runs retention, and passes only if the
-defect is absent: the content is restorable byte for byte, or retention
-correctly refuses.
-
-| Finding | Why it cannot happen now | Probe |
-|---|---|---|
-| R1-1a detached-HEAD commits | Registration locked, HEAD anchored | `test_r1_1a_detached_commits_survive_gc` |
-| R1-1b ignored files | Archived | `test_r1_1b_ignored_output_restores` |
-| R1-1c nested repositories and worktrees | Archived; a nested registration is locked | `test_r1_1c_nested_repo_and_nested_worktree` |
-| R1-2 killed `worktree remove` wedges | No `worktree remove`; the rename is atomic and deletion is resumable | `test_r1_2_crash_at_every_step_recovers` |
-| R1-3 interrupted passes orphan leases | Journal recovery releases leases | `test_r1_3_interrupted_pass_releases_leases` |
-| R1-4 stale sizes | Sizes are not a safety input; loss is impossible | `test_r1_4_stale_size_loses_nothing` |
-| R1-5 permanent demotion | Deferrals expire (1 h or 24 h) | `test_r1_5_deferral_expires` |
-| R1-6 prunable ref namespaces | No proof uses refs; retention never deletes refs | `test_r1_6_salvage_refs_untouched` |
-| R1-7 missing worktree | Archives the job directory only | `test_r1_7_missing_worktree_is_retired` |
-| R1-8 surviving mutants | The mutation run is repeated on the new code (section 11) | — |
-| R1-9 progress logged as `TimeoutError` | Section 7 | `test_r1_9_progress_is_not_timeout` |
-| R2h-1 unheld baseline | HEAD anchored; nothing depends on the baseline | `test_r2h_1_unheld_baseline_restorable` |
-| R2h-2, R2s-1 `build/`, `dist/`, microcosm `.h5` | Archived; there is no allow-list | `test_r2_microcosm_h5_under_build_package` |
-| R2h-3 staged-only content | Index kept in the locked admin directory | `test_r2h_3_staged_only_blob_survives_gc` |
-| R2h-4, R2s-2 repository-wide prune | No prune of any kind | `test_r2_no_prune_unrelated_registration_intact` |
-| R2h-5 stale sizes after an interrupt | As R1-4 | `test_r1_4_stale_size_loses_nothing` |
-| R2h-6, R2s-3, R4-6 legacy waivers | No waivers exist; a legacy lease is released and the job archived | `test_r4_6_legacy_lease_released_and_archived` |
-| R2s-4 largest trees never finish | A started retirement runs to the end; deferral on the time cap | `test_r2s_4_long_archive_is_not_interrupted_by_deadline` |
-| R2s-5, R4-5 read-only or deep trash | Iterative deleter, 0555 directories, conflicts kept | `test_r4_5_readonly_and_deep_trees` |
-| R2s-6 restore wedge | An occupied path goes to conflicts | `test_r2s_6_rollback_collision_keeps_both` |
-| R2s-7 `.GIT` | Archived byte for byte | `test_r2s_7_uppercase_git_dir_archived` |
-| R3-1 stat cache | Omission hashes raw bytes | `test_r3_1_same_size_old_mtime_edit_is_archived` |
-| R3-2 `node_modules` and `.venv` edits | Archived | `test_r3_2_node_modules_edit_restores` |
-| R3-3 lossy clean filters | Raw bytes, no filters | `test_r3_3_clean_filter_hidden_edit_is_archived` |
-| R3-4 edits during the proof | Holder check, re-`fstat`, signatures | `test_r3_4_edit_during_archive_rolls_back_or_is_kept` |
-| R3-5 symlink race in deletion | Descriptor-relative, `O_NOFOLLOW`, (dev, ino) checks | `test_r3_5_symlink_swap_cannot_escape` |
-| R3-6 reused registration | Registrations are never removed; backlink checked before locking | `test_r3_6_reused_registration_untouched` |
-| R3-7 `refs/worktree` | Admin directory kept and locked | `test_r3_7_worktree_ref_commit_survives_gc` |
-| R3-8 size expiry livelock | No expiry; lower-bound pruning | `test_r3_8_many_jobs_reach_budget` |
-| R3-9 stale-size window | As R1-4 | `test_r1_4_stale_size_loses_nothing` |
-| R4-1 writes after the final check | Rename, holder checks, signatures, `rmdir` only | `test_r4_1_background_writer_blocks_or_is_kept` |
-| R4-2 reflog and `ORIG_HEAD` | Admin directory kept and locked | `test_r4_2_reflog_and_orig_head_survive_gc` |
-| R4-3 interrupted check livelock | Deferral; a started retirement is not cut by the deadline | `test_r4_3_busy_oldest_does_not_block_queue` |
-| R4-4 per-file size evidence | Only per-job totals are kept | covered by `test_r3_8_many_jobs_reach_budget` |
-
-The probe files in `~/reviews/retention-2026-09-28/review-probes/` target the
-removed proof API, for example `SalvageReachability`. Their scenarios are
-carried into the file above, with the polarity corrected.
-
-## 11. Test plan
-
-- **Properties (Hypothesis).**
-  - Generated trees: files, empty directories, symlinks to inside and
-    outside, hard links, FIFOs, modes including 0555 and 0600, non-ASCII
-    names, and tracked, modified, untracked and ignored content with staged
-    and detached commits.
-  - Checked: I1 round trip, I3 gc reachability, I4 by a sentinel outside the
-    tree and a symlink swapped in mid-pass, I5 crash injection at every step
-    followed by recovery, and I2 random mutations injected between steps.
-- **The probe table in section 10.**
-- **Unchanged contracts.** The existing pool, turn and pin tests
-  (`test_retention_turns.py`, `test_policy_support.py`,
-  `test_timers_retention.py`, `tests/fake/test_resume_contract.py`) still
-  pass. Tests whose expectations change (the registration now remains,
-  locked) are rewritten against I1 to I10.
-- **Mutation run.** Deleting each guard must fail a test: the holder check,
-  the signature check, the re-`fstat`, verification, the lock, the anchor and
-  the pin re-check.
-- **Live survey, read-only** (`GIT_OPTIONAL_LOCKS=0`, SQLite `mode=ro`). For
-  every owned worktree, report what it would archive and omit, and what makes
-  it busy, without writing anything.
-
-## 12. Contract changes
-
-- **C-8.4.**
-  - Pruning archives, then deletes (sections 5 and 6).
-  - Salvage no longer pins.
-  - Archives are kept until a person removes them.
-  - A service notice fires above 25 GiB.
-- **C-13.4.** An allocated worktree is removed only by retention's verified
-  deletion. Its registration is locked, not removed.
-- **C-17.1.** New verbs: `retention archives [--json]` and
-  `retention restore <job> [--to DIR] [--check]`.
-- **C-3.3.** Unchanged: no subprocess or filesystem work inside a
-  transaction.
-
-## 13. Experiments cited
-
-- **E1, locked registration survives gc.** Git 2.55.0, macOS.
-  `~/reviews/retention-2026-09-28/archive-design/e1_git_lock.sh`: all four
-  objects kept with the lock, all four lost without it.
-- **E3, `lsof` after rename.** `/usr/sbin/lsof` on macOS 25.6. After the
-  rename it reported the new path and the inode for a cwd, a write
-  descriptor, a read descriptor and a directory descriptor. The full listing
-  took 1.76 s.
-- **Filesystem facts (APFS).**
-  - Reading a file leaves its ctime unchanged.
-  - Unlinking one hard link changes the other link's ctime.
-  - Renaming a directory changes its own ctime.
-  - `open`, `stat`, `unlink` and `rmdir` all support `dir_fd`, and
-    `os.scandir` accepts a descriptor.
-- **Python.** The daemon's Python is 3.14.4, with `compression.zstd`
-  (libzstd 1.5.7) and `tarfile` mode `w:zst`.
-- **Size sample.** `size_sample.py`, as summarized in section 9.
+| d635 item | Tests |
+|---|---|
+| Round trip | `test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit`, `test_bundle_alone_restores_the_commits_in_a_fresh_clone`, both properties |
+| Nothing depends on an uncontrolled repository | `test_scratch_source_clone_deleted_after_retirement_is_still_restorable`, `test_clone_of_a_local_repository_carries_its_whole_history`, `test_blob_only_in_a_local_branch_is_archived_not_omitted`, `test_local_path_remote_is_not_a_remote`, `test_borrowed_or_shallow_object_store_is_scratch`, `test_temporary_directory_source_is_scratch_by_default` |
+| Omission hashes the whole object | `test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes, truncated]`, `test_object_reader_hashes_every_byte` |
+| Anchor idempotent | `test_anchor_is_deterministic_and_create_is_idempotent`, `test_rollback_after_anchoring_then_next_pass_retires` |
+| Every admin-held commit anchored | `test_every_commit_only_the_admin_directory_names_survives_gc`, `test_missing_worktree_with_a_live_registration_is_anchored` |
+| Nothing written after the final check deleted | `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_new_file_before_commit_rolls_back_the_job`, `test_a_swapped_directory_sends_nothing_outside` |
+| Slow or interrupted checks defer, no livelock | `test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass`, `test_a_busy_oldest_job_does_not_block_the_queue`, `test_a_failed_process_listing_defers_the_batch`, `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree` |
+| Staged, resumable removal | `test_interrupted_removal_resumes_and_leaves_no_half_tree`, `test_a_crash_at_any_step_is_recovered_by_the_next_pass[7 steps]`, `test_an_entry_deletion_cannot_remove_is_set_aside_not_left_half_deleted` |
+| No repository-wide prune | `test_retention_never_prunes_other_registrations`, `test_discarding_a_broken_allocation_removes_only_its_own_registration` |
+| Every pin | `test_every_pin_keeps_its_job[16 pins]`, `test_pinned_at_commit_rolls_back_then_retires_when_unpinned`, `test_resume_fence_and_retention_exclude_each_other`, `test_in_place_salvage_still_pins`, `test_salvage_is_bundled_and_its_ref_kept` |
+| Progress under load | `test_batch_bounds_a_pass_and_takes_the_oldest_first`, `test_a_pool_over_its_count_is_pruned_without_sizing_everything` |
