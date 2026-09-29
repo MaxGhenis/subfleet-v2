@@ -571,6 +571,150 @@ def test_a_pool_over_its_count_is_pruned_without_sizing_everything(world, monkey
     assert sized == []
 
 
+def test_an_unmeasurable_job_is_decided_and_backs_off(world):
+    """Review of a9a6cbf4, N2 (the reviewer's probe): a job whose size cannot be
+    measured (a mode-000 directory) counted as unmeasured for ever, so every
+    pass reported more work and the daemon ran one every 5 seconds. Its size is
+    now unknown, which decides it; it is measured again only after a backoff
+    that doubles."""
+    import time as _time
+    w = world
+    w.job("ok-job", worktree=False)
+    w.job("odd-job", worktree=False)
+    locked = w.root / "jobs" / "odd-job" / "locked-dir"
+    locked.mkdir()
+    (locked / "x").write_text("x")
+    os.chmod(locked, 0)
+    try:
+        state, clock = retention.RetentionState(), Clock()
+
+        def one_pass():
+            return run(w, max_jobs=100, max_bytes=1 << 30, state=state, clock=clock,
+                       deadline=_time.monotonic() + 180)
+
+        first = one_pass()
+        assert first["more"] is False, first["pools"]
+        assert first["pools"]["detached"]["unknown_size"] == 1 and first["pools"]["detached"]["unmeasured"] == 0
+        assert [e["job_id"] for e in first["errors"]] == ["odd-job"] and "odd-job" in first["protected"]
+        second = one_pass()                                    # within the backoff: not measured again
+        assert second["more"] is False and second["errors"] == [] and "odd-job" in second["protected"]
+        assert second["progressed"] is False
+        clock.advance(retention.SIZE_ERROR_S + 1)
+        third = one_pass()                                     # due again: measured, fails, backs off longer
+        assert [e["job_id"] for e in third["errors"]] == ["odd-job"] and third["more"] is False
+        assert state.unmeasurable["odd-job"][1] == 2 * retention.SIZE_ERROR_S
+        os.chmod(locked, 0o700)
+        clock.advance(2 * retention.SIZE_ERROR_S + 1)
+        fourth = one_pass()
+        assert fourth["errors"] == [] and "odd-job" not in state.unmeasurable
+        assert fourth["pools"]["detached"]["unknown_size"] == 0
+    finally:
+        os.chmod(locked, 0o700)
+
+
+def test_a_persistent_error_keeps_the_cache_and_backs_off(world, monkeypatch):
+    """Review of a9a6cbf4, N10: an error rolled the job back with its archive
+    cache dropped, so a lasting error re-read the whole tree every 6 hours. The
+    cache stays; the deferral doubles; a restart (a new daemon state) keeps the
+    deferral the idle journal recorded; and when the error clears, the files
+    read before are not read again."""
+    w = world
+    wt = w.job("job-err")
+    (wt / "big.bin").write_bytes(os.urandom(50000))
+    reads = []
+    original_read = rfs.read_hashes
+    lock_size = len(f"{rgit.LOCK_MARKER}job-err\n")      # retention's lock is written anew by each attempt
+    monkeypatch.setattr(rfs, "read_hashes", lambda fd, size, fmt, check=None:
+                        (size != lock_size and reads.append(size)) or original_read(fd, size, fmt, check))
+    original_bundle = rgit.create_bundle
+
+    def failing_bundle(*args, **kwargs):
+        raise rgit.GitError("git bundle create exited 128: fatal: simulated")
+
+    monkeypatch.setattr(rgit, "create_bundle", failing_bundle)
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [] and first["deferred"]["job-err"].startswith("error")
+    journal = rarch.load_journal(w.root, "job-err")
+    assert journal["state"] == "idle" and journal["failures"] == 1
+    assert (w.root / "retention" / "job-err" / "archive" / "progress.jsonl").exists()   # the cache stays
+    assert wt.is_dir() and w.store.get_job("job-err") is not None
+    read_once = len(reads)
+    assert read_once > 0
+    clock.advance(rarch.DEFER_ERROR_S + 1)
+    second = run(w, state=state, clock=clock)
+    assert second["pruned"] == [] and rarch.load_journal(w.root, "job-err")["failures"] == 2
+    assert len(reads) == read_once                                     # cached: nothing read again
+    # A restart forgets in-memory deferrals; the idle journal still defers the job.
+    restarted = retention.RetentionState()
+    clock.advance(rarch.DEFER_ERROR_S + 1)                             # past the first backoff, not the second
+    third = run(w, state=restarted, clock=clock)
+    assert third["pruned"] == [] and "job-err" in third["deferred"]
+    assert rarch.load_journal(w.root, "job-err")["failures"] == 2      # not attempted
+    monkeypatch.setattr(rgit, "create_bundle", original_bundle)
+    clock.advance(2 * rarch.DEFER_ERROR_S)
+    last = run(w, state=restarted, clock=clock)
+    assert last["pruned"] == ["job-err"], last["deferred"]
+    manifest = json.loads((w.root / "archive" / "job-err" / "manifest.json").read_text())
+    stored = [e for t in manifest["trees"].values() for e in t["entries"] if e.get("store") and not e.get("hl")]
+    # Only the read-back of each stored file (the lock aside) happened since.
+    assert len(reads) == read_once + len([e for e in stored if e["size"] != lock_size])
+    assert rarch.check_archive(w.root, "job-err")["ok"]
+
+
+def test_a_slice_moves_forward_when_one_file_outlasts_it(world, monkeypatch):
+    """Review of a9a6cbf4, N3: a slice stopped in the middle of a file whose read
+    outlasted it, and the next slice read it from the start again, for ever.
+    One file's read now runs to its end; the slice stops between files."""
+    w = world
+    wt = w.job("job-bigfile")
+    (wt / "big.bin").write_bytes(os.urandom(300 * 1024))
+    monkeypatch.setattr(rfs, "CHUNK", 1024)                            # a check every 64 KiB
+    clock = Clock()
+    original = rfs.read_hashes
+
+    def slow(fd, size, fmt, check=None):
+        if size == 300 * 1024:
+            clock.advance(100)                                         # longer than the whole slice
+        return original(fd, size, fmt, check)
+
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    state = retention.RetentionState()
+    for _ in range(12):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert result["progressed"], result
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-bigfile"], result
+
+
+def test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it(world, monkeypatch):
+    """Review of a9a6cbf4, N3: every slice re-walks the tree from the start; when
+    walking the entries already archived took the whole slice, no slice reached
+    a new one. A slice now parks only after it has done new work."""
+    w = world
+    wt = w.job("job-wide")
+    for n in range(4):
+        (wt / f"f{n:02}.txt").write_text(f"file {n}\n")
+    clock = Clock()
+    original = rfs.walk
+
+    def slow_walk(fd, check=None):
+        for item in original(fd, check):
+            if getattr(check, "__name__", "") == "_tick":
+                clock.advance(10)                                      # each entry costs 10 s
+            yield item
+
+    monkeypatch.setattr(rfs, "walk", slow_walk)
+    state = retention.RetentionState()
+    for _ in range(150):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert result["progressed"], result
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-wide"], result
+
+
 # --- removal is staged and resumable -------------------------------------------------------
 
 def test_interrupted_removal_resumes_and_leaves_no_half_tree(world, monkeypatch):
@@ -1239,9 +1383,16 @@ def test_an_archive_that_does_not_read_back_authorizes_nothing(world, monkeypatc
         return method
 
     monkeypatch.setattr(rfs, "clone_or_copy", clone_then_spoil)
-    result = run(w)
+    state, clock = retention.RetentionState(), Clock()
+    result = run(w, state=state, clock=clock)
     assert result["pruned"] == [] and "did not read back" in result["deferred"]["job-badcopy"]
     assert wt.is_dir() and w.store.get_job("job-badcopy") is not None
+    # The cache is kept (N10), but not the copy that did not read back: the
+    # next attempt clones that file again and retires the job.
+    monkeypatch.setattr(rfs, "clone_or_copy", original)
+    clock.advance(rarch.DEFER_ERROR_S + 1)
+    assert run(w, state=state, clock=clock)["pruned"] == ["job-badcopy"]
+    assert rarch.check_archive(w.root, "job-badcopy")["ok"]
 
 
 def test_a_prune_during_archiving_cannot_drop_the_registration(world, monkeypatch):
