@@ -72,7 +72,8 @@ TIERS = ("trivial", "easy", "standard", "hard")
 #: Provider model ids that appear in v1's journal and that the v2 policy names
 #: only by a short alias, so a replay compares like with like. Read off
 #: `decisions.jsonl` on 2026-09-05; the policy's own `retired` map covers the
-#: rest (`sol` -> `astra`, `claude-fable-5` -> `fable`).
+#: rest (`sol` -> `astra`; since 2026-09-27 `fable`, `claude-fable-5` and
+#: `claude-fable-5-1` -> `opus`).
 V1_MODEL_SPELLINGS = {"gpt-5.6-sol": "sol"}
 
 
