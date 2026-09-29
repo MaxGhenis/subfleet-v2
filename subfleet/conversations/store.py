@@ -704,15 +704,21 @@ class ConversationStore:
             if source is None or source["blocked_by"] not in (None, fence):
                 return restored
             for item in restores:
+                # A steer that missed its turn keeps the mark the queue orders it by, so
+                # it still runs next (C-24.5): its last change back to `queued` has it.
+                last = tx.execute("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                  "ORDER BY seq DESC LIMIT 1", (item["message_id"], QUEUED)).fetchone()
+                missed = last is not None and (last["state_reason"] or "").startswith(MISSED_STEER)
+                reason = f"{MISSED_STEER} handoff-rolled-back" if missed else "handoff-rolled-back"
                 done = tx.execute(
-                    "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
+                    "UPDATE messages SET state='queued', state_reason=?, turn_seq=turn_seq+1, "
                     "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND turn_seq=? "
                     "AND (job_id IS NULL OR job_id=?) AND state IN ('queued','waiting','cancelled') "
                     "AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
-                    (now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
+                    (reason, now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
                 if done:
                     restored.append(item["message_id"])
-                    self._change(tx, conversation_id, item["message_id"], QUEUED)
+                    self._change(tx, conversation_id, item["message_id"], QUEUED, reason=reason)
             if tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
                           "AND blocked_by=?", (now, conversation_id, fence)).rowcount:
                 self._change(tx, conversation_id, None, None)
