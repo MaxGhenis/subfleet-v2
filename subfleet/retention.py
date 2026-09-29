@@ -28,6 +28,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES,
     TURN_RETENTION_MAX_JOBS,
 )
+from . import folders
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -110,6 +111,15 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
     )
     for sql in queries:
         protected.update(row["job_id"] for row in store.query(sql))
+    # C-8.4, C-13.4 (I5): a folder a live conversation turn works in, writable or
+    # read-only, is never reclaimed. Turns share a folder, so each holds its own
+    # row (`folders.TURN`, `folders.READER`) rather than `worktree:<folder>`,
+    # which the join above reads; the folders are compared as recorded, with no
+    # stat inside a transaction.
+    in_use = folders.turn_folders(store.query)
+    if in_use:
+        protected.update(row["job_id"] for row in store.query("SELECT job_id, worktree FROM jobs WHERE worktree IS NOT NULL")
+                         if row["worktree"] in in_use)
     for row in store.query("SELECT r.artifact_id,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) WHERE r.role='salvage'"):
         if row["artifact_id"] not in landed_salvage:
             protected.add(row["job_id"])
@@ -328,6 +338,11 @@ def _maintenance(store, state_root, *, budgets, turn_keep_s, pins, referenced_jo
             if lease_key is not None:
                 current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (lease_key,)).fetchone()
                 if current and current["holder"] != lease_holder:
+                    protected.add(identity)
+                    continue
+                # I5: nor while a conversation turn works in it. The fence below keeps
+                # a turn from starting there until the removal is over.
+                if folders.turn_holds(lambda sql, params: conn.execute(sql, params).fetchall(), str(worktree)):
                     protected.add(identity)
                     continue
                 conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",

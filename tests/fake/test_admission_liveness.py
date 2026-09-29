@@ -452,22 +452,25 @@ def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin
                 assert service._holds[newer]["reason"] == "behind-older-job"
 
 
-def _turn_in(service, harness, n, *, workdir, sandbox="workspace-write", model="astra"):
-    """A conversation turn's job in `workdir`, as the dispatcher submits it."""
+def _turn_in(service, harness, n, *, workdir, sandbox="workspace-write", model="astra", conversation=None):
+    """A conversation turn's job in `workdir`, as the dispatcher submits it. Turns given
+    one `conversation` share its `conversation:` lease, as two turn jobs of one
+    conversation do (the dispatcher never makes two live at once, C-24.5)."""
     from subfleet import protocol
     prompt = harness.root / f"turn-{n}.md"
     prompt.write_text("turn")
+    cid = conversation or f"conversation-{n}"
     args = protocol.SubmitArgs(request_id=f"turn:message-{n}:0", kind="turn", workdir=str(workdir),
                                prompt_path=str(prompt), sandbox=sandbox, pinned_model=model,
-                               name=f"turn-conversation-{n}", in_place=True, independent=True,
+                               name=f"turn-{cid}", in_place=True, independent=True,
                                no_preamble=True, max_attempts=1, allow_tmp=True)
-    turn = {"conversation_id": f"conversation-{n}", "message_id": f"message-{n}", "provider": "codex",
+    turn = {"conversation_id": cid, "message_id": f"message-{n}", "provider": "codex",
             "digest": f"digest-{n}"}
     return service.submit(args, turn=turn)["job_id"]
 
 
 def _checkout(harness):
-    """Make the harness's workdir a git checkout with one commit, so writable turns lease it."""
+    """Make the harness's workdir a git checkout with one commit, so writable turns write there."""
     from tests.unit.test_salvage import git
     for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"), ("config", "user.email", "t@example.invalid")):
         git(harness.workdir, *argv)
@@ -486,24 +489,153 @@ def _end(service, job_id):
         tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
 
 
-def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease(tmp_path):
-    """Two writable turns in one checkout take turns on its lease; with no turn cap, a
-    read-only turn of a third conversation elsewhere is placed while one of them waits."""
+def _live(service, job_id) -> bool:
+    return bool(service.store.query("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                                    "('reserved','starting','running','finalizing')", (job_id,)))
+
+
+def test_c24_5_turns_of_conversations_sharing_a_checkout_run_at_once(tmp_path):
+    """I1 (C-24.5, the owner's ruling of 2026-09-28, "nothing should be queued"): writable
+    turns of two conversations in one checkout (one of them in a subdirectory, which is the
+    same write target, C-6.5) are placed by the same turn pass; each holds a row of its own
+    on the folder and neither holds `worktree:<folder>`. A read-only turn elsewhere is
+    placed beside them and holds a reader's row on its own folder."""
+    from subfleet import folders
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        sub = harness.workdir / "pkg"
+        sub.mkdir()
+        elsewhere = harness.root / "elsewhere"
+        elsewhere.mkdir()
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        second = _turn_in(service, harness, 1, workdir=sub)
+        third = _turn_in(service, harness, 2, workdir=elsewhere, sandbox="read-only")
+        service._admit_turns()
+        assert all(_live(service, job_id) for job_id in (first, second, third)), service._holds
+        target = service._write_target(service._job(first), str(harness.workdir))
+        assert service._write_target(service._job(second), str(sub)) == target
+        rows = {key for key, _ in folders.turn_holds(service.store.query, target)}
+        assert rows == {folders.turn_key(target, first, writable=True), folders.turn_key(target, second, writable=True)}
+        assert not service.store.query("SELECT 1 FROM leases WHERE lease_key=?", (folders.exclusive_key(target),))
+        assert folders.turn_holds(service.store.query, str(elsewhere.resolve()), (folders.READER,)) == [
+            (folders.turn_key(str(elsewhere.resolve()), third, writable=False), third)]
+
+
+def test_c24_5_two_turns_of_one_conversation_never_run_at_once(tmp_path):
+    """I2 (C-24.5, C-26.3): two turn jobs of one conversation, in one folder or two, never
+    hold attempts at once: the later waits `lease-held` on `conversation:<id>` and is
+    placed when the first ends."""
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
         elsewhere = harness.root / "elsewhere"
         elsewhere.mkdir()
-        first = _turn_in(service, harness, 0, workdir=harness.workdir)
-        service._admit_turns()
-        assert service.store.list_attempts(first)
-        second = _turn_in(service, harness, 1, workdir=harness.workdir)
-        third = _turn_in(service, harness, 2, workdir=elsewhere, sandbox="read-only")
+        first = _turn_in(service, harness, 0, workdir=harness.workdir, conversation="one")
+        second = _turn_in(service, harness, 1, workdir=elsewhere, sandbox="read-only", conversation="one")
         for _ in range(3):
             service._admit_turns()
-        assert not service.store.list_attempts(second)
-        assert service._holds[second]["reason"] == "lease-held"
-        assert service.store.list_attempts(third), service._holds.get(third)
+        assert _live(service, first) and not _live(service, second)
+        hold = service._holds[second]
+        assert hold["reason"] == "lease-held" and hold["leases"] == ["conversation:one"], hold
+        _end(service, first)
+        service._admit_turns()
+        assert _live(service, second), service._holds.get(second)
+
+
+def _detached_in_place(service, harness):
+    from tests.fake.test_admission_latency import submit
+    return submit(service, harness, sandbox="workspace-write", in_place=True)
+
+
+def test_c24_5_a_turn_waits_for_a_detached_writer_in_its_folder(tmp_path):
+    """C-6.5 is unchanged for detached jobs: a detached writer in place holds its checkout
+    alone, so a writable turn there waits `lease-held` on `worktree:<folder>` (named, never
+    capacity) and runs when it ends. A read-only turn in the same checkout is not held."""
+    from subfleet import folders
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        writer = _detached_in_place(service, harness)
+        service._admit()
+        assert _live(service, writer), service._holds.get(writer)
+        target = service._write_target(service._job(writer), str(harness.workdir))
+        turn = _turn_in(service, harness, 0, workdir=harness.workdir)
+        reader = _turn_in(service, harness, 1, workdir=harness.workdir, sandbox="read-only")
+        service._admit_turns()
+        assert not _live(service, turn) and _live(service, reader)
+        assert service._holds[turn]["reason"] == "lease-held"
+        assert service._holds[turn]["leases"] == [folders.exclusive_key(target)]
+        _end(service, writer)
+        service._admit_turns()
+        assert _live(service, turn), service._holds.get(turn)
+
+
+def test_c24_5_a_detached_writer_waits_while_a_turn_writes_in_its_folder(tmp_path):
+    """C-6.5, I5: a detached writer accepted before any turn waits at admission while a
+    writable turn holds the folder (the turn pass runs first, C-26.9), naming the turn's
+    row, and is placed once the turn ends; a read-only turn never holds it back."""
+    from subfleet import folders
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        writer = _detached_in_place(service, harness)
+        turn = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit()
+        assert _live(service, turn) and not _live(service, writer)
+        target = service._write_target(service._job(turn), str(harness.workdir))
+        assert service._holds[writer]["reason"] == "lease-held"
+        assert service._holds[writer]["leases"] == [folders.turn_key(target, turn, writable=True)]
+        _end(service, turn)
+        reader = _turn_in(service, harness, 1, workdir=harness.workdir, sandbox="read-only")
+        service._admit_turns()
+        assert _live(service, reader)
+        from subfleet.daemon import utcnow
+        service.store.update_job(writer, next_check_at=utcnow())
+        service._admit()
+        assert _live(service, writer), service._holds.get(writer)
+
+
+def test_c6_5_a_detached_writer_is_refused_where_a_turn_writes_even_quarantined(tmp_path):
+    """C-6.5: submitting a detached writer in place where a writable turn is live is exit 7,
+    as before; and still while the turn's attempt is quarantined (its job has ended, its
+    writers may not have), found by the turn's row on the folder."""
+    from subfleet.adapters.base import AdapterError
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        turn = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        assert _live(service, turn)
+        with pytest.raises(AdapterError) as live:
+            _detached_in_place(service, harness)
+        assert live.value.code == 7
+        with service.store.transaction("test.quarantine") as tx:
+            tx.execute("UPDATE attempts SET state='quarantined' WHERE job_id=?", (turn,))
+            tx.execute("UPDATE jobs SET state='lost' WHERE job_id=?", (turn,))
+            tx.execute("DELETE FROM leases WHERE holder IN (SELECT attempt_id FROM attempts WHERE job_id=?)", (turn,))
+        with pytest.raises(AdapterError) as quarantined:
+            _detached_in_place(service, harness)
+        assert quarantined.value.code == 7 and "conversation turn" in str(quarantined.value)
+
+
+def test_c8_4_a_read_only_turn_waits_for_a_retention_fence_only(tmp_path):
+    """I5: retention fences a folder with `worktree:<folder>` held by `retention:<job>`
+    while it removes it; a read-only turn there waits for that (it would read a folder
+    being deleted), though it never waits for a detached writer."""
+    from subfleet import folders
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        reader = _turn_in(service, harness, 0, workdir=harness.workdir, sandbox="read-only")
+        folder = service._submitted(reader)["folder"]
+        assert service.store.acquire_lease(folders.exclusive_key(folder), "retention:old-job")
+        service._admit_turns()
+        assert not _live(service, reader)
+        assert service._holds[reader]["leases"] == [folders.exclusive_key(folder)]
+        service.store.release_leases("retention:old-job")
+        service._admit_turns()
+        assert _live(service, reader), service._holds.get(reader)
 
 
 def _clock(service, job_id, when):
@@ -517,26 +649,28 @@ def _clock(service, job_id, when):
     ({"max_active_turns": 50, "turn_slots_per_lane": 50}, "terra"),
 ])
 def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_path, caps, newer_model, older_clock):
-    """FIFO on a lease (review of 1b38d641). An older turn waits for a checkout another
-    turn holds; that turn ends after the pass has passed the older one, and a newer turn
-    wanting the same checkout is looked at next. The newer turn waits, queued behind the
-    older one, which takes the checkout on the next pass. Without the queue the newer turn
+    """FIFO on a lease (review of 1b38d641). An older turn waits for a lease another turn
+    holds; that turn ends after the pass has passed the older one, and a newer turn
+    wanting the same lease is looked at next. The newer turn waits, queued behind the
+    older one, which takes the lease on the next pass. Without the queue the newer turn
     took it: with no turn cap nothing else holds one turn behind another, and a turn of
     another model never competed (C-6.9) even with caps set. The older turn is passed on
     its clock (`future`: queued from its recorded hold) or looked at (`due`: queued when
-    it is held again); each path is forced, not left to where a second boundary falls."""
+    it is held again); each path is forced, not left to where a second boundary falls.
+    Turns share their folder (C-24.5), so the lease here is their conversation's own
+    (`conversation:<id>`, the lease the review found this on was the checkout's)."""
     from subfleet.daemon import after, utcnow
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         service.policy["conversations"].update(caps)
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
-        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        first = _turn_in(service, harness, 0, workdir=harness.workdir, conversation="shared")
         service._admit_turns()
         assert service.store.list_attempts(first)
-        older = _turn_in(service, harness, 1, workdir=harness.workdir)
+        older = _turn_in(service, harness, 1, workdir=harness.workdir, conversation="shared")
         service._admit_turns()
         assert service._holds[older]["reason"] == "lease-held"
-        newer = _turn_in(service, harness, 2, workdir=harness.workdir, model=newer_model)
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir, model=newer_model, conversation="shared")
         _clock(service, older, after(3600) if older_clock == "future" else utcnow())
         real = service._workspace
 
@@ -549,7 +683,7 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
         hold = service._holds[newer]
         assert not service.store.list_attempts(newer), hold
         assert hold["reason"] == "lease-held" and hold["leases"] == [] and hold["queued_behind"] == [older]
-        assert [key.split(":", 1)[0] for key in hold["queued"]] == ["worktree"]
+        assert hold["queued"] == ["conversation:shared"]
         patch.setattr(service, "_workspace", real)
         service._admit_turns()
         assert service.store.list_attempts(older), service._holds.get(older)
@@ -560,19 +694,20 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
 
 
 def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
-    """Three turns wait for one checkout: a lease freed mid-pass is queued for the oldest,
-    both later turns name the oldest, and the checkout then passes to them in age order."""
+    """Three turns wait for one lease (their conversation's): a lease freed mid-pass is
+    queued for the oldest, both later turns name the oldest, and the lease then passes to
+    them in age order."""
     from subfleet.daemon import after
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
-        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        first = _turn_in(service, harness, 0, workdir=harness.workdir, conversation="shared")
         service._admit_turns()
-        oldest = _turn_in(service, harness, 1, workdir=harness.workdir)
-        middle = _turn_in(service, harness, 2, workdir=harness.workdir)
+        oldest = _turn_in(service, harness, 1, workdir=harness.workdir, conversation="shared")
+        middle = _turn_in(service, harness, 2, workdir=harness.workdir, conversation="shared")
         service._admit_turns()
         assert service._holds[oldest]["reason"] == service._holds[middle]["reason"] == "lease-held"
-        newest = _turn_in(service, harness, 3, workdir=harness.workdir)
+        newest = _turn_in(service, harness, 3, workdir=harness.workdir, conversation="shared")
         for job_id in (oldest, middle):
             _clock(service, job_id, after(3600))
         real = service._workspace
@@ -588,8 +723,7 @@ def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
         order = []
         for _ in range(3):
             service._admit_turns()
-            live = [job_id for job_id in (oldest, middle, newest) if service.store.query(
-                "SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running')", (job_id,))]
+            live = [job_id for job_id in (oldest, middle, newest) if _live(service, job_id)]
             assert len(live) <= 1
             order.extend(job_id for job_id in live if job_id not in order)
             for job_id in live:
@@ -608,15 +742,15 @@ def test_c26_9_a_turn_on_its_clock_keeps_its_place_for_a_lease_it_was_queued_for
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
-        waiting = _turn_in(service, harness, 1, workdir=harness.workdir)
-        key = f"worktree:{service._write_target(service._job(waiting), harness.workdir)}"
+        waiting = _turn_in(service, harness, 1, workdir=harness.workdir, conversation="shared")
+        key = "conversation:shared"
         hold = {"reason": "lease-held", "leases": [], "queued": [key], "queued_behind": ["gone"]}
         service._capacity_wait(waiting, "lease-held:" + key, hold)
         with service.store.transaction("fixture.wait") as tx:
             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
                        (after(3600), waiting))
         service._admit_turns()                                   # records the lease snapshot: nothing is freed next
-        newer = _turn_in(service, harness, 2, workdir=harness.workdir)
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir, conversation="shared")
         service._admit_turns()
         assert not service.store.list_attempts(newer), service._holds.get(newer)
         assert service._holds[newer]["queued_behind"] == [waiting]

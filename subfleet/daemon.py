@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
+from . import capacity, folders, ids, lanes_transfer, procs, protocol, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -237,6 +237,11 @@ def worker_retry_delay(failures: int) -> float:
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def utcnow_ms() -> str:
+    """The conversation store's clock format (milliseconds), for C-26.14's turn windows."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def after(seconds: float) -> str:
@@ -1260,6 +1265,10 @@ class Daemon:
                 # named by -C, so `/repo` and `/repo/sub` are one place to write.
                 write_target = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
+                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`).
+                read_folder = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                               if turn is not None and write_target is None else None)
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -1420,6 +1429,7 @@ class Daemon:
                             if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
+                         **({"folder": read_folder} if read_folder else {}),
                          **({"batch": batch} if batch else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
@@ -1766,9 +1776,17 @@ class Daemon:
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
-                for key in {f"worktree:{job['workdir']}", f"worktree:{write_target or job['workdir']}"}:
-                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (key,)):
+                for folder in {job["workdir"], write_target or job["workdir"]}:
+                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
                         raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                    # C-6.5, C-24.5: a writable conversation turn holds its folder with a
+                    # row of its own (one live after its job ended, while its attempt is
+                    # quarantined, too); a detached writer never joins it there.
+                    turns = folders.turn_holds(self.store.query, folder, (folders.TURN,))
+                    if turns:
+                        raise AdapterError(f"worktree {folder} is being written by a conversation turn ({turns[0][1]})",
+                                           fix="wait for the conversation's turn to end, or run the job in its own "
+                                               "worktree (without --in-place)")
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
@@ -3346,6 +3364,7 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             try:
+                baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
                 workspace, head, baseline = self._workspace(job)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
@@ -3370,6 +3389,9 @@ class Daemon:
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
+            # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
+            read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
+                           if job["kind"] == "turn" and write_target is None else None)
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -3582,11 +3604,33 @@ class Daemon:
                             leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                         if job["out_path"]:
                             leases.append((f"out:{job['out_path']}", job["job_id"]))
-                        if job["sandbox"] == "workspace-write":
+                        # Keys this job needs free but does not take (C-6.5, C-24.5): a turn
+                        # shares its folder with other turns, so it never holds the
+                        # exclusive key, yet it may not write beside a detached writer.
+                        blockers: list[str] = []
+                        read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
+                        if job["sandbox"] == "workspace-write" and job["kind"] == "turn":
+                            # C-24.5 (the owner's ruling of 2026-09-28, "nothing should be
+                            # queued"): conversations that share a folder run at once, as
+                            # sessions of the Claude app do. Each turn holds its own row, so
+                            # retention and a detached writer still see the folder in use.
+                            leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
+                            blockers.append(folders.exclusive_key(write_target))
+                        elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
-                            # at submit.
+                            # at submit. A detached writer still writes alone: it waits
+                            # while a conversation turn writes there.
                             leases.append((f"worktree:{write_target}", job["job_id"]))
+                            blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                        elif job["kind"] == "turn" and read_folder:
+                            # C-8.4, C-13.4: a read-only turn excludes no writer, but
+                            # retention never removes a folder a turn is working in.
+                            leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
+                            fence = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                               (folders.exclusive_key(read_folder),)).fetchone()
+                            if fence and str(fence[0]).startswith("retention:"):
+                                blockers.append(folders.exclusive_key(read_folder))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -3604,18 +3648,23 @@ class Daemon:
                             leases.append((revive_key, job["job_id"]))
                         contested = [key for key, holder in leases
                                      if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()) and r[0] != holder]
+                        blocked = [key for key in dict.fromkeys(blockers)
+                                   if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())
+                                   and r[0] != job["job_id"]]
                         queued = [key for key, _ in leases if key not in contested
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]] if pool == "turn" else []
-                        if contested or queued:
+                        if contested or blocked or queued:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older turn waiting for them (C-26.9), named by `queued_behind`.
-                            hold = {"reason": "lease-held", "leases": contested,
+                            # A key it only needs free (`blocked`) is never queued for: turns
+                            # share their folder, so no turn takes it from another.
+                            hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             if pool == "turn":
                                 queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
@@ -3623,9 +3672,14 @@ class Daemon:
                             break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                        evidence = {"baseline_commit": head, "model_short": decision.chosen_model}
+                        if job["kind"] == "turn":
+                            # C-26.14: the turn's window opens before its start snapshot, and
+                            # its folder is where another turn's window may overlap it.
+                            evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                                    json.dumps(evidence), utcnow()))
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
                                    (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
                         tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",

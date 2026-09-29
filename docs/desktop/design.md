@@ -339,9 +339,13 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 an existing session's recorded cwd (C-30.2: that of the transcript copy it
 continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
-repository). Turns run in place and hold `worktree:<git toplevel or
-directory>`; two conversations on one checkout take turns (a lease wait,
-never a refusal; review F-06). A directory outside git is allowed. A checkout
+repository). Turns run in place. Two conversations on one checkout run at
+once: each turn holds a row of its own on the folder
+(`worktree-turn:<git toplevel or directory>:<job id>`), never the exclusive
+`worktree:` lease, which only a detached writer holds (C-24.5, 2026-09-29;
+the owner's ruling "nothing should be queued"). Until then they took turns
+on `worktree:<git toplevel or directory>` (a lease wait, never a refusal;
+review F-06). A directory outside git is allowed. A checkout
 on `main` or `master` needs `allow_main`, person-only, settable at creation or
 on an existing conversation with confirmation. C-13.2 still binds every
 detached job.
