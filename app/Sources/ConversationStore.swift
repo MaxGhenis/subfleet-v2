@@ -236,6 +236,41 @@ func stillTooLate(_ messageID: String, in timeline: Timeline, unrecallable: [Str
     }
 }
 
+/// Esc's memory of the daemon's `too-late` answers (C-24.9), kept across
+/// conversations by `UIModel.escape`: each steer it passes over, with the turn
+/// it was too late for. An entry lasts only while that steer is still in that
+/// turn (`stillTooLate`); once it leaves it, Esc may take it back again.
+struct TooLateSteers: Equatable {
+    private(set) var turns: [String: String] = [:]
+
+    /// Drop the entries for `timeline`'s steers that left the turn they were too
+    /// late for; another conversation's entries stay.
+    mutating func prune(_ timeline: Timeline) {
+        let current = turns
+        turns = current.filter { id, _ in
+            timeline.turn(id) == nil || stillTooLate(id, in: timeline, unrecallable: current)
+        }
+    }
+
+    /// What Esc does now: the newest steer it may take back, else Stop.
+    mutating func escape(_ timeline: Timeline?) -> EscapeAction {
+        if let timeline { prune(timeline) }
+        return escapeAction(timeline: timeline, unrecallable: turns)
+    }
+
+    /// The daemon answered `too-late` for `messageID` (its frame is written: the
+    /// turn's next step reads it). Returns the words for what the next Esc does.
+    mutating func tooLate(_ messageID: String, in timeline: Timeline, assistant: String) -> String {
+        if let host = tooLateBinding(messageID, in: timeline) { turns[messageID] = host }
+        let told = "\(assistant) already has it; it joins at the next step."
+        switch escapeAction(timeline: timeline, unrecallable: turns) {
+        case .recall: return told + " Press Esc again to take back the message before it."
+        case .stop: return told + " Press Esc again to stop the turn."
+        case .none: return told                         // no turn runs now: Esc does nothing
+        }
+    }
+}
+
 /// The composer's one-line hint while it steers and the person's picks differ
 /// from the running turn's: a steer runs under the turn's settings (design §1).
 func steerSettingsHint(picked: ConversationSettings, host: SteerHost) -> String? {

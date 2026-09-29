@@ -468,7 +468,11 @@ class CodexTurn(SteerTracking):
     def _notification(self, method: str, params: dict, source: "_Sources") -> Step:
         if params.get("threadId") not in (None, self.thread_id):
             return Step()
-        if params.get("turnId") not in (None, self.turn_id):
+        if self.turn_id is not None and params.get("turnId") not in (None, self.turn_id):
+            # An item or delta notification that names another turn. Before the turn
+            # id is known none is dropped, as before steer (design §5, invariant 5):
+            # a steer is sent only once it is known, so none of its items come earlier.
+            # (`turn/started` and `turn/completed` name their turn in `turn`, not here.)
             return Step()
         if method == "turn/started":
             turn = params.get("turn") or {}

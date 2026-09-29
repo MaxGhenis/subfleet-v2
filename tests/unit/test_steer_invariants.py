@@ -1,6 +1,8 @@
 """C-24.9 / steer design §5: generated histories exercise the real store,
 settlement, drivers and runner. Only relay I/O is replaced by a durable journal,
-and the provider is the test, writing what it would write to stdout.
+and the provider is the test, writing what it would write to stdout. Invariant 5
+is also differential: histories with no steer are checked against a recording of
+the code before steer.
 """
 
 from contextlib import contextmanager
@@ -342,10 +344,50 @@ def test_restarts_at_each_handover_and_settlement_boundary_never_resend(restarts
         assert w.service.store.message(mid) == before
 
 
+# --- invariant 5: a turn with no steers, against the pre-steer code --------------------------------
+#
+# The same no-steer histories ran through the code before steer (commit 52ffde17, the merge
+# base of the steer work) and were recorded (tests/unit/no_steer_histories.py says how). The
+# current code must do exactly what that code did: every frame, event, approval and outcome
+# of the drivers, and, through the runner loop and the service's settlement, the host's
+# state, its conversation's block, the relay log, the stored events and turn.json. Only the
+# empty `steers` steer added to every outcome is set aside.
+
+from tests.unit import no_steer_histories as no_steer
+
+PRE_STEER = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "steer" / "no_steer_presteer.json")
+                       .read_text())
+
+
+def as_json(value):
+    return json.loads(json.dumps(value))
+
+
+def test_the_pre_steer_recording_covers_every_no_steer_history():
+    assert sorted(PRE_STEER["driver"]) == sorted(case["name"] for case in no_steer.cases())
+    assert sorted(PRE_STEER["runner"]) == sorted(case["name"] for case in no_steer.runner_cases())
+
+
+@pytest.mark.parametrize("case", no_steer.cases(), ids=lambda case: case["name"])
+def test_a_turn_with_no_steers_drives_as_the_pre_steer_drivers_did(case):
+    """Invariant 5, differential: both drivers, with and without a CLI that could take
+    steers, acknowledged or not, answering an approval, stopped or not, and ending with
+    success, an error or stdout's end."""
+    assert as_json(no_steer.drive(case)) == PRE_STEER["driver"][case["name"]]
+
+
+@pytest.mark.parametrize("case", no_steer.runner_cases(), ids=lambda case: case["name"])
+def test_a_turn_with_no_steers_runs_and_settles_as_before_steer(case):
+    """Invariant 5, differential, through the real runner loop and the service's
+    settlement: the same frames reach the relay, the same events are stored, and the
+    host settles, blocks its conversation or not, exactly as before steer."""
+    assert as_json(no_steer.run(case)) == PRE_STEER["runner"][case["name"]]
+
+
 @settings(max_examples=45, deadline=None)
 @given(ack=st.booleans(), success=st.booleans(), replay=st.integers(0, 4))
 def test_hosts_without_steers_keep_their_delivery_and_outcome_rules(ack, success, replay):
-    """Invariant 5: an ordinary host still closes on its first result, and replay
+    """Invariant 5, replay: an ordinary host still closes on its first result, and replay
     preserves its acknowledgement, outcome, empty steer set and exactly one close."""
     rows = [INIT_OK]
     if ack:

@@ -46,8 +46,8 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
-    steerable_text, steered_into, validate_settings, widens,
+    LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native,
+    canonical_uuid, steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -1763,7 +1763,8 @@ class ConversationService:
                         # or handed off while it waits; a claim recovered after a crash
                         # goes back to `queued` (review of 6290a51, finding 2).
                         back = QUEUED if prior_state == QUEUED or prior_reason == CLAIMED else WAITING
-                        self.store.set_state(mid, back, reason=None if back == QUEUED else prior_reason,
+                        self.store.set_state(mid, back, reason=prior_reason if back == WAITING
+                                             else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
                     self._defer(self.store.message(mid), why)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
@@ -1823,6 +1824,17 @@ class ConversationService:
         if message["state"] != WAITING or message.get("state_reason") != reason:
             self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), unbound=True)
 
+    def _missed_mark(self, mid: str, prior_reason: str | None) -> str | None:
+        """The reason a released claim puts back: a missed steer's `steer-missed:`
+        mark, which the queue orders by (C-24.5), else none. A claim a crash left
+        (`dispatching`) no longer holds the reason it replaced; the message's last
+        change back to `queued` does."""
+        if prior_reason == CLAIMED:
+            row = self.store.one("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                 "ORDER BY seq DESC LIMIT 1", (mid, QUEUED))
+            prior_reason = row["state_reason"] if row else None
+        return prior_reason if (prior_reason or "").startswith(MISSED_STEER) else None
+
     def _defer(self, message: dict, why: str) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,
         says why, and is not submitted again until its backoff passes."""
@@ -1831,7 +1843,12 @@ class ConversationService:
             count = self._deferred.get(mid, (0, 0.0))[0] + 1
             delay = min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (count - 1))
             self._deferred[mid] = (count, self.clock() + delay)
-        reason = f"deferred: {why}"[:200]
+        reason = f"deferred: {why}"
+        if message["state"] == QUEUED and (message.get("state_reason") or "").startswith(MISSED_STEER):
+            # A steer that missed its turn runs next (C-24.5): the queue orders by
+            # this mark, so a deferral of its own turn keeps it.
+            reason = f"{MISSED_STEER} {reason}"
+        reason = reason[:200]
         if message.get("state_reason") != reason:
             self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
         if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded

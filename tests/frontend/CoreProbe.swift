@@ -212,10 +212,11 @@ func pageResult(_ result: Timeline.PageResult) -> String {
 }
 
 /// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"history"}|{"local"}|{"steer_request"}|
-/// {"steer_answer"}]}`
+/// {"escape"}|{"esc"}|{"too_late"}|{"steer_answer"}]}`
 func runFold(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
     var timeline = Timeline(conversationID: input["conversation_id"]?.string ?? "cv")
+    var tooLate = TooLateSteers()        // what `UIModel.escape` keeps between presses
     var results: [String] = []
     var snapshots: [[String: Any]] = []
     for step in input["steps"]?.array ?? [] {
@@ -252,6 +253,16 @@ func runFold(_ data: Data) throws -> [String: Any] {
             case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
             case .none: results.append("escape:none")
             }
+        } else if step["esc"]?.bool == true {
+            // Esc as `UIModel.escape` does it, with what earlier `too_late` steps left.
+            switch tooLate.escape(timeline) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
+        } else if let late = step["too_late"]?.string {
+            // The daemon answered `message.cancel` of this steer `too-late`.
+            results.append("too-late:" + tooLate.tooLate(late, in: timeline, assistant: step["assistant"]?.string ?? "Claude"))
         } else if let answer = step["steer_answer"] {
             // The outbox's answer to a steer: `refusal` null when the daemon took it.
             let refusal = answer["refusal"].flatMap { $0.isNull ? nil : $0 }.map {

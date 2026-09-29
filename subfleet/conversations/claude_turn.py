@@ -232,7 +232,9 @@ class ClaudeTurn(SteerTracking):
 
     def _interrupt_request(self) -> dict:
         request: dict[str, Any] = {"subtype": "interrupt"}
-        if "interrupt_cancel_queued_v1" in self.capabilities:
+        if self.steers and "interrupt_cancel_queued_v1" in self.capabilities:
+            # Only a turn with steers has queued commands to sweep; a turn with none
+            # sends the interrupt it sent before steer (design §5, invariant 5).
             request["cancel_queued"] = True
         return request
 

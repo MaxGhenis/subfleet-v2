@@ -190,9 +190,10 @@ enum OutboxError: Error, Equatable {
 
 final class Outbox {
     static let draftPrefix = "draft:"
-    /// A steer that gets no answer this many times is given up: it is worth
-    /// something only while the turn runs, and it must not hold the messages the
-    /// person sends after it. The message stays queued; nothing is lost either way.
+    /// A steer tried this many times (no answer, or a turn that could not take it
+    /// yet) is given up: it is worth something only while the turn runs, and it may
+    /// hold the messages the person sends after it only briefly (0.5 s doubling:
+    /// 7.5 s at most). The message stays queued; nothing is lost either way.
     static let steerAttempts = 5
 
     private(set) var journal: OutboxJournal
@@ -361,6 +362,8 @@ final class Outbox {
 
     /// Record the daemon's answer to a steer. A refusal closes it: the message
     /// stays queued in the daemon, and nothing later in the conversation waits.
+    /// A lost answer, or `not-steerable` for a steer that names its turn, is
+    /// asked again briefly first (`steerAttempts`).
     @discardableResult
     func finishSteer(_ messageID: String, _ outcome: OutboxSteerOutcome) throws -> OutboxSteer {
         let index = try steerIndex(messageID)
@@ -387,6 +390,14 @@ final class Outbox {
                     steer.failure?.retryable = true
                     steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
                 }
+            } else if daemon?.reason == "not-steerable" && steer.into != nil && steer.attempts < Outbox.steerAttempts {
+                // The turn could not take a steer at that moment: its runner still
+                // catching up after a daemon restart, or the provider not ready yet.
+                // It is asked again briefly (0.5 s doubling, `steerAttempts` in all);
+                // `into` has the daemon refuse any try that comes after that turn ended.
+                steer.state = .queued
+                steer.failure?.retryable = true
+                steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
             } else {
                 steer.state = .refused
             }

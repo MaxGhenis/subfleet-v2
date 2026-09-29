@@ -366,6 +366,37 @@ def test_a_missed_steer_runs_next_ahead_of_messages_queued_for_later(svc, live, 
     assert dispatch_order(svc, cid, host) == expected
 
 
+@pytest.mark.parametrize("crashed", [False, True])
+def test_a_missed_steer_still_runs_next_when_its_own_turn_is_deferred(svc, live, crashed):
+    """C-24.5: the queue orders by a missed steer's mark (`steer-missed:`), so a submit
+    refused in a way that may pass (a deferral) keeps the mark, and the message queued
+    for later still waits behind the steer, however often it is deferred. A dispatcher's
+    claim that a crash left behind (`dispatching`) is released with the mark too."""
+    from subfleet.adapters.base import AdapterError
+    from subfleet.conversations.service import CLAIMED
+    cid, host, later, runner = live                  # queued for later (⌘Return), before the steer
+    missed = submit(svc, cid, "steer", after=later)
+    steer(svc, missed)
+    svc._settle_steers(runner, {"steers": {missed: {"frame": "written", "fate": "cancelled",
+                                                    "detail": "interrupt-cancelled"}}}, {})
+    svc.store.set_state(host, "complete")
+    svc.runners.clear()
+    if crashed:                                      # claimed, then the daemon stopped before its job existed
+        assert svc.store.set_state(missed, "waiting", reason=CLAIMED, expect=("queued",), unbound=True)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1)
+    for _ in range(2):
+        svc._dispatch()
+        row = svc.store.message(missed)
+        assert (row["state"], row["state_reason"]) == ("queued", "steer-missed: deferred: could not inspect the workdir")
+        assert svc.store.next_dispatchable(cid)[0]["message_id"] == missed
+        svc.clock.now += 10
+    svc.daemon.refuse = None
+    svc._dispatch()
+    assert svc.store.message(missed)["state"] == "waiting" and svc.store.message(missed)["job_id"]
+    assert svc.store.message(later)["state"] == "queued"
+    assert [s.request_id.split(":")[1] for s in svc.daemon.submits] == [missed] * 3
+
+
 def test_a_steer_for_a_turn_that_has_ended_is_refused_instead_of_joining_the_next(svc, live):
     """Steer review finding 17: a steer sent late (a retry, a resend after the app
     restarted) names the host it was meant for; once another turn is the live one it

@@ -206,12 +206,27 @@ static claims and fake tests are not represented as live validation.
 
 ## After the review (2026-09-28)
 
-The multi-lens review's findings were fixed on `feat/steer-r2`; the contract
-(C-24.5, C-24.7, C-24.9, C-25.2, C-26.5, C-26.6, C-29.7) now states what shipped.
-In short: a steer's images resolve by digest and no steer failure ends its host's
-runner; the Claude watchdog never runs during a steer's own turn and gives up only
-the steers its round named; eof keeps a held result; settlement reads its evidence
-outside the service lock; a missed steer runs next; `message.steer` takes `into`
-and refuses a steer whose turn has ended; the daemon refuses `/` and `!` input; the
-app's Esc passes over a too-late steer only while it is still in that turn, keeps
-recalled words in the draft, and keys the missed flag to its turn.
+The multi-lens review's findings were fixed on `feat/steer-r2` and
+`feat/steer-r2-cont`; the contract (C-24.5, C-24.7, C-24.9, C-25.2, C-26.5,
+C-26.6, C-29.7) now states what shipped. In short: a steer's images resolve by
+digest and no steer failure ends its host's runner; the Claude watchdog never runs
+during a steer's own turn and gives up only the steers its round named; eof keeps a
+held result; settlement reads its evidence outside the service lock; a missed steer
+runs next, through a deferral of its own turn too; `message.steer` takes `into` and
+refuses a steer whose turn has ended; the daemon refuses `/` and `!` input; the
+app's Esc passes over a too-late steer only while it is still in that turn
+(`TooLateSteers`), says what the next Esc does, keeps recalled words in the draft,
+and keys the missed flag to its turn; the app asks again briefly when the daemon
+answers `not-steerable`; and the app-side steer tests, O1 to O4 included, run
+against the daemon's own `message.steer` into a real runner.
+
+Invariant 5 (a turn with no steers is unchanged) is now differential. 140 driver
+histories and 20 runner-and-settlement histories with no steer
+(`tests/unit/no_steer_histories.py`) were recorded through the pre-steer code
+(commit 52ffde17) into `tests/fixtures/steer/no_steer_presteer.json`, and
+`test_steer_invariants.py` checks the current code does exactly the same. The
+first recording against this branch found two differences for turns with no
+steers, both fixed: a Claude CLI that advertises `interrupt_cancel_queued_v1` got
+`cancel_queued: true` on every stop (now only a turn with steers asks), and a
+Codex item that named the turn before the `turn/start` answer did was dropped (now
+another turn's notifications are dropped only once the turn's id is known).

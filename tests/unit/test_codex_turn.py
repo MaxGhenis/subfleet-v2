@@ -519,6 +519,25 @@ def test_steer_waits_for_turn_id_then_flushes_once():
     assert not turn.feed(note("turn/started", threadId="thr-1", turn={"id": "turn-1"}), 5).frames
 
 
+def test_notifications_are_dropped_for_another_turn_only_once_the_turn_id_is_known():
+    """Design §5, invariant 5: a turn with no steers reads its notifications as before
+    steer. One carrying a turn id before the turn/start answer names the turn is read;
+    once the id is known, another turn's is ignored."""
+    turn = CodexTurn(spec())
+    to_thread(turn)
+    turn.feed(resp(ID_THREAD, {"thread": {"id": "thr-1", "status": {"type": "idle"}}, "model": "gpt-6-astra"}), 3)
+    early = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1",
+                           item={"id": "early", "type": "agentMessage", "text": ""}), 4)
+    assert turn.turn_id is None and [e.kind for e in early.events] == ["status"]
+    turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1"}}), 5)
+    other = turn.feed(note("item/started", threadId="thr-1", turnId="turn-9",
+                           item={"id": "other", "type": "commandExecution", "command": "ls"}), 6)
+    assert other.events == [] and other.frames == []
+    own = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1",
+                         item={"id": "own", "type": "commandExecution", "command": "ls"}), 7)
+    assert "tool.started" in [e.kind for e in own.events]
+
+
 def test_withdrawn_held_steer_is_not_sent_when_turn_id_arrives():
     turn = CodexTurn(spec())
     to_thread(turn)

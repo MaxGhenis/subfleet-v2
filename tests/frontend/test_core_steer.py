@@ -605,6 +605,50 @@ def test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing(core_
     assert all(steer_frames(runner) == [] for runner in runners.values())
 
 
+@pytest.mark.parametrize("catches_up", [True, False])
+def test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly(core_probe, tmp_path, daemon, catches_up):
+    """Steer review finding 3: the daemon answers `not-steerable` while the running turn's
+    runner is still catching up (a daemon restart) or the provider is not ready. A steer
+    that names its turn (`into`) is asked again briefly, so it lands once the turn can
+    take it, written to the provider once; a turn that never can leaves it queued, the
+    steer refused `not-steerable` after `steerAttempts` tries, holding nothing after."""
+    harness, server = daemon
+    host, steered, after = ids(3)
+    runners = go_live_when_submitted(harness, host)
+    after_submitted(harness, steered, lambda r: setattr(runners[host], "replay_caught_up", False))
+    real = harness.service.op_message_steer
+
+    def steer(args, peer):
+        try:
+            return real(args, peer)
+        finally:
+            runners[host].replay_caught_up = catches_up     # caught up by the next try, or never
+    harness.service.op_message_steer = steer
+    out = run_steps(core_probe, tmp_path, server.path, [
+        create_step(harness, "req-n"),
+        {"do": "submit", "conversation": "@draft:req-n", "message_id": host, "text": "fix the parser"},
+        {"do": "pump"},
+        {"do": "submit", "conversation": "@conv:req-n", "message_id": steered, "text": "also", "steer": True,
+         "into": host},
+        {"do": "submit", "conversation": "@conv:req-n", "message_id": after, "text": "then"},
+        *[s for _ in range(6) for s in ({"do": "pump"}, {"do": "advance", "seconds": 10})],
+    ])
+    (steer_entry,) = out["steers"]
+    tries = steer_requests(server)
+    assert all(r["args"] == {"message_id": steered, "into": host}
+               for r in server.requests if r["op"] == "message.steer")
+    if catches_up:
+        assert steer_entry["state"] == "acknowledged" and len(tries) == steer_entry["attempts"] == 2
+        assert harness.store.message(steered)["state"] == "steering"
+        assert steer_frames(runners[host]) == [steered]
+    else:
+        assert steer_entry["state"] == "refused" and len(tries) == steer_entry["attempts"] == 5
+        assert steer_entry["failure"]["reason"] == "not-steerable" and steer_entry["failure"]["retryable"] is False
+        assert harness.store.message(steered)["state"] == "queued" and steer_frames(runners[host]) == []
+    assert all(e["state"] == "acknowledged" for e in out["entries"])            # nothing held behind it
+    assert harness.store.message(after)["state"] == "queued"
+
+
 def scripted(tmp_path, answers: list[tuple[str, dict]]) -> str:
     return "script:" + str(write_json(tmp_path / f"script-{uuid.uuid4().hex}.json",
                                       [{"op": op, "answer": answer} for op, answer in answers]))
@@ -908,9 +952,11 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
 
 
 def test_c24_9_esc_passes_over_a_too_late_steer_only_while_it_is_still_in_that_turn(core_probe, tmp_path, harness):
-    """Review finding 15. Esc on S, whose frame is written, answers too-late; the next Esc
-    stops the turn. Stopped, S goes back to the queue and A (queued for later) runs: Esc
-    now takes S back rather than stopping A. Steered into A, it is in another turn."""
+    """Review finding 16, through `TooLateSteers` as `UIModel.escape` keeps it. Esc on S,
+    whose frame is written, answers too-late, and the next Esc stops the turn. Stopped,
+    S goes back to the queue and A (queued for later) runs: Esc now takes S back rather
+    than stopping A. Steered into A, S is in another turn, so Esc takes it back again;
+    too late there as well, the next Esc stops A."""
     cid, host, _ = running_host(harness)
     queued_for_later = harness.submit(cid, "then the docs", after=host)["message_id"]
     steered = harness.submit(cid, "also the lexer", after=queued_for_later)["message_id"]
@@ -925,17 +971,41 @@ def test_c24_9_esc_passes_over_a_too_late_steer_only_while_it_is_still_in_that_t
     again = statuses(harness, steered)
     out = fold(core_probe, tmp_path, cid, [
         {"receipts": first},
-        {"escape": {}},                                    # takes S back ...
-        {"escape": [steered]},                             # ... too late: the next Esc stops the turn
+        {"esc": True},                                     # takes S back ...
+        {"too_late": steered},                             # ... too late: the next Esc stops the turn
+        {"esc": True},
         {"receipts": stopped},
-        {"escape": {steered: host}},                       # S is queued again: taken back, A runs on
+        {"esc": True},                                     # S is queued again: taken back, A runs on
         {"receipts": again},
-        {"escape": {steered: host}},                       # steered into A: not the turn it was too late for
-        {"escape": {steered: queued_for_later}},           # too late in A as well: stop A
+        {"esc": True},                                     # steered into A: not the turn it was too late for
+        {"too_late": steered},
+        {"esc": True},                                     # too late in A as well: stop A
     ])
-    assert [r for r in out["results"] if r.startswith("escape:")] == [
-        f"escape:recall:{steered}", f"escape:stop:{host}", f"escape:recall:{steered}",
-        f"escape:recall:{steered}", f"escape:stop:{queued_for_later}"]
+    stop_words = "Claude already has it; it joins at the next step. Press Esc again to stop the turn."
+    assert [r for r in out["results"] if r.startswith(("escape:", "too-late:"))] == [
+        f"escape:recall:{steered}", f"too-late:{stop_words}", f"escape:stop:{host}", f"escape:recall:{steered}",
+        f"escape:recall:{steered}", f"too-late:{stop_words}", f"escape:stop:{queued_for_later}"]
+
+
+def test_c24_9_a_too_late_answer_says_what_the_next_esc_does(core_probe, tmp_path, harness):
+    """Review finding 16: with an older steer still unread, the next Esc takes that one
+    back, and the words say so; only with none left does it stop the turn."""
+    cid, host, _ = running_host(harness)
+    older = harness.submit(cid, "also the lexer", after=host)["message_id"]
+    newer = harness.submit(cid, "and the parser tests", after=older)["message_id"]
+    make_live(harness, cid, host)
+    for mid in (older, newer):
+        assert harness.call("message.steer", message_id=mid, into=host)["state"] == "steering"
+    out = fold(core_probe, tmp_path, cid, [
+        {"receipts": statuses(harness, host, older, newer)},
+        {"esc": True}, {"too_late": newer, "assistant": "Codex"},
+        {"esc": True}, {"too_late": older, "assistant": "Codex"},
+        {"esc": True},
+    ])
+    told = "Codex already has it; it joins at the next step. Press Esc again to "
+    assert [r for r in out["results"] if r.startswith(("escape:", "too-late:"))] == [
+        f"escape:recall:{newer}", f"too-late:{told}take back the message before it.",
+        f"escape:recall:{older}", f"too-late:{told}stop the turn.", f"escape:stop:{host}"]
 
 
 def test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn(core_probe, tmp_path, harness):

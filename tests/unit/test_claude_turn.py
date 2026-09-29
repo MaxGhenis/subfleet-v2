@@ -696,6 +696,17 @@ def test_interrupt_sweeps_queued_steers_and_reads_receipt_even_after_result():
     assert not turn.steer("another", "after stop").frames
 
 
+def test_a_turn_without_steers_sends_the_interrupt_it_sent_before_steer():
+    """Design §5, invariant 5: `cancel_queued` sweeps queued steers, so only a turn with
+    steers asks for it; a turn with none sends the plain interrupt, whatever the CLI offers."""
+    plain = steer_running()
+    assert json.loads(plain.interrupt().frames[0].line)["request"] == {"subtype": "interrupt"}
+    steered = steer_running()
+    steered.steer(STEER, "pending")
+    assert json.loads(steered.interrupt().frames[0].line)["request"] == {"subtype": "interrupt",
+                                                                          "cancel_queued": True}
+
+
 def test_replay_primes_steer_fates_without_emitting_input():
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     assert turn.restore_steer(STEER) is None

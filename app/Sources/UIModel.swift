@@ -33,7 +33,7 @@ final class UIModel: ObservableObject {
     @Published var composerRecall: [String: ComposerRecall] = [:]
     /// Steers the daemon answered `too-late` for, each with the turn it was in then:
     /// Esc passes over one only while it is still in that turn (`stillTooLate`).
-    private var unrecallable: [String: String] = [:]
+    private var tooLateSteers = TooLateSteers()
     private var turnChangesAsked: Set<String> = []
 
     let paths: AppPaths
@@ -473,11 +473,8 @@ final class UIModel: ObservableObject {
         guard let engine, let timeline = state.timelines[conversationID] else { return }
         // A steer that left the turn it was too late for (back in the queue, or
         // steered into another turn) may be taken back again (C-24.9).
-        unrecallable = unrecallable.filter { id, _ in
-            timeline.turn(id) == nil || stillTooLate(id, in: timeline, unrecallable: unrecallable)
-        }
         let unread: String
-        switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
+        switch tooLateSteers.escape(timeline) {
         case .none: return
         case .stop(let action):
             stop(action)
@@ -505,13 +502,7 @@ final class UIModel: ObservableObject {
                     if let receipt { state.apply(receipt: receipt) }
                     // Its frame is written: the turn's next step reads it.
                     guard let now = state.timelines[conversationID] else { return }
-                    if let host = tooLateBinding(unread, in: now) { unrecallable[unread] = host }
-                    let next: String
-                    switch escapeAction(timeline: now, unrecallable: unrecallable) {
-                    case .recall: next = "Press Esc again to take back the message before it."
-                    case .stop, .none: next = "Press Esc again to stop the turn."
-                    }
-                    problem = "\(assistant) already has it; it joins at the next step. " + next
+                    problem = tooLateSteers.tooLate(unread, in: now, assistant: assistant)
                 case .inFlight:
                     problem = "That message is still being sent; press Esc again in a moment."
                 }
