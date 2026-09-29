@@ -218,6 +218,19 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.7b: how often the daemon re-censuses every quarantined attempt, from one
+# process table and one environment scan they all share, and releases those in
+# which nothing the attempt could own is left.
+QUARANTINE_RECHECK_S = 60.0
+# C-5.7b: a quarantine whose recheck keeps failing is offered again after this
+# long, doubling per failure to the ceiling; at this many failures in a row the
+# daemon says so in its evidence and to the operator.
+QUARANTINE_RETRY_CEILING_S = 3600.0
+QUARANTINE_FAILURES_NOTICE = 3
+# C-5.12: the longest a running attempt's owned record (C-5.6) waits in memory
+# before it is written to its evidence; the kill protocol and a quarantine write it
+# at once.
+OWNED_PERSIST_S = 30.0
 # C-5.12: how often a healthy running attempt's processes are inspected, and the
 # oldest process table that inspection may share. The receipt, a cancel and the
 # wall clock are still read every tick; a death verdict is never taken from a

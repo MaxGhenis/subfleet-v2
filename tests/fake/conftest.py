@@ -93,8 +93,12 @@ class Harness:
         request_id = overrides.pop("request_id", str(uuid.uuid4()))
         prompt = self.root / f"prompt-{uuid.uuid4().hex}.md"
         settings = {"scenario": scenario, "delay_s": delay_s}
+        if "linger_s" in overrides:
+            settings["linger_s"] = overrides.pop("linger_s")
         if scenario == "nested-setsid":
             settings["marker"] = str(self.root / "escaped.pid")
+        if scenario == "session-child":
+            settings["marker"] = str(self.root / "session-child.pid")
         prompt.write_text(json.dumps(settings))
         return {
             "request_id": request_id, "kind": "dispatch", "workdir": str(self.workdir),

@@ -6,8 +6,9 @@ only pid sets and start identities may become durable evidence.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Iterable, Mapping
 
+import calendar
 import fcntl
 import os
 import re
@@ -198,6 +199,27 @@ def same_process(pid: int, boot_id: str, proc_start: str) -> bool:
 #: only column that contains spaces.
 TABLE_ARGV = ["/bin/ps", "-axo", "pid=,ppid=,pgid=,stat=,lstart="]
 
+_MONTHS = {name: number for number, name in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), 1)}
+
+
+def start_seconds(lstart: str | None) -> int | None:
+    """`ps`'s `lstart` as whole seconds since the epoch; None when it does not parse.
+
+    `_read` renders it in the C locale and UTC ("Tue Sep 29 03:14:45 2026", the
+    day padded with a space), so the month is read by its English name here
+    rather than through `time.strptime`, which follows the process's locale.
+    Only an order between two starts is taken from it (C-5.6), never an identity.
+    """
+    try:
+        _, month, day, clock, year = str(lstart).split()
+        hour, minute, second = (int(part) for part in clock.split(":"))
+        if not (1 <= int(day) <= 31 and 0 <= hour < 24 and 0 <= minute < 60 and 0 <= second <= 60):
+            return None
+        return calendar.timegm((int(year), _MONTHS[month], int(day), hour, minute, second, 0, 0, 0))
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return None
+
 
 @dataclass(frozen=True)
 class ProcessTable:
@@ -220,8 +242,12 @@ class ProcessTable:
     rows: dict[int, tuple[int, int, str, str]]   # pid -> (ppid, pgid, stat, lstart)
     boot_id: str | None = None                   # None: read on first need, by `boot`
     taken_at: float = field(default_factory=time.monotonic)
+    #: C-5.12: when the read began (`taken_at` is when it ended). A process born
+    #: after `began_at` may be missing; one that died before it cannot be shown.
+    began_at: float | None = None
     _boot: list = field(default_factory=list, init=False, repr=False, compare=False)
     _seconds: list = field(default_factory=list, init=False, repr=False, compare=False)
+    _index: list = field(default_factory=list, init=False, repr=False, compare=False)
     _reading: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
     _reading_seconds: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
@@ -301,12 +327,99 @@ class ProcessTable:
             return frozenset()
         return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
 
+    def links(self) -> tuple[dict[int, tuple[int, ...]], dict[int, tuple[int, ...]]]:
+        """(parent -> live children, group -> live members), built once per table.
+
+        Every running attempt's inspection walks the one shared table (C-5.12),
+        so its indexes are built on first use and kept for the table's life; two
+        threads that build them at once build the same thing."""
+        return self._indexes()[:2]
+
+    def has_group(self, pgid: int) -> bool:
+        """Does any process, a zombie included, belong to group `pgid`? A zombie
+        keeps its group until it is reaped, and while a group has a member POSIX
+        reuses neither its id as a pid nor the group (C-5.7b)."""
+        return pgid in self._indexes()[2]
+
+    def _indexes(self) -> tuple[dict[int, tuple[int, ...]], dict[int, tuple[int, ...]], frozenset[int]]:
+        if not self._index:
+            children: dict[int, list[int]] = {}
+            members: dict[int, list[int]] = {}
+            for pid, (ppid, pgid, _, _) in self.rows.items():
+                if self.live(pid):
+                    children.setdefault(ppid, []).append(pid)
+                    members.setdefault(pgid, []).append(pid)
+            self._index.append(({k: tuple(v) for k, v in children.items()},
+                                {k: tuple(v) for k, v in members.items()},
+                                frozenset(row[1] for row in self.rows.values())))
+        return self._index[0]
+
+    def shows(self, recorded: "ProcessIdentity") -> bool:
+        """Is the recorded pid live here with its recorded start? No boot identity is
+        read: a census counts a match as live whatever the boot (C-5.5, C-5.7b), which
+        errs only toward holding on, since a reused pid starts at another time."""
+        return self.live(recorded.pid) and self.rows[recorded.pid][3] == recorded.proc_start
+
+
+def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict[int, ProcessIdentity]:
+    """C-5.6: every process this one table proves the attempt owns, by identity.
+
+    A root is owned when the table shows it alive by C-5.3 (pid, start, and boot,
+    a legacy boot timestamp matched as `liveness` would). From the owned set the
+    table proves two more kinds of process owned:
+
+    - a live process whose parent in the table is owned, which is not being
+      traced, and which started no earlier than that parent. On macOS a parent
+      link names the process that forked it (an orphan goes to launchd, and there
+      is no subreaper), except that `ptrace` attach lists a traced process under
+      its tracer. `ps` marks a traced process `X`, so a stranger the job's
+      debugger attached to is never owned through that link; the start order is
+      a second check, since a process can never be forked before its parent;
+    - a live member of a process group an owned process leads. A group lies in
+      one session and `setpgid` joins only a group of the caller's own session;
+      the guardian's session (it calls `setsid`, C-5.1) and every session a
+      process forked in it creates hold only processes forked inside them.
+
+    Returns identities as the table gives them. Raises `InspectionError` when a
+    root's boot identity is needed and cannot be read; a root that is absent, a
+    zombie, or another process needs none. Nothing here is authority to signal
+    by itself: `signal_group` and `signal_process` still confirm the identity
+    afresh (C-5.4).
+    """
+    children, members = table.links()
+    owned: dict[int, ProcessIdentity] = {}
+    frontier: list[int] = []
+    for root in roots:
+        if root.pid in owned or not table.is_process(root.pid, root.boot_id, root.proc_start, legacy=True):
+            continue
+        current = table.identity(root.pid)
+        if current is not None:
+            owned[root.pid] = current
+            frontier.append(root.pid)
+    while frontier:
+        pid = frontier.pop()
+        since = start_seconds(table.rows[pid][3])
+        found = [child for child in children.get(pid, ())
+                 if since is not None and "X" not in table.rows[child][2]
+                 and (start_seconds(table.rows[child][3]) or 0) >= since]
+        if table.rows[pid][1] == pid:
+            found.extend(members.get(pid, ()))
+        for member in found:
+            if member in owned:
+                continue
+            current = table.identity(member)
+            if current is not None:
+                owned[member] = current
+                frontier.append(member)
+    return owned
+
 
 def snapshot() -> ProcessTable:
     """Read the process table once (C-5.5); raises `InspectionError` when it cannot.
 
     The boot identity is not read here but when the table first needs it."""
     rows: dict[int, tuple[int, int, str, str]] = {}
+    began = time.monotonic()
     try:
         for row in _read(TABLE_ARGV).splitlines():
             parts = row.split(None, 4)
@@ -316,7 +429,7 @@ def snapshot() -> ProcessTable:
                                    parts[4].strip() if len(parts) > 4 else "")
     except ValueError as exc:
         raise InspectionError("ps printed a row that is not a process") from exc
-    return ProcessTable(rows)
+    return ProcessTable(rows, began_at=began)
 
 
 @dataclass(frozen=True)
@@ -330,6 +443,9 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # C-5.7b: recorded groups the snapshot shows no process in, not even a
+    # zombie: POSIX never lets such a group be the attempt's again.
+    ended_groups: frozenset[int] = frozenset()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -349,6 +465,7 @@ class Containment:
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
+            "ended_groups": sorted(self.ended_groups),
         }
 
 
@@ -381,8 +498,45 @@ def group_members(pgid: int) -> dict[int, str]:
     return members
 
 
+#: C-5.5: the environment scan. Its output holds every process's environment, so
+#: it is consumed in memory and never kept or reported.
+MARKER_ARGV = ["/bin/ps", "-axEww", "-o", "pid=,command="]
+
+
+@dataclass(frozen=True)
+class CensusReads:
+    """One process table and one environment scan, for several censuses (C-5.7b).
+
+    `table` is None when `ps` failed, and `marked` is None when the scan failed;
+    each census given them then reports that source unavailable, as its own read
+    would have. `marked` keeps only the scan's rows that carry some attempt's
+    marker. Those rows hold environments, so they stay out of `repr` and are
+    dropped with the object when the sweep ends.
+    """
+    table: ProcessTable | None
+    marked: tuple[str, ...] | None = field(repr=False)
+
+
+def census_reads() -> CensusReads:
+    """Read the process table and the environment scan once (C-5.5, C-5.7b)."""
+    try:
+        table: ProcessTable | None = snapshot()
+    except InspectionError:
+        table = None
+    try:
+        marked: tuple[str, ...] | None = tuple(
+            row for row in _read(MARKER_ARGV).splitlines() if "SUBFLEET_ATTEMPT=" in row)
+    except InspectionError:
+        marked = None
+    return CensusReads(table, marked)
+
+
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str, root: str | None = None) -> Containment:
+                attempt_id: str, root: str | None = None, *,
+                recorded: Iterable[ProcessIdentity] = (),
+                groups: Mapping[int, ProcessIdentity | None] | None = None,
+                guardian: ProcessIdentity | None = None,
+                reads: CensusReads | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -396,16 +550,44 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     the census records as evidence, and the start time that is its identity, so
     a census is two `ps` reads however many processes it finds (C-5.12);
     commands and environments are never retained.
+
+    `recorded` are identities the attempt recorded (C-5.6's owned processes;
+    for a quarantine, also what its evidence lists, C-5.7b). Each one the snapshot
+    shows live with its recorded start is a root of the walk, and when it leads
+    its own group, that group's members join the group source: a tool session's
+    shell whose environment `ps -E` hides (`/bin/zsh`) is still found by identity.
+
+    `groups` are process groups the attempt recorded, each with the identity of
+    the owned process that led it when it was recorded. Their members are
+    counted even once that leader is gone, because POSIX reuses no pid while a
+    group with that id has a member; a group is not counted while the snapshot
+    shows its id held by another process (another start) that leads it. A
+    recorded group the snapshot shows no process in at all, zombies included, is
+    reported in `ended_groups`: it can never be the attempt's again.
+
+    `guardian`, when the attempt recorded one, makes the recorded pids answer
+    only for themselves: the walk starts at the guardian only while the snapshot
+    shows it with its recorded start, and the recorded group `pgid` is counted as
+    `groups` are, with the guardian as its leader. `child_pid` is a walk root as
+    given, with no identity check; callers that recorded the guardian pass None.
+
+    `reads` are the sweep's shared reads (`census_reads`); without them the
+    census reads its own.
     """
-    groups: set[int] = set()
+    members: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
+    ended: set[int] = set()
     errors: list[str] = []
-    try:
-        seen: ProcessTable | None = snapshot()
-        table = seen.rows
-    except InspectionError:
-        seen, table = None, {}
+    if reads is None:
+        try:
+            seen: ProcessTable | None = snapshot()
+        except InspectionError:
+            seen = None
+    else:
+        seen = reads.table
+    table = seen.rows if seen is not None else {}
+    if seen is None:
         errors.append("group enumeration unavailable")
         errors.append("descendant enumeration unavailable")
 
@@ -413,14 +595,35 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return pid in table and not table[pid][2].startswith("Z")
 
     if seen is not None:
-        groups = set(seen.group(pgid))
+        alive = {ident.pid for ident in recorded if seen.shows(ident)}
+        counted: dict[int, ProcessIdentity | None] = dict(groups or {})
+        if pgid and pgid > 0:
+            counted[pgid] = guardian if guardian is not None and guardian.pid == pgid else None
+        _, by_group = seen.links()
+        for group, leader in counted.items():
+            if not seen.has_group(group):
+                ended.add(group)
+                continue
+            if (leader is not None and live(group) and table[group][1] == group
+                    and table[group][3] != leader.proc_start):
+                continue                              # a stranger holds the id and leads the group
+            members.update(by_group.get(group, ()))
+        for pid in alive:
+            if table[pid][1] == pid:
+                members.update(by_group.get(pid, ()))
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        if guardian is None:
+            roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        else:
+            roots = {guardian.pid} if seen.shows(guardian) else set()
+            roots.update(pid for pid in (child_pid,) if pid and pid > 0)
+        roots.update(alive)
         found = set(roots)
         frontier = roots
+        children, _ = seen.links()
         while frontier:
-            frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
+            frontier = {child for pid in frontier for child in children.get(pid, ()) if child not in found}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
     try:
@@ -432,8 +635,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # root is the second half of the marker whenever the caller has one.
         root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
                        if root else None)
+        if reads is None:
+            rows: Iterable[str] = _read(MARKER_ARGV).splitlines()
+        elif reads.marked is None:
+            raise InspectionError("marker enumeration unavailable")
+        else:
+            rows = reads.marked
         # Never retain or report these command/environment strings.
-        for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
+        for row in rows:
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command) and (root_marker is None or root_marker.search(command)):
                 pid = int(pid_text)
@@ -443,7 +652,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
     identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers:
+    for pid in members | descendants | markers:
         try:
             # The snapshot's own start time when it has one; a pid it could not
             # describe (a marker spawned after the read) is asked about singly.
@@ -452,15 +661,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 identities[pid] = current
             else:
                 # A process can exit between census and identity capture.
-                groups.discard(pid)
+                members.discard(pid)
                 descendants.discard(pid)
                 markers.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers if pid in table}
-    return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+              for pid in members | descendants | markers if pid in table}
+    return Containment(frozenset(members), frozenset(descendants), frozenset(markers),
+                       bool(errors), identities, tuple(errors), shapes, frozenset(ended))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
