@@ -5,11 +5,22 @@
 #if !SUBFLEET_MODEL_TEST
 import AppKit
 import SwiftUI
+import UserNotifications
 
 #if !SUBFLEET_VIEW_TEST
-final class SubfleetAppDelegate: NSObject, NSApplicationDelegate {
+@MainActor
+final class SubfleetAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     /// Set by the window scene once SwiftUI has an `openWindow` action.
     static var openMain: (() -> Void)?
+    /// The app's one model: the windows bind to it, and a notification's click
+    /// reaches it here, the window open or not.
+    let model = UIModel()
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before launch ends, as the system requires for the click that
+        // launched the app to be delivered here.
+        UNUserNotificationCenter.current().delegate = self
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -22,17 +33,57 @@ final class SubfleetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // MARK: Notifications (C-29.9)
+
+    /// A click opens the main window on the notification's conversation, and an
+    /// approval's at that conversation's oldest waiting card. A dismissal, or
+    /// any other response, opens nothing.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        let request = response.notification.request
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let target = NotificationTarget(requestID: request.identifier, userInfo: request.content.userInfo)
+        else { return }
+        await open(target)
+    }
+
+    /// One that arrives while the app is frontmost shows as it would in the
+    /// background (without this the system shows nothing), unless its
+    /// conversation is the one open by now.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        let request = notification.request
+        let target = NotificationTarget(requestID: request.identifier, userInfo: request.content.userInfo)
+        return await showsWhileFrontmost(target) ? [.banner, .list] : []
+    }
+
+    private func open(_ target: NotificationTarget) {
+        model.show(target)
+        if let openMain = SubfleetAppDelegate.openMain {
+            openMain()
+        } else {
+            // The click that launched the app, before the window first appeared:
+            // the window, the app's first scene, presents itself at launch
+            // (SwiftUI's automatic launch behavior), and `connect` then opens
+            // the held click in it.
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func showsWhileFrontmost(_ target: NotificationTarget?) -> Bool {
+        target?.showsWhileFrontmost(focusedConversationID: model.state.focusedConversationID) ?? true
+    }
 }
 
 @main
 struct SubfleetApp: App {
     @NSApplicationDelegateAdaptor(SubfleetAppDelegate.self) private var delegate
     @StateObject private var store = QuotaStore()
-    @StateObject private var model = UIModel()
 
     var body: some Scene {
         Window("Subfleet", id: "main") {
-            MainWindow(model: model)
+            MainWindow(model: delegate.model)
                 .frame(minWidth: 860, minHeight: 560)
                 .background(OpenMainRegistrar())
         }

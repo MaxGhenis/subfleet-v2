@@ -230,6 +230,89 @@ func project(_ action: StopAction) -> [String: Any] {
     }
 }
 
+// MARK: - Notification clicks (C-29.9)
+
+/// A userInfo after a property-list round trip, standing in for delivery (a
+/// probe cannot post a notification).
+func delivered(_ userInfo: [String: String]) -> [AnyHashable: Any] {
+    let data = try! PropertyListSerialization.data(fromPropertyList: userInfo, format: .binary, options: 0)
+    return try! PropertyListSerialization.propertyList(from: data, format: nil) as! [AnyHashable: Any]
+}
+
+/// What clicking a posted intent's notification reads back.
+func clicked(_ intent: NotificationIntent) -> NotificationTarget? {
+    NotificationTarget(requestID: intent.id, userInfo: delivered(intent.userInfo))
+}
+
+func project(_ target: NotificationTarget?, focused: String?) -> Any {
+    guard let target else { return NSNull() }
+    return ["conversation": target.conversationID, "kind": target.kind?.rawValue as Any? ?? NSNull(),
+            "reveals": target.revealsApproval,
+            "shows_while_frontmost": target.showsWhileFrontmost(focusedConversationID: focused)]
+}
+
+/// `notification-targets <input.json>`: `{"cases": [{"request_id", "user_info", "focused"}]}`, each
+/// read back as a clicked notification is, and one intent of every kind made,
+/// round-tripped and read back; `before_kind` is its notification as a build that
+/// put only `conversation_id` in the userInfo posted it.
+func runNotificationTargets(_ data: Data) throws -> [String: Any] {
+    guard let input = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw DaemonClientError.malformed("expected an object")
+    }
+    let cases = (input["cases"] as? [[String: Any]] ?? []).map { item -> Any in
+        project(NotificationTarget(requestID: item["request_id"] as? String ?? "",
+                                   userInfo: item["user_info"] as? [AnyHashable: Any] ?? [:]),
+                focused: item["focused"] as? String)
+    }
+    let intents = NotificationIntent.Kind.allCases.map { kind -> Any in
+        let intent = NotificationIntent(kind: kind, subject: "42", conversationID: "cv-\(kind.rawValue)", messageID: "m-42",
+                                        title: "Title", body: "Body")
+        return ["kind": kind.rawValue, "id": intent.id, "user_info": intent.userInfo,
+                "clicked": project(clicked(intent), focused: nil),
+                "before_kind": project(NotificationTarget(requestID: intent.id,
+                                                          userInfo: delivered(["conversation_id": intent.conversationID])),
+                                       focused: nil)]
+    }
+    return ["cases": cases, "intents": intents]
+}
+
+/// `clicks <input.json>`: `{"steps": [{"click": {"request_id", "user_info"}} | {"navigate": true} |
+/// {"create": true} | {"baseline": true} | {"pending": {"<conversation>": n}}]}`, driven as `UIModel` drives
+/// `NotificationClicks`: what each click and the baseline open (null: nothing).
+func runClicks(_ data: Data) throws -> [String: Any] {
+    guard let input = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw DaemonClientError.malformed("expected an object")
+    }
+    var clicks = NotificationClicks()
+    var baselined = false
+    var navigation = 0
+    var pending: [String: Int] = [:]
+    var opened: [Any] = []
+    func project(_ opening: NotificationOpening?) -> Any {
+        opening.map { ["conversation": $0.conversationID, "reveals_card": $0.revealsCard] } ?? NSNull()
+    }
+    for step in input["steps"] as? [[String: Any]] ?? [] {
+        if let counts = step["pending"] as? [String: Int] { pending = counts }
+        if step["navigate"] as? Bool == true { navigation += 1 }
+        if step["create"] as? Bool == true { clicks.drop() }
+        if let click = step["click"] as? [String: Any] {
+            // A notification naming no conversation never reaches the model.
+            let target = NotificationTarget(requestID: click["request_id"] as? String ?? "",
+                                            userInfo: click["user_info"] as? [AnyHashable: Any] ?? [:])
+            opened.append(project(target.flatMap {
+                clicks.click($0, baselined: baselined, navigation: navigation, pendingApprovals: pending)
+            }))
+        }
+        if step["baseline"] as? Bool == true {
+            // `connect` lands its baseline once.
+            opened.append(baselined ? NSNull() : project(clicks.baselineLanded(navigation: navigation,
+                                                                              pendingApprovals: pending)))
+            baselined = true
+        }
+    }
+    return ["opened": opened, "held": clicks.held?.conversationID as Any? ?? NSNull()]
+}
+
 /// `store <input.json>`: fold a sequence of daemon answers into the store state.
 func runStore(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
@@ -272,7 +355,9 @@ func runStore(_ data: Data) throws -> [String: Any] {
         "sidebar": state.sidebar(now: now, calendar: calendar).map { ["title": $0.title, "entries": $0.entries.map(project)] },
         "badge": state.pendingApprovalCount,
         "notifications": state.notifications.map { ["id": $0.id, "kind": $0.kind.rawValue, "conversation": $0.conversationID,
-                                                     "title": $0.title, "body": $0.body] },
+                                                     "title": $0.title, "body": $0.body,
+                                                     // Read back as its click would be, with the focus as it is now (C-29.9).
+                                                     "clicked": project(clicked($0), focused: state.focusedConversationID)] },
         "watch_cursor": state.watchCursor, "watch_baselined": state.watchBaselined,
         "focused": state.focusedConversationID as Any? ?? NSNull(),
         "conversations": state.conversations.map { ["id": $0.conversation_id, "active": $0.active,
@@ -412,6 +497,10 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return try runOutbox(socket: arguments[2], journal: arguments[3], stepsData: readFile(arguments[4]))
     case "store":
         return try runStore(readFile(arguments[2]))
+    case "notification-targets":
+        return try runNotificationTargets(readFile(arguments[2]))
+    case "clicks":
+        return try runClicks(readFile(arguments[2]))
     case "stage":
         // stage <image> <directory>
         do {

@@ -111,12 +111,16 @@ final class UIModel: ObservableObject {
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
-            // A launch that names a conversation opens it (notifications and links reuse this).
+        } else if clicked == nil, let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"],
+                  !requested.isEmpty {
+            // A launch that names a conversation opens it.
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
@@ -324,6 +328,37 @@ final class UIModel: ObservableObject {
         }
     }
 
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { approvalReveal = opening.conversationID }
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        lockedEntry = nil
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
+    }
+
     // MARK: Changes
 
     /// Whether the daemon serves `turn.diff` and `conversation.diff` (C-25.1).
@@ -404,6 +439,8 @@ final class UIModel: ObservableObject {
     func create(provider: String, workspace: String, settings: ConversationSettings, title: String?,
                 firstMessage: String, staged: [StagedAttachment], confirmWiden: Bool) {
         guard let engine else { return }
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
                 let key = try await onOutbox {
@@ -461,7 +498,10 @@ final class UIModel: ObservableObject {
             }
             for conversation in report.conversations {
                 state.upsert(conversation)
-                if state.focusedConversationID == nil { focus(conversation.conversation_id) }
+                // Not while a clicked notification waits for the baseline: a create
+                // the outbox replays at launch is no navigation of the person's (a
+                // create the person asks for drops the held click first).
+                if state.focusedConversationID == nil && clicks.held == nil { focus(conversation.conversation_id) }
             }
             if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
         }
@@ -647,7 +687,7 @@ final class UIModel: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = intent.title
         content.body = intent.body
-        content.userInfo = ["conversation_id": intent.conversationID]
+        content.userInfo = intent.userInfo
         let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
