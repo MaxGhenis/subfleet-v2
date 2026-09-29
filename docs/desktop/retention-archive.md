@@ -25,19 +25,27 @@ them reached `release/217`.
 
 **Retention never deletes, moves, writes or runs anything for a worktree.**
 
-The machine's worktree archiver reclaims allocated worktrees on its own
-schedule. On Max's machine that is chief-of-staff's `disk-guard` and
-`worktree-archive-sweep`, which preserve local-only work before they remove a
-tree. Retention prunes a job that owns a worktree only once the worktree is
-**gone for real**:
+Allocated worktrees are reclaimed by the machine's worktree archiver, which
+preserves local-only work before it removes a tree. On Max's machine that is
+chief-of-staff's tools:
+- `disk-guard` runs from launchd and removes only clean, pushed trees;
+- `worktree-archive-sweep` handles the rest, and is run by hand.
+
+Retention prunes a job that owns a worktree only once the worktree is **gone
+for real**:
 
 1. no entry under `<state>/worktrees/` is the tree, or a copy set aside under a
    suffixed name (`.disk-guard-removing.<name>`, the archiver's quarantine);
-2. the job's repository registers no checkout that exists and is that tree
-   under any name;
-3. if that repository exists but cannot be read, the tree counts as present.
+2. the job's repository has no existing checkout registered for that tree,
+   matched by the registration's name, which `git worktree add` gives the job
+   and `git worktree move` never changes, or by the checkout's name;
+3. if that repository exists but cannot be read, or the check would run past
+   its share of the pass deadline, the tree counts as present for now.
 
 A job whose tree is present is kept, with the reason reported under `kept`.
+The check is repeated freshly just before each commit. It checks the name,
+then the quarantine name, then the name again, so a single rename between two
+reads cannot hide the tree.
 
 **Subfleet archives its own records before deleting them.** For a job
 directory and its rows, retention:
@@ -83,7 +91,9 @@ A pass runs hourly, and 5 s after a pass that left work.
 5. **Fence.** In a transaction, re-check the pins and take `retire:<job>`,
    held by `retention:<job>`. It is not a path lease: disk-guard treats every
    `worktree:/…` or `out:/…` lease as a tree in use.
-6. **Archive the job directory** and its rows (6.1).
+6. **Archive the job directory** and its rows (6.1). If the job owns a worktree,
+   ask the "gone" question again, freshly. If the tree is back, discard the
+   archive and keep the job.
 7. **Commit.** In one transaction, re-check the pins and the lease, check that
    the rows still hash to `rows.json`'s digest, then delete the rows. If
    anything differs, commit nothing and discard the archive.
@@ -127,8 +137,9 @@ section 9.
   - finishes a deletion;
   - reports a reason for every candidate it skipped.
 
-  A deferred candidate does not block the next one. A pass that made progress
-  never raises `TimeoutError`.
+  A deferral counts as progress: it moves the queue on. A deferred candidate
+  does not block the next one. A pass that made progress never raises
+  `TimeoutError`.
 - **A1.** For each pool, `bytes_after` equals `bytes_before` minus the pruned
   jobs' sizes. `jobs_after` equals `jobs_before` minus the number pruned.
   Pruning is oldest first, and stops as soon as the pool fits.
@@ -154,6 +165,11 @@ Changed:
   ends (revision 2 review, finding 5). Many jobs are pinned, so the count
   budget alone would otherwise prune records minutes after a job ends, and
   `runs show` would fail.
+- **Pinned jobs count toward the budget.** They count toward the 500 as they
+  did on `release/217`. On 2026-09-29, 1,222 detached jobs were pinned, 258 of
+  them by their worktrees. So the pool stays over its count, and in practice an
+  unpinned detached record is pruned once it is a day old. It stays
+  restorable from its archive.
 - **Salvage no longer pins.** Retention never touches refs or worktrees.
   `rows.json` keeps the salvage artifact's ref name. The ref stays in the
   repository.
@@ -180,6 +196,9 @@ The installed release sizes every job and worktree before it prunes, within a
 - **Daemon.**
   - A pass left unfinished after progress logs "retention catch-up: pruned N
     jobs, measured M; continuing in 5 seconds" and runs again in 5 s.
+  - "Unfinished" means either of these:
+    - `interrupted: deadline`: terminal sizes are left unmeasured;
+    - `interrupted: capped`: more than 200 candidates were due.
   - A pass left unfinished having done nothing raises `TimeoutError`, keeping
     the existing backoff.
   - A completed pass rearms the hourly timer.
@@ -267,12 +286,15 @@ archiver, a person's `git` command.
 
 - **W1 holds whatever happens.** Retention has no code path that writes to a
   worktree.
-- **W2 depends on the archiver's quarantine convention.** It must either keep
-  a registration that points at the set-aside copy (as `git worktree move`
-  does), or name the copy beside the original with a `.<name>` suffix
-  (disk-guard's convention). An archiver that did neither would make a tree
-  look gone early. The job would then be pruned while the tree still existed:
-  nothing is deleted, but the record would go early.
+- **W2 depends on the tree being findable.** It is found at its path, beside
+  the path with a `.<name>` suffix (disk-guard's quarantine), or through a
+  registration named after the job whose checkout exists (any
+  `git worktree move`).
+  - A plain `mv` to an unrelated name, outside Git, would make a tree look gone.
+  - So would the one step inside `git worktree move` between its rename and
+    its `gitdir` rewrite.
+  - In either case the job is pruned while the tree still exists: nothing is
+    deleted, but the record goes early.
 - **A process that writes into a terminal job's directory after its archive**
   keeps its file (J3). Every file is re-checked by signature just before it is
   unlinked. The remaining window is the single `stat` to `unlink` gap for one
@@ -281,6 +303,19 @@ archiver, a person's `git` command.
   directories, which hold logs, prompts and deliverables.
 
 ## 8. Review dispositions
+
+**Revision 3** (the same reviewer again, with experiments; APPROVE WITH
+CHANGES, and no path found that deletes unpreserved work):
+
+| Finding | Disposition |
+|---|---|
+| 1. All 200 candidates deferred raised `TimeoutError` | Fixed: deferrals count as progress, and the cap reports `capped` |
+| 2. A tree moved to an unrelated name looked gone | Fixed: registrations are matched by their name |
+| 3. The worktree pin was a snapshot, and `listdir` races a rename | Fixed: a fresh check just before the commit, and a name / quarantine name / name sequence |
+| 4. The pool stays over its count because of pins | Documented (section 4) |
+| 5a. Classification had no time bound | Fixed: it gets a share of the deadline |
+| 5b. A broken linked checkout hid the repository | Fixed: the repository is found through its `.git` file |
+| 5c. "Its own schedule" was inaccurate | Corrected: the sweep is run by hand |
 
 **Revision 1** (two reviews):
 

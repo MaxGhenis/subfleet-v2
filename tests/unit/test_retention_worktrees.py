@@ -171,7 +171,7 @@ def test_w2_a_repository_that_cannot_be_read_keeps_the_job(owned, monkeypatch):
     elsewhere = worktree.parent.parent / "elsewhere"
     elsewhere.mkdir()
     git(repository, "worktree", "move", str(worktree), str(elsewhere / "x"))
-    monkeypatch.setattr(retention, "_registered_checkouts", lambda workdir: None)
+    monkeypatch.setattr(retention, "_common_dir", lambda workdir: None)
     result = retention.maintenance(store, root, max_jobs=0)
     assert result["pruned"] == [] and "could not be read" in result["kept"]["job"]
 
@@ -271,3 +271,54 @@ def test_w2_a_workdir_that_is_no_longer_a_repository_registers_nothing(owned):
     shutil.rmtree(worktree)
     shutil.rmtree(repository / ".git")
     assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]
+
+
+def test_w2_a_tree_moved_to_any_name_is_found_by_its_registration_name(owned, tmp_path):
+    """Review of rev 3, finding 2: `git worktree move` keeps the registration's name (the job's),
+    so a tree a person moved to keep it still holds its job."""
+    store, root, repository = owned
+    worktree = add_job(store, root, repository, "job")
+    (tmp_path / "keep").mkdir()
+    git(repository, "worktree", "move", str(worktree), str(tmp_path / "keep" / "result-kept"))
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == [] and "result-kept" in result["kept"]["job"]
+
+
+def test_w2_a_tree_that_comes_back_before_the_commit_keeps_its_job(owned, monkeypatch):
+    """Review of rev 3, finding 3: the tree is asked about again, freshly, just before the
+    commit; an archiver's rollback during the pass keeps the job and its records whole."""
+    store, root, repository = owned
+    worktree = add_job(store, root, repository, "job")
+    quarantine = archive_like_the_sweep(repository, worktree)
+    git(repository, "worktree", "remove", "--force", str(quarantine))
+    original = retention.archive.archive
+
+    def archive_then_restore(*args, **kwargs):
+        final = original(*args, **kwargs)
+        worktree.mkdir()                                  # the tree is back where it was
+        return final
+    monkeypatch.setattr(retention.archive, "archive", archive_then_restore)
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == [] and result["kept"]["job"].startswith("worktree present")
+    assert store.get_job("job") is not None and (root / "jobs" / "job" / "stdout").exists()
+    assert not (root / "archive" / "job").exists() and store.list_leases() == []
+
+
+def test_w2_a_broken_linked_checkout_still_leads_to_its_repository(owned, tmp_path):
+    """The job's workdir is a linked checkout whose own registration was pruned: its `.git`
+    file still names the repository, where the job's tree may be registered."""
+    store, root, repository = owned
+    caller = tmp_path / "caller"
+    git(repository, "worktree", "add", "-q", "--detach", str(caller), "HEAD")
+    worktree = root / "worktrees" / "job"
+    git(caller, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+    store.add_job(job_id="job", request_id="job", payload_digest="digest", kind="dispatch", workdir=str(caller),
+                  worktree=str(worktree), prompt_path="/prompt", sandbox="workspace-write", state="succeeded",
+                  finished_at="2026-01-02T00:00:00Z")
+    (root / "jobs" / "job").mkdir(parents=True)
+    admin = Path((caller / ".git").read_text().split("gitdir: ")[1].strip())
+    shutil.rmtree(admin)                                  # the caller's registration is gone
+    (tmp_path / "keep").mkdir()
+    git(repository, "worktree", "move", str(worktree), str(tmp_path / "keep" / "moved"))
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == [] and "moved" in result["kept"]["job"]

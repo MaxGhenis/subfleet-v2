@@ -386,3 +386,50 @@ def test_a_dry_run_names_exactly_what_the_pass_then_prunes_and_writes_nothing(tm
         assert {table: store.query(f"SELECT * FROM {table}") for table in rows_before} == rows_before
         result = retention.maintenance(store, root, max_jobs=max_jobs, max_bytes=max_bytes, turn_keep_s=0)
     assert [row["job_id"] for row in preview["would_retire"]] == result["pruned"]
+
+
+
+def test_g1_a_pass_whose_candidates_are_all_deferred_still_progresses(tmp_path, monkeypatch):
+    """Review of rev 3, finding 1: 200 candidates all deferred (too little free space) are
+    progress, not a timeout; the next pass offers the jobs behind them."""
+    with Store(tmp_path / "state.sqlite3") as store:
+        lane(store)
+        for order in range(230):
+            add(store, tmp_path, f"j{order:03d}", order=order)
+        monkeypatch.setattr(archive.shutil, "disk_usage", lambda path: type("U", (), {"free": 10 ** 9})())
+        state = retention.RetentionState()
+        first = retention.maintenance(store, tmp_path, max_jobs=0, state=state)
+        assert first["interrupted"] == "capped" and first["made_progress"] and first["pruned"] == []
+        assert len(first["newly_deferred"]) == 200
+        second = retention.maintenance(store, tmp_path, max_jobs=0, state=state)
+        assert second["made_progress"] and len(second["newly_deferred"]) == 30 and "interrupted" not in second
+        monkeypatch.undo()
+        third = retention.maintenance(store, tmp_path, max_jobs=0, state=state)
+        assert third["pruned"] == [] and "interrupted" not in third        # all deferred for a day
+
+
+def test_g1_classification_is_bounded_by_the_deadline(tmp_path, monkeypatch):
+    """Review of rev 3, finding 5: reading repositories stops at its share of the deadline;
+    the rest wait for a later pass, kept meanwhile."""
+    with Store(tmp_path / "state.sqlite3") as store:
+        lane(store)
+        root = tmp_path
+        (root / "worktrees").mkdir()
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        for order in range(3):
+            identity = f"w{order}"
+            store.add_job(job_id=identity, request_id=identity, payload_digest="digest", kind="dispatch",
+                          workdir=str(repo), worktree=str(root / "worktrees" / identity), prompt_path="/p",
+                          sandbox="workspace-write", state="succeeded", finished_at="2026-01-02T00:00:00Z",
+                          created_at=f"2026-01-01T00:00:0{order}Z")
+            (root / "jobs" / identity).mkdir(parents=True)
+        clock = [100.0]
+        monkeypatch.setattr(retention.time, "monotonic", lambda: clock[0])
+
+        def slow(workdir):
+            clock[0] += 50.0
+            return False
+        monkeypatch.setattr(retention, "_common_dir", slow)
+        result = retention.maintenance(store, root, max_jobs=0, deadline=clock[0] + 60)
+        assert any("later pass" in reason for reason in result["kept"].values())

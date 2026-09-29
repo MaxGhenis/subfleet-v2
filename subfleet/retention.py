@@ -216,79 +216,133 @@ def _pool(job: dict[str, Any]) -> str:
 # is an allocated worktree gone?
 # ---------------------------------------------------------------------------
 
+QUARANTINE_PREFIX = ".disk-guard-removing."
+
+
 def _named(entry: str, name: str) -> bool:
     """The tree itself, or a copy an archiver set aside under a suffixed name
     (disk-guard and worktree-archive-sweep quarantine to `.disk-guard-removing.<name>`)."""
     return entry == name or entry.endswith("." + name)
 
 
+def _admin_named(admin_id: str, name: str) -> bool:
+    """`git worktree add <root>/<name>` names the registration `<name>` (or `<name>N`
+    when taken), and `git worktree move` never renames it."""
+    return admin_id == name or (admin_id.startswith(name) and admin_id[len(name):].isdigit())
+
+
 class _Worktrees:
-    """Answers "is this job's worktree gone for real?" for one pass, read-only.
+    """Answers "is this job's worktree gone for real?", read-only.
 
     Gone means: nothing under the allocated root is the tree or a set-aside copy
-    of it, and the job's repository has no registration whose checkout exists
-    and is that tree under any name. An archiver that quarantines a tree and
-    may rename it back therefore never looks finished while it works. When the
-    repository exists but cannot be read, the answer is "not gone"."""
+    of it, and the job's repository has no registration for that tree (by its
+    registration name, or its checkout's name) whose checkout still exists. An
+    archiver that quarantines a tree and may rename it back, or a person who
+    moves it with `git worktree move`, therefore never makes it look gone. When
+    the repository exists but cannot be read, or the check would run past the
+    deadline, the answer is "not gone" for now."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, deadline: float | None = None):
         self.root = root / "worktrees"
-        try:
-            self.entries = os.listdir(self.root)
-        except FileNotFoundError:
-            self.entries = []
-        self._registrations: dict[str, list[str] | None] = {}
+        self.deadline = deadline
+        self.entries = self._list()
+        self._common: dict[str, Path | None | bool] = {}
 
-    def present(self, worktree: Path, workdir: str | None) -> str | None:
-        """None when gone; otherwise why the tree still counts as present."""
+    def _list(self) -> list[str]:
+        try:
+            return os.listdir(self.root)
+        except FileNotFoundError:
+            return []
+
+    def present(self, worktree: Path, workdir: str | None, *, fresh: bool = False) -> str | None:
+        """None when gone; otherwise why the tree still counts as present. `fresh`
+        re-reads everything, and checks the tree's own names so a rename between
+        two reads cannot hide it (the name, the quarantine name, the name again)."""
         name = worktree.name
-        for entry in self.entries:
+        if fresh:
+            for path in (worktree, self.root / (QUARANTINE_PREFIX + name), worktree):
+                if os.path.lexists(path):
+                    return f"worktree present: {path}"
+            entries = self._list()
+        else:
+            entries = self.entries
+        for entry in entries:
             if _named(entry, name):
                 return f"worktree present: {self.root / entry}"
         if not workdir or not os.path.isdir(workdir):
             return None                                     # its repository is gone too
-        checkouts = self._checkouts(workdir)
-        if checkouts is None:
+        if not fresh and self.deadline is not None and time.monotonic() >= self.deadline:
+            return "worktree state unknown: checked on a later pass"
+        common = self._common_dir(workdir)
+        if common is None:
             return "worktree state unknown: its repository could not be read"
-        for checkout in checkouts:
-            if _named(os.path.basename(checkout.rstrip("/")), name) and os.path.lexists(checkout):
+        if common is False:
+            return None                                     # no repository there any more
+        registrations = _registrations(common)
+        if registrations is None:
+            return "worktree state unknown: its registrations could not be read"
+        for admin_id, checkout in registrations:
+            if (_admin_named(admin_id, name) or _named(os.path.basename(checkout.rstrip("/")), name)) \
+                    and os.path.lexists(checkout):
                 return f"worktree present under another name: {checkout}"
         return None
 
-    def _checkouts(self, workdir: str) -> list[str] | None:
-        if workdir not in self._registrations:
-            self._registrations[workdir] = _registered_checkouts(workdir)
-        return self._registrations[workdir]
+    def _common_dir(self, workdir: str) -> Path | None | bool:
+        if workdir not in self._common:
+            self._common[workdir] = _common_dir(workdir)
+        return self._common[workdir]
 
 
-def _registered_checkouts(workdir: str) -> list[str] | None:
-    """Every linked checkout the repository at `workdir` registers, read from its
-    admin directories (`<common>/worktrees/*/gitdir`); None if unreadable."""
+def _common_dir(workdir: str) -> Path | None | bool:
+    """The repository's common Git directory; False when there is no repository
+    there any more; None when it could not be read."""
     try:
         result = subprocess.run(["git", "-C", workdir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
                                 capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False,
                                 env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
     except (OSError, subprocess.SubprocessError):
         return None
-    if result.returncode:
-        # No repository there any more registers nothing; any other failure
-        # (a timeout, a lock, an unreadable config) leaves the answer unknown.
-        return [] if "not a git repository" in result.stderr else None
-    admins = Path(result.stdout.strip()) / "worktrees"
-    checkouts = []
+    if not result.returncode:
+        return Path(result.stdout.strip())
+    if "not a git repository" not in result.stderr:
+        return None                     # a timeout, a lock, an unreadable config: unknown
+    # A linked checkout whose own registration was pruned still names its
+    # repository in its `.git` file; the job's registration may live there.
+    for place in (Path(workdir), *Path(workdir).parents):
+        dotgit = place / ".git"
+        if not os.path.lexists(dotgit):
+            continue
+        try:
+            text = dotgit.read_text() if dotgit.is_file() else ""
+        except (OSError, UnicodeDecodeError):
+            return None
+        if text.startswith("gitdir: "):
+            admin = Path(text[len("gitdir: "):].strip())
+            admin = admin if admin.is_absolute() else place / admin
+            if admin.parent.name == "worktrees" and admin.parent.parent.is_dir():
+                return admin.parent.parent
+        return False
+    return False
+
+
+def _registrations(common: Path) -> list[tuple[str, str]] | None:
+    """(registration name, checkout) for every linked checkout `common` registers,
+    read from `<common>/worktrees/*/gitdir`; None if unreadable."""
+    admins = common / "worktrees"
     try:
         names = os.listdir(admins)
     except FileNotFoundError:
         return []
     except OSError:
         return None
-    for name in names:
+    found = []
+    for admin_id in names:
         try:
-            gitdir = (admins / name / "gitdir").read_text().strip()
+            gitdir = (admins / admin_id / "gitdir").read_text().strip()
         except (OSError, UnicodeDecodeError):
             continue
-        checkouts.append(os.path.dirname(gitdir))
-    return checkouts
+        found.append((admin_id, os.path.dirname(gitdir)))
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -380,8 +434,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     """
     state = state if state is not None else RetentionState()
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
-                                "deferred": {}, "kept": {}, "measured": 0, "recovered": [], "conflicts": [],
-                                "made_progress": False}
+                                "deferred": {}, "newly_deferred": [], "kept": {}, "measured": 0, "recovered": [],
+                                "conflicts": [], "made_progress": False}
     read_before = state.directories_read
     try:
         result = _maintenance(store, Path(state_root).resolve(), state=state,
@@ -410,7 +464,9 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
     jobs = store.list_jobs()                                   # newest first
     errors = progress["errors"]
     explicit = set(referenced_job_ids)
-    worktrees = _Worktrees(root)
+    owned: dict[str, Path] = {}
+    worktrees = _Worktrees(root, None if deadline is None else time.monotonic() + max(
+        0.0, deadline - time.monotonic()) * SIZING_SHARE / 2)
     for job in jobs:
         identity = job["job_id"]
         if Path(identity).name != identity or identity in (".", ".."):
@@ -423,6 +479,8 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
             errors.append({"job_id": identity, "error": str(exc)})
             explicit.add(identity)
             continue
+        if worktree is not None:
+            owned[identity] = worktree
         if worktree is not None and job["state"] in _TERMINAL:
             reason = worktrees.present(worktree, job.get("workdir"))
             if reason is not None:
@@ -478,11 +536,12 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
         return counts[pool] > budgets[pool][0] or totals[pool] > budgets[pool][1]
 
     selected = []
+    capped = False
     for job in reversed(jobs):
         if not any(over(pool) for pool in budgets):
             break
         if len(selected) >= MAX_SELECTED:
-            unfinished = True
+            capped = True
             break
         pool, identity = _pool(job), job["job_id"]
         if not over(pool) or identity in protected:
@@ -506,19 +565,23 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, r
         _checkpoint(cancel, deadline)           # no retirement starts after the deadline
         _retire(store, root, selected, sizes, state=state, pinned=pinned, cancel=cancel, progress=progress,
                 protected=protected, counts=counts, totals=totals, jobs_root=jobs_root,
-                archive_root=root / "archive")
+                archive_root=root / "archive", worktrees=worktrees, owned=owned)
     for name in budgets:
         progress["pools"][name].update(jobs_after=counts[name], bytes_after=totals[name])
-    progress["made_progress"] = progress["made_progress"] or bool(progress["measured"])
+    # A deferral moves the queue on as surely as a prune does: the next pass
+    # offers the jobs behind it (G1).
+    progress["made_progress"] = progress["made_progress"] or bool(progress["measured"]) or bool(progress["newly_deferred"])
     result = {**progress, "protected": sorted(protected), "bytes_after": sum(totals.values()),
               "jobs_after": sum(counts.values())}
     if unfinished:
         result["interrupted"] = "deadline"
+    elif capped:
+        result["interrupted"] = "capped"        # more than one pass's worth; catch up
     return result
 
 
 def _retire(store, root, selected, sizes, *, state, pinned, cancel, progress, protected, counts, totals,
-            jobs_root, archive_root) -> None:
+            jobs_root, archive_root, worktrees, owned) -> None:
     check = _cancel_only(cancel)
     for job in selected:
         check()
@@ -555,6 +618,16 @@ def _retire(store, root, selected, sizes, *, state, pinned, cancel, progress, pr
             _release(store, identity)
             raise
         manifest = archive.load(final)
+        if identity in owned:
+            # P1, W2: the tree may have come back (an archiver's rollback, a move)
+            # since the pass began; ask again, freshly, just before the commit.
+            reason = worktrees.present(owned[identity], job.get("workdir"), fresh=True)
+            if reason is not None:
+                progress["kept"][identity] = reason
+                protected.add(identity)
+                archive.discard(final)
+                _release(store, identity)
+                continue
         committed = False
         with store.transaction("retention.pruned", job_id=identity,
                                data={"bytes": sizes.get(identity, 0), "pool": pool, "archive": str(final)}) as conn:
@@ -586,6 +659,7 @@ def _retire(store, root, selected, sizes, *, state, pinned, cancel, progress, pr
 def _skip(store, state, progress, protected, identity, delay, reason) -> None:
     state.defer(identity, delay, reason)
     progress["deferred"][identity] = reason
+    progress["newly_deferred"].append(identity)
     protected.add(identity)
     _release(store, identity)
 
