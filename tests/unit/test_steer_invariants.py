@@ -364,8 +364,22 @@ def as_json(value):
 
 
 def test_the_pre_steer_recording_covers_every_no_steer_history():
-    assert sorted(PRE_STEER["driver"]) == sorted(case["name"] for case in no_steer.cases())
+    assert sorted(PRE_STEER["driver"]) == sorted(case["name"] for case in no_steer.cases() + no_steer.deliberate_cases())
     assert sorted(PRE_STEER["runner"]) == sorted(case["name"] for case in no_steer.runner_cases())
+
+
+@pytest.mark.parametrize("case", no_steer.deliberate_cases(), ids=lambda case: case["name"])
+def test_the_one_deliberate_difference_is_the_other_turn_s_notification_alone(case):
+    """C-24.9, C-26.6: once a Codex turn's id is known, a notification naming another
+    turn is ignored; the pre-steer code read it. Every other step, and the outcome, is
+    the pre-steer code's."""
+    now, before = as_json(no_steer.drive(case)), PRE_STEER["driver"][case["name"]]
+    at = case["actions"].index(no_steer.OTHER_TURN_ITEM)
+    assert now["outcome"] == before["outcome"]
+    assert [step for i, step in enumerate(now["steps"]) if i != at] == \
+        [step for i, step in enumerate(before["steps"]) if i != at]
+    assert before["steps"][at]["events"] and now["steps"][at] == {
+        "frames": [], "events": [], "approvals": [], "resolved": [], "outcome": None}
 
 
 @pytest.mark.parametrize("case", no_steer.cases(), ids=lambda case: case["name"])

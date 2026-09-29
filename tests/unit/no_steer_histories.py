@@ -18,8 +18,11 @@ code did: commit 52ffde17, the merge base of the steer work. Recorded with
 the recording's first line on stderr names the one it used.)
 
 `test_steer_invariants.py` runs the same histories through the current code and
-compares. Only what steer added to every turn is set aside: the empty `steers` of
-an outcome and of `turn.json`.
+compares. Only what steer added to every turn is set aside: the `steers` of an
+outcome and of `turn.json`, and only when empty (anything in it fails). The one
+deliberate difference (`DELIBERATE`: a Codex notification naming another turn,
+ignored once the turn's id is known) is recorded too, and checked to differ in
+that notification's step alone.
 """
 
 from __future__ import annotations
@@ -163,15 +166,101 @@ def codex_cases() -> list[dict]:
     return cases
 
 
+# --- the rest of what a turn may meet, for both providers -------------------------------------
+
+#: A turn served another model than it asked for (C-26.8).
+CLAUDE_MISMATCH = {"type": "assistant", "message": {"id": "msg_x", "model": "claude-sonnet-4-5",
+                                                    "content": [{"type": "text", "text": "hi"}]}}
+#: A stop's receipt naming commands this turn never sent (no steer of its own).
+CLAUDE_RECEIPT_LISTS = {"type": "control_response", "response": {
+    "subtype": "success", "request_id": "subfleet-interrupt",
+    "response": {"cancelled": ["11111111-2222-4333-8444-555555555555"],
+                 "still_queued": ["21111111-2222-4333-8444-555555555555"]}}}
+CLAUDE_INIT_FAILED = {"type": "control_response", "response": {"subtype": "error", "request_id": "subfleet-init",
+                                                               "error": "nope"}}
+CLAUDE_OTHER_QUEUED = {"type": "command_lifecycle", "command_uuid": "31111111-2222-4333-8444-555555555555",
+                       "state": "queued"}
+
+
+def claude_more_cases() -> list[dict]:
+    """Model mismatch, an approval denied or answered by stopping the turn, a stop's
+    receipt naming other commands, a result counting queued turns, a result after the
+    driver ended the turn, a stop while initializing, and an initialize refused."""
+    ok, error = CLAUDE_ENDS["success"][0], CLAUDE_ENDS["error"][0]
+    ask = CLAUDE_TOOL[:2]
+    out = []
+    for init_name, inits in SYSTEM_INITS.items():
+        base = [["start"], CLAUDE_INIT, *inits, *CLAUDE_ACKS["lifecycle"], CLAUDE_SETTINGS]
+        out += [
+            (f"claude/{init_name}/mismatch", base + [CLAUDE_MISMATCH, error]),
+            (f"claude/{init_name}/mismatch-eof", base + [CLAUDE_MISMATCH, ["eof"]]),
+            (f"claude/{init_name}/mismatch-then-result", base + [CLAUDE_MISMATCH, ok, ["eof"]]),
+            (f"claude/{init_name}/deny", base + CLAUDE_TEXT + ask + [["respond", "req-1", "deny"], ok]),
+            (f"claude/{init_name}/cancel-turn", base + CLAUDE_TEXT + ask + [["respond", "req-1", "cancel-turn"], error]),
+            (f"claude/{init_name}/cancel-turn-eof", base + ask + [["respond", "req-1", "cancel-turn"], ["eof"]]),
+            (f"claude/{init_name}/stop-receipt-names-others", base + CLAUDE_TEXT + [["interrupt"],
+                                                                                    CLAUDE_RECEIPT_LISTS, error]),
+            (f"claude/{init_name}/result-counts-queued", base + CLAUDE_TEXT + [
+                CLAUDE_OTHER_QUEUED, {**ok, "queued_turn_count": 2}, ["eof"]]),
+        ]
+    out += [("claude/stop-initializing", [["start"], ["interrupt"], CLAUDE_INIT, ["eof"]]),
+            ("claude/init-refused", [["start"], CLAUDE_INIT_FAILED, ["eof"]])]
+    return [{"name": name, "provider": "claude", "actions": actions} for name, actions in out]
+
+
+def codex_more_cases() -> list[dict]:
+    """A turn/start refused or never answered (the message not acknowledged), a stop
+    before the answer, a thread on another model, and an approval denied or answered by
+    stopping the turn."""
+    mismatch = CODEX_THREAD[:3] + [_resp(4, {"thread": {"id": "thr-1", "status": {"type": "idle"}},
+                                             "model": "gpt-5", "reasoningEffort": "high"})]
+    ask, completed, interrupted = CODEX_TOOL[0], CODEX_ENDS["completed"], CODEX_ENDS["interrupted"]
+    out = [
+        ("codex/start-refused", [["start"], *CODEX_THREAD, {"id": 5, "error": {"code": -32600, "message": "x"}},
+                                 ["eof"]]),
+        ("codex/eof-before-accept", [["start"], *CODEX_THREAD, ["eof"]]),
+        ("codex/stop-before-accept", [["start"], *CODEX_THREAD, ["interrupt"], *CODEX_ACCEPT, *interrupted]),
+        ("codex/mismatch", [["start"], *mismatch, ["eof"]]),
+        ("codex/deny", [["start"], *CODEX_THREAD, *CODEX_ACCEPT, ask, ["respond", "42", "deny"], *completed]),
+        ("codex/cancel-turn", [["start"], *CODEX_THREAD, *CODEX_ACCEPT, ask, ["respond", "42", "cancel-turn"],
+                               *interrupted]),
+    ]
+    return [{"name": name, "provider": "codex", "actions": actions} for name, actions in out]
+
+
+#: The one deliberate difference (C-24.9, C-26.6): once the turn's id is known, a
+#: notification naming another turn is ignored. Recorded like the others; the test
+#: checks that only that notification's step differs from the pre-steer code.
+#: Here another turn's text, which the pre-steer code showed as this turn's.
+OTHER_TURN_ITEM = _note("item/agentMessage/delta", threadId="thr-1", turnId="turn-0", itemId="old",
+                        delta="Another turn's words\n")
+DELIBERATE = {"name": "codex/other-turn-delta", "provider": "codex",
+              "actions": [["start"], *CODEX_THREAD, *CODEX_ACCEPT, CODEX_TEXT[0], OTHER_TURN_ITEM, *CODEX_TEXT[1:],
+                          *CODEX_ENDS["completed"]]}
+
+
 def cases() -> list[dict]:
-    return claude_cases() + codex_cases()
+    """The histories whose every step is the pre-steer code's."""
+    return claude_cases() + codex_cases() + claude_more_cases() + codex_more_cases()
 
 
-#: The histories also run through the runner loop: those a provider writes alone
-#: (no person's answer or stop in the middle), for each way a turn ends.
+def deliberate_cases() -> list[dict]:
+    return [DELIBERATE]
+
+
+#: The histories that also run through the runner loop: those a provider writes alone
+#: (no person's answer or stop in the middle; the runner does not play the person), for
+#: each way a turn ends, acknowledged or not, a model mismatch, a result after the
+#: driver ended the turn, and an initialize or turn/start refused.
+RUNNER_MORE = ("claude/steer-init/none/text/run/success", "claude/steer-init/none/text/run/eof",
+               "claude/plain-init/replay/text/run/success", "claude/no-init/mismatch", "claude/steer-init/mismatch",
+               "claude/steer-init/mismatch-then-result", "claude/steer-init/result-counts-queued",
+               "claude/init-refused", "codex/start-refused", "codex/eof-before-accept", "codex/mismatch")
+
+
 def runner_cases() -> list[dict]:
-    return [case for case in cases() if "/text/run/" in case["name"]
-            and "/none/" not in case["name"] and "/plain-init/" not in case["name"]]
+    return [case for case in cases() if case["name"] in RUNNER_MORE or (
+        "/text/run/" in case["name"] and "/none/" not in case["name"] and "/plain-init/" not in case["name"])]
 
 
 def spec(provider: str):
@@ -186,12 +275,23 @@ def spec(provider: str):
 # --- the drivers ----------------------------------------------------------------------------
 
 
+class SteersNotEmpty(AssertionError):
+    """A turn with no steer recorded steer facts: never set aside, always a failure."""
+
+
+def _no_steers(value: dict, where: str) -> dict:
+    """`value` without steer's own field, which a turn with no steers leaves empty
+    (the pre-steer code has none): anything in it fails the recording."""
+    steers = value.pop("steers", None)
+    if steers:
+        raise SteersNotEmpty(f"{where}: steers {steers!r} for a turn with no steer")
+    return value
+
+
 def _outcome(outcome) -> dict | None:
     if outcome is None:
         return None
-    out = asdict(outcome)
-    out.pop("steers", None)                 # steer's own field: empty for a turn with no steers
-    return out
+    return _no_steers(asdict(outcome), "outcome")
 
 
 def _step(step) -> dict:
@@ -293,7 +393,7 @@ def run(case: dict, timeout: float = 120.0) -> dict:
             runner.stop()
             assert runner.join(30), f"{case['name']}: runner still running"
             message = service.store.message(MID)
-            turn = {k: v for k, v in (read_turn(adir) or {}).items() if k not in VOLATILE and k != "steers"}
+            turn = {k: v for k, v in _no_steers(read_turn(adir) or {}, "turn.json").items() if k not in VOLATILE}
             events = service.store.query("SELECT source, position, ordinal, kind, data_json FROM events "
                                          "WHERE conversation_id=? ORDER BY seq", (cid,))
             return {
@@ -313,7 +413,7 @@ def run(case: dict, timeout: float = 120.0) -> dict:
 
 
 def record() -> dict:
-    return {"driver": {case["name"]: drive(case) for case in cases()},
+    return {"driver": {case["name"]: drive(case) for case in cases() + deliberate_cases()},
             "runner": {case["name"]: run(case) for case in runner_cases()}}
 
 
