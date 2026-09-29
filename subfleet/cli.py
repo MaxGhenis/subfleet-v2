@@ -2229,8 +2229,8 @@ def _wait_for_exit(pid: int, info: dict, seconds: float) -> bool:
 def cmd_daemon_stacks(args: argparse.Namespace) -> int:
     """`daemon stacks`: every daemon thread's Python stack, from daemon.log (C-3.6).
 
-    Sends SIGUSR1, which the daemon's `faulthandler` answers from its signal
-    handler, so this works when the daemon answers nothing on its socket. Only
+    Sends SIGUSR1, which wakes the stack dumper independently of its socket and
+    also writes a native fallback when Python cannot run. Only
     to a daemon whose `daemon.lock` says `stack_dumps`: SIGUSR1's default action
     ends a process, and a daemon built before the flag, or one not yet (or no
     longer) holding its handler, has no other defence against it.
@@ -2275,7 +2275,11 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
         os.kill(pid, _signal.SIGUSR1)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon stacks: SIGUSR1 to {pid} failed: {exc}")
-    # The handler writes at once; wait until the log stops growing.
+    from .stackdump import COMPLETE, FORMAT
+    needs_complete = info.get("stack_dump_format") == FORMAT
+    complete = False
+    # The native fallback writes at once. New daemons also promise a complete
+    # named dump: don't mistake a paused worker for the end of that dump.
     size, quiet_since, deadline = start, time.monotonic(), time.monotonic() + args.wait
     while time.monotonic() < deadline:
         time.sleep(0.05)
@@ -2284,8 +2288,12 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
         except OSError:
             continue
         if now_size != size:
+            if needs_complete:
+                with open(path, "rb") as stream:
+                    stream.seek(max(start, size - len(COMPLETE) - 1))
+                    complete = complete or COMPLETE.encode() in stream.read()
             size, quiet_since = now_size, time.monotonic()
-        elif size > start and time.monotonic() - quiet_since >= 0.3:
+        elif size > start and time.monotonic() - quiet_since >= 0.3 and (complete or not needs_complete):
             break
     if size <= start:
         return fail(Exit.OPERATIONAL, f"daemon stacks: nothing was written to {path} "
@@ -2293,6 +2301,9 @@ def cmd_daemon_stacks(args: argparse.Namespace) -> int:
     with open(path, "rb") as stream:
         stream.seek(start)
         out(stream.read(size - start).decode(errors="replace").rstrip("\n"))
+    if needs_complete and not complete:
+        return fail(Exit.OPERATIONAL, f"daemon stacks: full named dump did not finish within "
+                                      f"{args.wait:g} s; printed the available diagnostics from {path}")
     return int(Exit.OK)
 
 

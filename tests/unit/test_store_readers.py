@@ -135,7 +135,7 @@ def test_read_connections_are_bounded_and_reused(store):
         thread.join(30)
     assert errors == []
     assert 1 <= len(store._readers) <= 3
-    assert store._idle.qsize() == len(store._readers)       # every one returned
+    assert len(store._idle) == len(store._readers)       # every one returned
 
 
 def test_a_read_connection_refuses_writes(store):

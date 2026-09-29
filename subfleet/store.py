@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import json
 import os
-import queue
+from collections import deque
 import sqlite3
 import threading
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -94,6 +94,16 @@ class SnapshotWriteError(RuntimeError):
     anything is written."""
 
 
+_OPEN_READER = object()
+
+
+@dataclass(eq=False)
+class _ReadWaiter:
+    kind: str
+    ready: threading.Condition
+    connection: Any = None
+
+
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
                  readers: int = 0, read_wait_s: float = READ_WAIT_S):
@@ -101,7 +111,9 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         # C-3.7: read connections, opened on first use, at most `readers` of them.
         self._max_readers = 0 if self.read_only else max(0, int(readers))
-        self._idle: queue.LifoQueue[sqlite3.Connection] = queue.LifoQueue()
+        self._idle: deque[sqlite3.Connection] = deque()
+        self._read_waiters: deque[_ReadWaiter] = deque()
+        self._pooled_snapshots = 0
         self._readers: list[sqlite3.Connection] = []
         self._readers_lock = threading.Lock()
         # Signalled whenever a read gives its connection back (`close` waits on it).
@@ -113,11 +125,12 @@ class Store:
         # hold the last STATEMENT_RESERVE of them (a pool of one is shared).
         reserve = min(STATEMENT_RESERVE, max(0, self._max_readers - 1))
         self.snapshot_share = self._max_readers - reserve
-        self._snapshot_slots = threading.BoundedSemaphore(max(1, self.snapshot_share))
         self.read_wait_s = read_wait_s
         #: Reads that found the pool out of connections, those that opened their
         #: own after `read_wait_s`, and the longest such wait (`daemon.status`).
         self.pool_waits = {"waits": 0, "own_connections": 0, "longest_wait_s": 0.0}
+        self._pool_report_at = 0.0
+        self._pool_reports_skipped = 0
         self._local = threading.local()
         self._closed = False
         # C-3.6: an RLock that remembers its holder, so the daemon can say who
@@ -292,110 +305,132 @@ class Store:
             raise
         return conn
 
-    def _checkout(self, kind: str) -> tuple[sqlite3.Connection, bool]:
-        """A read connection for one statement or one snapshot (`kind`), and
-        whether it is the pool's (False: opened for this read alone).
+    def _take_reader(self, kind: str):
+        """Reserve a connection under `_readers_lock`, or None if ineligible."""
+        if kind == "snapshot" and self._pooled_snapshots >= self.snapshot_share:
+            return None
+        if self._idle:
+            conn = self._idle.pop()
+        elif len(self._readers) < self._max_readers:
+            self._readers.append(None)         # opening outside the lock
+            conn = _OPEN_READER
+        else:
+            return None
+        if kind == "snapshot":
+            self._pooled_snapshots += 1
+        return conn
 
-        A snapshot first takes one of `snapshot_share` slots, so snapshots never
-        hold the connections kept for statements. Neither waits longer than
-        `read_wait_s` in all: then it opens a connection of its own, and the
-        wait is reported either way (C-3.7)."""
+    def _serve_readers(self) -> None:
+        """FIFO among eligible readers; reserve before waking, so no barging.
+
+        A snapshot blocked by its quota may be passed by statements using the
+        statement reserve. One return wakes only readers it can actually serve.
+        All waiter conditions share the pool lock, with no second queue lock or
+        snapshot semaphore to hand off through.
+        """
+        for waiter in list(self._read_waiters):
+            if self._closed:
+                waiter.ready.notify()
+                continue
+            conn = self._take_reader(waiter.kind)
+            if conn is not None:
+                self._read_waiters.remove(waiter)
+                waiter.connection = conn
+                waiter.ready.notify()
+
+    def _checkout(self, kind: str) -> tuple[sqlite3.Connection, bool]:
+        """One eligible FIFO reservation, or an independent reader after the bound.
+
+        A timeout never consumes another waiter's grant. Snapshot quota and
+        connection ownership move together under one lock (C-3.7).
+        """
         started = time.monotonic()
-        deadline = started + self.read_wait_s
-        slot = kind != "snapshot" or self._snapshot_slots.acquire(False)
-        waited = not slot
-        if not slot:
-            slot = self._snapshot_slots.acquire(timeout=self.read_wait_s)
-        conn, pooled = None, False
-        try:
-            if slot:
-                conn, blocked = self._pooled(deadline)
-                waited, pooled = waited or blocked, conn is not None
-            if conn is None:
-                with self._readers_lock:
-                    if self._closed:
-                        raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
-                conn = self._open_reader()
-        except BaseException:
-            if slot and kind == "snapshot":
-                self._snapshot_slots.release()
-            raise
-        if kind == "snapshot" and slot and not pooled:
-            self._snapshot_slots.release()      # it holds no pooled connection after all
         with self._readers_lock:
-            self._in_use[id(conn)] = (threading.get_ident(), time.monotonic(), kind)
+            if self._closed:
+                raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+            conn = self._take_reader(kind) if not self._read_waiters else None
+            waited = conn is None
+            if waited:
+                waiter = _ReadWaiter(kind, threading.Condition(self._readers_lock))
+                self._read_waiters.append(waiter)
+                self._serve_readers()
+                try:
+                    waiter.ready.wait_for(lambda: waiter.connection is not None or self._closed,
+                                          timeout=max(0.0, started + self.read_wait_s - time.monotonic()))
+                finally:
+                    if waiter in self._read_waiters:
+                        self._read_waiters.remove(waiter)
+                conn = waiter.connection
+            pooled = conn is not None
+        opening = conn is _OPEN_READER
+        try:
+            if conn is None or opening:
+                conn = self._open_reader()
+            with self._readers_lock:
+                if self._closed:
+                    raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+                if opening:
+                    self._readers[self._readers.index(None)] = conn
+                self._in_use[id(conn)] = (threading.get_ident(), time.monotonic(), kind)
+        except BaseException:
+            if conn is not None and conn is not _OPEN_READER:
+                conn.close()
+            with self._readers_lock:
+                if opening and None in self._readers:
+                    self._readers.remove(None)
+                if pooled and kind == "snapshot":
+                    self._pooled_snapshots -= 1
+                self._serve_readers()
+            raise
         if waited:
             self._pool_waited(time.monotonic() - started, kind, pooled)
         return conn, pooled
 
-    def _pooled(self, deadline: float) -> tuple[sqlite3.Connection | None, bool]:
-        """An idle pooled connection, a new one while the pool is below its size,
-        or one given back before `deadline`; and whether it had to wait."""
-        try:
-            return self._idle.get_nowait(), False
-        except queue.Empty:
-            pass
-        with self._readers_lock:
-            if self._closed:
-                raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
-            grow = len(self._readers) < self._max_readers
-            if grow:
-                self._readers.append(None)          # the place, filled below
-        if grow:
-            try:
-                conn = self._open_reader()
-            except BaseException:
-                with self._readers_lock:
-                    if None in self._readers:           # `close` may have emptied the list meanwhile
-                        self._readers.remove(None)
-                raise
-            with self._readers_lock:
-                # The store closed while this connection opened: `close` found no
-                # read in use and dropped the pool, this place with it.
-                closed = self._closed or None not in self._readers
-                if not closed:
-                    self._readers[self._readers.index(None)] = conn
-            if closed:
-                conn.close()
-                raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
-            return conn, False
-        try:
-            return self._idle.get(timeout=max(0.0, deadline - time.monotonic())), True
-        except queue.Empty:
-            return None, True
-
     def _checkin(self, conn: sqlite3.Connection, pooled: bool, kind: str) -> None:
         with self._readers_lock:
             self._in_use.pop(id(conn), None)
+            if pooled and kind == "snapshot":
+                self._pooled_snapshots -= 1
             keep = pooled and not self._closed
             if keep:
-                self._idle.put(conn)
-            self._returned.notify_all()
-        if pooled and kind == "snapshot":
-            self._snapshot_slots.release()
+                self._idle.append(conn)
+            self._serve_readers()
+            # Only close() waits here, and only the last return can satisfy it.
+            if self._closed and not self._in_use:
+                self._returned.notify()
         if not keep:
-            conn.close()                            # a read's own connection, or the store closed
+            conn.close()
 
     def _pool_waited(self, seconds: float, kind: str, pooled: bool) -> None:
-        """Count a wait for a read connection, and report it through the store
-        lock's watch (C-3.6's rate limit: one line a minute, the rest counted)."""
+        """Exact cheap counters; gather holders only for a report we will emit.
+
+        Suppressed waits take no LockWatch limit lock and do not sort holders,
+        enumerate threads or render stacks. Status keeps the cumulative totals.
+        """
+        watch = self._lock.watch
+        now = time.monotonic()
         with self._readers_lock:
             self.pool_waits["waits"] += 1
             if not pooled:
                 self.pool_waits["own_connections"] += 1
-            self.pool_waits["longest_wait_s"] = max(self.pool_waits["longest_wait_s"], round(seconds, 3))
+            self.pool_waits["longest_wait_s"] = max(self.pool_waits["longest_wait_s"], seconds)
+            if watch is None:
+                return
+            if now < self._pool_report_at:
+                self._pool_reports_skipped += 1
+                return
+            self._pool_report_at = now + watch.every_s
+            skipped, self._pool_reports_skipped = self._pool_reports_skipped, 0
             holds = sorted(self._in_use.values(), key=lambda hold: hold[1])
             size = len(self._readers)
-        watch = self._lock.watch
-        if watch is None:
-            return
-        me, now = threading.get_ident(), time.monotonic()
+        me = threading.get_ident()
 
         def render() -> str:
             snapshots = sum(1 for _, _, held_for in holds if held_for == "snapshot")
             listed = "; ".join(f"{thread_name(ident)} for a {held_for}, {now - since:.1f} s"
                                for ident, since, held_for in holds if ident != me)
-            return (f"{thread_name(me)} waited {seconds:.2f} s for a read connection for a {kind}"
+            return ((f"({skipped} read-pool report(s) held back) " if skipped else "")
+                    + f"{thread_name(me)} waited {seconds:.2f} s for a read connection for a {kind}"
                     + ("" if pooled else f" and, none free after {self.read_wait_s:g} s, opened one of its own")
                     + f"; {len(holds)} in use, {snapshots} by snapshots (at most {self.snapshot_share} of the "
                       f"{size} pooled): {listed or 'none'}")
@@ -482,12 +517,9 @@ class Store:
             self.connection.close()
         with self._readers_lock:
             self._returned.wait_for(lambda: not self._in_use, timeout=CLOSE_WAIT_S)
-            idle = []
-            while True:
-                try:
-                    idle.append(self._idle.get_nowait())
-                except queue.Empty:
-                    break
+            self._serve_readers()
+            idle = list(self._idle)
+            self._idle.clear()
             self._readers = []
         for conn in idle:
             conn.close()

@@ -35,6 +35,13 @@ checkout (`--code`), so a baseline and a fix can be measured the same way:
   loading the machine; the live daemon used 3% of a core during the stall;
 - with a checkout that has C-3.6, SIGUSR1 stack dumps mid-run, and a summary
   of the lock-watch lines in daemon.log (holders by innermost subfleet frame).
+- `--synthetic`: seed hundreds of running attempts without starting providers;
+  keep the real control loop, attempt receipt reads, admission passes and socket
+  waits. Only process identity/census is faked (also works without access to ps).
+  `--wait-clients` limits waiting clients independently of attempts, and
+  `--event-every` commits events steadily. Short jobs complete synthetically.
+  Both catalog and sidebar mirror are always disabled. All state roots must be
+  new directories below the operating system's temporary directory or /tmp.
 
 The report is JSON (`--report`) plus a text summary on stdout. Every number
 comes from this run; nothing is estimated.
@@ -65,11 +72,27 @@ import collections, json, os, signal, sys, threading, time
 from pathlib import Path
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon
+from subfleet import procs
 from tests.fake import profile as fake_profile
 from tests.fake_adapter import FakeAdapter
 register("codex", FakeAdapter)
 fake_profile.install()
-daemon = Daemon(Path(sys.argv[1]))
+synthetic = bool(os.environ.get("SFR_SYNTHETIC"))
+if synthetic:
+    # The synthetic census owns no processes. Never inspect or signal a real
+    # guardian, and do not require ps permissions to identify this test daemon.
+    procs.boot_id = lambda: "synthetic-repro-boot"
+    procs.proc_start = lambda pid: "synthetic-repro-start"
+daemon = Daemon(Path(sys.argv[1]), desktop_prober=lambda: None)
+if synthetic:
+    daemon._recovery_complete.set()
+    def inspect_running(a, adir, due):
+        daemon._inspect_next[a["attempt_id"]] = time.monotonic() + daemon.inspect_interval_s
+        return True
+    daemon._inspect_running = inspect_running
+    def forbid_launch(*args, **kwargs):
+        raise AssertionError("synthetic repro must never launch a provider")
+    daemon._launch = forbid_launch
 watch = getattr(daemon, "lock_watch", None)
 if watch is not None:                           # C-3.6 thresholds, lowered to see shorter holds
     watch.hold_s = float(os.environ.get("SFR_HOLD_S", watch.hold_s))
@@ -119,6 +142,21 @@ from subfleet.adapters.base import AdapterError
 admission = {"holds": [], "reserve_holds": [], "hold_cpu": [], "reserve_hold_cpu": [], "waits": [], "turns": {},
              "all_holds": [], "all_hold_cpu": []}
 local, measuring = threading.local(), threading.Event()
+metrics, metric_threads, metric_lock = {}, [], threading.Lock()
+def counted(name, function):
+    def call(*args, **kwargs):
+        if measuring.is_set():
+            counts = getattr(local, "counts", None)
+            if counts is None:
+                local.counts = counts = collections.Counter()
+                with metric_lock:
+                    metric_threads.append(counts)
+            counts[name] += 1
+        return function(*args, **kwargs)
+    return call
+daemon._process_attempt = counted("attempt_passes", daemon._process_attempt)
+daemon.store._checkout = counted("read_checkouts", daemon.store._checkout)
+daemon._notify = counted("notifications", daemon._notify)
 lock = daemon.store._lock
 real_acquire, real_release = lock.acquire, lock.release
 def acquire(blocking=True, timeout=-1):
@@ -215,7 +253,46 @@ def turns(every):
 if os.environ.get("SFR_TURNS_EVERY"):
     threading.Thread(target=turns, args=(float(os.environ["SFR_TURNS_EVERY"]),), daemon=True,
                      name="harness-turns").start()
-signal.signal(signal.SIGUSR2, lambda *_: (gathering.set(), measuring.set()))
+def measurement(*_):
+    if not measuring.is_set():
+        metrics.update(cpu_start=time.process_time(), wall_start=time.monotonic(),
+                       pool_start=daemon.store.read_pool(), hub_start=daemon.wait_hub.status())
+        gathering.set()
+        measuring.set()
+    else:
+        measuring.clear()
+        gathering.clear()
+        metrics.update(cpu_s=time.process_time() - metrics["cpu_start"],
+                       wall_s=time.monotonic() - metrics["wall_start"],
+                       pool_end=daemon.store.read_pool(), hub_end=daemon.wait_hub.status())
+        counts = collections.Counter()
+        for values in metric_threads:
+            counts.update(values)
+        metrics["counts"] = dict(counts)
+        Path(os.environ["SFR_METRICS"]).write_text(json.dumps(metrics))
+signal.signal(signal.SIGUSR2, measurement)
+def event_stream():
+    every = float(os.environ["SFR_EVENT_EVERY"])
+    n = 0
+    while not daemon.stopping.wait(every):
+        n += 1
+        daemon.store.add_event("harness.commit", data={"n": n})
+        daemon._notify()
+if os.environ.get("SFR_EVENT_EVERY"):
+    threading.Thread(target=event_stream, daemon=True, name="harness-events").start()
+if synthetic:
+    real_dispatch = daemon.dispatch
+    def dispatch(op, args, *rest):
+        if op == "harness.finish":
+            job = args["job_id"]
+            with daemon.store.transaction("harness.finished", job_id=job) as tx:
+                tx.execute("UPDATE jobs SET state='cancelled',finished_at=? WHERE job_id=?",
+                           (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), job))
+                tx.execute("UPDATE attempts SET state='cancelled' WHERE job_id=?", (job,))
+            daemon._notify()
+            return {"finished": job, "committed_at": time.monotonic()}
+        return real_dispatch(op, args, *rest)
+    daemon.dispatch = dispatch
 try:
     daemon.serve_forever()
 finally:
@@ -272,6 +349,11 @@ class Rig:
         self.args = args
         self.code = Path(args.code).resolve()
         self.root = Path(args.root or tempfile.mkdtemp(prefix="sfr-", dir="/tmp")).resolve()
+        allowed = (Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve())
+        if not any(self.root.is_relative_to(base) and self.root != base for base in allowed):
+            raise ValueError("the reproduction state root must be below /tmp or the OS temporary directory")
+        if (self.root / "state.sqlite3").exists():
+            raise ValueError("the reproduction requires a fresh state root")
         self.sock = self.root / "daemon.sock"
         self.env = {**os.environ, "PYTHONPATH": str(self.code), "SUBFLEET_HOME": str(self.root),
                     # Belt and braces for the mirror: an empty session store of its own.
@@ -279,6 +361,11 @@ class Rig:
         if args.sample:
             self.env["SFR_SAMPLE"] = str(self.root / "samples.json")
         self.env["SFR_ADMISSION"] = str(self.root / "admission.json")
+        self.env["SFR_METRICS"] = str(self.root / "metrics.json")
+        if args.synthetic:
+            self.env["SFR_SYNTHETIC"] = "1"
+        if args.event_every:
+            self.env["SFR_EVENT_EVERY"] = str(args.event_every)
         if args.turns_every:
             self.env["SFR_TURNS_EVERY"] = str(args.turns_every)
         if args.prepare_s:
@@ -309,7 +396,8 @@ class Rig:
         # The desktop sidebar mirror writes into the Claude app's session store
         # under the real HOME; a state root with no merge base must not run it.
         policy.setdefault("sessions", {})["mirror_interval_s"] = 0
-        policy.setdefault("caps", {})["max_active_attempts"] = self.args.running + 3
+        policy.setdefault("caps", {})["max_active_attempts"] = (
+            1_000_000 if self.args.synthetic else self.args.running + 3)
         (root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         lanes = [{"lane_id": f"codex-{n}", "provider": "codex", "account_key": f"codex:fake{n}",
                   "credential_ref": str(root / "home"), "credential_kind": "home",
@@ -390,6 +478,24 @@ class Rig:
             db.executemany("INSERT INTO decisions(job_id,evaluated_at,policy_hash,decision_json) VALUES (?,?,?,?)",
                            ((jobs[i % len(jobs)][0], iso(now - 3600), "seed", decision)
                             for i in range(a.decisions if jobs else 0)))
+            if a.synthetic:
+                for i in range(a.running + a.backlog):
+                    job = f"synthetic-{i:05d}"
+                    running = i < a.running
+                    db.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,"
+                               "sandbox,caller_session,pinned_model,created_at,started_at,max_wall_s) "
+                               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (job, job, "seed", "dispatch", "running" if running else "queued",
+                                str(self.root / "work"), str(self.root / "prompt-seed.md"), "read-only",
+                                f"synthetic-session-{i}", "astra", iso(now), iso(now), 86400))
+                    if running:
+                        lane = f"codex-{1 + i % a.lanes}"
+                        aid = f"{job}/a1"
+                        db.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,"
+                                   "reserved_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
+                                   (aid, job, 1, lane, "astra", "running", iso(now), iso(now)))
+                        db.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES (?,?,?)",
+                                   (f"lane:{lane}:slot:{i // a.lanes}", aid, iso(now)))
         (self.root / "prompt-seed.md").write_text("seed")
         sizes = {t: db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
                  for t in ("jobs", "attempts", "events", "decisions", "notices", "readings")}
@@ -403,7 +509,8 @@ class Rig:
 
     def stop_spinners(self) -> None:
         for proc in self.spinners:
-            proc.kill()
+            if proc.poll() is None:
+                proc.kill()
         for proc in self.spinners:
             proc.wait(10)
 
@@ -487,6 +594,18 @@ class Rig:
     def short_jobs(self) -> None:
         n = 0
         while not self.stop.wait(self.args.short_every):
+            if self.args.synthetic:
+                # These jobs already have 80 real socket waiters; finish one
+                # periodically, measuring from the daemon's actual commit.
+                job_id = f"synthetic-{n:05d}"
+                n += 1
+                if n > min(self.args.running, self.args.wait_clients):
+                    return
+                response = self.timed("harness.finish", {"job_id": job_id})
+                result = (response or {}).get("result") or {}
+                if result.get("committed_at") is not None:
+                    self.terminal_at[job_id] = result["committed_at"]
+                continue
             session = f"sess-{n % self.args.sessions}"
             n += 1
             job_id = self.submit(session, self.args.short_s)
@@ -567,19 +686,23 @@ class Rig:
         log_start = (self.root / "daemon.log").stat().st_size
         threads = []
         try:
-            for i in range(a.running):
+            for i in range(a.running if not a.synthetic else min(a.running, a.wait_clients)):
+                if a.synthetic:
+                    self.arm(f"synthetic-session-{i}", f"synthetic-{i:05d}")
+                    continue
                 job_id = self.submit(f"sess-{i % a.sessions}", a.warmup + a.duration + 120)
                 if job_id:
                     self.arm(f"sess-{i % a.sessions}", job_id)
             # A detached backlog longer than the fleet can hold: admission
             # evaluates it on every pass that frees a lease (C-6.10).
-            for i in range(a.backlog):
+            for i in range(a.backlog if not a.synthetic else 0):
                 self.submit(f"backlog-{i % a.sessions}", a.backlog_s, a.backlog_tier)
             self.start_spinners()
             for i in range(a.sessions):
                 threads.append(threading.Thread(target=self.hook, args=(f"sess-{i}",), daemon=True))
             threads.append(threading.Thread(target=self.short_jobs, daemon=True))
-            threads.append(threading.Thread(target=self.terminal_watch, daemon=True))
+            if not a.synthetic:
+                threads.append(threading.Thread(target=self.terminal_watch, daemon=True))
             for op, args, label in (("list", {"mine": "sess-0", "running": True}, "probe:list"),
                                     ("ping", {}, "probe:ping"),
                                     ("show", {"job_id": "20260920-000000-history-0"}, "probe:show"),
@@ -597,18 +720,24 @@ class Rig:
             time.sleep(a.warmup)
             self.daemon.send_signal(signal.SIGUSR2)          # the sampler and admission counts start
             self.measuring.set()
-            measured_from, cpu_from = time.monotonic(), self.cpu_seconds()
+            measured_from = time.monotonic()
             self.loadavg = {"start": [round(x, 1) for x in os.getloadavg()]}
             time.sleep(a.duration / 2)
-            self.daemon_priorities = thread_priorities(self.daemon.pid)
+            self.daemon_priorities = {} if a.synthetic else thread_priorities(self.daemon.pid)
             time.sleep(a.duration / 2)
             self.loadavg["end"] = [round(x, 1) for x in os.getloadavg()]
             self.measuring.clear()
-            measured_s, cpu_to = time.monotonic() - measured_from, self.cpu_seconds()
+            measured_s = time.monotonic() - measured_from
+            self.daemon.send_signal(signal.SIGUSR2)
+            deadline = time.monotonic() + 30
+            while not (self.root / "metrics.json").exists() and time.monotonic() < deadline:
+                time.sleep(.1)
             final = self.timed("daemon.status", {}, label="final-status", timeout=600) or {}
             self.admission = ((final.get("result") or {}).get("admission") or {})
-            self.daemon_cpu = (None if cpu_from is None or cpu_to is None
-                               else round((cpu_to - cpu_from) / measured_s, 3))
+            metric_path = self.root / "metrics.json"
+            self.metrics = json.loads(metric_path.read_text()) if metric_path.exists() else {}
+            self.daemon_cpu = (round(self.metrics["cpu_s"] / self.metrics["wall_s"], 3)
+                               if self.metrics else None)
         finally:
             self.stop.set()
             self.stop_spinners()
@@ -682,6 +811,7 @@ class Rig:
         admission = self.admission_report(stats, measured_s)
         return {"code": str(self.code), "root": str(self.root), "diagnostics": diagnostics,
                 "daemon_cpu_cores": getattr(self, "daemon_cpu", None), "admission": admission,
+                "metrics": getattr(self, "metrics", {}),
                 "loadavg": getattr(self, "loadavg", None),
                 "daemon_thread_priorities": getattr(self, "daemon_priorities", None),
                 "route_evaluations": getattr(self, "admission", {}).get("route_evaluations"),
@@ -714,6 +844,9 @@ def main() -> int:
     parser.add_argument("--duty", type=float, default=1.0,
                         help="fraction of each 100 ms the daemon may run (default 1: unthrottled)")
     parser.add_argument("--running", type=int, default=6)
+    parser.add_argument("--synthetic", action="store_true", help="seed running attempts without providers")
+    parser.add_argument("--wait-clients", type=int, default=80, help="socket waiters in synthetic mode")
+    parser.add_argument("--event-every", type=float, default=0, help="seconds between synthetic event commits")
     parser.add_argument("--sessions", type=int, default=21)
     parser.add_argument("--short-every", type=float, default=8.0)
     parser.add_argument("--short-s", type=float, default=3.0)

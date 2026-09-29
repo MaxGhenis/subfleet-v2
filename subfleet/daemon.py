@@ -57,6 +57,7 @@ from .salvage import (
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store
+from .stackdump import FORMAT as STACK_DUMP_FORMAT, StackDumper
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -5045,7 +5046,10 @@ class Daemon:
     def _write_lock(self, *, stack_dumps: bool) -> None:
         """Write this daemon's identity to `daemon.lock` (C-5.3), and whether
         SIGUSR1 dumps its stacks now (C-3.6). Only `daemon stacks` reads the flag."""
-        record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
+        flags = {"stack_dumps": True} if stack_dumps else {}
+        if stack_dumps and self._stack_dumper is not None:
+            flags["stack_dump_format"] = STACK_DUMP_FORMAT
+        record = {**self._ident, **flags}
         os.ftruncate(self._lock_fd, 0)
         os.pwrite(self._lock_fd, json_bytes(record), 0)
         os.fsync(self._lock_fd)
@@ -5053,11 +5057,11 @@ class Daemon:
     def _enable_stack_dumps(self) -> None:
         """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
 
-        `faulthandler` writes from the signal handler itself, so the dump
-        arrives even when every Python thread is stuck behind a lock, the GIL
-        or a pool (`subfleet daemon stacks` sends the signal). Registered as
-        soon as the log is open, and before `daemon.lock` says so: SIGUSR1's
-        default action is to end the process.
+        A native faulthandler dump remains available when Python cannot run.
+        It is capped at 100 threads; its chained Python handler only writes a
+        nonblocking self-pipe, waking a worker that writes every named stack.
+        Neither path takes a store or logging lock. The full dump needs Python
+        scheduling, but not the main thread's socket or request pool.
         """
         global _STACK_DUMPS
         stream = self._log_handler.stream
@@ -5068,14 +5072,21 @@ class Daemon:
         # below, and the signal would be ignored while the lock says
         # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
         faulthandler.unregister(signal.SIGUSR1)
+        previous = _STACK_DUMPS() if _STACK_DUMPS is not None else None
+        if previous is not None and previous._stack_dumper is not None:
+            previous._stack_dumper.close()
+            previous._stack_dumper = None
+        self._stack_dumper = None
         if threading.current_thread() is threading.main_thread():
             # What faulthandler puts back when it lets the signal go (at close,
             # or as the interpreter exits): ignore it, so a SIGUSR1 that races
             # the close ends nothing. A child started while the handler is in
             # place gets the default action back at exec, as with any handler.
-            signal.signal(signal.SIGUSR1, signal.SIG_IGN)
-        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+            self._stack_dumper = StackDumper(stream.fileno())
+            signal.signal(signal.SIGUSR1, _request_stack_dump)
         _STACK_DUMPS = weakref.ref(self)
+        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True,
+                             chain=self._stack_dumper is not None)
 
     def _disable_stack_dumps(self) -> None:
         """Unregister before the log closes, so no dump is written to a closed or
@@ -5089,6 +5100,11 @@ class Daemon:
         if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
             faulthandler.unregister(signal.SIGUSR1)
             _STACK_DUMPS = None
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+        if self._stack_dumper is not None:
+            self._stack_dumper.close()
+            self._stack_dumper = None
 
     def _accept_trouble(self, exc: OSError) -> None:
         """Say so at most once a minute, and pause so a full queue is not spun on;
@@ -5176,6 +5192,12 @@ class Daemon:
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
+
+
+def _request_stack_dump(signum, frame) -> None:
+    daemon = _STACK_DUMPS() if _STACK_DUMPS is not None else None
+    if daemon is not None and daemon._stack_dumper is not None:
+        daemon._stack_dumper.request()
 
 
 def _keychain_read(argv) -> bool:

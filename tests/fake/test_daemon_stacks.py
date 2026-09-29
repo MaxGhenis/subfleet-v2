@@ -1,8 +1,8 @@
 """C-3.6: `subfleet daemon stacks` dumps every thread of a live daemon process.
 
-The daemon registers `faulthandler` on SIGUSR1 against daemon.log, so the dump
-comes from the signal handler even when every Python thread is stuck; the CLI
-signals only the identity daemon.lock records, then prints what was written.
+SIGUSR1 writes a native fallback and wakes the uncapped named-stack worker;
+the CLI signals only the identity daemon.lock records and waits for the complete
+named dump before printing it.
 
 SIGUSR1's default action ends a process, so the CLI signals only a daemon
 whose lock says `"stack_dumps": true`, which a daemon writes after it has
@@ -59,6 +59,29 @@ def parked_where_the_dump_can_find_it():
 parked_where_the_dump_can_find_it()
 """
 
+MANY_THREADS = """
+import sys, threading, time
+from pathlib import Path
+from subfleet.daemon import Daemon
+core = Daemon(Path(sys.argv[1]))
+park = threading.Event()
+ready = threading.Barrier(141)
+def parked_where_the_complete_dump_can_find_it():
+    ready.wait()
+    park.wait()
+threads = [threading.Thread(target=parked_where_the_complete_dump_can_find_it,
+                            name=f"diagnostic-worker-{i}", daemon=True) for i in range(140)]
+for thread in threads:
+    thread.start()
+ready.wait()
+# Hold both application and logging locks across the signal: the dump must use
+# neither. The Python signal callback also cannot try to reacquire these.
+with core.store.transaction("diagnostic-lock-held"):
+    with core._log_handler.lock:
+        print("ready", flush=True)
+        time.sleep(120)
+"""
+
 
 def stacks(root: Path, *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -92,6 +115,23 @@ def test_daemon_stacks_prints_every_thread_of_the_live_daemon(daemon):
     assert "stack dumps:" not in result.stdout           # only what the signal wrote
     assert daemon.call("ping")["pong"] is True             # the daemon lives on
     assert "Thread 0x" in (daemon.root / "daemon.log").read_text(errors="replace")
+
+
+def test_daemon_stacks_includes_more_than_100_threads_while_store_is_locked(root):
+    child = spawn(MANY_THREADS, root)
+    try:
+        result = stacks(root, "--wait", "15")
+        assert result.returncode == 0, result.stderr
+        named = result.stdout.split("=== subfleet all-thread stack dump:", 1)[1]
+        for index in range(140):
+            assert f"name='diagnostic-worker-{index}' " in named
+        assert "name='MainThread' " in named
+        assert "name='subfleet-stack-dump' " in named
+        assert "=== end subfleet all-thread stack dump ===" in named
+        assert child.poll() is None
+    finally:
+        child.kill()
+        child.wait(10)
 
 
 def test_daemon_stacks_without_a_daemon_says_so():

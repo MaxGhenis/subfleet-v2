@@ -3,9 +3,10 @@
 `python -m subfleet.conversations.catalog --state-root <root>` indexes every
 Claude transcript at depth one under the projects directory and every Codex
 rollout under the enrolled lane homes and `~/.codex`, writing
-`<root>/catalog.json` atomically. A (path, size, mtime) cache means a run
-re-reads only what changed; a run stops after 20 s and says `complete:false`
-until one run has visited everything. Exclusions (lane runs, Codex exec and
+`<root>/catalog.json` atomically. A SQLite (path, size, mtime) cache means a
+run re-reads only what changed; a run stops traversal after 20 s and resumes
+its checkpointed directory cursor next time, saying `complete:false` until
+one sweep has visited everything. Exclusions (lane runs, Codex exec and
 subagent threads) come before any limit. Nothing here writes a native store.
 
 The daemon starts the process on a timer and on request and never scans these
@@ -21,7 +22,6 @@ from __future__ import annotations
 import argparse
 import errno
 import fcntl
-import functools
 import json
 import os
 import re
@@ -160,117 +160,95 @@ def _codex_record(path: Path, opener=transcripts.open_regular) -> dict:
 
 def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None, codex_app_home: Path | None = None,
           wall_s: float = WALL_S, clock=time.monotonic, may_write: Callable[[], bool] | None = None) -> dict:
-    """One capped indexing run; returns the catalog it built. `may_write` is asked
-    before each file is published, and once it says no nothing more is (`Owner`)."""
+    """Resume one bounded scan, checkpointing work before publishing its view.
+
+    A deadline stops traversal too, including cache hits. A stopped scan retains
+    the preceding catalog; only a complete sweep may remove old entries.
+    """
+    from .catalog_cache import Scan, OwnerGone
     root = Path(root)
-    cache_path = root / "catalog-cache.json"
+    started = clock()
+    previous = _read_json(root / "catalog.json")
+    catalog = previous or {"generated_at": _utc(), "complete": False, "items": [], "live_claude": []}
+    if may_write is not None and not may_write():
+        return catalog
+    home = codex_app_home or Path.home() / ".codex"
+    sources = [{"path": str(claude_projects or transcripts.projects_dir()), "provider": "claude", "depth": 1}]
+    homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
+    homes.append((home, None))
+    for base, lane_id in homes:
+        for sub, archived in (("sessions", False), ("archived_sessions", True)):
+            sources.append({"path": str(base / sub), "provider": "codex", "home": str(base),
+                            "lane_id": lane_id, "archived": archived})
+    sources.append({"path": str(home / "session_index.jsonl"), "provider": "names"})
+    scan = None
     try:
-        cache = json.loads(cache_path.read_text())
+        scan = Scan(root, sources, may_write)
+        complete = scan.run(lambda: clock() - started < wall_s, _catalog_record)
+        known_attempts = set(_attempt_native_ids(root))
+        # Only a completed traversal can prove a published entry has gone. New
+        # records replace old copies of the same session as each slice finishes.
+        merged = {} if complete else {(i["provider"], i["native_session_id"]): i
+                                      for i in previous.get("items", [])}
+        for item in scan.items():
+            key = (item["provider"], item["native_session_id"])
+            if item["native_session_id"] not in known_attempts:
+                merged[key] = item
+        # Registry inspection is one process read per live registry row. Defer
+        # it when the traversal used its slice; keep its last conservative view.
+        live = (_live_claude_sessions() if clock() - started < wall_s
+                else set(previous.get("live_claude", [])))
+        items = list(merged.values())
+        for item in items:
+            item["live_elsewhere"] = (item["provider"] == "claude"
+                                      and canonical_native(item["native_session_id"]) in live)
+        items.sort(key=lambda i: (-i["mtime"], i["provider"], i["native_session_id"]))
+        catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
+        scan.check_owner()
+        _atomic(root / "catalog.json", catalog)
+        return catalog
+    except OwnerGone:
+        return catalog
+    finally:
+        if scan is not None:
+            scan.close()
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
-        cache = {}
-    started, complete, fresh = clock(), True, {}
-    items: list[dict] = []
-    # The run is its own process, capped at `wall_s` and stopped by its service after
-    # 60 s (C-30.1), so it opens sessions plainly: a FIFO among them holds this run,
-    # never the daemon. Readers in the daemon default to `transcripts.open_regular`.
-    claude_record = functools.partial(_claude_record, opener=open)
-    codex_record = functools.partial(_codex_record, opener=open)
-    projects = claude_projects or transcripts.projects_dir()
-    known_attempts = set(_attempt_native_ids(root))
-    # Claude
-    paths: list[Path] = []
-    try:
-        for d in os.scandir(projects):
-            if d.is_dir():
-                try:
-                    paths.extend(Path(f.path) for f in os.scandir(d.path) if f.name.endswith(".jsonl"))
-                except OSError:
-                    continue
-    except OSError:
-        pass
-    # One item per session: one that moved leaves a copy under each project
-    # directory, and `conversation.open` continues the newest
-    # (`transcripts.transcript_path`), so that is the copy shown (C-30.2).
-    newest: dict[str, tuple[float, Path]] = {}
-    for path in paths:
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        if path.stem not in newest or mtime > newest[path.stem][0]:
-            newest[path.stem] = (mtime, path)
-    for path in (path for _, path in newest.values()):
-        record = _cached(cache, fresh, path, claude_record, started, wall_s, clock, version=CLAUDE_RECORD_VERSION)
-        if record is None:
-            complete = False
-            continue
-        sid = path.stem
-        if record.get("headless") or sid in known_attempts or not record:
-            continue
+        return {}
+
+
+def _catalog_record(path: Path, source: dict, cached: dict | None) -> tuple[dict, dict | None]:
+    """The changed transcript's cache record and its public item (if eligible)."""
+    provider = source["provider"]
+    reader = _claude_record if provider == "claude" else _codex_record
+    record = cached if cached is not None else reader(path, opener=open)
+    if not record:
+        return record, None
+    if provider == "claude":
+        if record.get("headless"):
+            return record, None
         cwd = record.get("workspace") or ""
         blocker = "tmp-workspace" if _temporary(cwd) else None
-        items.append({"provider": "claude", "native_session_id": sid, "path": str(path), "home": None,
-                      "title": record.get("title"), "first_prompt": record.get("first_prompt"), "cwd": cwd,
-                      "model": record.get("model"), "permission_mode": record.get("permission_mode"),
-                      "mtime": fresh[str(path)]["mtime"], "continuable": blocker is None,
-                      "continue_blocker": blocker, "archived": False})
-    # Codex
-    names = _codex_names(codex_app_home or Path.home() / ".codex", opener=open)
-    homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
-    homes.append((codex_app_home or Path.home() / ".codex", None))
-    for home, lane_id in homes:
-        for sub, archived in (("sessions", False), ("archived_sessions", True)):
-            base = home / sub
-            if not base.is_dir():
-                continue
-            for path in base.rglob("rollout-*.jsonl"):
-                record = _cached(cache, fresh, path, codex_record, started, wall_s, clock)
-                if record is None:
-                    complete = False
-                    continue
-                if not record or record.get("excluded") or not record.get("id") or record["id"] in known_attempts:
-                    continue
-                items.append({"provider": "codex", "native_session_id": record["id"], "path": str(path),
-                              "home": str(home), "lane_id": lane_id,
-                              "title": names.get(record["id"]), "first_prompt": record.get("first_prompt"),
-                              "cwd": record.get("cwd"), "model": record.get("model"), "permission_mode": None,
-                              "mtime": fresh[str(path)]["mtime"], "continuable": lane_id is not None,
-                              "continue_blocker": None if lane_id else "codex-app thread: continue by handoff",
-                              "archived": archived})
-    live = _live_claude_sessions()
-    for item in items:
-        item["live_elsewhere"] = (item["provider"] == "claude"
-                                  and canonical_native(item["native_session_id"]) in live)
-    items.sort(key=lambda i: i["mtime"], reverse=True)
-    # Every live session, listed or not: a conversation born in Subfleet and
-    # resumed in a terminal is no catalog item but is still held (C-26.3).
-    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
-    for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
-        if may_write is not None and not may_write():
-            break
-        _atomic(path, value)
-    return catalog
-
-
-def _cached(cache: dict, fresh: dict, path: Path, reader, started: float, wall_s: float, clock,
-            version: int | None = None):
-    """`reader(path)`, or its cached record while the file's size and mtime, and
-    the record's `version`, are unchanged."""
-    try:
-        st = path.stat()
-    except OSError:
-        return {}
-    key = str(path)
-    hit = cache.get(key)
-    if hit and hit.get("size") == st.st_size and hit.get("mtime") == st.st_mtime and hit.get("version") == version:
-        fresh[key] = hit
-        return hit["record"]
-    if clock() - started > wall_s:
-        return None
-    record = reader(path)
-    fresh[key] = {"size": st.st_size, "mtime": st.st_mtime, "record": record,
-                  **({"version": version} if version is not None else {})}
-    return record
+        item = {"provider": "claude", "native_session_id": path.stem, "path": str(path), "home": None,
+                "title": record.get("title"), "first_prompt": record.get("first_prompt"), "cwd": cwd,
+                "model": record.get("model"), "permission_mode": record.get("permission_mode"),
+                "continuable": blocker is None, "continue_blocker": blocker, "archived": False}
+    else:
+        if record.get("excluded") or not record.get("id"):
+            return record, None
+        lane_id = source.get("lane_id")
+        item = {"provider": "codex", "native_session_id": record["id"], "path": str(path),
+                "home": source["home"], "lane_id": lane_id, "title": None,
+                "first_prompt": record.get("first_prompt"), "cwd": record.get("cwd"),
+                "model": record.get("model"), "permission_mode": None, "continuable": lane_id is not None,
+                "continue_blocker": None if lane_id else "codex-app thread: continue by handoff",
+                "archived": source["archived"]}
+    return record, item
 
 
 #: The most of Codex's `session_index.jsonl` read (it had been read whole).
@@ -358,8 +336,7 @@ def _subfleet_owned(pid: int | None) -> bool:
 
 
 def _attempt_native_ids(root: Path) -> Iterable[str]:
-    import sqlite3
-    path = Path(root) / "state.sqlite3"
+        path = Path(root) / "state.sqlite3"
     if not path.exists():
         return []
     try:
@@ -670,8 +647,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0                            # another run holds the lock, and writes the catalog
     lanes = []
     try:
-        import sqlite3
-        db = sqlite3.connect(f"file:{args.state_root / 'state.sqlite3'}?mode=ro", uri=True, timeout=2)
+                db = sqlite3.connect(f"file:{args.state_root / 'state.sqlite3'}?mode=ro", uri=True, timeout=2)
         db.row_factory = sqlite3.Row
         lanes = [dict(r) for r in db.execute("SELECT lane_id, provider, home FROM lanes")]
         db.close()
