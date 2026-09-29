@@ -535,12 +535,16 @@ class ConversationStore:
         return self.conversation(conversation_id)
 
     def claim_title_generation(self, conversation_id: str, message_id: str, now: float) -> bool:
-        """At most one request, from the first person message's Claude process."""
+        """At most one request, from the first person message's Claude process, and
+        none once a stop of that message is recorded. A person's stop is a transaction
+        on this store too (`update_message`, `withdraw`), so a claim that waited
+        behind one sees it (`TurnRunner._send_title`)."""
         with self.transaction() as tx:
             return bool(tx.execute(
                 "UPDATE conversations SET title_requested_at=? WHERE conversation_id=? AND provider='claude' "
-                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL",
-                (now, conversation_id, message_id)).rowcount)
+                "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM messages WHERE message_id=? AND stop_requested_at IS NOT NULL)",
+                (now, conversation_id, message_id, message_id)).rowcount)
 
     def generated_title(self, conversation_id: str, message_id: str, title: str, now: float) -> bool:
         from .titles import TITLE_BUDGET_S

@@ -22,6 +22,13 @@ TITLE_FRAME = "session-title"
 TITLE_CANCEL_FRAME = "session-title-cancel"
 TITLE_BUDGET_S = 10.0
 TITLE_MAX = 120
+TITLE_DESCRIPTION_MAX = 16_384      # characters of the first message offered to the generator
+# Bytes of the request's stdin line. The relay writes a frame into the provider's
+# stdin pipe with a blocking write, under the lock every later frame needs
+# (relay.py). A line longer than the pipe's free space (a pipe held 64 KiB on
+# macOS, measured 2026-09-29) would, while the provider is not reading, hold the
+# stop's interrupt and SIGINT behind a title; 8 KiB leaves a wide margin.
+TITLE_LINE_MAX = 8 * 1024
 
 _REQUEST_PREFIX = re.compile(
     r"^(?:(?:please|kindly)(?:\s+|$)|(?:can|could|would|will)\s+you(?:\s+|$)|"
@@ -39,6 +46,28 @@ def fallback_title(text: str) -> str:
         clause = clause[match.end():].lstrip()
     title = " ".join(clause.split()[:6]).strip(" .:;!?")
     return title[:TITLE_MAX].rstrip() or "New conversation"
+
+
+def _request_line(description: str) -> str:
+    payload = {"type": "control_request", "request_id": TITLE_REQUEST_ID,
+               "request": {"subtype": "generate_session_title", "description": description, "persist": False}}
+    return json.dumps(payload, separators=(",", ":"))
+
+
+def request_line(text: str) -> str:
+    """The title request's stdin line, at most TITLE_LINE_MAX bytes: its description
+    is the longest prefix of the first message that fits. json.dumps escapes every
+    character on its own and all but ASCII, so a line's characters are its bytes."""
+    description = text[:TITLE_DESCRIPTION_MAX]
+    line = _request_line(description)
+    if len(line) <= TITLE_LINE_MAX:
+        return line
+    room = TITLE_LINE_MAX - len(_request_line(""))
+    for end, character in enumerate(description):
+        room -= len(json.dumps(character)) - 2
+        if room < 0:
+            return _request_line(description[:end])
+    return line                             # unreachable: the whole line did not fit
 
 
 class SessionTitle:
@@ -64,10 +93,7 @@ class SessionTitle:
             if not self.store.claim_title_generation(self.conversation_id, self.message_id, now):
                 return None
             self.deadline = now + TITLE_BUDGET_S
-            payload = {"type": "control_request", "request_id": TITLE_REQUEST_ID,
-                       "request": {"subtype": "generate_session_title", "description": text[:16_384],
-                                   "persist": False}}
-            return Frame(TITLE_FRAME, "write", json.dumps(payload, separators=(",", ":")))
+            return Frame(TITLE_FRAME, "write", request_line(text))
         except Exception as exc:
             self._failed(exc)
             return None

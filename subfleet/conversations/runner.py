@@ -135,7 +135,7 @@ class TurnRunner:
         # The first turn's title (titles.py) is optional metadata kept out of the
         # outbox: `_send_title` writes it when nothing of the turn waits.
         self.title_asked = False               # this runner's one title request was decided
-        self.title_cancel: Frame | None = None  # its scoped cancellation, once the budget ran out
+        self.title_frame: Frame | None = None  # claimed, not yet written: the request or its cancellation
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
         self.relay_version: int | None = None
         self.resends = 0                       # consecutive unacknowledged sends of the head frame
@@ -659,8 +659,7 @@ class TurnRunner:
 
     def _send_outbox(self) -> None:
         self._send_frames()
-        if not self.outbox:
-            self._send_title()
+        self._send_title()                      # only when no frame of the turn is left (`_title_may_go`)
 
     def _send_frames(self) -> None:
         while self.outbox:
@@ -770,36 +769,56 @@ class TurnRunner:
                 or getattr(self.driver, "interrupt_requested", False) or "close" in self.sent
                 or any(frame.op == "close" for frame in self.outbox))
 
+    def _title_may_go(self) -> bool:
+        """Whether the title frame may be written now. One that never may is dropped
+        for good (`_drop_title`): after a barrier, after an unanswered title write
+        (the relay's log, read at the next handshake, says what it holds), or a
+        cancellation of a request that log does not show written."""
+        if (self._title_closed() or self.optional_ack_lost
+                or (self.title_frame is not None and self.title_frame.tag == TITLE_CANCEL_FRAME
+                    and self.sent.get(TITLE_FRAME) != "written")):
+            self._drop_title()
+            return False
+        if (self.outbox or not self.commands.empty() or not self.handshaken
+                or self.sent.get(USER_FRAME) != "written" or not getattr(self.driver, "accepted", False)):
+            return False                        # not yet: considered again at the next send
+        row = self.store.one("SELECT stop_requested_at FROM messages WHERE message_id=?", (self.message_id,))
+        if row and row["stop_requested_at"]:
+            self._drop_title()                  # a person's stop, recorded before `interrupt` reached us
+            return False
+        return True
+
+    def _drop_title(self) -> None:
+        """No title frame is written any more: none is pending, and no cancellation
+        follows (a request never written needs none; none goes after a barrier)."""
+        self.title_asked, self.title_frame = True, None
+        self.title.deadline = None
+
     def _send_title(self) -> None:
         """Write the first turn's title request, or its cancellation after the budget.
 
         Optional metadata (titles.py), so it yields to everything else: it goes
-        only when no frame of the turn waits and once the provider has taken the
-        message this runner handed over, and never after a stop, a cancel, a close
-        or an outcome, recorded or asked for. It takes no handover lock, so no stop
-        is recorded behind it. A refused or unanswered write is never retried and
-        never closes stdin or fails the relay: the turn's next frame resynchronizes
-        first (`_send_frames`). It uses only the relay's `send`.
+        only once the provider has taken the message this runner handed over, only
+        when no frame and no command of the turn waits (a stop, a steer, an answer),
+        and never after a stop, a cancel, a close or an outcome, recorded or asked
+        for (`_title_may_go`). It takes no handover lock, so no stop is recorded
+        behind it. The claim is a store transaction that may wait behind a stop's or
+        a steer's: it refuses once a stop is recorded (`claim_title_generation`),
+        and everything is checked again before the write. A refused or unanswered
+        write is never retried and never closes stdin or fails the relay: the turn's
+        next frame resynchronizes first (`_send_frames`). It uses only the relay's
+        `send`.
         """
-        if self.title_asked and self.title_cancel is None:
+        if self.title_asked and self.title_frame is None:
             return
-        if self._title_closed() or self.optional_ack_lost:
-            self.title_asked, self.title_cancel = True, None
+        if not self._title_may_go():
             return
-        if (self.outbox or not self.handshaken or self.sent.get(USER_FRAME) != "written"
-                or not getattr(self.driver, "accepted", False)):
-            return                              # not yet: considered again at the next send
-        row = self.store.one("SELECT stop_requested_at FROM messages WHERE message_id=?", (self.message_id,))
-        if row and row["stop_requested_at"]:
-            self.title_asked, self.title_cancel = True, None
-            return
-        if self.title_asked:
-            frame, self.title_cancel = self.title_cancel, None
-        else:
+        if not self.title_asked:
             self.title_asked = True
-            frame = self.title.request(self.spec.text)   # claims the conversation's one request
-            if frame is None:
-                return
+            self.title_frame = self.title.request(self.spec.text)   # claims the conversation's one request
+            if self.title_frame is None or not self._title_may_go():
+                return                          # refused, or a stop or a command came meanwhile
+        frame, self.title_frame = self.title_frame, None
         try:
             ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
         except FrameTooLarge:
@@ -911,7 +930,7 @@ class TurnRunner:
             self.steer_wait_since = None
         cancellation = self.title.expire()
         if cancellation is not None:
-            self.title_cancel = cancellation    # `_send_title` writes it only if still allowed
+            self.title_frame = cancellation     # `_send_title` writes it only if still allowed
         if getattr(self.driver, "idle_pending", False) and self.driver.outcome is None:
             if self.idle_since is None:
                 self.idle_since = now
