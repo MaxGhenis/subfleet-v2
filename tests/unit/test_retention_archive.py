@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 import zlib
 from pathlib import Path
 
@@ -477,6 +478,56 @@ def test_new_file_before_commit_rolls_back_the_job(world, monkeypatch):
 
 
 # --- slow and busy jobs defer; the queue moves ---------------------------------------------
+
+def test_parked_jobs_take_turns_at_the_pass_time(world, monkeypatch):
+    """Review of a9a6cbf4, N3 (head of line): two slow jobs, and time for one
+    slice a pass. In-flight jobs are sliced least recently sliced first, so
+    they take turns instead of the first in name order holding every pass
+    until it is done."""
+    w = world
+    for n, job_id in enumerate(["slow-a", "slow-b"]):
+        wt = w.job(job_id, created=f"2026-09-01T00:0{n}:00Z")
+        for i in range(4):
+            (wt / f"big-{i}.bin").write_bytes(os.urandom(1000))
+    # `deadline` is also checked against the real monotonic clock before a
+    # pass starts: the fake clock runs far ahead of it.
+    clock = Clock(start=time.monotonic() + 1e6)
+    current = {}
+    sliced = []
+    original_run = rarch._Builder.run
+    original_read = rfs.read_hashes
+
+    def run_builder(self):
+        current["job"] = self.r.job_id
+        sliced.append(self.r.job_id)
+        try:
+            return original_run(self)
+        finally:
+            current.pop("job", None)
+
+    def slow_read(fd, size, fmt, check=None):
+        if current.get("job"):
+            clock.advance(40)
+        return original_read(fd, size, fmt, check)
+
+    monkeypatch.setattr(rarch._Builder, "run", run_builder)
+    monkeypatch.setattr(rfs, "read_hashes", slow_read)
+    state = retention.RetentionState()
+    for _ in range(4):
+        run(w, clock=clock, state=state, slice_s=60, deadline=clock() + 1)
+    assert sliced[:4] == ["slow-a", "slow-b", "slow-a", "slow-b"], sliced
+    for _ in range(80):
+        run(w, clock=clock, state=state, slice_s=60, deadline=clock() + 1)
+        if w.store.get_job("slow-a") is None and w.store.get_job("slow-b") is None:
+            break
+    assert w.store.get_job("slow-a") is None and w.store.get_job("slow-b") is None
+    # Turns all the way: neither job had two slices in a row while the other waited.
+    both = [job for job in sliced if job in ("slow-a", "slow-b")]
+    last_a, last_b = len(both) - 1 - both[::-1].index("slow-a"), len(both) - 1 - both[::-1].index("slow-b")
+    alternating = both[:min(last_a, last_b) + 1]
+    assert all(x != y for x, y in zip(alternating, alternating[1:])), both
+    assert state.sliced == {}
+
 
 def test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass(world, monkeypatch):
     """d635 required case (round-4 finding 3): the oldest job is slow to read; it
