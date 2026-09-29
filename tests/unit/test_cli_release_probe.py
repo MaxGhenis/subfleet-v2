@@ -175,6 +175,31 @@ def test_c5_7a_a_look_that_acted_on_another_request_is_not_this_ones(daemon, cap
     capsys.readouterr()
 
 
+def test_c5_7a_wait_finds_its_own_look_behind_a_later_requests_look(daemon, capsys):
+    """Its look (event 101) came first, and another operator's request was acted
+    on at the next pass (event 105) before this command polled. The newest look
+    is not its answer, but its own is among the probe's recent looks."""
+    looks = [{"event_id": 105, "at": "2026-09-27T12:00:02Z", "ids": ["theirs"]},
+             {"event_id": 101, "at": "2026-09-27T12:00:01Z", "ids": ["mine"]}]
+    shown = {"looks": looks}
+
+    def answer(request):
+        if request.args.get("action") == "release-probe":
+            return requested(request, request_id="mine")
+        return {"lanes": [], "leases": [], "probes": [{**QUARANTINED, "holder": TIMER, "operator_looks": shown["looks"],
+                                                       "operator_look": {"event_id": 105, "requests": [{"id": "theirs"}]}}]}
+    daemon({"lanes": answer})
+    argv = ["lanes", "release-probe", "codex-3", "--wait", "--timeout", "0"]
+    assert run_cli(argv) == int(Exit.OPERATIONAL)
+    assert capsys.readouterr().out == f"{TIMER} on codex-3: still quarantined\n"
+    shown["looks"] = [{"event_id": 103, "at": "2026-09-27T12:00:01Z", "ids": ["mine", "later"]}]
+    assert run_cli(argv) == int(Exit.OPERATIONAL), "a look that acted on a merged request answers each of them"
+    capsys.readouterr()
+    shown["looks"] = looks[:1]                            # only the later request's look: not this one's
+    assert run_cli(argv) == int(Exit.WAIT_TIMEOUT)
+    capsys.readouterr()
+
+
 def test_c5_7a_a_look_recorded_when_the_request_was_is_not_its_answer(daemon, capsys):
     """`since_event` is the newest event when the request was recorded: a look
     at that same event id was taken before it, not after."""

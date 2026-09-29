@@ -1989,6 +1989,22 @@ def _probe_target(answer: dict[str, Any]) -> str:
     return f"{answer.get('holder')} on {lanes}"
 
 
+def _answered(row: dict[str, Any], since: int, mine: str | None) -> bool:
+    """C-5.7a: whether an operator look recorded after `since` acted on request
+    `mine`. It is found among the probe's recent looks (`operator_looks`), so a
+    look for a later request that came after it does not hide it. A daemon
+    that lists no recent looks is read by its newest (`operator_look`), and one
+    with no request ids at all by any look after `since`, as before ids."""
+    looks = row.get("operator_looks")
+    if isinstance(looks, list):
+        return any(isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since
+                   and (not mine or mine in (look.get("ids") or ())) for look in looks)
+    look = row.get("operator_look")
+    return isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since and (
+        not mine or not isinstance(look.get("requests"), list)
+        or any(isinstance(entry, dict) and entry.get("id") == mine for entry in look["requests"]))
+
+
 def _await_probe_resolution(client: Client, answer: dict[str, Any],
                             timeout: float | None) -> dict[str, Any]:
     """C-5.7a `lanes release-probe --wait`: until the admission worker has acted.
@@ -2013,10 +2029,7 @@ def _await_probe_resolution(client: Client, answer: dict[str, Any],
         rows = [row for row in rows_of(listing.get("probes")) if row.get("holder") == holder]
         if not rows:
             return {"outcome": "released"}
-        look = rows[0].get("operator_look")
-        if isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since and (
-                not mine or not isinstance(look.get("requests"), list)
-                or any(isinstance(entry, dict) and entry.get("id") == mine for entry in look["requests"])):
+        if _answered(rows[0], since, mine):
             return {"outcome": "still quarantined", "probe": rows[0]}
         if time.monotonic() >= deadline:
             return {"outcome": "pending", "probe": rows[0]}

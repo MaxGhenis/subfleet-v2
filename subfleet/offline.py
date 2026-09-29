@@ -21,10 +21,12 @@ from typing import Any
 
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
-from .render import probe_resolutions
+from .render import operator_looks, probe_resolutions
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 
 STORE_NAME = "state.sqlite3"
+#: C-5.7a: as the daemon's OPERATOR_LOOKS, the latest operator looks a probe row lists.
+OPERATOR_LOOKS = 16
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
 LIVE_JOB_STATES = ("queued", "running", "waiting")
 LIVE_ATTEMPT_STATES = ("reserved", "starting", "running", "finalizing")
@@ -397,10 +399,11 @@ class Offline:
                 continue
             state = record.get("state", "unrecorded")
             containment = record.get("containment") if isinstance(record.get("containment"), dict) else {}
-            look = conn.execute(
+            recent = [dict(item) for item in conn.execute(
                 "SELECT event_id, ts, data_json FROM events WHERE kind = 'probe.still_live' AND json_valid(data_json)"
-                " AND json_extract(data_json, '$.holder') = ? ORDER BY event_id DESC LIMIT 1",
-                (holder,)).fetchone()
+                " AND json_extract(data_json, '$.holder') = ? ORDER BY event_id DESC LIMIT ?",
+                (holder, OPERATOR_LOOKS))]
+            look = recent[0] if recent else None
             try:
                 said = json.loads(look["data_json"]) if look else None
             except (TypeError, ValueError):
@@ -417,6 +420,7 @@ class Offline:
                 "operator_look": ({"event_id": look["event_id"], "at": look["ts"],
                                    **{key: said.get(key) for key in ("operator_note", "containment", "requests")}}
                                   if isinstance(said, dict) else None),
+                "operator_looks": operator_looks(recent),
                 "resolve": probe_resolutions(lane_ids[0], owner) if state == "quarantined" else None,
             })
         return rows
