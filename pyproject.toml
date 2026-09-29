@@ -41,3 +41,4 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["real_lsof: runs the real process listing retention uses (slow under load)"]
