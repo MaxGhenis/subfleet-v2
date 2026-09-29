@@ -235,6 +235,13 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
 
 # --- state kept across passes ---------------------------------------------------
 
+#: What a pass reports about the disk, apart from the pools' live-tree bytes
+#: (d635 accounting): deleted without a copy (`freed_bytes`: omitted tracked
+#: files and regenerable output; `freed_disk_bytes`: their blocks no clone
+#: shares) versus moved into the archive (`archived_bytes`).
+FREED_KEYS = ("freed_bytes", "freed_disk_bytes", "archived_bytes")
+
+
 @dataclass
 class RetentionState:
     """What a daemon remembers between passes: deferrals and measured sizes.
@@ -299,7 +306,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         raise ValueError("retention limits must be nonnegative")
     state = state if state is not None else RetentionState()
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
-                                "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": []}
+                                "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
+                                **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline)
     except _Interrupted as exc:
@@ -347,6 +355,8 @@ class _Pass:
         #: new work, deferred, retired or reclaimed). A pass that reports more
         #: work but changed nothing tells the daemon to back off.
         self.acted = 0
+        #: pool -> what this pass's reclaims freed and moved into the archive (d635 accounting).
+        self.freed_by_pool: dict[str, dict[str, int]] = {}
 
     # pins ------------------------------------------------------------------------
 
@@ -495,6 +505,10 @@ class _Pass:
                 jobs_after[_pool(job)] -= 1
         for name in pools:
             pools[name].update(jobs_after=jobs_after[name], bytes_after=after[name])
+            # `bytes_*` count live trees against the budget; what leaving them
+            # did to the disk is apart: freed (deleted without a copy) versus
+            # moved into the archive (clones, which free nothing until removed).
+            pools[name].update(self.freed_by_pool.get(name) or dict.fromkeys(FREED_KEYS, 0))
         # More work is waiting when a job was parked or held back by the batch or
         # the deadline, or when a pool's byte total is still only a lower bound
         # within its budget (its unmeasured jobs may put it over). A job whose
@@ -736,6 +750,7 @@ class _Pass:
 
     def _complete(self, retirement: rarch.Retirement) -> None:
         job_id = retirement.job_id
+        pool = (retirement.journal or {}).get("pool")
         try:
             if retirement.state == "committed":
                 retirement.publish()
@@ -748,7 +763,17 @@ class _Pass:
             return
         self.acted += 1
         self.progress["reclaimed"].append(job_id)
-        data = {"deleted": report["deleted"], "bytes": report["bytes"], "errors": report["errors"][:20]}
+        # Truthful accounting (d635 disk relief): what the deletion gave back
+        # (tracked files a remote holds and regenerable output, deleted without
+        # a copy) apart from what it moved into the archive (clones: deleting
+        # the originals frees nothing). `unlinked_bytes` is every file removed.
+        moved = rarch.accounting(report.get("totals") or {})
+        by_pool = self.freed_by_pool.setdefault(pool or "unknown", dict.fromkeys(FREED_KEYS, 0))
+        for key in FREED_KEYS:
+            self.progress[key] += moved[key]
+            by_pool[key] += moved[key]
+        data = {"deleted": report["deleted"], "unlinked_bytes": report["bytes"], **moved,
+                "errors": report["errors"][:20]}
         if report["kept"]:
             data["kept"] = report["kept"][:50]
             data["kept_count"] = len(report["kept"])

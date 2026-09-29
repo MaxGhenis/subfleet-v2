@@ -8,8 +8,9 @@ only reading commands, and ``lsof`` lists processes. The conversation service's
 in-memory pins are not visible from outside the daemon; the report says so.
 
 Byte figures are apparent sizes (the sum of ``st_size``). What a retirement
-frees on disk is the omitted tracked files; archived files are APFS clones,
-which share their blocks with the files they replace.
+frees is the omitted tracked files and the regenerable output; archived files
+are APFS clones, which share their blocks with the files they replace.
+`sample` estimates both from a few jobs, with the blocks no clone shares.
 """
 from __future__ import annotations
 
@@ -318,3 +319,164 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             info["_omit"] = omit
     except (rgit.GitError, OSError, ValueError) as exc:
         info["issue"] = f"git: {str(exc)[:200]}"
+
+
+# --- a sampled estimate of what retirement frees (d635 disk relief) -----------------------
+
+def _sample_walk(path: Path, omit: dict[str, dict[str, int]] | None, ignored: rgit.Ignored | None,
+                 fmt: str | None, hash_budget: int) -> dict[str, Any]:
+    """One tree, classified as a retirement would: regenerable output (the
+    same `rfs.RegenerableWalk`, a root holding a repository archived), tracked
+    files a network remote holds (hashed like the archive does, within
+    `hash_budget` bytes; past it, same path and size count, and
+    `omission_exact` is False), and everything else archived. `*_disk` figures
+    are what deleting gives back (`rfs.private_bytes`)."""
+    denied: set[str] = set()
+    while True:
+        try:
+            return _sample_walk_once(path, omit, ignored, fmt, hash_budget, denied)
+        except rfs.NotRegenerable as exc:
+            denied.add(exc.root)
+
+
+def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignored: rgit.Ignored | None,
+                      fmt: str | None, hash_budget: int, denied: set[str]) -> dict[str, Any]:
+    out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
+                           "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
+                           "omission_exact": True, "error": None}
+    try:
+        fd = rfs.open_dir(path)
+    except FileNotFoundError:
+        return out
+    except OSError as exc:
+        out["error"] = str(exc)
+        return out
+    regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
+    try:
+        for rel, st, parent, name in rfs.walk(fd):
+            if regen is not None and regen.classify(rel, st, parent, name):
+                if stat.S_ISREG(st.st_mode):
+                    out["bytes"] += st.st_size
+                    out["files"] += 1
+                continue
+            if not rel or stat.S_ISDIR(st.st_mode):
+                continue
+            out["bytes"] += st.st_size
+            out["files"] += 1
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
+                           and st.st_nlink == 1 and fmt is not None)
+            if size_ok and out["hashed_bytes"] + st.st_size <= hash_budget:
+                try:
+                    handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                    try:
+                        _, blob = rfs.read_hashes(handle, st.st_size, fmt)
+                    finally:
+                        os.close(handle)
+                    out["hashed_bytes"] += st.st_size
+                    size_ok = blob in omit[rel]
+                except (OSError, rfs.TreeError):
+                    size_ok = False
+            elif size_ok:
+                out["omission_exact"] = False           # past the budget: an upper bound
+            if size_ok:
+                out["omitted_bytes"] += st.st_size
+                out["omitted_disk"] += rfs.private_bytes(parent, name, st)
+            else:
+                out["archived_bytes"] += st.st_size
+    except rfs.TreeError as exc:
+        out["error"] = str(exc)
+    finally:
+        os.close(fd)
+    records = regen.summary() if regen is not None else []
+    out["regenerable_bytes"] = sum(r["bytes"] for r in records)
+    out["regenerable_disk"] = sum(r["freed_disk_bytes"] for r in records)
+    out["regenerable"] = [{k: r[k] for k in ("p", "kind", "bytes", "freed_disk_bytes", "kept")} for r in records]
+    return out
+
+
+def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
+           progress: Any = None) -> dict[str, Any]:
+    """Read-only: classify `n` finished, unpinned jobs with a worktree, spread
+    evenly from oldest to newest, as a retirement would, and extrapolate what
+    retiring every such job frees versus what it moves into the archive. An
+    estimate: the sample, not the whole tree, is walked (the full survey took
+    hours on the live tree). `progress(job_report)` is called after each job."""
+    root = Path(root).resolve()
+    started = time.monotonic()
+    store = Store(root / "state.sqlite3", read_only=True)
+    try:
+        jobs = list(reversed(store.list_jobs()))
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0)
+        salvage = defaultdict(list)
+        for row in store.query("SELECT r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
+                               "WHERE r.role='salvage'"):
+            salvage[row["job_id"]].append(row["path"])
+    finally:
+        store.close()
+    candidates = []
+    for job in jobs:
+        if reasons.get(job["job_id"]):
+            continue
+        try:
+            worktree = ret._owned_worktree(job, root)
+        except ValueError:
+            continue
+        if worktree is not None and os.path.isdir(worktree):
+            candidates.append((job, worktree))
+    picked = [candidates[round(i * (len(candidates) - 1) / max(1, n - 1))] for i in range(min(n, len(candidates)))]
+    picked = list({job["job_id"]: (job, wt) for job, wt in picked}.values())
+    cache: dict[str, tuple[dict[str, str], str | None, str | None]] = {}
+    results: list[dict[str, Any]] = []
+    for job, worktree in picked:
+        t0 = time.monotonic()
+        info: dict[str, Any] = {"job_id": job["job_id"], "created_at": job["created_at"], "worktree": str(worktree)}
+        _preflight(info, job, worktree, root, salvage.get(job["job_id"], []), cache)
+        omit = info.pop("_omit", None)
+        ignored = fmt = None
+        reg, _ = rgit.registration(worktree)
+        if reg is not None:
+            try:
+                fmt = rgit.object_format(reg.common)
+                ignored = rgit.Ignored.of(reg.admin, worktree, timeout=300)
+            except (rgit.GitError, OSError) as exc:
+                info["regenerable_off"] = str(exc)[:200]
+        wt = _sample_walk(worktree, None if info.get("scratch") else omit, ignored, fmt, hash_budget)
+        jd = _sample_walk(root / "jobs" / job["job_id"], None, None, None, 0)
+        info.update(worktree_walk=wt, job_dir_bytes=jd["bytes"], seconds=round(time.monotonic() - t0, 1))
+        info["freed_bytes"] = wt["omitted_bytes"] + wt["regenerable_bytes"]
+        info["freed_disk_bytes"] = wt["omitted_disk"] + wt["regenerable_disk"]
+        info["archived_bytes"] = wt["archived_bytes"] + jd["bytes"]
+        results.append(info)
+        if progress is not None:
+            progress(info)
+    retirable = [r for r in results if not r.get("issue")]
+    scale = len(candidates) * (len(retirable) / len(results)) if results else 0
+    total = {k: sum(r[k] for r in retirable) for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes")}
+    total.update(bytes=sum(r["worktree_walk"]["bytes"] + r["job_dir_bytes"] for r in retirable),
+                 omitted_bytes=sum(r["worktree_walk"]["omitted_bytes"] for r in retirable),
+                 regenerable_bytes=sum(r["worktree_walk"]["regenerable_bytes"] for r in retirable),
+                 regenerable_disk=sum(r["worktree_walk"]["regenerable_disk"] for r in retirable),
+                 omitted_disk=sum(r["worktree_walk"]["omitted_disk"] for r in retirable))
+    kinds: dict[str, int] = defaultdict(int)
+    kept_names: dict[str, int] = defaultdict(int)
+    for r in retirable:
+        for x in r["worktree_walk"]["regenerable"]:
+            kinds[x["kind"]] += x["bytes"]
+            for name in x["kept"]:
+                kept_names[f"{x['kind']}: {name}"] += 1
+    per_job = {k: (v / len(retirable) if retirable else 0) for k, v in total.items()}
+    return {"state_root": str(root), "read_only": True, "estimate": True,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "candidates_with_worktree": len(candidates), "sampled": len(results), "retirable_in_sample": len(retirable),
+            "kept_in_sample": {r["job_id"]: r["issue"] for r in results if r.get("issue")},
+            "sample_totals": total, "regenerable_bytes_by_kind": dict(kinds),
+            "kept_inside_regenerable": dict(sorted(kept_names.items(), key=lambda kv: -kv[1])[:40]),
+            "extrapolated": {k: round(v * scale) for k, v in per_job.items()},
+            "notes": ["an estimate from a sample, not a walk of every tree",
+                      "bytes are apparent sizes; *_disk figures are blocks no clone or other link shares, "
+                      "measured now (getattrlist ATTR_CMNEXT_PRIVATESIZE)",
+                      "archived bytes are APFS clones: they stay on disk until the archive is removed",
+                      "APFS snapshots (Time Machine) keep deleted blocks until they expire"],
+            "jobs": results, "elapsed_s": round(time.monotonic() - started, 1)}

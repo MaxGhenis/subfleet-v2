@@ -7,10 +7,14 @@ back, and deletes only entries whose signature is still the archived one:
 - every file of the job's allocated worktree and job directory, byte for byte,
   as an APFS clone (a copy on other volumes) — uncommitted, untracked and
   ignored files alike — except a tracked file whose raw bytes are a blob a
-  network remote's refs reach in a repository that is not scratch;
+  network remote's refs reach in a repository that is not scratch, and
+  regenerable output (what a virtualenv's creator, a package manager, Python's
+  bytecode compiler or a tool cache writes, identified by its structure, in a
+  directory git ignores entirely: `retention_fs.RegenerableWalk`), which is
+  deleted with the tree, not archived;
 - the worktree's admin directory, byte for byte, and every object it names,
-  with the job's salvage commits, as one synthetic anchor commit in a bundle of
-  every commit no network remote holds;
+  with the job's salvage commits and baseline, as one synthetic anchor commit,
+  the only head of a bundle of every commit no network remote holds;
 - the job's database rows, as ``rows.json``.
 
 Layout (all on the state root's volume):
@@ -57,6 +61,15 @@ DEFER_PERMANENT_S = 24 * 3600
 DEFER_PINNED_S = 3600
 #: A cache left by a rolled-back attempt is dropped after this long.
 CACHE_KEEP_S = 2 * 86400
+#: A manifest's totals. Apparent sizes (the sum of `st_size`): `archived_bytes`
+#: moved into the archive (clones share their blocks, so deleting the originals
+#: frees nothing), `omitted_bytes` of tracked files a network remote holds and
+#: `regenerable_bytes` of regenerable output, both deleted without a copy;
+#: `freed_bytes` is their sum. `freed_disk_bytes` is what deleting those two
+#: gives back on disk, measured at archive time: blocks no clone or other link
+#: shares (a virtualenv cloned from uv's cache frees little).
+TOTALS = ("entries", "archived_bytes", "omitted_bytes", "stored_files", "clones", "copies",
+          "regenerable_bytes", "regenerable_entries", "freed_disk_bytes")
 
 
 class Defer(Exception):
@@ -454,9 +467,8 @@ class Retirement:
             digest = hashlib.sha256(data).hexdigest()
             self.save(state="committing", rows_sha256=digest, archive=name)
             landed = landed_salvage(manifest, j["salvage"])
-            data_event = {"pool": j["pool"], "bytes": pool_bytes, "archive": str(self.root / "archive" / name),
-                          "archived_bytes": manifest["totals"]["archived_bytes"],
-                          "omitted_bytes": manifest["totals"]["omitted_bytes"],
+            data_event = {"pool": j["pool"], "pool_bytes": pool_bytes, "archive": str(self.root / "archive" / name),
+                          **accounting(manifest["totals"]),
                           "entries": manifest["totals"]["entries"], "anchor": manifest.get("git", {}).get("anchor")}
             outcome = None
             with self.ctx.store.transaction("retention.pruned", job_id=self.job_id, data=data_event) as conn:
@@ -534,7 +546,7 @@ class Retirement:
         manifest = self.manifest()
         trees = manifest["trees"]
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
-                                  "admin_kept": False, "done": False}
+                                  "admin_kept": False, "done": False, "totals": manifest["totals"]}
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
@@ -696,6 +708,16 @@ class Retirement:
             pass
 
 
+def accounting(totals: dict[str, Any]) -> dict[str, int]:
+    """What a retirement frees and what it moves into the archive (TOTALS).
+    An archive of an earlier layout lacks the regenerable figures (0)."""
+    omitted = int(totals.get("omitted_bytes") or 0)
+    regenerable = int(totals.get("regenerable_bytes") or 0)
+    return {"archived_bytes": int(totals.get("archived_bytes") or 0), "omitted_bytes": omitted,
+            "regenerable_bytes": regenerable, "freed_bytes": omitted + regenerable,
+            "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0)}
+
+
 def landed_salvage(manifest: dict[str, Any], salvage: list[dict[str, Any]]) -> set[int]:
     """Salvage artifacts the verified archive holds: their commit is an ancestor
     of the anchor, and the anchor is the verified bundle's head or a network
@@ -796,6 +818,7 @@ class _Builder:
         common = Path(j["common"]) if j.get("common") else None
         reg = self.r.registration
         omit: dict[str, dict[str, int]] = {}
+        ignored: rgit.Ignored | None = None
         git_info: dict[str, Any] = {"common": j.get("common"), "object_format": fmt, "admin": j.get("admin")}
         if reg is not None and j["moved"]["worktree"]:
             remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
@@ -806,24 +829,58 @@ class _Builder:
                 omit, used = rgit.omission_map(common, [head, j.get("baseline")], rgit.held_arguments(remotes),
                                                cancel=self.ctx.cancel)
                 git_info["omission_commits"] = used
+            try:
+                ignored = rgit.Ignored.of(reg.admin, self.r.q_worktree, timeout=self.ctx.git_timeout_s,
+                                          cancel=self.ctx.cancel)
+            except rgit.GitError as exc:
+                git_info["regenerable_off"] = str(exc)[:300]      # when in doubt, the bytes are archived
         elif common is not None:
             remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
             git_info.update(remotes=remotes, scratch=rgit.scratch_reason(common, self.state_root, remotes,
                                                                          cancel=self.ctx.cancel))
         trees: dict[str, dict[str, Any]] = {}
-        totals = {"entries": 0, "archived_bytes": 0, "omitted_bytes": 0, "stored_files": 0, "clones": 0, "copies": 0}
+        totals = dict.fromkeys(TOTALS, 0)
+        regenerable: list[dict[str, Any]] = []
         files_fd = rfs.open_dir(self.files)
         try:
             for label, path in self.r.trees():
-                entries = self._walk(label, path, omit if label == "worktree" else {}, fmt, files_fd, totals)
+                # A root found to hold a repository is archived; the finding is
+                # progress, so a later slice does not walk into it again.
+                prefix = f"nr:{label}:"
+                denied = {k[len(prefix):] for k in self.progress if k.startswith(prefix)}
+                while True:
+                    counts = dict.fromkeys(TOTALS, 0)
+                    try:
+                        entries, records = self._walk(label, path, omit if label == "worktree" else {}, fmt,
+                                                      files_fd, counts, ignored if label == "worktree" else None,
+                                                      denied)
+                        break
+                    except rfs.NotRegenerable as exc:
+                        denied.add(exc.root)
+                        self._note({"k": prefix + exc.root})
+                for key, value in counts.items():
+                    totals[key] += value
+                regenerable.extend(records)
                 trees[label] = {"original": self._original(label), "entries": entries}
+            if regenerable and reg is not None:
+                # The ignore rules were read before the walk; an index or
+                # .gitignore the walk recorded may have changed in between.
+                # What changes after the walk, the final check sees.
+                again = rgit.Ignored.of(reg.admin, self.r.q_worktree, timeout=self.ctx.git_timeout_s,
+                                        cancel=self.ctx.cancel)
+                moved = [r["p"] for r in regenerable if not again.clear(r["p"])]
+                if moved:
+                    raise Defer("changed", DEFER_CHANGED_S, f"ignore rules changed for {moved[0]}")
             self._verify_omissions(trees, common, fmt, files_fd, totals)
         finally:
             os.close(files_fd)
         if common is not None:
             git_info.update(self._git(reg, common, fmt))
+        totals["regenerable_bytes"] = sum(r["bytes"] for r in regenerable)
+        totals["freed_disk_bytes"] += sum(r["freed_disk_bytes"] for r in regenerable)
+        totals["freed_bytes"] = totals["omitted_bytes"] + totals["regenerable_bytes"]
         manifest = {"schema": SCHEMA, "job_id": self.r.job_id, "created_at": _now(), "trees": trees,
-                    "git": git_info, "totals": totals, "salvage": j["salvage"],
+                    "git": git_info, "totals": totals, "salvage": j["salvage"], "regenerable": regenerable,
                     "restore": "subfleet retention restore " + self.r.job_id}
         data = _canonical(manifest)
         rfs.write_atomic(self.dir / "manifest.json", data)
@@ -831,6 +888,7 @@ class _Builder:
             "job_id": self.r.job_id, "created_at": manifest["created_at"], **totals,
             "worktree": j["worktree"], "job_dir": j["job_dir"], "anchor": git_info.get("anchor"),
             "bundle_bytes": git_info.get("bundle_bytes", 0), "scratch": git_info.get("scratch"),
+            "regenerable_dirs": len(regenerable),
             "manifest_sha256": hashlib.sha256(data).hexdigest()}))
         self._verify_store(trees)
         if rfs.read_regular(self.dir / "manifest.json", limit=4 << 30) != data:
@@ -846,7 +904,12 @@ class _Builder:
         return {"worktree": j["worktree"], "job": j["job_dir"], "admin": j.get("admin")}[label]
 
     def _walk(self, label: str, path: Path, omit: dict[str, dict[str, int]], fmt: str | None,
-              files_fd: int, totals: dict[str, int]) -> list[dict[str, Any]]:
+              files_fd: int, totals: dict[str, int], ignored: rgit.Ignored | None = None,
+              denied: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Every entry of one tree, archived, omitted or (the worktree only)
+        regenerable (`rfs.RegenerableWalk`): listed with its signature, which
+        the final check and verified deletion need, but neither read nor stored
+        (d635 disk relief). Returns the entries and the regenerable records."""
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
@@ -854,11 +917,21 @@ class _Builder:
             fd = rfs.open_dir(path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
+        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
         try:
             for rel, st, parent, name in rfs.walk(fd, self._tick):
                 entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
                 t = entry["sig"]["t"]
                 totals["entries"] += 1
+                if regen is not None and regen.classify(rel, st, parent, name):
+                    entry["regen"] = True
+                    totals["regenerable_entries"] += 1
+                    if t == "l":
+                        entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+                    elif t == "f":
+                        entry["size"] = st.st_size
+                    entries.append(entry)
+                    continue
                 if t == "l":
                     entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
                 elif t == "f" and rel:
@@ -874,7 +947,7 @@ class _Builder:
             raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
         finally:
             os.close(fd)
-        return entries
+        return entries, (regen.summary() if regen is not None else [])
 
     def _nested_gitfile(self, parent: int, name: str, rel: str, admin: str | None) -> None:
         """A linked worktree inside the job's tree keeps its admin directory in
@@ -913,6 +986,7 @@ class _Builder:
         if omittable and cached.get("blob") and cached["blob"] in candidates:
             entry["blob"], entry["sha256"] = cached["blob"], cached["sha256"]
             totals["omitted_bytes"] += st.st_size
+            totals["freed_disk_bytes"] += rfs.private_bytes(parent, name, st)
             return
         if cached.get("store") and self._stored_ok(files_fd, cached["store"], st.st_size):
             entry["store"], entry["sha256"] = cached["store"], cached["sha256"]
@@ -938,6 +1012,7 @@ class _Builder:
                 if blob in candidates:
                     entry["blob"], entry["sha256"] = blob, digest
                     totals["omitted_bytes"] += st.st_size
+                    totals["freed_disk_bytes"] += rfs.private_bytes(parent, name, st)
                     return
             self._store(entry, fd, before, key, files_fd, links, totals)
         finally:
@@ -1008,6 +1083,7 @@ class _Builder:
                         if not rfs.unchanged(entry["sig"], st):
                             raise Defer("changed", DEFER_CHANGED_S, entry["p"])
                         totals["omitted_bytes"] -= st.st_size
+                        totals["freed_disk_bytes"] -= rfs.private_bytes(parent, name, st)
                         del entry["blob"]
                         self._store(entry, fd, st, rfs.sig_key(st), files_fd, {}, totals)
                     finally:
@@ -1266,6 +1342,10 @@ def restore(root: Path, name: str, *, to: Path | None = None, repository: Path |
         _restore_tree(base, tree["entries"], destination, source, fmt,
                       skip_lock=(label == "admin"), job_id=manifest["job_id"])
         report["restored"][label] = str(destination)
+    # Regenerable output (a virtualenv, node_modules, bytecode, tool caches) was
+    # deleted, not archived: the project's own tools make it again.
+    report["not_restored"] = [{"path": r["p"], "kind": r["kind"], "bytes": r.get("bytes", 0),
+                               "dropped": r.get("roots", [])} for r in manifest.get("regenerable") or ()]
     return report
 
 
@@ -1286,6 +1366,7 @@ def _restore_tree(base: Path, entries: list[dict[str, Any]], destination: Path, 
     destination.mkdir(mode=0o700)
     reader = None
     first_link: dict[str, str] = {}
+    entries = [e for e in entries if not e.get("regen")]     # deleted, not archived: never recreated
     try:
         for entry in entries:
             rel = entry["p"]
