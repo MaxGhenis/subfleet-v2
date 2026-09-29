@@ -481,17 +481,24 @@ def test_c13_1_a_checkout_that_changes_while_the_retry_waits_keeps_the_first_hel
     (what changed since is the caller's), so every later pass reuses it."""
     daemon, harness = state_daemon
     workdir, job_id = retried(daemon, harness, monkeypatch)
-    [a1] = daemon.store.list_attempts(job_id)
-    job = daemon._job(job_id)
     ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
     head = git(workdir, "rev-parse", "HEAD")
     first = salvage_module.working_tree(workdir, head)
-    assert daemon._pin_baseline(job, [a1], str(workdir), head, first)["path"] == ref    # a pass then held
-    (workdir / "caller-edit.txt").write_text("the caller's own edit\n")
-    edited = salvage_module.working_tree(workdir, head)
-    assert daemon._pin_baseline(job, [a1], str(workdir), head, edited)["path"] == ref   # and another
+    # Exercise real admission passes: preparation happens before the capacity
+    # decision. No new helper is required to reproduce the missing ref on r2.
+    with monkeypatch.context() as held:
+        held.setitem(daemon.policy["caps"], "max_active_attempts", 0)
+        daemon._admit()
+        assert daemon.store.get_job(job_id)["state"] == "waiting"
+        assert len(daemon.store.list_attempts(job_id)) == 1
+        assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
+        (workdir / "caller-edit.txt").write_text("the caller's own edit\n")
+        daemon.store.update_job(job_id, next_check_at=None)
+        daemon._admit()
+        assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
     git(workdir, "add", "-A")
     git(workdir, "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "the caller's commit")
+    daemon.store.update_job(job_id, next_check_at=None)
     daemon._admit()                                                                     # the pass that places it
     job = daemon.store.get_job(job_id)
     a1, a2 = daemon.store.list_attempts(job_id)
@@ -646,7 +653,14 @@ def test_c13_1_live_git_past_its_cap_is_tried_again_then_recorded(state_daemon, 
     script.write_text(f'#!/bin/sh\nif [ "$3" = "add" ]; then exec sleep 30; fi\nexec "{shutil.which("git")}" "$@"\n')
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
-    daemon.policy["caps"]["workspace_git_timeout_s"] = 1
+    add = salvage_module._add
+
+    def capped_add(workdir, env, pathspec, timeout_s):
+        # Only the sleeping add has the short cap. Real setup/probe calls retain
+        # their normal cap, so load cannot turn this into a read-tree reproduction.
+        return add(workdir, env, pathspec, 1)
+
+    monkeypatch.setattr(salvage_module, "_add", capped_add)
     for tries in range(1, SALVAGE_TRIES):
         with pytest.raises(SalvageError, match="git add timed out after 1 s") as caught:
             daemon._finalize(attempt)

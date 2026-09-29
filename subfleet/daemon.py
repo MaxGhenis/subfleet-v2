@@ -51,7 +51,7 @@ from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
+    SalvageError, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
     utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
@@ -2681,14 +2681,17 @@ class Daemon:
                     # out of the admission pass on every try (review of cda4c161, N1).
                     result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
                                             capture_output=True, text=True, errors="backslashreplace",
+                                            env=_git_env(None),
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
                     raise
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap)
-                    raise AdapterError("could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}"),
-                                       fix="check repository and state-root permissions")
+                    error = "could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}")
+                    if _transient_git(result.stderr):
+                        raise SalvageError(error, transient=True)
+                    raise AdapterError(error, fix="check repository and state-root permissions")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -2712,13 +2715,26 @@ class Daemon:
         A failure to hold it is C-6.8's, as the snapshot's own is: the job waits
         or fails, and nothing runs in the worktree meanwhile.
         """
-        if (job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous
-                or not head or not baseline):
+        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous:
             return None
         if not json.loads(previous[-1]["evidence_json"] or "{}").get("salvage_error"):
             return None
-        ref, commit = pin_baseline(workspace, job["job_id"], len(previous) + 1, baseline, head,
+        if not head or not baseline:
+            raise SalvageError(f"attempt a{previous[-1]['seq']}'s salvage failed and {workspace} "
+                               "has no commit to hold its work on")
+        seq = len(previous) + 1
+        ref, commit = pin_baseline(workspace, job["job_id"], seq, baseline, head,
                                    timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        # The ref may be written before capacity becomes available. Record it
+        # then, once, so it remains discoverable even if no retry is reserved.
+        with self.store.transaction("salvage.baseline_recorded", job_id=job["job_id"]) as tx:
+            held = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held'",
+                              (job["job_id"],)).fetchall()
+            if not any(json.loads(row[0]).get("ref") == ref for row in held):
+                tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                           (utcnow(), "salvage.baseline_held", job["job_id"], previous[-1]["attempt_id"],
+                            json.dumps({"ref": ref, "commit": commit, "seq": seq,
+                                        "after": previous[-1]["attempt_id"]})))
         return {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
 
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:

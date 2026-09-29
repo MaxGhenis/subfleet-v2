@@ -467,7 +467,8 @@ class ConversationService:
 
         def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
             try:
-                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True, timeout=cap)
+                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
+                                      errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
                                         fix="repeat conversation.create with the same request_id") from exc

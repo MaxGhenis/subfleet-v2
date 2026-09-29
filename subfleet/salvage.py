@@ -30,20 +30,22 @@ TRANSIENT_ERRNOS = frozenset({
     errno.EBUSY, errno.ETIMEDOUT, errno.ENOBUFS, errno.ENOSPC,
 })
 
-#: git's own words for the same kind of failure (C-13.1): a lock file another
-#: git process holds (a concurrent `gc`, `fetch` or `update-ref` in the same
-#: repository; `cannot lock ref` alone also covers a ref that exists or a
-#: name that conflicts, which no retry changes), and a full disk, in both of
-#: git's wordings: `strerror(ENOSPC)`, and `write error. Out of diskspace` for
-#: a write that stored nothing (`csum-file.c`; on 2026-09-22 the daemon failed a
-#: job at once on `git write-tree failed: fatal: sha1 file '….lock' write error.
-#: Out of diskspace`, a failure C-6.8 would have waited out). Read only under
-#: the C locale (`_git_env`), where git does not translate them, only on git's
-#: own `error:` and `fatal:` lines, and only at a line's end, where git puts
-#: them, so a file name quoted earlier in a line, or ending a `hint:` or
-#: `warning:` line (`git rm --cached <path>`), is not read as one.
-_TRANSIENT_GIT = re.compile(r"^(?:error|fatal): [^\n]*(?:Unable to create '[^\n]*\.lock': File exists\.?"
-                            r"|: No space left on device|write error\. Out of diskspace)$", re.M)
+#: git reports the same machine pressure as `TRANSIENT_ERRNOS` through
+#: `strerror`, and sometimes omits the errno: an index or ref lock file it
+#: could not finish writing, an allocation failure, or a held reftable lock.
+#: These all get bounded retries (C-6.8, C-13.1). `cannot lock ref` alone also
+#: covers a ref that exists or a name that conflicts, which no retry changes.
+#: Read only under the C locale (`_git_env`), on git's own `error:` and `fatal:`
+#: lines, and at a line's end, so a file name quoted earlier in a line or
+#: ending a `hint:` or `warning:` line is not read as an error. `strerror`
+#: follows the host's wording, as git does (for example, EBUSY differs on
+#: Darwin and Linux); Python leaves LC_MESSAGES in the C locale.
+_TRANSIENT_STRERRORS = "|".join(re.escape(os.strerror(code)) for code in sorted(TRANSIENT_ERRNOS))
+_TRANSIENT_GIT = re.compile(
+    r"^(?:error|fatal): (?:[^\n]*(?:Unable to create '[^\n]*\.lock': File exists\.?"
+    rf"|: (?:{_TRANSIENT_STRERRORS})|write error\. Out of diskspace"
+    r"|couldn't write '[^\n]*\.lock'|cannot lock references)"
+    r"|unable to write new index file|Out of memory, [^\n]*)$", re.M)
 
 
 class SalvageError(RuntimeError):
@@ -141,17 +143,20 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
             return None
         raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}") from exc
     if result.returncode:
-        if optional:
+        transient = _transient_git(result.stderr)
+        # An optional lookup may answer "absent", but host pressure establishes
+        # nothing about HEAD or the checkout, just as a timed-out lookup does not.
+        if optional and not transient:
             return None
         raise SalvageError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}",
-                           transient=_transient_git(result.stderr))
+                           transient=transient)
     return os.fsdecode(result.stdout).strip()
 
 
 def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
                stdin: bytes | None = None, timeout_s: float | None = None) -> bytes | None:
     """``_git`` for byte streams (paths need not be UTF-8); None on a non-zero
-    exit. Timeouts and transient OS errors raise exactly as in ``_git``."""
+    exit. Transient git failures, timeouts and OS errors raise as in ``_git``."""
     cap = git_timeout_s(timeout_s)
     try:
         result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
@@ -162,7 +167,11 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
         if transient_os_error(exc):
             raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
         return None
-    return None if result.returncode else result.stdout
+    if result.returncode:
+        if _transient_git(result.stderr):
+            raise SalvageError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}", transient=True)
+        return None
+    return result.stdout
 
 
 def git_head(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
@@ -336,6 +345,8 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
         raise SalvageError(f"git rev-parse timed out after {cap:g} s", transient=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
+    if result.returncode and _transient_git(result.stderr):
+        raise SalvageError(f"git rev-parse failed: {os.fsdecode(result.stderr).strip()}", transient=True)
     return result.returncode
 
 
@@ -492,12 +503,17 @@ def pin_baseline(workdir: str | Path, job_id: str, seq: int, tree: str, head: st
     Admission calls it when the job's previous attempt's salvage failed: that
     attempt's work is then only in this snapshot, a tree object no ref holds,
     which `gc` may prune and the new attempt goes on to edit (review of cda4c161,
-    N2). Idempotent, as salvage is: a later admission pass that finds the ref
-    holding the same tree on the same parent reuses it, and one that finds
-    different bytes there writes beside it, never over it.
+    N2). The first snapshot after the failed salvage is kept across admission
+    passes, even if the caller edits or commits while the retry waits. Later
+    snapshots must not replace that evidence or collide with its ref.
     """
     name = re.sub(r"[^A-Za-z0-9_-]+", "-", job_id).strip("-") or "job"
-    return _hold(workdir, f"refs/subfleet-salvage/{name}-a{seq}-baseline", tree, head,
+    ref = f"refs/subfleet-salvage/{name}-a{seq}-baseline"
+    previous = _git(workdir, "rev-parse", "--verify", f"{ref}^{{commit}}",
+                    optional=True, timeout_s=timeout_s)
+    if previous:
+        return ref, previous
+    return _hold(workdir, ref, tree, head,
                  f"subfleet baseline of attempt a{seq}", timeout_s=timeout_s)
 
 
