@@ -473,7 +473,7 @@ def test_c23_60_the_batch_is_six_oldest_first(world):
     report = wake(world, fx.FakeSessions(), service)
     assert service.opened == list(reversed(ids))[:6]
     held = [item for item in report.scan.rows if item.eligible and not item.woken]
-    assert len(held) == 2 and all(item.reason.startswith("paced") for item in held)
+    assert len(held) == 2 and all(item.reason.startswith("waits for a later batch") for item in held)
 
 
 def test_c23_60_running_wakes_take_their_places_in_the_batch(world):

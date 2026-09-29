@@ -1299,7 +1299,8 @@ def _wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
     table = _Recheck(probes)
     for row in eligible:
         if budget <= 0:
-            row.reason = f"paced: {report.pace.reason}"
+            row.reason = (f"waits for a later batch ({report.pace.reason})" if report.pace.allowed
+                          else f"paced: {report.pace.reason}")
             continue
         budget -= int(_wake_one(row, sessions, settings, transport=transport,
                                 conversations=conversations, dry_run=dry_run, force=force,
