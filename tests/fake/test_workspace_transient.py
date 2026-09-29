@@ -241,6 +241,46 @@ def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(s
             in daemon.store.list_notices()[0]["text"])
 
 
+@pytest.mark.parametrize("stderr", [
+    b"fatal: could not create work tree dir '/w/worktrees/j': No space left on device\n",
+    b"fatal: Unable to create '/r/.git/index.lock': File exists.\n\n"
+    b"Another git process seems to be running in this repository, e.g.\n",
+    b"fatal: unable to write new index file\n",
+])
+def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, monkeypatch, stderr):
+    """Review of 43b8bf29, F4: `git worktree add`'s failure was never classified, so a full
+    disk or a lock another git process held at allocation failed the job at once, where
+    C-6.8 waits. It runs under the C locale and its stderr is read as salvage's is; the
+    half-made directory is removed, and the job is admitted once the call succeeds. The
+    call is faked and decodes as `subprocess` would."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+    environments = []
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            environments.append(kwargs.get("env") or {})
+            Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)     # what a cut-short add leaves
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "SalvageError" and record["error"].startswith("could not allocate worktree: fatal: ")
+    assert environments[0].get("LC_ALL") == "C" and "LANGUAGE" not in environments[0]
+    assert not (daemon.root / "worktrees" / job_id).exists() and daemon.store.list_notices() == []
+    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)          # the disk has room again
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
 def test_c6_8_a_wrapped_timeout_is_transient_and_names_the_underlying_type(state_daemon, monkeypatch):
     """C-6.8 salvage wraps git's timeout; the record still says TimeoutExpired."""
     daemon, harness = state_daemon

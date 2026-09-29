@@ -13,6 +13,7 @@ excluded, and every other failure fails as before.
 """
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import subprocess
@@ -331,6 +332,98 @@ def test_the_full_disk_the_live_daemon_failed_a_job_on_is_transient(repository, 
     with pytest.raises(SalvageError, match="write-tree failed: .* Out of diskspace$") as caught:
         snapshot_tree(repository, git_head(repository))
     assert caught.value.transient
+
+
+#: `strerror` of every errno C-6.8 calls transient, as git ends a line with it (`error_errno`,
+#: `die_errno`), and of some it does not.
+TRANSIENT_STRERRORS = [os.strerror(code) for code in sorted(salvage_module.TRANSIENT_ERRNOS)]
+PERMANENT_STRERRORS = [os.strerror(code) for code in (errno.EACCES, errno.ENOENT, errno.EROFS, errno.EISDIR)]
+
+
+@pytest.mark.parametrize("stderr", [
+    # A ref's lock file the disk had no room for (refs/files-backend.c; git names no errno).
+    b"fatal: update_ref failed for ref 'refs/subfleet-salvage/x': "
+    b"couldn't write '/r/.git/refs/subfleet-salvage/x.lock'\n",
+    # The index, likewise (`add`, `read-tree`; no errno either).
+    b"fatal: unable to write new index file\n",
+    b"fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes)\n",
+    *(f"error: unable to create temporary file: {text}\nfatal: adding files failed\n".encode()
+      for text in TRANSIENT_STRERRORS),
+])
+def test_git_s_other_words_for_a_full_disk_or_a_machine_under_pressure_are_transient(repository, monkeypatch,
+                                                                                     stderr):
+    """Review of 43b8bf29, F4: git's own wording for the errnos C-6.8 calls transient, and
+    its errno-less words for a full disk at a lock file or the index, were read as
+    failures no retry clears: a full disk was recorded after one try, not three, and
+    failed a job at admission at once."""
+    (repository / "new.txt").write_text("work\n")
+    fake_add(monkeypatch, 128, stderr)
+    with pytest.raises(SalvageError, match="git add failed") as caught:
+        snapshot_tree(repository, git_head(repository))
+    assert caught.value.transient
+
+
+@pytest.mark.parametrize("text", PERMANENT_STRERRORS)
+def test_an_errno_that_says_something_about_the_repository_is_not_transient(repository, monkeypatch, text):
+    (repository / "new.txt").write_text("work\n")
+    fake_add(monkeypatch, 128, f"error: open(\"new.txt\"): {text}\nfatal: adding files failed\n".encode())
+    with pytest.raises(SalvageError, match="git add failed") as caught:
+        snapshot_tree(repository, git_head(repository))
+    assert not caught.value.transient
+
+
+def reftable(tmp_path):
+    """A repository whose refs are a reftable stack (git 2.45 and later), or a skip."""
+    path = tmp_path / "reftable"
+    made = subprocess.run(["git", "init", "-q", "--ref-format=reftable", str(path)], capture_output=True)
+    if made.returncode:
+        pytest.skip("this git cannot make a reftable repository")
+    (path / "tracked.txt").write_text("baseline\n")
+    git(path, "add", ".")
+    git(path, "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "baseline")
+    return path
+
+
+def test_a_reftable_lock_another_git_process_holds_is_transient(tmp_path):
+    """Real git, review of 43b8bf29, F4: under reftable a held lock is `cannot lock
+    references` (reproduced with git 2.55, a held `tables.list.lock`), and a salvage waits
+    it out; a ref that exists or whose name conflicts says so in other words, for good."""
+    repository = reftable(tmp_path)
+    baseline = git_head(repository)
+    (repository / "new.txt").write_text("work\n")
+    held = repository / ".git" / "reftable" / "tables.list.lock"
+    held.touch()
+    with pytest.raises(SalvageError, match="cannot lock references$") as caught:
+        salvage(repository, baseline, 1, timestamp="2026-09-28T19:19:12Z")
+    assert caught.value.transient
+    held.unlink()
+    ref = salvage(repository, baseline, 1, timestamp="2026-09-28T19:19:12Z").ref
+    for name in (ref, f"{ref}/y"):
+        with pytest.raises(SalvageError, match="update-ref failed") as refused:
+            _git(repository, "update-ref", name, baseline, "0" * 40)
+        assert not refused.value.transient
+
+
+#: A line of git's that is not its own `error:` or `fatal:` line: a hint, a warning, what a
+#: remote or a hook printed, or a continuation.
+NOT_GITS_OWN_LINE = st.tuples(
+    st.sampled_from(["hint: ", "warning: ", "remote: ", " ", "\t", "Another git process: "]),
+    st.text(st.characters(blacklist_characters="\n", blacklist_categories=("Cs",)), max_size=40),
+    st.sampled_from([": " + text for text in TRANSIENT_STRERRORS] + [
+        "Unable to create 'x.lock': File exists.", "cannot lock references", "couldn't write 'x.lock'",
+        "unable to write new index file", "write error. Out of diskspace"])).map("".join)
+
+
+@hypothesis.settings(deadline=None)
+@hypothesis.given(st.lists(NOT_GITS_OWN_LINE, max_size=6), st.integers(0, 6))
+def test_only_gits_own_error_and_fatal_lines_are_read_for_a_transient_failure(lines, where):
+    """Invariants over any stderr: however many other lines end with the words (a file name
+    in a hint or a warning), they never make a failure transient; one `error:` or
+    `fatal:` line that ends with them does, wherever it falls."""
+    assert not salvage_module._transient_git("\n".join(lines) + "\n")
+    assert not salvage_module._transient_git("\n".join(lines).encode("utf-8", "surrogateescape"))
+    own = f"fatal: unable to write sha1 file: {os.strerror(errno.ENOSPC)}"
+    assert salvage_module._transient_git("\n".join(lines[:where] + [own] + lines[where:]) + "\n")
 
 
 # --- the locale (F3) --------------------------------------------------------------

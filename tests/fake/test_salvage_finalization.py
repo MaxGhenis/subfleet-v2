@@ -49,6 +49,10 @@ def job_notices(daemon, job_id):
     return [row["text"] for row in daemon.store.list_notices() if row["job_id"] == job_id]
 
 
+def events(daemon, job_id, kind):
+    return [json.loads(row["data_json"]) for row in daemon.store.list_events(job_id) if row["kind"] == kind]
+
+
 def finalizing(daemon, harness, *, change=True):
     workdir = repository(daemon, harness)
     job_id, attempt, adir = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
@@ -452,14 +456,76 @@ def test_c13_1_a_retry_after_a_failed_salvage_starts_from_a_held_snapshot(state_
     assert git(workdir, "status", "--porcelain") == status and git(workdir, "rev-parse", "HEAD") == head
     assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
 
-    # A later admission pass (one rolled back, say) reuses the ref; different bytes go beside it.
+    [held] = events(daemon, job_id, "salvage.baseline_held")
+    assert held == {"ref": ref, "commit": git(workdir, "rev-parse", ref), "seq": 2, "after": a1["attempt_id"]}
+
+    # A later admission pass (one rolled back, say) reuses the ref, whatever the checkout
+    # holds by then: the first snapshot after the failure is the one that holds a1's work.
     job = daemon._job(job_id)
     again = daemon._pin_baseline(job, [a1], str(workdir), head, a2["baseline_tree"])
     assert again == {key: artifact[key] for key in ("role", "path", "sha256", "bytes")}
     other = git(workdir, "rev-parse", "HEAD^{tree}")
-    beside = daemon._pin_baseline(job, [a1], str(workdir), head, other)
-    assert beside["path"] == f"{ref}-{other[:12]}"
+    assert daemon._pin_baseline(job, [a1], str(workdir), head, other) == again
     assert git(workdir, "rev-parse", f"{ref}^{{tree}}") == a2["baseline_tree"]
+    assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
+    assert len(events(daemon, job_id, "salvage.baseline_held")) == 1
+
+
+def test_c13_1_a_checkout_that_changes_while_the_retry_waits_keeps_the_first_held_snapshot(
+        state_daemon, monkeypatch):
+    """Review of 43b8bf29, F1: a retry is looked at on many admission passes before one
+    places it, and an in-place job's checkout is the caller's, which may change in between.
+    Each pass held its own snapshot: a new tree went beside the first, and that tree on a
+    new HEAD (the caller committed what was there) collided with both, a permanent failure
+    that failed the job. The first snapshot after the failed salvage already holds a1's work
+    (what changed since is the caller's), so every later pass reuses it."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    [a1] = daemon.store.list_attempts(job_id)
+    job = daemon._job(job_id)
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    head = git(workdir, "rev-parse", "HEAD")
+    first = salvage_module.working_tree(workdir, head)
+    assert daemon._pin_baseline(job, [a1], str(workdir), head, first)["path"] == ref    # a pass then held
+    (workdir / "caller-edit.txt").write_text("the caller's own edit\n")
+    edited = salvage_module.working_tree(workdir, head)
+    assert daemon._pin_baseline(job, [a1], str(workdir), head, edited)["path"] == ref   # and another
+    git(workdir, "add", "-A")
+    git(workdir, "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "the caller's commit")
+    daemon._admit()                                                                     # the pass that places it
+    job = daemon.store.get_job(job_id)
+    a1, a2 = daemon.store.list_attempts(job_id)
+    assert (job["state"], a2["seq"], a2["state"]) == ("running", 2, "reserved")
+    assert json.loads(a2["evidence_json"])["baseline_ref"] == ref
+    assert [r["path"] for r in daemon.store.list_artifacts(a2["attempt_id"])] == [ref]
+    assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ref
+    assert git(workdir, "rev-parse", f"{ref}^{{tree}}") == first and git(workdir, "rev-parse", f"{ref}^") == head
+    assert git(workdir, "show", f"{ref}:new-by-a1.txt") == "a1 work"
+    [held] = events(daemon, job_id, "salvage.baseline_held")
+    assert held["ref"] == ref
+
+
+def test_c13_1_a_retry_with_no_commit_to_hold_a_failed_salvage_on_fails(state_daemon, monkeypatch):
+    """Review of 43b8bf29, F3: a1's salvage failed, and by a2's admission the worktree's
+    repository is gone (the thesis-* jobs' shape: every git call says `not a git
+    repository`), so there is no HEAD and no start snapshot to hold a1's work in. a2 was
+    reserved and ran there unheld; now the job fails with the cause, as any baseline that
+    cannot be held does (C-6.8), and a1's files are left as they are."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    (workdir / ".git").rename(workdir.parent / "moved-away.git")
+    (workdir / ".git").write_text(f"gitdir: {workdir.parent / 'deleted-repository' / '.git' / 'worktrees' / 'x'}\n")
+    try:
+        daemon._admit()
+    finally:
+        (workdir / ".git").unlink()
+        (workdir.parent / "moved-away.git").rename(workdir / ".git")
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and len(daemon.store.list_attempts(job_id)) == 1
+    assert (f"workspace preparation failed: SalvageError: attempt a1's salvage failed and {workdir} "
+            "has no commit to hold its work on") in job_notices(daemon, job_id)[-1]
+    assert (workdir / "new-by-a1.txt").read_text() == "a1 work\n"
+    assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == ""
 
 
 def test_c13_1_a_retry_after_a_salvage_that_succeeded_holds_nothing_more(state_daemon, monkeypatch):
@@ -565,8 +631,10 @@ def test_c13_1_live_git_past_its_cap_is_tried_again_then_recorded(state_daemon, 
     """receipt-crash-refusal-r1b/a2, rac-review-astra/a1, the r218 jobs and the microcosm and
     policyengine-us jobs (live): `add -A` over thousands of untracked scratch files, or a large
     checkout, at a load average of 200 to 350, ran past `workspace_git_timeout_s` (60 s) on
-    every try. Here a real `git add` really runs past a 1 s cap and is killed: tried
-    `SALVAGE_TRIES` times, then recorded, and the attempt ends and frees its lane."""
+    every try. Here `git … add` is a stand-in that sleeps past a 1 s cap (review of
+    43b8bf29, F5: no real `git add` runs; what is real is the cap, which kills it, and every
+    other git call): tried `SALVAGE_TRIES` times, then recorded, and the attempt ends and
+    frees its lane."""
     import shutil
     import stat
     daemon, harness = state_daemon
