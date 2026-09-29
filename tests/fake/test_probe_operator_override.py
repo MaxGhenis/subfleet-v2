@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import sqlite3
 import threading
 from pathlib import Path
 from uuid import uuid4
@@ -582,6 +583,32 @@ def test_c5_7a_a_pass_that_raises_with_nothing_asked_meanwhile_keeps_its_request
     assert not service.store.list_leases(HOLDER) and HOLDER not in service._probe_resolutions
 
 
+def test_c5_7a_a_pass_whose_lease_check_raises_keeps_the_request(routing_state, monkeypatch):
+    """The pass takes the request before it reads the lease again, and a store
+    error there has not acted on it either: the request stays for the next pass."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="first")
+    taken = dict(service._probe_resolutions[HOLDER])
+    one = service.store.one
+
+    def locked(sql, params=()):
+        if sql == LEASE_CHECK:
+            raise sqlite3.OperationalError("database is locked")
+        return one(sql, params)
+    monkeypatch.setattr(service.store, "one", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        service._recover_probes()
+    assert service._probe_resolutions[HOLDER] == taken and service.store.list_leases(HOLDER)
+    monkeypatch.setattr(service.store, "one", one)
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and len(kinds(service, "probe.force_released")) == 1
+
+
+#: The lease `_recover_probes` reads again after it takes a request.
+LEASE_CHECK = "SELECT 1 FROM leases WHERE holder=?"
+
+
 #: One operator request as `_request_probe_resolution` builds it.
 REQUEST = st.builds(
     lambda force, note, at, via: {"force_release": force, "operator_note": note, "requested_at": at, "via": via,
@@ -786,7 +813,7 @@ VALUES = {"pass": st.sampled_from([.05, .5, 1, 3, 30, 61]),
           "force": st.sampled_from(["kill", "lane", "holder"]),
           "cancel": st.none(), "restart": st.none(), "turn": st.sampled_from([.05, 1, 30]),
           "stale": st.sampled_from(["kill", "lane"]), "turn-ends": st.none(),
-          "fault": st.sampled_from([.05, 1, 61])}
+          "fault": st.tuples(st.sampled_from(["resolve", "lease"]), st.sampled_from([.05, 1, 61]))}
 OPS = st.lists(st.sampled_from(["pass"] * 5 + ["table"] * 3 + ["confirm"] * 3 + ["force"] * 2
                                + ["cancel", "restart", "turn", "stale", "turn-ends", "fault"])
                .flatmap(lambda op: st.tuples(st.just(op), VALUES[op])), min_size=12, max_size=50)
@@ -883,23 +910,35 @@ def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_
                     service.timers.active_holders.discard(holder)
                     assert len(world.looks) == looks, "a turn's probe is the turn's"
                 elif op == "fault":
-                    # The next pass raises while acting on a pending request (a
-                    # store error, say): it acts on nothing and keeps the request.
+                    # The next pass raises after it has taken a pending request
+                    # (a store error reading the lease again, or while resolving):
+                    # it acts on nothing and keeps the request.
+                    where, step = value
                     pending = service._probe_resolutions.get(holder)
+                    one = service.store.one
 
-                    def broken(holder, request):
+                    def broken(*args):
                         raise RuntimeError("store unavailable")
-                    service._resolve_probe = broken
-                    world.now += value
+
+                    def locked(sql, params=()):
+                        if sql == LEASE_CHECK:
+                            raise RuntimeError("store unavailable")
+                        return one(sql, params)
+                    if where == "resolve":
+                        service._resolve_probe = broken
+                    else:
+                        service.store.one = locked
+                    world.now += step
                     try:
                         if pending is not None and held:
                             with pytest.raises(RuntimeError, match="store unavailable"):
                                 service._recover_probes()
                             assert service._probe_resolutions.get(holder) == pending, "the request is kept"
-                        else:
+                        elif where == "resolve":
                             service._recover_probes()
                     finally:
-                        del service._resolve_probe
+                        service.__dict__.pop("_resolve_probe", None)
+                        service.store.__dict__.pop("one", None)
                 now_held = bool(service.store.list_leases(holder))
                 record = service._probe_record(holder)
                 new_overrides = len(kinds(service, "probe.force_released")) - overrides
