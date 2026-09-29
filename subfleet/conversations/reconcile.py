@@ -10,7 +10,10 @@ that reads files.
 What ended the turn decides how much is known (`Outcome.ended_by`):
 
 - `provider`: its own terminal event (Claude `result`; Codex `turn/completed`,
-  or its error answer to `turn/start`). The provider's word is the outcome.
+  or its error answer to `turn/start`). The provider's word is the outcome,
+  except when it says the message will not run (`Outcome.not_run`, a Claude
+  lifecycle ending before the message started): that is reconciled too
+  (`_not_run`), since a stop can sweep a message already in the transcript.
 - `driver`: the driver's own check ended the turn. Almost always that is
   before the message frame existed (identity, catalog, Fast, guard, thread,
   a stop before sending); a Claude `model-mismatch` can come after it.
@@ -22,8 +25,9 @@ For the last two the delivery is reconciled from evidence (D-14):
 1. delivered, when the attempt's stdout acknowledged the message (D-12: Claude
    `command_lifecycle started` or the replayed user message with our uuid;
    Codex a turn id), or the native record holds it (Claude: a `user` record
-   with the message id as `uuid` in the session transcript after the
-   attempt's `transcript_offset`; Codex: a rollout record whose `client_id` is
+   with the message id as `uuid`, or a `queued_command` attachment with it as
+   `source_uuid`, in the session transcript after the attempt's
+   `transcript_offset`; Codex: a rollout record whose `client_id` is
    the message id);
 2. not delivered, only when the process is verified gone (the exit receipt:
    the guardian writes it after reaping the child, `guardian.py`, or the
@@ -135,6 +139,8 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
     if state == COMPLETE:
         # C-24.4: the provider's success stands even when a stop came too late.
         return Settlement(COMPLETE, "stop-too-late" if turn.get("stop_too_late") else None, session_known=True)
+    if turn.get("not_run"):
+        return _not_run(turn, provider, gather())
     if ended_by == "provider":
         if state == INTERRUPTED:
             return Settlement(INTERRUPTED, stop if stop in STOPS else reason, session_known=True)
@@ -187,6 +193,26 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
         state, reason = FAILED, stop or reason or "ended-without-result"
     # C-24.8: the next --resume could continue a Claude turn left mid-way.
     return result(state, reason, "unfinished-turn" if provider == "claude" else None)
+
+
+def _not_run(turn: dict, provider: str, evidence: Evidence) -> Settlement:
+    """C-24.6, C-24.8, C-26.5: the provider said the message will not run in this
+    session (a Claude `command_lifecycle` cancelled, discarded or refused before it
+    started). That word stands where a relay log with no message frame would: the
+    message was not delivered unless the native record holds it, which it can when a
+    stop swept a message already folded into a running turn (its `queued_command`
+    attachment is in the transcript, and the next `--resume` would read it)."""
+    state, reason, stop = turn.get("state"), turn.get("reason"), turn.get("stop_reason")
+    found = evidence.acknowledged or evidence.native == "found"
+    delivery = DELIVERED if found else NOT_DELIVERED if evidence.native == "absent" else UNKNOWN
+    known = found or evidence.session_exists
+    if delivery == UNKNOWN:
+        return Settlement(DELIVERY_UNKNOWN, f"{reason}: native record {evidence.native}", block="delivery-unknown",
+                          delivery=delivery, evidence=evidence, session_known=known)
+    if state == INTERRUPTED and stop in STOPS:
+        reason = stop
+    block = "unfinished-turn" if delivery == DELIVERED and provider == "claude" else None
+    return Settlement(state or FAILED, reason, block=block, delivery=delivery, evidence=evidence, session_known=known)
 
 
 def ownership_wait(turn: Any) -> bool:
@@ -257,8 +283,9 @@ def frame_status(attempt_dir: Path) -> str:
 
 
 def claude_record(message_id: str, *, session_id: str | None, notes: dict) -> tuple[str, str | None, bool]:
-    """Whether the session transcript holds a `user` record with the message id as
-    its `uuid` (design D-14). Transcripts are `<projects>/<encoded cwd>/<session
+    """Whether the session transcript holds the message (design D-14): a `user`
+    record with the message id as its `uuid`, or the `queued_command` attachment of
+    a message folded into a running turn (`_holds_message`). Transcripts are `<projects>/<encoded cwd>/<session
     id>.jsonl`; the recorded one is read from the attempt's `transcript_offset`,
     any other candidate whole. Returns (found | absent | unreadable, path,
     whether the session has a transcript)."""
@@ -278,11 +305,21 @@ def claude_record(message_id: str, *, session_id: str | None, notes: dict) -> tu
     offset = notes.get("transcript_offset") if isinstance(notes.get("transcript_offset"), int) else 0
     for path in candidates:
         start = offset if recorded and _same_file(path, recorded) else 0
-        found = _scan(path, message_id, start, lambda record: record.get("type") == "user"
-                      and record.get("uuid") == message_id)
+        found = _scan(path, message_id, start, lambda record: _holds_message(record, message_id))
         if found != "absent":
             return found, path, True
     return "absent", candidates[0], True
+
+
+def _holds_message(record: dict, message_id: str) -> bool:
+    """A Claude transcript record of the message: its `user` record, or the
+    `queued_command` attachment a message folded into a running turn is written as,
+    which names it `source_uuid` (2.1.284; the next `--resume` reads either)."""
+    if record.get("type") == "user" and record.get("uuid") == message_id:
+        return True
+    attachment = record.get("attachment")
+    return (record.get("type") == "attachment" and isinstance(attachment, dict)
+            and attachment.get("type") == "queued_command" and attachment.get("source_uuid") == message_id)
 
 
 def codex_record(message_id: str, *, home: str | None, thread_id: str | None) -> tuple[str, str | None, bool]:

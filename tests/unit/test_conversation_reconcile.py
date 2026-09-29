@@ -241,3 +241,62 @@ def test_gather_reads_the_attempts_own_files(tmp_path):
     (adir / "stdin.jsonl").write_text(log_lines(intent(1, "init"), {"kind": "written", "seq": 1}))
     assert decide(gather("claude", MID, adir, {"native_session_id": SID})) == NOT_DELIVERED
     assert reconcile.USER_FRAME == "user-message"
+
+
+# --- a message the provider said will not run (C-26.5) ----------------------------------------
+
+
+def test_c24_6_a_folded_message_s_queued_command_attachment_is_its_transcript_record(tmp_path):
+    """C-24.6, D-14: Claude Code writes a message folded into a running turn as a
+    `queued_command` attachment naming it `source_uuid` (2.1.284). The next `--resume`
+    reads it, so it counts as the transcript holding the message; another message's does not."""
+    projects = tmp_path / "projects"
+    (projects / "-work").mkdir(parents=True)
+    transcript = projects / "-work" / f"{SID}.jsonl"
+
+    def attachment(source):
+        return json.dumps({"type": "attachment", "uuid": "a1", "attachment": {
+            "type": "queued_command", "prompt": "fix the bug", "source_uuid": source,
+            "origin": {"kind": "human"}}}) + "\n"
+    transcript.write_text(attachment("3e1d1f7c-2222-4333-8444-555566667777") + json.dumps(
+        {"type": "assistant", "uuid": "b", "message": {"content": f"about {MID}"}}) + "\n")
+    assert claude_record(MID, session_id=SID, notes={"projects_dir": str(projects)})[0] == "absent"
+    transcript.write_text(attachment(MID))
+    assert claude_record(MID, session_id=SID, notes={"projects_dir": str(projects)})[0] == "found"
+
+
+NOT_RUN_STOPPED = turn(state="interrupted", reason="stopped", ended_by="provider", not_run="cancelled",
+                       stop_reason="stopped", accepted=False)
+
+
+def test_c26_5_a_message_swept_from_the_queue_is_reconciled_by_its_transcript():
+    """C-24.6, C-24.8, C-26.5: a stop's `cancel_queued` took the message out of the queue.
+    With no transcript record it was not delivered: stopped, and the conversation is free.
+    A record (a fold the stop swept after its attachment was written) means the next
+    `--resume` would read it: `unfinished-turn`. A record that cannot be read: unknown."""
+    absent = Evidence(acknowledged=False, frame="written", process_gone=True, native="absent", session_exists=True)
+    settled = settle(NOT_RUN_STOPPED, provider="claude", turn_seq=0, gather=lambda: absent)
+    assert (settled.state, settled.reason, settled.block, settled.delivery) == (
+        "interrupted", "stopped", None, NOT_DELIVERED)
+    assert settled.session_known and not settled.continue_elsewhere and not settled.readmit
+    found = Evidence(acknowledged=False, frame="written", process_gone=True, native="found", session_exists=True)
+    settled = settle(NOT_RUN_STOPPED, provider="claude", turn_seq=0, gather=lambda: found)
+    assert (settled.state, settled.block, settled.delivery) == ("interrupted", "unfinished-turn", DELIVERED)
+    # A new session's first message, swept before anything ran: no session to resume
+    # (C-24.1; review of 6f2b54e4, correctness finding 1).
+    fresh = Evidence(acknowledged=False, frame="written", process_gone=True, native="absent", session_exists=False)
+    assert not settle(NOT_RUN_STOPPED, provider="claude", turn_seq=0, gather=lambda: fresh).session_known
+    unread = Evidence(acknowledged=False, frame="written", process_gone=True, native="unreadable")
+    settled = settle(NOT_RUN_STOPPED, provider="claude", turn_seq=0, gather=lambda: unread)
+    assert (settled.state, settled.block) == ("delivery-unknown", "delivery-unknown")
+
+
+def test_c26_7_a_message_that_never_ran_is_not_continued_as_limited():
+    """C-26.7 (review of 6f2b54e4, finding 1): a limit another turn met does not make a
+    message that never ran `limited`: it fails as the provider said, and no continuation
+    replaces it."""
+    refused = turn(state="failed", reason="provider-discarded", ended_by="provider", not_run="discarded",
+                   limited=True, accepted=False)       # even were a limit recorded, it was not this message's
+    absent = Evidence(acknowledged=False, frame="written", process_gone=True, native="absent", session_exists=True)
+    settled = settle(refused, provider="claude", turn_seq=0, gather=lambda: absent)
+    assert (settled.state, settled.reason, settled.continue_elsewhere) == ("failed", "provider-discarded", False)

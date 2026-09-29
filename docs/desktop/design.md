@@ -270,19 +270,20 @@ acknowledgement and turn completion are separate:
 | `queued` | Durably accepted; waiting behind the conversation's current turn |
 | `waiting` | Its turn job waits for admission (capacity, lease, workspace, route), or the message waits to be dispatched or re-admitted (an external writer, a deferral) |
 | `starting` | An attempt is reserved or starting; the provider has not acknowledged the message |
-| `running` | Acknowledged: Claude `command_lifecycle {command_uuid:<id>, state:"started"}` when `system/init.capabilities` has `msg_lifecycle_v1`, else the replayed user message with our uuid (both verified in a `shouldQuery:false` probe); Codex `turn/start` response with a turn id |
+| `running` | Acknowledged: Claude `command_lifecycle {command_uuid:<id>, state:"started"}` when `system/init.capabilities` has `msg_lifecycle_v1`, else the replayed user message with our uuid (both verified in a `shouldQuery:false` probe), or a `result` naming our uuid in `user_message_uuid(s)`; Codex `turn/start` response with a turn id |
 | `approval-needed` | Running with an unanswered approval |
-| `complete` | The provider reported success (Claude `result` subtype `success`; Codex `turn.status:"completed"`), even if a stop was requested (recorded as `stop_too_late`) |
+| `complete` | The provider reported success for the message's own turn (Claude `result` subtype `success`; Codex `turn.status:"completed"`), even if a stop was requested (recorded as `stop_too_late`). A turn the provider ran for something else (a background task's notification on resume) ends with a `result` too, and is not this one (C-26.5) |
 | `failed` | The provider reported failure, or the message provably never reached it |
-| `interrupted` | The provider reported the turn stopped, after a person's stop |
+| `interrupted` | The provider reported the turn stopped, after a person's stop, or its queue cancelled the message before it started (`cancel_queued`, C-26.5) |
 | `cancelled` | Withdrawn before its job had an attempt |
 | `delivery-unknown` | The provider may have it and no terminal evidence exists |
 
 **D-13. Stopping a Claude turn never leaves it resumable by accident.**
 Claude documents that SIGTERM leaves the turn unfinished and that the next
 `--resume` continues it (headless docs, "Stop a run with SIGTERM"), so every
-stop path escalates, each step ending at the first `result`: (1) control
-`interrupt`; (2) SIGINT to the provider child through the relay's `signal`
+stop path escalates, each step ending at the message's own `result` (C-26.5): (1) control
+`interrupt`, with `cancel_queued` so a message still queued behind a turn the
+CLI began itself is cancelled rather than run after it; (2) SIGINT to the provider child through the relay's `signal`
 op, which the guardian applies to its own unreaped child, so the pid cannot
 have been reused (review IR-3); (3) close stdin through the relay; (4) only
 then C-5.6 containment. SIGINT comes before closing stdin because it ends the
@@ -330,8 +331,9 @@ binary). Turns launch with the ceiling at 120 000 and without the tools that
 schedule work for a session that no longer exists (`Monitor`, `CronCreate`,
 `ScheduleWakeup`, `RemoteTrigger`). Output after the terminal event is
 attached to the same message and never changes its outcome; a process still
-alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
-(review P3).
+alive `ceiling + 15 s` after the message's own `result` is stopped by the D-13
+escalation (review P3). Closing stdin cancels nothing already queued: the CLI
+runs it first (C-26.5).
 
 ### Workspace, identity, settings
 

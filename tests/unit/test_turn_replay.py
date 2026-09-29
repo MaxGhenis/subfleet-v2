@@ -753,3 +753,98 @@ def test_a_replay_whose_thread_cannot_start_is_tried_again_on_the_next_pass(ende
     monkeypatch.setattr(threading.Thread, "start", once)
     world.ticks(2)
     assert failed and world.message() == ("complete", None)
+
+
+# --- a turn Claude Code runs on its own before the message's (C-26.5) ---------------------------
+
+QUEUED = '{"type": "command_lifecycle", "command_uuid": "<mid>", "state": "queued"}'
+#: The result of a turn Claude Code ran for a background task's notification (2.1.284).
+NOTIFIED = json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "result": "",
+                       "origin": {"kind": "task-notification"}, "result_index": 0})
+
+
+def said(text: str, message_id: str) -> str:
+    return json.dumps({"type": "assistant", "message": {"id": message_id, "model": "claude-opus-5-5",
+                                                        "content": [{"type": "text", "text": text}]}})
+
+
+def test_c26_5_a_notification_turn_before_the_message_neither_settles_nor_answers_it(ended):
+    """C-26.5, C-26.6 (2026-09-28: 12 of 24 revived sessions): stdout holds a turn Claude
+    Code ran for a background task's notification, what it wrote, and its `result`, then
+    the message's own turn. The replay settles the message on its own result, with its own
+    text as the answer."""
+    world = ended([INIT_OK, QUEUED, said("The background build finished.", "msg_n"), NOTIFIED, LIFECYCLE,
+                   said("Fixed it.", "msg_1"), SUCCESS])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    assert world.message() == ("complete", None)
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert (turn["accepted"], turn["answered"], turn["final_text"]) == (True, True, "Fixed it.")
+
+
+def test_c26_5_a_notification_turn_s_text_is_no_answer_to_a_message_that_wrote_none(ended):
+    """C-26.5: what the notification turn wrote is not the message's deliverable."""
+    world = ended([INIT_OK, QUEUED, said("The background build finished.", "msg_n"), NOTIFIED, LIFECYCLE, SUCCESS])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert world.message() == ("complete", None) and turn["final_text"] is None and not turn["answered"]
+
+
+def test_c24_8_a_turn_cut_off_after_a_notification_turn_is_unfinished_not_complete(ended):
+    """C-24.8, C-26.5: the traced case's end. Its provider stopped mid-turn, with no result
+    of the message's own; the notification turn's result does not complete the message,
+    which failed without a result, its conversation waiting for a person."""
+    world = ended([INIT_OK, QUEUED, NOTIFIED, LIFECYCLE, said("Re-checking state before acting.", "msg_1")])
+    world.end_attempt("lost")
+    world.ticks()
+    assert world.message() == ("failed", "ended-without-result")
+    assert world.svc.store.conversation(world.cid)["blocked_by"] == "unfinished-turn"
+
+
+def test_c24_4_a_message_known_only_by_its_result_s_name_keeps_its_answer(ended):
+    """C-24.4, C-26.5 (review of 6f2b54e4, correctness finding 2): the deliverable of a
+    turn acknowledged only by its result naming the message is what that turn wrote."""
+    named = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "Fixed it.",
+                        "user_message_uuid": "<mid>", "user_message_uuids": ["<mid>"]})
+    world = ended([INIT_OK, said("The background build finished.", "msg_n"), NOTIFIED, said("Fixed it.", "msg_1"),
+                   named])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert world.message() == ("complete", None) and (turn["final_text"], turn["answered"]) == ("Fixed it.", True)
+
+
+def test_c26_5_another_turn_s_text_is_never_the_deliverable_of_a_message_known_by_name(ended):
+    """C-26.5: a message acknowledged only by its result's name takes the text its own
+    turn wrote, never what a turn before it wrote and closed."""
+    named = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "",
+                        "user_message_uuid": "<mid>", "user_message_uuids": ["<mid>"]})
+    world = ended([INIT_OK, said("The background build finished.", "msg_n"), NOTIFIED, named])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert world.message() == ("complete", None) and turn["final_text"] is None and not turn["answered"]
+
+
+def test_c24_6_a_model_mismatch_whose_interrupt_swept_the_message_settles_not_delivered(ended):
+    """C-24.6, C-26.8 (review of 6f2b54e4, correctness finding 3): the driver ended the
+    turn on a model mismatch before the message started; its interrupt's `cancel_queued`
+    took the message out of the queue, and the runner records that word in `turn.json`, so
+    the message fails `model-mismatch` rather than blocking its conversation as unknown."""
+    wrong = json.dumps({"type": "system", "subtype": "init", "model": "claude-haiku-4-5"})
+    aborted = json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 0,
+                          "origin": {"kind": "task-notification"}})
+    cancelled = '{"type": "command_lifecycle", "command_uuid": "<mid>", "state": "cancelled"}'
+    world = ended([INIT_OK, QUEUED, wrong, aborted, cancelled])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert (turn["reason"], turn["not_run"]) == ("model-mismatch", "cancelled")
+    assert world.message() == ("failed", "model-mismatch")
+    assert world.svc.store.conversation(world.cid)["blocked_by"] is None
