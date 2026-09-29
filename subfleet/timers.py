@@ -83,9 +83,18 @@ class Timers:
             hot_interval = policy.get('sessions', {}).get('mirror_hot_interval_s', 2)
             if hot_interval:
                 self.intervals['mirror_hot'] = hot_interval
+        # C-23.60: the automatic wake of dormant desktop sessions. Off unless
+        # `sessions.wake_interval_s` is set: a woken session becomes a Subfleet
+        # conversation's for good (C-26.13), which is the operator's call. It has
+        # a worker of its own, as the mirror does, because one pass can take
+        # minutes on a loaded machine and must never hold a probe behind it.
+        wake_interval = policy.get('sessions', {}).get('wake_interval_s', 0)
+        if wake_interval:
+            self.intervals['wake'] = wake_interval
+        self._wake = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-wake')
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror', 'mirror_hot')}
+                                     'retention', 'mirror', 'mirror_hot', 'wake')}
         self.metadata = self._latest('timer.verdict')
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
@@ -141,7 +150,8 @@ class Timers:
                 # Timestamp precision is seconds in the store; monotonic deadlines
                 # below still bound fractional test intervals and per-lane work.
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
-                pool = self._mirror if name in ('mirror', 'mirror_hot') else self._cycles
+                pool = (self._mirror if name in ('mirror', 'mirror_hot')
+                        else self._wake if name == 'wake' else self._cycles)
                 pool.submit(self._run, name)
 
     def request(self, name, *, target=None):
@@ -230,6 +240,12 @@ class Timers:
         result = self._mirror_engine().run_hot(options_from(self.policy))
         return result.changed or result.state not in ('ok',)
 
+    def wake_cycle(self):
+        """One automatic wake pass (C-23.60), as a child process that a stop ends
+        within seconds (C-5.8a). Returns its summary, so every pass is recorded."""
+        from .sessions.dormant import automatic_pass
+        return automatic_pass(self.root, cancel=self.cancel)
+
     def _mirror_engine(self):
         from .sessions.mirror import Mirror
         if self._session_mirror is None:
@@ -283,6 +299,7 @@ class Timers:
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
+        self._wake.shutdown(wait=True, cancel_futures=True)
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}

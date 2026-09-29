@@ -54,6 +54,15 @@ RESUME_STUB_ASSISTANT = "No response requested."
 #: for an unanswered human prompt on the next pass (v1 `tickle.MARKER`).
 MARKER = "subfleet: this session restarted"
 MUSTER_MARKER = "subfleet muster: roll call"
+#: A dormant session's wake (`dormant.wake_text`, C-23.60) and a revive's prompt
+#: (`revive.REVIVE_MESSAGE`). Left unanswered, each reads as a subfleet message
+#: already sent, never as a new prompt, so a process that dies again before
+#: answering is not woken or revived again at every pass.
+WAKE_MARKER = "subfleet: this session's process died mid-turn"
+REVIVE_MARKER = "subfleet: this session was cut off (usage limit or account switch)"
+#: Each marker and the kind of subfleet message it opens (`TurnState.nudge`).
+NUDGE_MARKERS = ((MARKER, "nudge"), (MUSTER_MARKER, "muster"),
+                 (WAKE_MARKER, "wake"), (REVIVE_MARKER, "revive"))
 
 #: v1 `lanes.HEADLESS_PROMPT_SOURCE`; a `claude -p` prompt arrives via the SDK.
 HEADLESS_PROMPT_SOURCE = "sdk"
@@ -390,6 +399,9 @@ class TurnState:
     assistant_turns: int = 0
     restart_stubs: int = 0
     limit_banner: bool = False
+    #: For `tickled`: which subfleet message is the unanswered last one
+    #: (`nudge`, `muster`, `wake` or `revive`).
+    nudge: str | None = None
 
     @property
     def dedupe_key(self) -> str | None:
@@ -413,7 +425,7 @@ class TurnState:
                 "main_entries": self.main_entries,
                 "assistant_turns": self.assistant_turns,
                 "restart_stubs": self.restart_stubs,
-                "limit_banner": self.limit_banner,
+                "limit_banner": self.limit_banner, "nudge": self.nudge,
                 "dedupe_key": self.dedupe_key}
 
 
@@ -500,9 +512,11 @@ def turn_state(transcript: str | Path | None, *,
                          detail=f"a tool result arrived but the model never "
                                 f"continued{suffix}", **common)
     text = text_of(blocks(last.get("message")))
-    if any(mark in text[:400] for mark in (MARKER, MUSTER_MARKER)):
-        return TurnState(state="tickled",
-                         detail="the last message is already a subfleet nudge", **common)
+    for mark, kind in NUDGE_MARKERS:
+        if mark in text[:400]:
+            detail = ("the last message is already a subfleet nudge" if kind in ("nudge", "muster")
+                      else f"the last message is a subfleet {kind} that was never answered")
+            return TurnState(state="tickled", detail=detail, nudge=kind, **common)
     if text.startswith("[Request interrupted by user"):
         return TurnState(state="stopped",
                          detail="the user interrupted the last turn (Esc)", **common)

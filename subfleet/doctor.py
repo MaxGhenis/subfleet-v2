@@ -543,6 +543,63 @@ def check_sidebar_load(root: Path) -> dict[str, Any]:
     return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
 
 
+def check_dormant_sessions(root: Path, *, now: Any = None) -> dict[str, Any]:
+    """C-23.56 to C-23.58: desktop sessions killed mid-turn whose process never
+    came back, so nothing restarts them and no inbox reaches them.
+
+    Read-only and offline (C-17.5). The kit's facts (lane runs, conversations'
+    sessions, retirements, earlier wakes) come from the stores opened read-only
+    (`sessions.facts.offline_state`), the rest from Claude Code's files and one
+    process-table read. Sessions waiting for a wake are `warn`, never `fail`:
+    they are work to resume, not subfleet failing.
+    """
+    from .sessions import dormant, facts
+    check = "dormant desktop sessions"
+    fix = ("`subfleet sessions wake` to survey, then `subfleet sessions wake --all` "
+           "(paced, C-23.59)")
+    try:
+        policy = load_policy(root / "policy.json")
+    except (PolicyError, OSError):
+        policy = {}
+    store = dormant.store_dir()
+    if not store.is_dir():
+        return row(check, PASS, f"no desktop session store at {store}", "nothing to do")
+    try:
+        state = facts.offline_state(root)
+    except (OfflineUnavailable, SchemaTooNew, OSError, sqlite3.Error) as exc:
+        return row(check, UNKNOWN, f"no readable store: {exc}",
+                   "`subfleet daemon start` once, so a store exists, then run doctor again")
+    try:
+        result = dormant.scan(state, policy, now=now, state_root=root)
+    except Exception as exc:                            # noqa: BLE001 - one row, not the table
+        return row(check, UNKNOWN, f"{type(exc).__name__}: {exc}", fix)
+    if result.folder is None:
+        return row(check, UNKNOWN, "; ".join(result.errors) or "no desktop session folder",
+                   "open the Claude app once so it writes its session folder")
+    waiting = sorted(result.eligible, key=lambda item: -(item.turn.age_s or 0))
+    held = [item for item in result.interrupted if not item.eligible and item.desktop]
+    last = dormant.last_pass(root)
+    ran = (f"; the last automatic pass ({last.get('finished_at') or '?'}) woke "
+           f"{len(last.get('woken') or [])}" if last else "")
+    if waiting:
+        named = "; ".join(
+            f"{item.session_id[:8]} {((item.record.title if item.record else None) or '-')[:40]}"
+            f" ({round((item.turn.age_s or 0) / 3600, 1)} h)" for item in waiting[:5])
+        more = f"; and {len(waiting) - 5} more" if len(waiting) > 5 else ""
+        also = f" ({len(held)} more interrupted but held)" if held else ""
+        were = "1 desktop session was" if len(waiting) == 1 else f"{len(waiting)} desktop sessions were"
+        return row(check, WARN, f"{were} killed mid-turn and nothing restarted "
+                   f"{'it' if len(waiting) == 1 else 'them'}: {named}{more}{also}{ran}", fix)
+    if not result.process_table or any("registry" in error for error in result.errors):
+        return row(check, UNKNOWN, "; ".join(result.errors),
+                   "run doctor again; `subfleet sessions wake` surveys with the same reads")
+    detail = "no desktop session is dormant mid-turn"
+    if held:
+        detail += (f" awaiting a wake ({len(held)} interrupted but held: archived, "
+                   "another model, a missing cwd, or already woken)")
+    return row(check, PASS, detail + ran, "`subfleet sessions wake` lists them")
+
+
 # --- the table ----------------------------------------------------------------
 
 def _with_fix(row: dict[str, Any]) -> dict[str, Any]:
@@ -577,6 +634,7 @@ def checks(root: Path, *, live: bool = False,
         check_queued_pins(root),
         check_mirror(root),
         check_sidebar_load(root),
+        check_dormant_sessions(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
                                           "sessions.mirror")),
     ]

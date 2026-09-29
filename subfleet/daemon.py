@@ -54,6 +54,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
+from .sessions import facts as session_facts
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store
@@ -149,10 +150,12 @@ class Unroutable(Exception):
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
 #: operator or worker decision, and the latest row for a session is the answer.
-NUDGE_EVENT = "session.nudged"
-REVIVE_EVENT = "session.revived"
-RETIRE_EVENT = "session.retired"
-UNRETIRE_EVENT = "session.unretired"
+#: `sessions.facts` holds them and the queries that read them, so `doctor`'s
+#: offline table answers `sessions state` exactly as this daemon does.
+NUDGE_EVENT = session_facts.NUDGE_EVENT
+REVIVE_EVENT = session_facts.REVIVE_EVENT
+RETIRE_EVENT = session_facts.RETIRE_EVENT
+UNRETIRE_EVENT = session_facts.UNRETIRE_EVENT
 
 #: `store.transaction` writes its own audit event under the kind it is given,
 #: and `_session_events` reads the NEWEST row of each kind. Naming the audit
@@ -167,7 +170,7 @@ def audit_kind(event: str) -> str:
 #: namespace: C-6.5 tells a session's instances apart at submit and leases the
 #: worktree, not the session. Nothing reads the namespace by prefix.
 def revive_lease_key(session_id: str) -> str:
-    return f"session:{session_id}:revive"
+    return session_facts.revive_lease_key(session_id)
 
 
 def native_session_lease_key(lane_id: str, session_id: str) -> str:
@@ -2079,100 +2082,20 @@ class Daemon:
 
     def _session_events(self, kinds: tuple[str, ...],
                         session_ids: set[str] | None) -> dict[str, dict]:
-        """The newest event of each kind per session id, keyed `<kind>:<id>`.
-
-        `event_id` rides along because the store stamps `ts` to the second, and
-        retiring and unretiring a session inside one second is a thing an
-        operator does; the row order is the only tiebreak that is always right.
-
-        """
-        marks = ",".join("?" for _ in kinds)
-        latest: dict[str, dict] = {}
-        # C-3.7: SQLite picks the rows. Every event of these kinds used to be
-        # fetched and parsed in Python, once inside the `nudged` transaction.
-        # For named sessions, only theirs; for all, only the newest per kind and
-        # session. The loop below still applies every rule it always did. A
-        # payload json_valid refuses (a NaN or an Infinity, which json.dumps
-        # writes and json.loads reads, or no JSON at all) cannot be filtered in
-        # SQL, so every such row of these kinds rides along (`events_not_json`,
-        # normally none) and the loop decides it, as the old walk did.
-        # CASE, not a WHERE term, keeps json_extract off a payload json_valid
-        # refuses: SQLite does not promise to test WHERE terms in written order.
-        session = "CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.session_id') END"
-        unread = (f"UNION ALL SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
-                  "AND NOT json_valid(data_json) ")
-        if session_ids is not None:
-            if not session_ids:
-                return latest
-            wanted = sorted(session_ids)
-            sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE kind IN ({marks}) "
-                   f"AND json_valid(data_json) AND {session} IN ({','.join('?' for _ in wanted)}) "
-                   + unread + "ORDER BY event_id DESC")
-            params = (*kinds, *wanted, *kinds)
-        else:
-            sql = (f"SELECT event_id,kind,ts,data_json FROM events WHERE event_id IN "
-                   f"(SELECT max(event_id) FROM events WHERE kind IN ({marks}) AND json_valid(data_json) "
-                   f"GROUP BY kind,{session}) " + unread + "ORDER BY event_id DESC")
-            params = (*kinds, *kinds)
-        for row in self.store.query(sql, params):
-            try:
-                data = json.loads(row["data_json"])
-            except (TypeError, ValueError):
-                continue
-            session = data.get("session_id")
-            if not isinstance(session, str) or (session_ids is not None
-                                                and session not in session_ids):
-                continue
-            latest.setdefault(f"{row['kind']}:{session}",
-                              {**data, "at": row["ts"], "event_id": row["event_id"]})
-        return latest
+        """The newest event of each kind per session id, keyed `<kind>:<id>`
+        (`sessions.facts.session_events`, C-3.7)."""
+        return session_facts.session_events(self.store.query, kinds, session_ids)
 
     def _lane_session_ids(self) -> list[str]:
-        """Every session id subfleet itself CREATED as a headless lane (C-23.31).
-
-        A revive's attempt records the session it continued, not one it created —
-        `resume_launch` is handed the operator's own session id. Counting those
-        would mark every revived session a lane run permanently, and C-23.31
-        makes a lane run un-nudgeable, un-listable and un-revivable: one revive
-        would retire the session from the fleet for good.
-
-        A turn is left out for the same reason and one more. A conversation
-        opened on an existing session (`conversation.open` with `native`) runs
-        its turns with `--resume <that session>`, so a turn's attempt can
-        record a session Subfleet did not create; and a turn's session is not a
-        headless lane run, so C-23.31's label, its reason ("headless lane run")
-        and its fix (`subfleet runs show`) would all be wrong for it. Turn
-        sessions are reported apart, as `conversation_sessions` (C-26.13), which
-        the kit excludes with its own reason. Every other kind launches under a
-        `--session-id` this daemon minted, so every other kind belongs here.
-        """
-        return sorted({row["native_session_id"] for row in self.store.query(
-            "SELECT DISTINCT a.native_session_id FROM attempts a "
-            "JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id IS NOT NULL AND j.kind NOT IN ('revive','turn')")
-            if row["native_session_id"]})
+        """Every session id subfleet itself CREATED as a headless lane (C-23.31;
+        `sessions.facts.lane_session_ids` says why revives and turns are not)."""
+        return session_facts.lane_session_ids(self.store.query)
 
     def _conversation_session_ids(self) -> list[str]:
-        """C-26.13: every session a conversation binds or a turn job ran.
-
-        Both halves are needed. A conversation records its session only when
-        its first turn settles (`ConversationService._on_outcome`), so until
-        then the turn attempt is the only record of it; and a conversation
-        opened on an existing session binds it before any turn has run. Nothing
-        deletes a conversation row, so a bound session stays the conversation's;
-        a turn's attempt row lasts until retention prunes its job (C-26.12).
-        """
-        ids = {row["native_session_id"] for row in self.store.query(
-            "SELECT DISTINCT a.native_session_id FROM attempts a "
-            "JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id IS NOT NULL AND j.kind='turn'")}
-        ids |= self.conversations.store.bound_sessions()
-        # Review L1: one session, one spelling. A UUID is listed in the lower
-        # case Claude Code names its transcript with, as well as as recorded, so
-        # a reader comparing either way finds it.
-        from .conversations.store import canonical_native
-        ids |= {canonical_native(item) for item in ids if item}
-        return sorted(item for item in ids if item)
+        """C-26.13: every session a conversation binds or a turn job ran
+        (`sessions.facts.conversation_session_ids`)."""
+        return session_facts.conversation_session_ids(
+            self.store.query, self.conversations.store.bound_sessions())
 
     def _conversation_binding(self, session_id: str | None) -> str | None:
         """What makes `session_id` a conversation's (C-26.13), or None.
@@ -2210,29 +2133,9 @@ class Daemon:
         action = args.action or "state"
         if action == "state":
             wanted = {s for s in args.session_ids if isinstance(s, str) and s} or None
-            latest = self._session_events(
-                (NUDGE_EVENT, REVIVE_EVENT, RETIRE_EVENT, UNRETIRE_EVENT), wanted)
-            leases = {row["lease_key"]: row["holder"] for row in
-                      self.store.query("SELECT lease_key,holder FROM leases "
-                                       "WHERE lease_key LIKE 'session:%:revive'")}
-            state: dict[str, dict] = {}
-            for session in sorted(wanted or {key.split(":", 1)[1] for key in latest}):
-                retired = latest.get(f"{RETIRE_EVENT}:{session}")
-                cleared = latest.get(f"{UNRETIRE_EVENT}:{session}")
-                # Retirement is durable until the operator clears it, and both
-                # halves are append-only, so the later ROW wins (C-23.35) —
-                # by event_id, not by a second-precision timestamp.
-                if retired and cleared and cleared["event_id"] > retired["event_id"]:
-                    retired = None
-                state[session] = {
-                    "retired": retired,
-                    "last_nudge": latest.get(f"{NUDGE_EVENT}:{session}"),
-                    "last_revive": latest.get(f"{REVIVE_EVENT}:{session}"),
-                    "revive_holder": leases.get(revive_lease_key(session)),
-                }
-            # C-26.3, D-17: listed, never nudged, revived or cold-swept.
-            return {"sessions": state, "lane_sessions": self._lane_session_ids(),
-                    "conversation_sessions": self._conversation_session_ids()}
+            # `sessions.facts.state`: the same answer `doctor` builds offline.
+            return session_facts.state(self.store.query, wanted,
+                                       bound=self.conversations.store.bound_sessions())
         if action == "revived":
             if not args.session_id:
                 raise protocol.ProtocolError("sessions revived: session_id is required")

@@ -320,8 +320,9 @@ class FakeSessions:
                 if elapsed < cooldown_s:
                     return {"recorded": False, "session_id": session_id,
                             "reason": f"nudged {int(elapsed)}s ago"}
-        self.nudges[session_id] = {"dedupe_key": dedupe_key, "kind": kind,
-                                   "at": iso(self.now)}
+        # The daemon keeps the detail in the event's payload, beside the key.
+        self.nudges[session_id] = {"session_id": session_id, "dedupe_key": dedupe_key,
+                                   "kind": kind, **dict(detail or {}), "at": iso(self.now)}
         return {"recorded": True, "session_id": session_id, "dedupe_key": dedupe_key}
 
     def record_revive(self, session_id: str, *, dedupe_key: str | None,
