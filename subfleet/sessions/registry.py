@@ -162,6 +162,11 @@ def _row(path: Path) -> SessionRow | None:
         data = json.loads(transcripts.read_regular(path, ROW_MAX).decode("utf-8"))
     except (OSError, ValueError):                   # a UnicodeDecodeError is a ValueError
         return None
+    return _parsed(path, data)
+
+
+def _parsed(path: Path, data: Any) -> SessionRow | None:
+    """A registry file's parsed JSON as a row; None when it names no session."""
     if not isinstance(data, dict) or not isinstance(data.get("sessionId"), str):
         return None
     if not data["sessionId"]:
@@ -200,6 +205,50 @@ def rows(directory: Path | None = None) -> list[SessionRow]:
         return []
     found = [_row(path) for path in paths]
     return [row for row in found if row is not None]
+
+
+@dataclass(frozen=True)
+class Reading:
+    """The registry as one read found it, failures included (C-23.57).
+
+    `rows()` answers "no rows" for a directory it cannot list and skips a file it
+    cannot read, which is right for a listing and wrong for a liveness verdict:
+    a live session whose row could not be read would read as dead. `unreadable`
+    holds the pid each such file is named for (None when the name is not one),
+    and `error` says why the directory could not be listed."""
+
+    rows: tuple[SessionRow, ...] = ()
+    unreadable: tuple[int | None, ...] = ()
+    error: str | None = None
+
+
+def read(directory: Path | None = None) -> Reading:
+    """Every registry row, with what could not be read (`Reading`). A missing
+    directory is an empty registry; a file removed since the listing is none."""
+    base = directory if directory is not None else sessions_dir()
+    try:
+        with os.scandir(base) as entries:
+            names = sorted(entry.name for entry in entries if entry.name.endswith(".json"))
+    except FileNotFoundError:
+        return Reading()
+    except OSError as exc:
+        return Reading(error=f"cannot list {base}: {exc.strerror or exc}")
+    found: list[SessionRow] = []
+    unreadable: list[int | None] = []
+    for name in names:
+        path = base / name
+        try:
+            data = json.loads(transcripts.read_regular(path, ROW_MAX).decode("utf-8"))
+        except FileNotFoundError:
+            continue                                # removed since the listing
+        except (OSError, ValueError):
+            stem = name[:-len(".json")]
+            unreadable.append(int(stem) if stem.isdigit() else None)
+            continue
+        row = _parsed(path, data)
+        if row is not None:
+            found.append(row)
+    return Reading(rows=tuple(found), unreadable=tuple(unreadable))
 
 
 def grouped(all_rows: Iterable[SessionRow] | None = None) -> dict[str, list[SessionRow]]:

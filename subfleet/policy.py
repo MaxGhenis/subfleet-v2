@@ -65,6 +65,18 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,
+    # C-23.56 to C-23.60: dormant sessions, killed mid-turn with no process left.
+    "wake_interval_s": 0,            # the daemon's automatic wake pass; 0 is off
+    "wake_max_age_h": 48,            # an interruption older than this is not woken
+    "wake_quiet_s": 600,             # C-23.56: transcript quiet before a death is believed
+    "wake_settle_min": 30,           # a planned desktop wake counts as running this long
+    "wake_window_h": 5,              # C-23.59: the plan window pacing spends against
+    "wake_headroom_pct": 10,         # used <= elapsed + this
+    "wake_ceiling_pct": 70,          # used < this
+    "wake_batch": 6,                 # at most this many wakes at once
+    "wake_cost_pct": 1,              # what one wake costs the window, as it reloads
+    "wake_reading_max_age_s": 3600,  # an older five-hour reading paces nothing
+    "wake_model": "claude-opus-5-5", # the only model a wake continues
 }
 
 #: `conversations.*` (C-24 to C-30): the desktop workspace's timings.
@@ -307,6 +319,9 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if isinstance(default, bool):
             if not isinstance(item, bool):
                 fail(f"sessions.{key}", "must be a boolean")
+        elif isinstance(default, str):
+            if not isinstance(item, str) or not item.strip():
+                fail(f"sessions.{key}", "must be a model id")
         elif (not isinstance(item, (int, float)) or isinstance(item, bool)
               or not math.isfinite(item) or item < 0):
             fail(f"sessions.{key}", "must be a nonnegative finite number")

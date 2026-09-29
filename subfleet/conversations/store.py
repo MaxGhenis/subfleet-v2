@@ -450,9 +450,8 @@ class ConversationStore:
         Archiving stops a conversation's dispatch but keeps its row and its
         session, so an archived conversation still owns the session.
         """
-        return {row["native_session_id"] for row in self.query(
-            "SELECT native_session_id FROM conversations WHERE native_session_id IS NOT NULL")
-                if row["native_session_id"]}
+        from ..sessions.facts import bound_sessions   # one query, read offline too
+        return bound_sessions(self.query)
 
     def binding(self, native_session_id: str) -> str | None:
         """The conversation that binds `native_session_id`, if one does (C-26.13), in

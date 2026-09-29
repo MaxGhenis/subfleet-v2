@@ -12,6 +12,8 @@ The verbs:
   sessions continue --scope S         nudge (interrupted), roll call (idle), or
                                       recover (cold — handoff unless --revive)
   sessions tickle | muster | revive   the same three scopes by their v1 names
+  sessions wake                       continue dormant desktop sessions, paced
+                                      (`continue --scope cold --wake`, C-23.60)
   sessions mirror [--once]            one desktop sidebar pass (C-23.28)
   sessions retire | unretire <ID>     the durable operator flag (C-23.35)
   sessions handoff | subfleet handoff a bounded brief, dispatched (C-23.14)
@@ -28,11 +30,13 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Exit
 from ..ids import request_id as validate_request_id
+from . import dormant as dormant_module
 from . import handoff as handoff_module
 from . import mirror as mirror_module
 from . import nudge as nudge_module
@@ -334,6 +338,8 @@ def _continue_cold(args: argparse.Namespace) -> int:
     per candidate instead. Neither is the default, because both spend a lane and
     both write somebody else's worktree.
     """
+    if getattr(args, "wake", False) or getattr(args, "plan", False):
+        return _continue_cold_wake(args)
     sessions = _sessions(args)
     policy = _policy(args)
     named = _named(args)
@@ -386,6 +392,80 @@ def _continue_cold(args: argparse.Namespace) -> int:
         note(f"  fix: {revive_module.OPT_IN_FIX}")
     refused = _fenced_refusal("sessions continue --scope cold", named,
                               conversations=bound, lanes=lanes)
+    return int(Exit.OK) if refused is None else refused
+
+
+def _continue_cold_wake(args: argparse.Namespace) -> int:
+    """`--scope cold --wake` or `--plan`: continue the dormant desktop sessions.
+
+    A dormant session was killed mid-turn and its process never came back, so
+    no inbox can reach it (C-23.56 to C-23.58). `--wake` continues each one as a
+    Subfleet conversation, paced against the lane its turn would run on.
+    `--plan` reserves the wakes and prints them for an agent that can call the
+    desktop app's session API, paced against the window that agent read and
+    passed as `--window-used` and `--window-resets`. As with `tickle`, naming no
+    session and passing no `--all` surveys (C-23.60).
+    """
+    planned = bool(getattr(args, "plan", False))       # `sessions wake --plan` plans
+    transport = "desktop" if planned else "conversation"
+    used, resets = getattr(args, "window_used", None), getattr(args, "window_resets", None)
+    if (used is None) != (resets is None):
+        return fail(Exit.INVALID_INPUT, "sessions wake: --window-used and --window-resets "
+                    "go together", "pass both, from the same five-hour reading")
+    cli = _cli()
+    named = _named(args)
+    survey = not named and not getattr(args, "all", False)
+    dry_run = bool(getattr(args, "dry_run", False)) or survey
+    now = datetime.now(timezone.utc)
+    window = None
+    if used is not None:
+        window = dormant_module.window_from(used, resets, now=now,
+                                            source="the reading passed on the command line")
+        if window.resets_at is None:
+            return fail(Exit.INVALID_INPUT, f"sessions wake: cannot read --window-resets {resets!r}",
+                        "ISO 8601 (2026-09-28T22:30:00Z) or epoch seconds")
+    elif transport == "desktop" and not dry_run:
+        return fail(Exit.INVALID_INPUT, "sessions wake --plan: the desktop login's "
+                    "five-hour window is not something subfleet can read",
+                    "pass --window-used and --window-resets from the app's get_usage")
+    sessions = _sessions(args)
+    policy = _policy(args)
+    client = cli._client(args)
+    conversations = (dormant_module.ConversationTransport(client)
+                     if transport == "conversation" else None)
+
+    def lane_window() -> "dormant_module.Window":
+        try:
+            view = client.call("daemon.status", {}, timeout=60)
+        except Exception as exc:                        # noqa: BLE001 - the pace fails closed
+            return dormant_module.Window(None, None, source=f"daemon.status: {exc}")
+        return dormant_module.lane_window(
+            view, policy, model=dormant_module.Settings.from_policy(policy).model, now=now)
+
+    report = dormant_module.wake_pass(
+        sessions, policy, transport=transport, conversations=conversations, window=window,
+        window_reader=lane_window if transport == "conversation" else None,
+        only=named, caller=cli.session_id(), dry_run=dry_run,
+        force=bool(getattr(args, "force", False)), now=now,
+        state_root=cli._root(args))
+    bound = [row.session_id for row in report.scan.rows
+             if row.reason.startswith(registry.CONVERSATION_REASON)]
+    lanes = [row.session_id for row in report.scan.rows if "headless lane run" in row.reason]
+    if args.json:
+        emit({**report.to_dict(), "plan": dormant_module.plan(report)})
+        refused = _fenced_refusal("sessions wake", named, conversations=bound,
+                                  lanes=lanes, quiet=True)
+        return int(Exit.OK) if refused is None else refused
+    out(dormant_module.render(report))
+    for item in dormant_module.plan(report):
+        out(f"  send_message {item['local_id']}: {item['title'] or item['cli_session_id']}")
+    if planned and report.woken:
+        note("subfleet sessions wake: the plan's messages are in --json; send each "
+             "with the desktop app's send_message to its local_id")
+    if survey:
+        note("subfleet sessions: a survey, because no session was named "
+             "(`--all` wakes every eligible dormant session, paced)")
+    refused = _fenced_refusal("sessions wake", named, conversations=bound, lanes=lanes)
     return int(Exit.OK) if refused is None else refused
 
 
@@ -720,6 +800,20 @@ def add_continue_flags(parser: argparse.ArgumentParser) -> None:
                         help="with --handoff: what kind of work this is")
     parser.add_argument("--tier", choices=TIER_CHOICES,
                         help="with --handoff: the minimum capability for --task")
+    parser.add_argument("--wake", action="store_true",
+                        help="with --scope cold: continue each dormant desktop session "
+                             "(killed mid-turn, process gone) as a Subfleet "
+                             "conversation, paced against its lane (C-23.60)")
+    parser.add_argument("--plan", action="store_true",
+                        help="with --scope cold: reserve paced wakes and print them for "
+                             "an agent to send with the desktop app's send_message; "
+                             "needs --window-used and --window-resets")
+    parser.add_argument("--window-used", type=float, default=None, metavar="PCT",
+                        help="the five-hour window's percent used, to pace against "
+                             "(C-23.59)")
+    parser.add_argument("--window-resets", default=None, metavar="WHEN",
+                        help="when that five-hour window resets: ISO 8601 or epoch "
+                             "seconds")
     parser.add_argument("--source", metavar="SOURCE",
                         help="the SessionStart source that woke this sweep "
                              "(startup|resume|compact|clear); passing one marks "
@@ -771,6 +865,11 @@ def add_verbs(sub, *, nested: bool = True) -> None:
         add_continue_flags(alias)
         alias.set_defaults(scope=scope)
         add_json(alias)
+
+    p_wake = sub.add_parser("wake", help="continue dormant desktop sessions, paced (C-23.60)")
+    add_continue_flags(p_wake)
+    p_wake.set_defaults(scope="cold", wake=True)
+    add_json(p_wake)
 
     p_revive = sub.add_parser("revive", help="continue one cold session headlessly")
     p_revive.add_argument("session", metavar="SESSION",
@@ -854,6 +953,7 @@ HANDLERS = {
     "continue": cmd_continue,
     "tickle": cmd_continue,
     "muster": cmd_continue,
+    "wake": cmd_continue,
     "revive": cmd_revive,
     "mirror": cmd_mirror,
     "retire": cmd_retire,
