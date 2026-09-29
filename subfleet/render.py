@@ -192,7 +192,18 @@ _HOLD_TEXT = {
                        "attempt, never run (C-24.7)",
     "route-moved": "its route could not be settled in {tries} reservations in a row (commits changed it, or its "
                    "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
+    "machine-busy": "the machine is saturated ({machine}) and the guard holds {class} jobs at the door until it "
+                    "is not; admission.machine_guard sets the thresholds (C-6.13)",
 }
+
+
+def _machine(hold: Mapping[str, Any]) -> str:
+    """What the machine guard read, for `machine-busy`."""
+    parts = [f"load {hold['load_per_cpu']} per CPU, threshold {hold['load_threshold']}"
+             if hold.get("load_per_cpu") is not None else "",
+             f"memory pressure {hold['memory_pressure']}, threshold {hold['memory_threshold']}"
+             if hold.get("memory_pressure") is not None else ""]
+    return "; ".join(part for part in parts if part) or "busy"
 
 
 def _blocked(hold: Mapping[str, Any]) -> str:
@@ -226,19 +237,21 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
-            # C-26.9: FIFO on a lease; nothing holds it, an older turn is waiting for it.
-            template = "a lease this job needs is kept for an older turn that is waiting for it: {queued}"
+            # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
+            template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
                       "queued": ", ".join(hold.get("queued", ())) or "-",
-                      "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold)}
+                      "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
+                      "machine": _machine(hold)}
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries"), "?"), **{k: v for k, v in fields.items() if v is not None}}))
+                 "conversation_id", "native_session_id", "tries", "class"), "?"),
+                **{k: v for k, v in fields.items() if v is not None}}))
             if reason == "lease-held" and hold.get("queued_behind"):
-                # C-26.9: FIFO on a lease; a lease an older turn waits for is kept for it.
+                # C-6.9, C-26.9: FIFO on a lease; a lease an older job waits for is kept for it.
                 lines.append("Queued behind: " + ", ".join(hold["queued_behind"])
-                             + " (an older turn waiting for " + ", ".join(hold.get("queued") or ["the same lease"])
+                             + " (an older job waiting for " + ", ".join(hold.get("queued") or ["the same lease"])
                              + " takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")

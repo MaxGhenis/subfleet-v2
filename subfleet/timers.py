@@ -15,6 +15,7 @@ import time
 from uuid import uuid4
 
 from . import capacity
+from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
@@ -39,6 +40,10 @@ class Timers:
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # C-10.3: whether Claude Code is using the desktop login now, a callable the
+        # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
+        # in use, as a view without the signal does.
+        self.desktop_in_use = None
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -525,7 +530,12 @@ class Timers:
         with self.store.snapshot():
             rows = capacity.store_rows(self.store)
             extra = self.view_rows(rows['lanes'])
-        view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
+        # C-10.3: the published capacity (status.json) judges the desktop lane as
+        # admission does (review of PR #72's plan: without the signal it read the
+        # lane excluded while admission placed work there).
+        in_use = self.desktop_in_use() if self.desktop_in_use is not None else None
+        view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
+                                   desktop_in_use=in_use)
         return self.enrich_view(view, extra)
 
     def view_rows(self, lanes=()):
@@ -585,12 +595,15 @@ class Timers:
                         reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))]
             headroom_ok = override or not any(r['utilization'] >= 1 - self.policy.get('headroom_floor', .15) for r in measured if r['scope'] == 'account')
             caps = self.policy.get('caps', {})
-            slot_cap = caps.get('max_in_flight_per_lane', 2) if measured and not override else min(caps.get('max_in_flight_per_lane', 2), caps.get('max_in_flight_unmeasured', 1))
-            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
+            # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
+            # login's lane is dispatchable while Claude Code is not using it.
+            slot_cap = lane_slot_cap(caps, bool(measured) and not override)
+            fleet_cap = policy_cap(caps, 'max_active_attempts')
+            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
-                                       row['in_flight'] < slot_cap and
-                                       sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < caps.get('max_active_attempts', 4))
+                                       (slot_cap is None or row['in_flight'] < slot_cap) and
+                                       (fleet_cap is None or sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < fleet_cap))
         return view
 
     def probe_cycle(self):
@@ -600,20 +613,28 @@ class Timers:
         self._identities()
         futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
-        results = [value for future in as_completed(futures) if (value := future.result())]
-        if self.cancel.is_set():
-            for holder, quarantined in self._probe_holders.values():
-                self._release(holder, quarantined=quarantined)
-            self._probe_holders.clear()
-            return
-        # All homes heal before any cycle reading/verdict is published.
+        # Every holder this cycle took is released, whatever raised: one lane's
+        # failure must not leave another lane's `slot:0` held until a restart
+        # (review of PR #72). All homes heal before any cycle reading or verdict
+        # is published.
+        results, failure = [], None
         try:
+            for future in as_completed(futures):
+                try:
+                    if (value := future.result()):
+                        results.append(value)
+                except Exception as exc:           # re-raised once every holder is released
+                    failure = failure or exc
+            if self.cancel.is_set():
+                return
             for lane, probe in results:
                 self._persist(lane, probe)
         finally:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)
             self._probe_holders.clear()
+        if failure is not None:
+            raise failure
         self._cycle_error = next((p['error_type'] for _, p in results if p.get('error_type')), None)
         codex = [p for lane, p in results if lane.provider == 'codex']
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
