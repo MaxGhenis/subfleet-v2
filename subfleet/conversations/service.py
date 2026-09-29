@@ -707,9 +707,16 @@ class ConversationService:
                                   (message["conversation_id"],))
             if into is not None and (host is None or host["message_id"] != into):
                 raise ConversationError("no-live-turn", "the turn it was steered into has ended", code=7)
-            runner = self._runner_for_message(host["message_id"]) if host else None
+            if host is None:
+                raise ConversationError("no-live-turn", "the conversation has no live turn", code=7)
+            runner = self._runner_for_message(host["message_id"])
             if runner is None:
-                raise ConversationError("no-live-turn", "the conversation has no live turn with a runner", code=7)
+                # The turn is live, but no runner has it yet (the daemon is taking it back
+                # after a restart) or any more (it is settling): it cannot take a steer at
+                # this moment, which a client may ask again about (C-29.7), rather than
+                # hear that the turn it steered into has ended.
+                raise ConversationError("not-steerable", "the running turn has no runner to take a steer now",
+                                        code=7)
             if not runner.steerable:
                 raise ConversationError("not-steerable", "the provider cannot take a steer now", code=7)
             self.store.claim_steer(mid, host["message_id"])

@@ -85,11 +85,17 @@ def test_a_later_message_may_steer_but_a_repair_message_goes_first(svc, live):
     assert svc.store.message(mid)["state"] == "queued"
 
 
-@pytest.mark.parametrize("change,reason", [("no-runner", "no-live-turn"), ("ended", "not-steerable"),
-                                            ("not-queued", "not-queued"), ("narrow", "settings-narrower")])
+@pytest.mark.parametrize("change,reason", [("no-host", "no-live-turn"), ("no-runner", "not-steerable"),
+                                            ("ended", "not-steerable"), ("not-queued", "not-queued"),
+                                            ("narrow", "settings-narrower")])
 def test_claim_refusals_leave_message_unchanged(svc, live, change, reason):
-    _, _, mid, runner = live
-    if change == "no-runner":
+    """A live host whose runner the daemon has not taken back yet (after a restart) is
+    `not-steerable`, which the app asks again about; `no-live-turn` means no turn runs."""
+    _, host, mid, runner = live
+    if change == "no-host":
+        svc.store.set_state(host, "complete")
+        svc.runners.clear()
+    elif change == "no-runner":
         svc.runners.clear()
     elif change == "ended":
         runner.steerable = False
