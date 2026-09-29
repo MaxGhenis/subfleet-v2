@@ -41,8 +41,10 @@ def quiet_claude(tmp_path):
         send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}})
         assert receive()["response"]["subtype"] == "success"
         send({"type": "user", "uuid": "one", "message": {"role": "user", "content": "[fake:quiet-slow]"}})
-        assert receive()["type"] == "user"
-        assert receive()["type"] == "system"
+        # The fake announces the message's lifecycle before replaying it, as Claude Code
+        # 2.1.280 does with msg_lifecycle_v1 (taught to the fake by the steer branch).
+        assert [(row["type"], row.get("state")) for row in (receive() for _ in range(4))] == [
+            ("command_lifecycle", "queued"), ("command_lifecycle", "started"), ("user", None), ("system", None)]
         yield process, send, receive
     finally:
         if process.poll() is None:

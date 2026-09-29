@@ -132,7 +132,11 @@ class TurnRunner:
         self.handshake_done_once = False
         self.relay_failed = False
         self.handshaken = False
-        self.optional_ack_lost = False
+        # The first turn's title (titles.py) is optional metadata kept out of the
+        # outbox: `_send_title` writes it when nothing of the turn waits.
+        self.title_asked = False               # this runner's one title request was decided
+        self.title_cancel: Frame | None = None  # its scoped cancellation, once the budget ran out
+        self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
         self.relay_version: int | None = None
         self.resends = 0                       # consecutive unacknowledged sends of the head frame
         self.resend_at = 0.0
@@ -551,11 +555,6 @@ class TurnRunner:
                                      expect=("steering",))
         for frame in step.frames:
             self.outbox.append(frame)
-        if (self.spec.provider == "claude" and not self.replayed_message and not self.ended
-                and self.recorded is None and any(frame.tag == USER_FRAME for frame in step.frames)):
-            title = self.title.request(self.spec.text)
-            if title is not None:
-                self.outbox.append(title)
         for approval in step.approvals:
             self._flush()
             self.store.add_approval(message_id=self.message_id, conversation_id=self.conversation_id,
@@ -659,6 +658,11 @@ class TurnRunner:
             self.resend_at = self.clock() + RESEND_BASE_S * 2 ** (self.resends - 1)
 
     def _send_outbox(self) -> None:
+        self._send_frames()
+        if not self.outbox:
+            self._send_title()
+
+    def _send_frames(self) -> None:
         while self.outbox:
             if self.relay_failed:
                 self._discard_steers("relay-failed")
@@ -667,11 +671,8 @@ class TurnRunner:
             if self.resends and self.clock() < self.resend_at:
                 return                          # IR-27: the next try waits its turn
             if self.optional_ack_lost:
-                if self.outbox[0].tag in (TITLE_FRAME, TITLE_CANCEL_FRAME):
-                    self.outbox.pop(0)            # skip optional writes with an uncertain sequence
-                    continue
-                # Keep reading stdout after a lost title ack. Resynchronize only
-                # when a real turn control needs the channel, not for the title.
+                # A title write went unanswered, so its number may be taken. Stdout
+                # was read meanwhile; the turn's next frame resynchronizes first.
                 self.optional_ack_lost = False
                 self.handshaken = False
             if not self._handshake():
@@ -727,20 +728,14 @@ class TurnRunner:
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
         try:
-            ack = self._send_frame(frame)
+            if frame.op == "signal":
+                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
+            else:
+                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
         except FrameTooLarge as exc:
-            if frame.tag in (TITLE_FRAME, TITLE_CANCEL_FRAME):
-                self.outbox.pop(0)            # optional metadata cannot refuse a turn
-                return True
             self._refuse_frame(frame, exc)
             return True
         except RelayError as exc:
-            if frame.tag in (TITLE_FRAME, TITLE_CANCEL_FRAME):
-                # A lost optional acknowledgement is reconciled before the next
-                # ordinary frame. Do not retry the title or stop the person's turn.
-                self.outbox.pop(0)
-                self.optional_ack_lost = True
-                return False
             if frame.tag == USER_FRAME:
                 self.handover_tried = True    # the relay may have logged it: `_handover_verdict` asks
             if frame.tag.startswith("steer:"):
@@ -761,36 +756,63 @@ class TurnRunner:
                 self.next_seq += 1
             self.outbox.pop(0)
             return True
-        if frame.tag in (TITLE_FRAME, TITLE_CANCEL_FRAME):
-            self.outbox.pop(0)
-            self.optional_ack_lost = True
-            return False
         # conflict, failed, closed, gap, peer-refused: nothing more is written.
         self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
         return False
 
-    def _send_frame(self, frame: Frame):
-        """Optional metadata gets one short relay-ack budget, never the turn's 30 s.
+    def _title_closed(self) -> bool:
+        """No title frame may be written any more: this is not the first Claude turn
+        this runner handed its message over for, or the turn was stopped, cancelled,
+        closed or ended (a stop's own frames still go; a title never does)."""
+        return (self.spec.provider != "claude" or self.replayed_message or self.recorded is not None
+                or self.ended or self.withheld or self.relay_failed or self.frame_refused is not None
+                or self.stop_reason is not None or self.stop_at is not None or self.driver.outcome is not None
+                or getattr(self.driver, "interrupt_requested", False) or "close" in self.sent
+                or any(frame.op == "close" for frame in self.outbox))
 
-        The relay normally acknowledges the pipe write immediately, independently
-        of the title API. If that ack is lost, the runner resumes stdout polling;
-        its next ordinary control reconstructs the sequence from the relay log.
+    def _send_title(self) -> None:
+        """Write the first turn's title request, or its cancellation after the budget.
+
+        Optional metadata (titles.py), so it yields to everything else: it goes
+        only when no frame of the turn waits and once the provider has taken the
+        message this runner handed over, and never after a stop, a cancel, a close
+        or an outcome, recorded or asked for. It takes no handover lock, so no stop
+        is recorded behind it. A refused or unanswered write is never retried and
+        never closes stdin or fails the relay: the turn's next frame resynchronizes
+        first (`_send_frames`). It uses only the relay's `send`.
         """
-        optional = frame.tag in (TITLE_FRAME, TITLE_CANCEL_FRAME)
-        timeout = self.relay.timeout_s
+        if self.title_asked and self.title_cancel is None:
+            return
+        if self._title_closed() or self.optional_ack_lost:
+            self.title_asked, self.title_cancel = True, None
+            return
+        if (self.outbox or not self.handshaken or self.sent.get(USER_FRAME) != "written"
+                or not getattr(self.driver, "accepted", False)):
+            return                              # not yet: considered again at the next send
+        row = self.store.one("SELECT stop_requested_at FROM messages WHERE message_id=?", (self.message_id,))
+        if row and row["stop_requested_at"]:
+            self.title_asked, self.title_cancel = True, None
+            return
+        if self.title_asked:
+            frame, self.title_cancel = self.title_cancel, None
+        else:
+            self.title_asked = True
+            frame = self.title.request(self.spec.text)   # claims the conversation's one request
+            if frame is None:
+                return
         try:
-            if optional:
-                self.relay.timeout_s = 0.1
-                if self.relay._sock is not None:
-                    self.relay._sock.settimeout(0.1)
-            if frame.op == "signal":
-                return self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
-            return self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
-        finally:
-            if optional:
-                self.relay.timeout_s = timeout
-                if self.relay._sock is not None:
-                    self.relay._sock.settimeout(timeout)
+            ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
+        except FrameTooLarge:
+            self.title.deadline = None          # nothing reached the relay: nothing to cancel
+            return
+        except RelayError:
+            self.optional_ack_lost = True
+            return
+        if ack.ok:
+            self.sent[frame.tag] = "written"
+            self.next_seq += 1
+        else:
+            self.optional_ack_lost = True       # the relay's log, read at the next handshake, decides
 
     def _handover_verdict(self) -> str:
         """Whether the message frame at the head of the outbox may be handed over
@@ -888,8 +910,8 @@ class TurnRunner:
         else:
             self.steer_wait_since = None
         cancellation = self.title.expire()
-        if cancellation is not None and self.driver.outcome is None and not self.relay_failed:
-            self.outbox.append(cancellation)
+        if cancellation is not None:
+            self.title_cancel = cancellation    # `_send_title` writes it only if still allowed
         if getattr(self.driver, "idle_pending", False) and self.driver.outcome is None:
             if self.idle_since is None:
                 self.idle_since = now

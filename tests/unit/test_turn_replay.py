@@ -96,6 +96,8 @@ class World:
         until(lambda: self.logged() == ["init", "user-message", "settings"], "the message frame")
         self.say(json.dumps({"type": "command_lifecycle", "command_uuid": self.mid, "state": "started"}))
         until(lambda: runner.driver.accepted and self.svc.store.message(self.mid)["state"] == "running", "acceptance")
+        # The first turn's title request follows the provider's acceptance (titles.py).
+        until(lambda: self.logged() == ["init", "user-message", "settings", "session-title"], "the title request")
 
     def restart(self):
         self.svc.close()
@@ -146,6 +148,7 @@ def test_a_stop_whose_interrupt_was_written_settles_stopped_across_a_restart(wor
         until(lambda: runner.handshaken and runner.driver.accepted, "the replay")
     assert world.settle(runner, result=result) == ("interrupted", "stopped")
     assert world.logged().count("interrupt") == 1
+    assert world.logged().count("session-title") == 1      # a replay never asks for the title again
 
 
 @pytest.mark.parametrize("chunk", [None, 16], ids=["whole", "in-16-byte-reads"])
@@ -169,6 +172,7 @@ def test_a_stop_recorded_after_close_stopped_the_runner_is_sent_by_the_next_daem
     until(lambda: "interrupt" in world.logged(), "the next daemon's interrupt", timeout=5)
     assert world.settle(runner, result=False) == ("interrupted", "stopped")
     assert world.logged().count("interrupt") == 1
+    assert world.logged().count("session-title") == 1      # a replay never asks for the title again
 
 
 @pytest.mark.parametrize("large_init", [False, True], ids=["16-byte-chunks", "large-init-default-chunk"])
@@ -184,6 +188,8 @@ def test_a_legacy_stop_waits_for_the_delivered_turn_to_replay(world, monkeypatch
     until(lambda: world.logged() == ["init", "user-message", "settings"], "the message frame")
     world.say(json.dumps({"type": "command_lifecycle", "command_uuid": world.mid, "state": "started"}))
     until(lambda: first.driver.accepted, "acceptance")
+    # The first turn's title request follows acceptance; the replay never sends it again.
+    until(lambda: world.logged() == ["init", "user-message", "settings", "session-title"], "the title request")
     world.restart()
     cid = world.svc.store.message(world.mid)["conversation_id"]
     world.svc.store.set_legacy_hold(cid, "the legacy cockpit owns the session")
@@ -191,7 +197,7 @@ def test_a_legacy_stop_waits_for_the_delivered_turn_to_replay(world, monkeypatch
         monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
     replay = world.runner()
     until(lambda: "interrupt" in world.logged() or "close" in world.logged(), "the legacy stop")
-    assert world.logged() == ["init", "user-message", "settings", "interrupt"]
+    assert world.logged() == ["init", "user-message", "settings", "session-title", "interrupt"]
     assert replay.driver.accepted
     world.say(RECEIPT, ABORTED)
     assert world.settle(replay, result=True) == ("interrupted", "stopped")
@@ -262,12 +268,14 @@ def test_a_recorded_model_mismatch_still_sends_its_interrupt_on_replay(world, mo
     assert first.join(60)
     recorded = json.loads((world.adir / "turn.json").read_text())
     assert (recorded["state"], recorded["reason"], recorded["ended_by"]) == ("failed", "model-mismatch", "driver")
-    assert world.logged() == ["init", "user-message", "settings"]
+    # The first turn's title request follows the provider's acceptance (titles.py).
+    assert world.logged() == ["init", "user-message", "settings", "session-title"]
     world.restart()
     monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", write_outcome)
     replay = world.runner()
     until(lambda: "close" in world.logged(), "the replay's close")
-    assert world.logged() == ["init", "user-message", "settings", "interrupt", "close"]
+    # The first runner's title request, after acceptance; the replay never sends another.
+    assert world.logged() == ["init", "user-message", "settings", "session-title", "interrupt", "close"]
     assert replay.stop_at is None and "late" not in replay.escalated     # not the late SIGINT's doing
     world.say(RECEIPT, ABORTED)
     assert world.settle(replay, result=True) == ("failed", "model-mismatch")
@@ -283,6 +291,10 @@ def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypa
     row is read again) never writes it; its close still goes."""
     first = world.runner()
     world.deliver(first)
+    # The first runner never writes the answer. Its own catch-up of answered approvals
+    # (`_sync_answers`, after each stdout line) would, on a loaded machine, find the answer
+    # stored below while it is still applying the request's line.
+    monkeypatch.setattr(first, "_sync_answers", lambda: None)
     world.say(ASK)
     until(lambda: world.svc.store.approvals(message_id=world.mid), "the approval")
     [approval] = world.svc.store.approvals(message_id=world.mid)
@@ -298,7 +310,8 @@ def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypa
     world.say(ABORTED)
     assert first.join(60)
     assert json.loads((world.adir / "turn.json").read_text())["state"] == "failed"
-    assert world.logged() == ["init", "user-message", "settings"]
+    # The first turn's title request follows the provider's acceptance (titles.py).
+    assert world.logged() == ["init", "user-message", "settings", "session-title"]
     world.restart()
     monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", write_outcome)
     monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
@@ -314,7 +327,8 @@ def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypa
     replay = world.runner()
     until(lambda: "close" in world.logged(), "the replay's close")
     assert rebuilt == [f"approval:{approval['provider_request_id']}"]     # the replay did rebuild it
-    assert world.logged() == ["init", "user-message", "settings", "close"]
+    # The first runner's title request, after acceptance; the replay never sends another.
+    assert world.logged() == ["init", "user-message", "settings", "session-title", "close"]
     assert world.settle(replay, result=True)[0] == "failed"
 
 
@@ -360,7 +374,8 @@ def test_replay_waits_for_status_to_confirm_a_user_frame_missing_from_its_first_
     assert replay.driver.outcome.state == "complete"
     assert world.settle(replay, result=True) == ("complete", None)
     assert len(statuses) >= 2
-    assert world.logged() == ["init", "user-message", "settings", "close"]
+    # The first runner's title request, after acceptance; the replay never sends another.
+    assert world.logged() == ["init", "user-message", "settings", "session-title", "close"]
 
 
 @pytest.mark.parametrize("stop", ["legacy", "person", "during-handshake", "during-successful-status"])
@@ -401,7 +416,8 @@ def test_a_stale_initial_log_cannot_withhold_a_turn_the_relay_already_received(w
     monkeypatch.setattr(runner_module, "READ_CHUNK", 16)
     replay = world.runner()
     until(lambda: "interrupt" in world.logged() or "close" in world.logged(), "the reconstructed turn's stop")
-    assert world.logged() == ["init", "user-message", "settings", "interrupt"]
+    # The first runner's title request, after acceptance; the replay never sends another.
+    assert world.logged() == ["init", "user-message", "settings", "session-title", "interrupt"]
     assert replay.driver.accepted
     world.say(RECEIPT, ABORTED)
     assert world.settle(replay, result=True) == ("interrupted", "stopped")
