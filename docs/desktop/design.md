@@ -1017,6 +1017,13 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   tool call`, or `Running <tool>` while a tool call is open) and
   counts up the seconds since that began: a long think or a slow tool reads
   as work, not as a hang (Max, 2026-09-24: two silent minutes read as broken).
+- A waiting message's strip is its `state_reason`, `<kind>: <detail>`, in
+  words (C-24.4, 2026-09-29): what admission's last turn pass found (the job
+  and conversation holding a lease, closed lanes and their first reset,
+  lanes' other reasons), and "Waiting for capacity" only for `capacity:`. A
+  message with no reason reads as such, never as capacity: on 2026-09-28
+  four messages read "Waiting for capacity" for hours while another
+  conversation's turn held their folder.
 - A conversation whose Claude session a live process outside Subfleet holds
   (`live_elsewhere` on every conversation view, from the last catalog run if
   it is fresh) shows D-17's words above the composer: open in the Claude app

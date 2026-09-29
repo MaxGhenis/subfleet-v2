@@ -225,6 +225,27 @@ func diffUnavailableWords(_ result: DiffResult) -> String {
     }
 }
 
+/// C-26.14 (2026-09-29): conversations share folders, so a diff never claims one
+/// conversation made it. When other conversations' turns wrote in the folder while
+/// this turn ran (or since the conversation's first turn), the pane says so above
+/// the diff; nil when none did or the daemon is older than the field.
+func diffSharedWords(_ result: DiffResult) -> String? {
+    guard let shared = result.shared, !shared.isEmpty else { return nil }
+    let names = shared.map { sharer -> String in
+        let name = sharer.title.map { "\u{201C}\($0)\u{201D}" } ?? "an untitled conversation"
+        return sharer.to == nil ? "\(name) (still running)" : name
+    }
+    let who: String
+    switch names.count {
+    case 1: who = names[0]
+    case 2: who = "\(names[0]) and \(names[1])"
+    default: who = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+    let when = result.message_id == nil ? "since this conversation's first turn began" : "during this turn"
+    let whose = shared.count == 1 ? "its" : "their"
+    return "This folder was also changed by \(who) \(when); the diff may include \(whose) edits."
+}
+
 /// What the Changes pane shows: a whole conversation, or one turn of it.
 enum ChangesScope: Hashable {
     case conversation(String)

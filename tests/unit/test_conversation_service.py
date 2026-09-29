@@ -833,7 +833,7 @@ def test_a_refusal_that_may_pass_keeps_the_message_waiting_with_a_reason_and_a_b
     assert len(svc.daemon.submits) == 3
     # I3: the deferral is over once the job exists; the message says it waits for admission.
     assert message["state"] == "waiting" and message["job_id"] == "job-3"
-    assert message["state_reason"] == "admission: submitted; waiting for the daemon to place it"
+    assert message["state_reason"] == "admission: sent to the daemon, which has not placed it yet"
 
 
 def test_the_backoff_is_capped(svc):
@@ -976,7 +976,7 @@ def test_a_claude_turn_waits_while_another_process_holds_its_session(svc, monkey
     svc._dispatch()
     message = svc.store.message(mid)
     assert (message["state"], message["state_reason"], message["job_id"]) == (
-        "waiting", "admission: submitted; waiting for the daemon to place it", "job-1")      # I3
+        "waiting", "admission: sent to the daemon, which has not placed it yet", "job-1")      # I3
     assert svc.daemon.submits[-1].request_id == f"turn:{mid}:0"
     # A stop while held withdraws it; nothing is submitted.
     other = conversation(svc, origin="native", native_session_id="s-other")
@@ -1348,7 +1348,7 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
     so far. No relay listens, so nothing is sent (the runner retries its handshake)."""
     cid = conversation(svc)
     mid = submit(svc, cid)
-    svc.store.set_state(mid, "waiting", reason="admission: submitted; waiting for the daemon to place it")
+    svc.store.set_state(mid, "waiting", reason="admission: sent to the daemon, which has not placed it yet")
     attempt_id = turn_attempt(svc, mid, state="running", n=n)
     job = svc.root / "jobs" / attempt_id.split("/")[0]
     adir = job / "a1"
@@ -2072,7 +2072,7 @@ def test_retention_pins_name_the_turn_jobs_a_conversation_still_needs(svc):
     live = submit(svc, live_cv)
     job("live-0", f"turn:{live}:0", f"turn-{live_cv}")
     job("live-1", f"turn:{live}:1", f"turn-{live_cv}")
-    svc.store.set_state(live, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id="live-1", turn_seq=1)
+    svc.store.set_state(live, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id="live-1", turn_seq=1)
     settled = submit(svc, blocked_cv)
     job("blocked-0", f"turn:{settled}:0", f"turn-{blocked_cv}")
     svc.store.set_state(settled, "failed")

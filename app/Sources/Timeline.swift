@@ -163,13 +163,7 @@ struct TurnTimeline: Equatable {
     var statusText: String {
         switch messageState {
         case .queued: return "Queued behind the current turn"
-        case .waiting:
-            if let reason = stateReason, reason.contains("external-writer") {
-                // C-26.3, D-17: another Claude process holds the session.
-                return "Waiting: open in the Claude app or a terminal; close it there to continue here"
-            }
-            if let reason = stateReason, !reason.isEmpty { return "Waiting: \(reason)" }
-            return "Waiting for capacity"
+        case .waiting: return TurnTimeline.waitingWords(stateReason)
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
             if stopping { return "Stopping" }
@@ -197,6 +191,36 @@ struct TurnTimeline: Equatable {
         case .deliveryUnknown: return "Delivery unknown: choose whether it was delivered"
         case .unknown: return "Not received by the daemon"
         case nil: return state == "sending" ? "Sending" : state
+        }
+    }
+
+    /// C-24.4, C-29.11 (I3): a waiting message's `state_reason`, `<kind>: <detail>`,
+    /// in the person's words. Only a `capacity` reason reads as waiting for
+    /// capacity: on 2026-09-28 four messages read "Waiting for capacity" for hours
+    /// while another conversation's turn held their folder and lanes were free.
+    static func waitingWords(_ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else {
+            // A daemon from before 2026-09-29 left a bound message's reason empty.
+            return "Waiting; the daemon has not said why"
+        }
+        if reason.contains("external-writer") {
+            // C-26.3, D-17: another Claude process holds the session.
+            return "Waiting: open in the Claude app or a terminal; close it there to continue here"
+        }
+        if reason == "dispatching" { return "Sending to the daemon" }
+        if reason.hasPrefix("readmit:") {
+            return "Waiting to be sent again (\(reason.dropFirst("readmit:".count)))"
+        }
+        guard let split = reason.range(of: ": ") else { return "Waiting: \(reason)" }
+        let kind = reason[..<split.lowerBound]
+        let detail = String(reason[split.upperBound...])
+        switch kind {
+        case "capacity": return "Waiting for capacity: \(detail)"
+        case "placed": return "Starting the provider"
+        case "deferred": return "Waiting to be sent again: \(detail)"
+        case "lease", "closed", "usage-unknown", "no-lane", "blocked", "workspace", "route", "admission":
+            return "Waiting: \(detail)"
+        default: return "Waiting: \(reason)"
         }
     }
 }

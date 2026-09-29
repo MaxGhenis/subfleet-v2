@@ -524,6 +524,13 @@ struct ChangesPane: View {
             } else if result.files.isEmpty {
                 PaneNote(text: "No changes.", symbol: "checkmark.circle")
             } else {
+                if let shared = diffSharedWords(result) {
+                    // C-26.14: another conversation wrote in this folder meanwhile.
+                    Label(shared, systemImage: "person.2")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10).padding(.top, 6)
+                }
                 ForEach(diffNotes(result), id: \.self) { note in
                     Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.top, 6)

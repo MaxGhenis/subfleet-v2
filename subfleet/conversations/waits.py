@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 #: A job bound to its message, before admission's first look at it.
-SUBMITTED = "admission: submitted; waiting for the daemon to place it"
+SUBMITTED = "admission: sent to the daemon, which has not placed it yet"
 #: Placed: an attempt is reserved and its provider is being started.
 PLACED = "placed: starting the provider"
 
@@ -196,8 +196,8 @@ def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],
     if reason == "probe-pending":
         return "admission: its lane is being probed before it may start there"
     if reason in ("approval", "uncertain"):
-        return ("admission: waiting for an operator's approval" if reason == "approval" else
+        return ("admission: an operator's approval is needed" if reason == "approval" else
                 "admission: a probe was quarantined; an operator must resolve it")
     if reason in ("waiting", "not-evaluated"):
-        return "admission: waiting for the daemon's next look"
+        return "admission: the daemon looks at it again shortly"
     return lanes_reason(hold.get("lanes"), reason)

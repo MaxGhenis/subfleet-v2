@@ -157,3 +157,35 @@ def test_the_parser_reads_lines_that_look_like_headers_inside_a_hunk(core_probe,
 def write_text(path: Path, text: str) -> Path:
     path.write_text(text)
     return path
+
+
+def test_c26_14_the_pane_says_who_else_wrote_in_the_folder(core_probe, tmp_path, harness):
+    """I4 in the app: a turn's diff whose folder another conversation's turn wrote in
+    meanwhile is labelled with that conversation's title (and whether it still runs);
+    the whole conversation's diff says since when; a diff no other turn met, or from a
+    daemon without the field, says nothing of the kind."""
+    cid, mid = turn(harness)
+    change_everything(harness.workspace)
+    head, tree = turn_diff.snapshot(harness.workspace)
+    harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
+                               head_after=head, end_tree=tree, ended=True)
+    alone = harness.call("turn.diff", message_id=mid)
+    assert alone["shared"] == []
+    words = lambda result: run_probe(core_probe, "diff-words", write_json(tmp_path / "r.json", result))  # noqa: E731
+    assert words(alone)["shared"] is None
+    del alone["shared"]
+    assert words(alone)["shared"] is None                       # an older daemon's answer
+    for n, title in enumerate(("Scratch", None)):
+        other = harness.create(title=title)["conversation_id"]
+        other_mid = harness.submit(other, "beside")["message_id"]
+        harness.store.record_trees(attempt_id=f"j-{n + 2}/a1", message_id=other_mid, conversation_id=other,
+                                   workspace=str(harness.workspace), writable=True,
+                                   started_at="2026-09-25T10:00:01Z", head_before=head, start_tree=tree,
+                                   ended=n == 1)
+    shared = harness.call("turn.diff", message_id=mid)
+    assert words(shared)["shared"] == ("This folder was also changed by “Scratch” (still running) and an "
+                                       "untitled conversation during this turn; the diff may include their edits.")
+    whole = harness.call("conversation.diff", conversation_id=cid)
+    assert words(whole)["shared"].endswith("since this conversation's first turn began; the diff may include "
+                                           "their edits.")
