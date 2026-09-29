@@ -51,7 +51,7 @@ from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model
 from .retention import maintenance
 from .salvage import (
-    SalvageError, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
+    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
     utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions.registry import CONVERSATION_FIX
@@ -126,6 +126,14 @@ SALVAGE_TRIES = 3
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+
+
+def _skipped(paths: list[str]) -> dict:
+    """C-13.1: what the evidence records of the paths a snapshot left out: how
+    many, and the first `SALVAGE_SKIPPED_SHOWN`."""
+    return {"count": len(paths), "paths": paths[:SALVAGE_SKIPPED_SHOWN]}
+
+
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -1396,7 +1404,15 @@ class Daemon:
                 # in it the job starts (the caller's place in the repository) are
                 # known now.
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
-                top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                try:
+                    top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                except SalvageError as exc:
+                    # C-6.8: exit 1 with nothing stored, as the checks above; only
+                    # the prompt has been written, under a job id nobody was given.
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
                 prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
@@ -2688,21 +2704,25 @@ class Daemon:
                     raise
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap)
-                    error = "could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}")
-                    if _transient_git(result.stderr):
+                    # A git killed by a signal did not finish, as a timed-out one did not.
+                    killed = _failure("worktree", result) if result.returncode < 0 else None
+                    error = "could not allocate worktree: " + (
+                        str(killed) if killed else result.stderr.strip()[-300:] or f"git exited {result.returncode}")
+                    if killed or _transient_git(result.stderr):
                         raise SalvageError(error, transient=True)
                     raise AdapterError(error, fix="check repository and state-root permissions")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
+        skipped: list[str] = []
         if head and job["sandbox"] == "workspace-write":
-            baseline = working_tree(workdir, head, timeout_s=cap)
+            baseline = working_tree(workdir, head, timeout_s=cap, left_out=skipped)
         elif head:
             baseline = git_tree(workdir, head, timeout_s=cap)
-        return workdir, head, baseline
+        return workdir, head, baseline, [path_text(path) for path in skipped]
 
     def _pin_baseline(self, job: dict, previous: list, workspace: str, head: str | None,
-                      baseline: str | None) -> dict | None:
+                      baseline: str | None, skipped: list[str] | tuple[str, ...] = ()) -> dict | None:
         """C-13.1: the salvage artifact holding the next attempt's start snapshot, when
         the job's last attempt's salvage failed; else None.
 
@@ -2712,6 +2732,9 @@ class Daemon:
         So it is held under `refs/subfleet-salvage/<job id>-a<seq>-baseline`
         before the attempt is reserved, and recorded as that attempt's artifact
         (role `salvage`), which retention keeps like any salvage ref (C-13.4).
+        What the snapshot left out (`skipped`, nested repositories with no
+        commit, which no ref can hold) is named in the `salvage.baseline_held`
+        event, as the attempt's evidence names it (`baseline_skipped`).
         A failure to hold it is C-6.8's, as the snapshot's own is: the job waits
         or fails, and nothing runs in the worktree meanwhile.
         """
@@ -2734,7 +2757,8 @@ class Daemon:
                 tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
                            (utcnow(), "salvage.baseline_held", job["job_id"], previous[-1]["attempt_id"],
                             json.dumps({"ref": ref, "commit": commit, "seq": seq,
-                                        "after": previous[-1]["attempt_id"]})))
+                                        "after": previous[-1]["attempt_id"],
+                                        **({"skipped": _skipped(skipped)} if skipped else {})})))
         return {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
 
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
@@ -3380,8 +3404,8 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             try:
-                workspace, head, baseline = self._workspace(job)
-                pinned = self._pin_baseline(job, previous, workspace, head, baseline)
+                workspace, head, baseline, skipped = self._workspace(job)
+                pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -3649,7 +3673,8 @@ class Daemon:
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
-                                    **({"baseline_ref": pinned["path"]} if pinned else {})}
+                                    **({"baseline_ref": pinned["path"]} if pinned else {}),
+                                    **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
                                     json.dumps(evidence), utcnow()))
@@ -4668,7 +4693,7 @@ class Daemon:
         # A receipt written before `skipped` had its own key lists them in the result.
         skipped = receipt.get("skipped", (result or {}).get("skipped")) or []
         if skipped:
-            evidence["salvage_skipped"] = {"count": len(skipped), "paths": skipped[:SALVAGE_SKIPPED_SHOWN]}
+            evidence["salvage_skipped"] = _skipped(skipped)
             self.log.warning("attempt %s salvage left out %d nested repositor%s with no commit, first %r",
                              a["attempt_id"], len(skipped), "y" if len(skipped) == 1 else "ies", skipped[0])
         if not result:

@@ -471,6 +471,41 @@ def test_c13_1_a_retry_after_a_failed_salvage_starts_from_a_held_snapshot(state_
     assert len(events(daemon, job_id, "salvage.baseline_held")) == 1
 
 
+
+def test_c13_1_a_held_baseline_names_the_repositories_its_snapshot_left_out(state_daemon, monkeypatch):
+    """Adversarial review of the round-3 branch: a1's salvage failed and it left a nested
+    repository with no commit beside its work. a2's start snapshot, the one admission holds,
+    leaves that repository out (no ref can hold one), and nothing said so, so a2 could
+    replace it with nobody told. The `salvage.baseline_held` event and a2's evidence
+    (`baseline_skipped`) name it; the held ref holds the rest of a1's work."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    empty_repository(workdir / "newpkg")
+    (workdir / "newpkg" / "module.py").write_text("A1_ONLY = True\n")
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    evidence = json.loads(a2["evidence_json"])
+    assert evidence["baseline_skipped"] == {"count": 1, "paths": ["newpkg/"]}
+    [held] = events(daemon, job_id, "salvage.baseline_held")
+    assert held["skipped"] == {"count": 1, "paths": ["newpkg/"]} and held["ref"] == evidence["baseline_ref"]
+    assert git(workdir, "show", f"{held['ref']}:new-by-a1.txt") == "a1 work"
+    assert (workdir / "newpkg" / "module.py").read_text() == "A1_ONLY = True\n"
+
+
+def test_c13_1_a_first_attempts_start_snapshot_names_what_it_left_out_too(state_daemon):
+    """Any writable attempt's evidence names what its start snapshot left out, with no held
+    baseline when no salvage failed before it."""
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    empty_repository(workdir / "scratch" / "empty")
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True))["job_id"]
+    daemon._admit()
+    [attempt] = daemon.store.list_attempts(job_id)
+    evidence = json.loads(attempt["evidence_json"])
+    assert evidence["baseline_skipped"] == {"count": 1, "paths": ["scratch/empty/"]}
+    assert "baseline_ref" not in evidence and events(daemon, job_id, "salvage.baseline_held") == []
+
+
 def test_c13_1_a_checkout_that_changes_while_the_retry_waits_keeps_the_first_held_snapshot(
         state_daemon, monkeypatch):
     """Review of 43b8bf29, F1: a retry is looked at on many admission passes before one

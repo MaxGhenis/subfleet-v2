@@ -57,6 +57,7 @@ from .contracts import (JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .salvage import GIT_LOCATION_ENV
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
@@ -2071,10 +2072,13 @@ def _daemond_argv(root: Path) -> list[str]:
 
 # The daemon outlives the shell that starts it, and by C-5.1 every guardian and
 # provider child inherits its environment. An API key or a session id picked up
-# from one terminal must not become the fleet's ambient environment (C-14.4).
+# from one terminal must not become the fleet's ambient environment (C-14.4), nor
+# a repository a git hook named (`GIT_DIR` and the rest): every git the daemon
+# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH")
+                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
+                *GIT_LOCATION_ENV, "GIT_INDEX_FILE")
 
 
 def daemon_env(root: Path) -> dict[str, str]:

@@ -240,12 +240,15 @@ def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
 
 def test_the_daemon_does_not_inherit_api_keys_or_a_session(root, monkeypatch):
     """C-14.4 the daemon outlives the shell, so it starts from a scrubbed env."""
-    for name in ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
-                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID"):
+    leaked = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
+              "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
+              # C-13.1: a repository a git hook named (a `daemon start` run from one).
+              "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")
+    for name in leaked:
         monkeypatch.setenv(name, "leaked")
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     env = cli.daemon_env(root)
-    assert not {name for name in env if name in cli.STRIPPED_ENV}
+    assert not {name for name in env if name in cli.STRIPPED_ENV or name in leaked}
     assert env["SUBFLEET_HOME"] == str(root)
     assert env["PATH"] == "/usr/bin:/bin"
 

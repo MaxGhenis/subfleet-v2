@@ -9,7 +9,9 @@ import pytest
 from subfleet import salvage as salvage_module
 from subfleet.daemon import SALVAGE_TRIES, TURN_TREE_TRIES
 from subfleet.salvage import SalvageError
-from tests.fake.test_salvage_finalization import empty_repository, finalizing, lane_leases
+from subfleet.adapters.registry import register
+from tests.fake.test_salvage_finalization import TransientAdapter, empty_repository, finalizing, lane_leases
+from tests.fake_adapter import FakeAdapter
 from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401
 from tests.fake.test_turn_trees import writable_turn
 from tests.unit.test_salvage import git
@@ -117,3 +119,31 @@ def test_full_disk_publishing_receipt_reuses_the_existing_salvage_ref(state_daem
     assert receipt["error"] is None
     assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage") == ref
     assert git(workdir, "show", f"{ref}:tracked.txt") == "provider progress"
+
+
+def test_a_tracked_file_replaced_by_an_empty_repository_is_salvaged_and_the_retry_admitted(state_daemon):
+    """Adversarial review of the round-3 branch, real git: `rm tracked.txt; git init
+    tracked.txt` beside new work. `ls-files -o` does not list `tracked.txt/`, so nothing
+    was excluded: the salvage failed for good, held nothing (the new work included), and
+    the job's retry failed at admission on the same snapshot. Now the salvage holds the
+    new work and the file's removal, leaves the repository out and says so, and the retry
+    is admitted."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    register("codex", TransientAdapter)
+    (workdir / "unrelated-work.txt").write_text("real work\n")
+    (workdir / "tracked.txt").unlink()
+    empty_repository(workdir / "tracked.txt")
+    daemon._finalize(attempt)
+    receipt = json.loads((adir / "salvage.json").read_text())
+    assert receipt["error"] is None and receipt["skipped"] == ["tracked.txt/"]
+    names = git(workdir, "ls-tree", "-r", "--name-only", receipt["result"]["ref"]).splitlines()
+    assert "unrelated-work.txt" in names and "tracked.txt" not in names
+    assert lane_leases(daemon) == [] and daemon.store.get_job(job_id)["state"] == "waiting"
+    daemon.store.update_job(job_id, next_check_at=None)
+    register("codex", FakeAdapter)
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    assert a2["state"] == "reserved"
+    assert json.loads(a2["evidence_json"])["baseline_skipped"] == {"count": 1, "paths": ["tracked.txt/"]}
+    assert (workdir / "tracked.txt" / "inside.txt").read_text() == "never committed\n"

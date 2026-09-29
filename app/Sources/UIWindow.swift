@@ -524,7 +524,9 @@ struct ChangesPane: View {
             } else if result.files.isEmpty {
                 // A nested repository the snapshot left out is still a change the
                 // pane cannot show, so "No changes." is not the whole answer.
-                PaneNote(text: (["No changes."] + diffNotes(result)).joined(separator: " "), symbol: "checkmark.circle")
+                let notes = diffNotes(result)
+                PaneNote(text: ([notes.isEmpty ? "No changes." : "No changes to show."] + notes).joined(separator: " "),
+                         symbol: notes.isEmpty ? "checkmark.circle" : "info.circle")
             } else {
                 ForEach(diffNotes(result), id: \.self) { note in
                     Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)

@@ -177,6 +177,39 @@ def test_one_under_an_ignored_directory_is_not_a_failure_to_begin_with(repositor
     assert "build" not in git(repository, "ls-tree", "--name-only", tree).splitlines()
 
 
+
+@pytest.mark.parametrize("seeded", [True, False], ids=["seeded-index", "empty-index"])
+def test_a_tracked_file_replaced_by_a_repository_with_no_commit_is_left_out(repository, monkeypatch, seeded):
+    """Adversarial review of the round-3 branch: `rm tracked.txt; git init tracked.txt`.
+    `ls-files -o` does not list `tracked.txt/` (the index still names `tracked.txt`), but
+    `add -A` records the file's removal and then refuses the directory, so the salvage
+    failed for good and the job's retry failed at admission. `diff-files` names the path;
+    its exclusion names only the directory, so the removal is still recorded. With the
+    real index as the seed or without (`_seed_index`), the tree is the same."""
+    if not seeded:
+        monkeypatch.setattr(salvage_module, "_seed_index", lambda *args, **kwargs: False)
+    baseline = git_head(repository)
+    (repository / "tracked.txt").unlink()
+    empty_repository(repository / "tracked.txt")
+    (repository / "new.txt").write_text("unrelated work\n")
+    result = salvage(repository, baseline, 1, timestamp="2026-09-29T09:00:00Z")
+    assert result is not None and result.skipped == ("tracked.txt/",)
+    assert git(repository, "ls-tree", "-r", "--name-only", result.ref).splitlines() == [".gitignore", "new.txt"]
+    assert working_tree(repository, baseline) == result.tree      # the retry's start snapshot, too
+    assert (repository / "tracked.txt" / "inside.txt").read_text() == "never committed\n"
+
+
+def test_a_tracked_file_replaced_by_a_committed_repository_still_fails_closed(repository):
+    """Only a repository whose HEAD does not resolve is left out: one with a commit where a
+    tracked file was is for `add -A` to judge, as before."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").unlink()
+    committed_repository(repository / "tracked.txt")
+    tree, skipped = snapshot_tree(repository, baseline)
+    assert skipped == ()
+    assert git(repository, "ls-tree", tree, "tracked.txt").startswith("160000 commit ")
+
+
 # --- every other failure fails as before (F1) ----------------------------------------
 
 
@@ -347,6 +380,9 @@ PERMANENT_STRERRORS = [os.strerror(code) for code in (errno.EACCES, errno.ENOENT
     # The index, likewise (`add`, `read-tree`; no errno either).
     b"fatal: unable to write new index file\n",
     b"fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes)\n",
+    # A reftable ref write that failed on a full disk: no errno either (adversarial review
+    # of the round-3 branch, reproduced with git 2.55 and RLIMIT_FSIZE).
+    b"fatal: update_ref failed for ref 'refs/subfleet-salvage/x': reftable: transaction failure: I/O error\n",
     *(f"error: unable to create temporary file: {text}\nfatal: adding files failed\n".encode()
       for text in TRANSIENT_STRERRORS),
 ])
@@ -411,6 +447,7 @@ NOT_GITS_OWN_LINE = st.tuples(
     st.text(st.characters(blacklist_characters="\n", blacklist_categories=("Cs",)), max_size=40),
     st.sampled_from([": " + text for text in TRANSIENT_STRERRORS] + [
         "Unable to create 'x.lock': File exists.", "cannot lock references", "couldn't write 'x.lock'",
+        "reftable: transaction failure: I/O error",
         "unable to write new index file", "write error. Out of diskspace"])).map("".join)
 
 
@@ -453,6 +490,31 @@ def test_git_is_read_in_its_own_words_whatever_the_daemons_locale(repository, mo
     with pytest.raises(SalvageError, match="File exists") as caught:
         salvage(repository, baseline, 1, timestamp="2026-09-27T19:19:12Z")
     assert caught.value.transient and "fatal:" in str(caught.value)
+
+
+
+def test_a_repository_the_daemons_environment_names_is_not_where_salvage_writes(repository, tmp_path_factory,
+                                                                                   monkeypatch):
+    """Adversarial review of the round-3 branch: with `GIT_DIR` (and the rest) inherited by
+    the daemon, as from a `subfleet daemon start` run in a git hook, git went to that
+    repository before `-C`: the salvage wrote its ref there and reported success. They
+    are dropped from every salvage call's environment; a caller's temporary index is kept."""
+    other = tmp_path_factory.mktemp("other")
+    git(other, "init", "-q")
+    for name, value in [("GIT_DIR", str(other / ".git")), ("GIT_WORK_TREE", str(other)),
+                        ("GIT_INDEX_FILE", str(other / ".git" / "index")),
+                        ("GIT_OBJECT_DIRECTORY", str(other / ".git" / "objects"))]:
+        monkeypatch.setenv(name, value)
+    env = salvage_module._git_env(None)
+    assert not set(env) & {*salvage_module.GIT_LOCATION_ENV, "GIT_INDEX_FILE"}
+    assert salvage_module._git_env({**os.environ, "GIT_INDEX_FILE": "/t/index"})["GIT_INDEX_FILE"] == "/t/index"
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    result = salvage(repository, baseline, 1, timestamp="2026-09-29T09:00:00Z")
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY"):
+        monkeypatch.delenv(name)
+    assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
+    assert git(other, "for-each-ref") == ""
 
 
 # --- names (F4) -------------------------------------------------------------------
@@ -526,6 +588,22 @@ def test_a_salvage_on_a_branch_whose_name_is_not_utf8_writes_its_ref(repository)
     (repository / "tracked.txt").write_text("provider progress\n")
     result = salvage(repository, baseline, 1, timestamp="2026-09-28T12:00:00Z")
     assert result.ref == "refs/subfleet-salvage/caf-20260928T120000Z-a1"
+    assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
+
+
+
+def test_a_branch_whose_sanitized_name_is_one_long_part_still_gets_its_ref(repository):
+    """Adversarial review of the round-3 branch: each part of `a/b/...` fits a file name,
+    but sanitized to one part (`a-b-...`) it did not, and `update-ref` failed on every
+    salvage from that branch. The branch part of the ref is cut to `BRANCH_SLUG_MAX`."""
+    baseline = git_head(repository)
+    branch = "/".join(["x" * 60] * 5)                          # 304 characters, five parts
+    git(repository, "checkout", "-q", "-b", branch)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    result = salvage(repository, baseline, 1, timestamp="2026-09-29T09:00:00Z")
+    name = result.ref.removeprefix("refs/subfleet-salvage/")
+    assert "/" not in name and name.endswith("-20260929T090000Z-a1")
+    assert len(name) + len("-") + 12 + len(".lock") <= 255     # `_hold`'s `-<tree>` and git's lock fit
     assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
 
 

@@ -6,6 +6,7 @@ import errno
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -40,12 +41,25 @@ TRANSIENT_ERRNOS = frozenset({
 #: ending a `hint:` or `warning:` line is not read as an error. `strerror`
 #: follows the host's wording, as git does (for example, EBUSY differs on
 #: Darwin and Linux); Python leaves LC_MESSAGES in the C locale.
+#: A reftable ref write that failed on a full disk names no errno either
+#: (`reftable: transaction failure: I/O error`), where the files backend's says
+#: `couldn't write '….lock'` (adversarial review of the round-3 branch).
 _TRANSIENT_STRERRORS = "|".join(re.escape(os.strerror(code)) for code in sorted(TRANSIENT_ERRNOS))
 _TRANSIENT_GIT = re.compile(
     r"^(?:error|fatal): (?:[^\n]*(?:Unable to create '[^\n]*\.lock': File exists\.?"
     rf"|: (?:{_TRANSIENT_STRERRORS})|write error\. Out of diskspace"
-    r"|couldn't write '[^\n]*\.lock'|cannot lock references)"
+    r"|couldn't write '[^\n]*\.lock'|cannot lock references"
+    r"|reftable: transaction (?:failure|prepare): I/O error)"
     r"|unable to write new index file|Out of memory, [^\n]*)$", re.M)
+
+#: Where git finds a repository, its objects and its index when the environment
+#: names them, before `-C` and before discovery. Inherited by the daemon (a
+#: `subfleet daemon start` run from a git hook passes its caller's environment
+#: through), every salvage call went to that repository instead: a salvage wrote
+#: its ref there and reported success (adversarial review of the round-3 branch).
+#: `_git_env` removes them; a temporary index a caller names is kept.
+GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
 
 
 class SalvageError(RuntimeError):
@@ -107,7 +121,9 @@ def _transient_git(stderr: str | bytes) -> bool:
 
 
 def _git_env(env: dict[str, str] | None) -> dict[str, str]:
-    """`env` (the daemon's own when None) with git's messages untranslated.
+    """`env` (the daemon's own when None) with git's messages untranslated and no
+    repository named by the environment (`GIT_LOCATION_ENV`; the daemon's own
+    `GIT_INDEX_FILE` too, where a caller's `env` names a temporary index).
 
     What git prints is read (`_transient_git`), and under another locale git
     translates its messages and even its `error:` and `fatal:` prefixes (review
@@ -115,10 +131,34 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     reported in German and not recognised). `LANGUAGE` is removed too, since
     gettext reads it before `LC_ALL` everywhere but under the C locale.
     """
-    env = dict(os.environ if env is None else env)
+    own = env is None
+    env = dict(os.environ if own else env)
+    for name in GIT_LOCATION_ENV + (("GIT_INDEX_FILE",) if own else ()):
+        env.pop(name, None)
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)
     return env
+
+
+def _failure(verb: str, result: subprocess.CompletedProcess) -> SalvageError | None:
+    """A finished git call's failure, or None when it exited 0.
+
+    A git killed by a signal (a negative return code: the kernel's memory-pressure
+    kill, or a signal sent to the daemon's process group) did not finish, so it
+    is transient, as a timeout is, and never an answer: read as "no HEAD" it
+    let a writable job past the main/master refusal (C-6.8, C-13.2; adversarial
+    review of the round-3 branch). Otherwise git's stderr decides (`_transient_git`).
+    """
+    if not result.returncode:
+        return None
+    if result.returncode < 0:
+        try:
+            name = signal.Signals(-result.returncode).name
+        except ValueError:
+            name = f"signal {-result.returncode}"
+        return SalvageError(f"git {verb} was killed by {name}", transient=True)
+    return SalvageError(f"git {verb} failed: {os.fsdecode(result.stderr).strip()}",
+                        transient=_transient_git(result.stderr))
 
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
@@ -142,15 +182,14 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
         if optional:
             return None
         raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}") from exc
-    if result.returncode:
-        transient = _transient_git(result.stderr)
-        # An optional lookup may answer "absent", but host pressure establishes
-        # nothing about HEAD or the checkout, just as a timed-out lookup does not.
-        if optional and not transient:
-            return None
-        raise SalvageError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}",
-                           transient=transient)
-    return os.fsdecode(result.stdout).strip()
+    failure = _failure(args[0], result)
+    if failure is None:
+        return os.fsdecode(result.stdout).strip()
+    # An optional lookup may answer "absent", but host pressure or a git that did
+    # not finish establishes nothing about HEAD or the checkout, as a timeout does not.
+    if optional and not failure.transient:
+        return None
+    raise failure
 
 
 def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
@@ -167,11 +206,12 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
         if transient_os_error(exc):
             raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
         return None
-    if result.returncode:
-        if _transient_git(result.stderr):
-            raise SalvageError(f"git {args[0]} failed: {os.fsdecode(result.stderr).strip()}", transient=True)
-        return None
-    return result.stdout
+    failure = _failure(args[0], result)
+    if failure is None:
+        return result.stdout
+    if failure.transient:
+        raise failure
+    return None
 
 
 def git_head(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
@@ -203,9 +243,13 @@ def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None
 
 
 def working_tree(workdir: str | Path, baseline_commit: str, *,
-                 timeout_s: float | None = None) -> str:
-    """The tree of `snapshot_tree`, for callers that need only the tree."""
-    return snapshot_tree(workdir, baseline_commit, timeout_s=timeout_s)[0]
+                 timeout_s: float | None = None, left_out: list[str] | None = None) -> str:
+    """The tree of `snapshot_tree`; `left_out`, when given, receives the paths it
+    left out (`_add_all`), as `salvage`'s does."""
+    tree, skipped = snapshot_tree(workdir, baseline_commit, timeout_s=timeout_s)
+    if left_out is not None:
+        left_out.extend(skipped)
+    return tree
 
 
 def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
@@ -290,7 +334,8 @@ def _add_all(workdir: str | Path, env: dict[str, str], *,
 def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
          timeout_s: float | None) -> SalvageError | None:
     """One `add -A` (limited to NUL-separated `pathspec` when given): None when it
-    succeeds, else the error to raise. A timeout raises at once, as a transient one."""
+    succeeds, else the error to raise. A timeout, or a git killed by a signal,
+    raises at once, as a transient one."""
     cap = git_timeout_s(timeout_s)
     limit = ("--pathspec-from-file=-", "--pathspec-file-nul") if pathspec is not None else ()
     try:
@@ -300,10 +345,10 @@ def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
         raise SalvageError(f"git add timed out after {cap:g} s", transient=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
-    if not result.returncode:
-        return None
-    return SalvageError(f"git add failed: {os.fsdecode(result.stderr).strip()}",
-                        transient=_transient_git(result.stderr))
+    failure = _failure("add", result)
+    if failure is not None and result.returncode < 0:
+        raise failure
+    return failure
 
 
 def _uncommitted_repositories(workdir: str | Path, env: dict[str, str], *,
@@ -314,22 +359,31 @@ def _uncommitted_repositories(workdir: str | Path, env: dict[str, str], *,
     `ls-files -o` (not `--directory`, which names only an untracked directory's
     top and would hide a repository inside it) lists a nested repository as one
     `path/` entry, by the test `add -A` itself uses, and it reads the temporary
-    index, so "untracked" is what it is to `add -A`. A repository is excluded
-    only when `rev-parse --verify HEAD` in it exits 1 (HEAD does not resolve):
-    one git cannot open (exit 128) is left for `add -A` to judge.
+    index, so "untracked" is what it is to `add -A`. It does not list one where
+    a tracked file was (`git init x` after `rm x`): the index still names `x`,
+    but `add -A` records the file's removal and then refuses `x/` (adversarial
+    review of the round-3 branch). So each tracked path `diff-files` finds
+    changed that is now a directory holding `.git` is a candidate too; its
+    exclusion, `x/`, names only the directory, and the removal is still recorded.
+    A repository is excluded only when `rev-parse --verify HEAD` in it exits 1
+    (HEAD does not resolve): one git cannot open (exit 128) is left for `add -A`
+    to judge.
     """
-    listed = _git_bytes(workdir, "ls-files", "-o", "--exclude-standard", "-z", "--full-name", "--", ":/",
-                        env=env, timeout_s=timeout_s)
-    candidates = [path for path in (listed or b"").split(b"\0") if path.endswith(b"/")]
-    if not candidates:
-        return []
     top = _git_bytes(workdir, "rev-parse", "--show-toplevel", env=env, timeout_s=timeout_s)
     if not top:
         return []
     top = top[:-1] if top.endswith(b"\n") else top
+    listed = _git_bytes(workdir, "ls-files", "-o", "--exclude-standard", "-z", "--full-name", "--", ":/",
+                        env=env, timeout_s=timeout_s)
+    candidates = [path for path in (listed or b"").split(b"\0") if path.endswith(b"/")]
+    # Paths relative to the top level; a submodule's own changes are not asked for.
+    changed = _git_bytes(workdir, "diff-files", "--name-only", "-z", "--ignore-submodules=all",
+                         env=env, timeout_s=timeout_s)
+    candidates += [path + b"/" for path in (changed or b"").split(b"\0")
+                   if path and os.path.lexists(os.path.join(top, path, b".git"))]
     # The nested repository's own git directory, never the temporary index.
     nested = {key: value for key, value in env.items() if key != "GIT_INDEX_FILE"}
-    return [path for path in candidates
+    return [path for path in dict.fromkeys(candidates)
             if _head_status(os.path.join(top, path, b".git"), nested, timeout_s) == 1]
 
 
@@ -345,8 +399,9 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
         raise SalvageError(f"git rev-parse timed out after {cap:g} s", transient=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
-    if result.returncode and _transient_git(result.stderr):
-        raise SalvageError(f"git rev-parse failed: {os.fsdecode(result.stderr).strip()}", transient=True)
+    failure = _failure("rev-parse", result)
+    if failure is not None and failure.transient:
+        raise failure
     return result.returncode
 
 
@@ -444,6 +499,10 @@ class SalvageResult:
     skipped: tuple[str, ...] = ()
 
 
+#: The longest branch name, sanitized, that a salvage ref's name carries (`salvage`).
+BRANCH_SLUG_MAX = 200
+
+
 def _stamp(timestamp: str | datetime | None) -> str:
     if timestamp is None:
         value = datetime.now(UTC)
@@ -480,7 +539,10 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
     baseline = _git(workdir, "rev-parse", "--verify", f"{baseline_commit}^{{commit}}", timeout_s=timeout_s)
     baseline_tree = _git(workdir, "rev-parse", "--verify", f"{baseline_tree or baseline}^{{tree}}", timeout_s=timeout_s)
     branch = re.sub(r"[^A-Za-z0-9_-]+", "-", git_branch(workdir, timeout_s=timeout_s) or "detached").strip("-") or "detached"
-    ref = f"refs/subfleet-salvage/{branch}-{_stamp(timestamp)}-a{seq}"
+    # One file name under a files-backend ref directory: a branch whose parts each
+    # fit made a ref git could never write, on every try (adversarial review of the
+    # round-3 branch). The stamp, `_hold`'s `-<tree>` and git's `.lock` fit beside it.
+    ref = f"refs/subfleet-salvage/{branch[:BRANCH_SLUG_MAX].rstrip('-')}-{_stamp(timestamp)}-a{seq}"
     # A private temporary directory avoids index-name races and never points
     # git at the user's real index, including in linked worktrees.
     tree, skipped = snapshot_tree(workdir, baseline, timeout_s=timeout_s)

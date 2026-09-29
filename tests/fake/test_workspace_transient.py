@@ -11,6 +11,7 @@ import errno
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 from pathlib import Path
@@ -279,6 +280,55 @@ def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, m
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+
+def test_c6_8_a_worktree_add_killed_by_a_signal_waits(state_daemon, monkeypatch):
+    """Adversarial review of the round-3 branch: a `git worktree add` killed by a signal (a
+    memory-pressure kill: a negative return code, nothing on stderr) did not finish, so it
+    waits as a timed-out one does, rather than failing the job at once."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, "" if kwargs.get("text") else b"",
+                                               "" if kwargs.get("text") else b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error"] == "could not allocate worktree: git worktree was killed by SIGKILL"
+    assert not (daemon.root / "worktrees" / job_id).exists()
+    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+def test_c6_8_a_submit_that_cannot_read_the_checkouts_top_leaves_nothing_behind(state_daemon, monkeypatch):
+    """C-6.8 "at submit it is exit 1 with nothing stored" (adversarial review of the round-3
+    branch): the top level a worktree job's place is read against was looked up after the
+    job's directory and prompt were written, outside the submit's handler, so a transient
+    failure there left `jobs/<id>/` behind with no job, which retention never removes."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+
+    def pressed(*args, **kwargs):
+        raise SalvageError("git rev-parse failed: fatal: Out of memory, malloc failed", transient=True)
+    monkeypatch.setattr(daemon_module, "git_toplevel", pressed)
+    before = set((daemon.root / "jobs").iterdir()) if (daemon.root / "jobs").exists() else set()
+    with pytest.raises(AdapterError, match="could not inspect the workdir: .*Out of memory") as caught:
+        daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))
+    assert caught.value.code == 1
+    assert set((daemon.root / "jobs").iterdir()) == before and daemon.store.query("SELECT * FROM jobs") == []
 
 
 def test_c6_8_a_wrapped_timeout_is_transient_and_names_the_underlying_type(state_daemon, monkeypatch):
