@@ -1,127 +1,214 @@
-# Containment and reused process identities — 2026-09-28
+# Containment and reused process identities (2026-09-28)
 
-Containment now receives the guardian's launch identity and the attempt's
-previously recorded `owned_identities`. Attempts, probes, cancellation,
-finalization and quarantine resolution all use that evidence.
+## The defect
 
-## Ownership rule
+`procs.containment()` seeded its descendant walk with the recorded guardian
+and child pids and kept every root the snapshot showed live, without
+comparing the process at that pid with the one recorded at launch. When
+macOS gave a recorded pid to an unrelated process, the census counted that
+process as a surviving writer, and `_finalize` quarantined the attempt after
+the exit-settle window ("writers remain after exit receipt"). An uncancelled
+job then ended `lost` (rc 125) with no salvage.
 
-Guardian and child roots seed ancestry only when their snapshot boot/start
-identity matches the recorded identity. A known mismatch also prunes a
-descendant chain and excludes that pid from group membership. `reused_pids`
-records these mismatches separately from writers. Matching zombie roots and
-intermediate parents can connect live descendants, but zombies are not writers.
+Evidence from the live store (read-only, `mode=ro`), each quarantine's
+`quarantine_reason`:
 
-Group members remain attributable on the recorded boot after the leader exits:
-POSIX reserves the group id while the group has members. A snapshot process at
-the leader pid with a different identity proves that the original group emptied
-and the id was reused, so the whole new group is excluded. A different boot also
-invalidates group ownership. Missing or unreadable identity evidence needed to
-make a decision makes the census unverifiable.
+| Attempt | Recorded pid (role) | Quarantined on | Job |
+| --- | --- | --- | --- |
+| `20260927-151250-r218-conv-opus/a2` | child 80817, started Sun Sep 27 23:26:33 | pid 80817 started Mon Sep 28 22:11:29, pgid/ppid 76443 | cancelled, rc 130 (a cancel was pending) |
+| `20260925-074431-inv-eggnest/a1` | child 45548, started 12:08:04 | pid 45548 started 12:35:39, its own group, ppid 1 | lost, rc 125 |
+| `20260925-110251-review-chronicle-institute-4/a1` | guardian 28242, started 15:09:11 | pid 28242 started 15:15:02, leading its own group 28242, ppid 1 | lost, rc 125 |
 
-A live process carrying both `SUBFLEET_ATTEMPT` and `SUBFLEET_ROOT` always counts,
-including a process whose recorded identity differs. Inspection failures prevent
-release. Snapshot rows provide identities directly; missing start data fails
-closed rather than being replaced by a later per-pid read. Evidence serialization
-sorts pid maps and errors.
+In all three, the recorded identity was in the attempt's own
+`evidence_json.owned_identities` (the guardian's also in the attempt row).
+Across the store, 5 of 1,556 attempts with a `child_pid` have no recorded
+identity for it (children that lived less than one inspection interval).
 
-## Invariants and tests
+## The rule as implemented
 
-`tests/unit/test_containment_identity.py` exercises:
+Identity decides only what a recorded pid would otherwise decide on its own
+number (`subfleet/procs.py`, `containment`; contract C-5.3, C-5.5):
 
-| Invariant | Checks |
+- **Roots.** The guardian and the child seed the parent walk only when the
+  snapshot's row at their pid, a zombie's included, holds the recorded
+  identity: the same `lstart` and the same boot. A different start alone
+  proves another process with no boot read. A start that matches on a boot
+  that differs is confirmed by a fresh boot read first (C-5.12, as
+  `liveness` does). A root another process holds is reported in
+  `reused_pids` and seeds nothing. A root in the snapshot with no complete
+  recorded identity, or with a comparison that cannot be made, makes the
+  census unverifiable.
+- **Descendants.** From verified roots the walk follows the kernel's parent
+  links through any number of generations, with no identity filter: a live
+  child of a verified process is the attempt's, even at a pid an earlier
+  process of the attempt once held.
+- **Group.** With members present, the recorded group is the attempt's when
+  the leader pid (the recorded `pgid`, the guardian) holds the recorded
+  leader, live or a zombie. Another process at the leader pid proves that the
+  old group emptied and a new one took the id: no member is attributed by the
+  group, and the leader pid is reported in `reused_pids`. With the leader pid
+  free, the members count if the recorded leader's boot is this boot (POSIX
+  keeps a group's id while it has members), and do not count on another boot.
+  A leaderless group with members and no recorded leader identity is
+  unverifiable.
+- **Markers.** A process whose environment carries both `SUBFLEET_ATTEMPT`
+  and `SUBFLEET_ROOT` is always counted, whatever its identity (unchanged).
+- **Inspection.** A failed snapshot, marker read or boot read, an unknown
+  legacy boot comparison, and a snapshot row with no start all make the
+  census unverifiable (fail closed). Pid lists, identities, shapes and
+  `reused_pids` serialize sorted, and errors keep their first-seen order,
+  so a census is byte-identical for the same inputs in any order.
+
+The daemon passes the recorded identities to every census
+(`Daemon._containment_identities`: the probe record's or the attempt's
+`owned_identities`, plus the guardian's launch identity from the row). The
+two call sites are `_probe_census` (probe containment) and `_contain`, which
+serves start grace, the dead-guardian path, the kill protocol, `_finalize`
+and `_resolve_quarantine`.
+
+### Why the recorded identity does not filter descendants and members
+
+The brief's I1 says a process whose identity differs from the one recorded
+for its pid is never counted unless it is marked. Its I3 says every live
+descendant of a verified root is counted. Taken literally, they conflict
+when an attempt's own later process lands on a pid the attempt recorded
+earlier: `owned_identities` records every observed group member, and pids
+wrap under heavy churn. The salvaged WIP chose the literal I1: it excluded
+such pids from the walk and the group, and pruned their subtrees. That could
+prove "empty" while a genuine writer still ran, which is a false release.
+A parent link from a verified process cannot reach an unrelated process
+(orphans are reparented to launchd, never to a later holder of the parent's
+pid), and only processes in the guardian's session can join its group. So
+this change reads I1 as *never counted by its pid number*: the rule decides
+roots and the leader, and I3 governs everything reached from them. That
+precedence is intended and tested
+(`test_i3_recycled_pid_inside_a_verified_chain_still_counts`).
+
+### Limits (both err toward holding on)
+
+- **A leaderless group whose id was taken again.** If the attempt's group
+  emptied, and a later holder of the pid made a group of it and exited while
+  members lived (a double-forking daemon does exactly this), the snapshot
+  cannot tell those members from survivors of the attempt's own group. They
+  count, and C-5.9 quarantines. Pinned by
+  `test_absent_leader_group_is_attributed_even_if_its_id_was_taken_again`.
+  Narrowing it would need evidence the snapshot lacks: a recorded session,
+  or the daemon keeping its guardian unreaped until the final census so a
+  zombie holds the pid.
+- **An unrecorded child pid, since reused.** A child that lived less than
+  one inspection interval has no recorded identity (5 of 1,556), so a later
+  process at its pid makes the census unverifiable rather than empty. This is
+  the base behaviour's outcome, and it needs pid reuse before the census.
+  `exit.json` names the child only after `child.wait()` reaped it, except
+  when the relay failed after spawn (the receipt then carries `spawn_error`).
+  A follow-up could have the guardian record the child's `lstart` at spawn.
+- Live v1 imports (`importer.py`) record a `child_pid` with no identity and
+  fail closed the same way.
+
+## Invariants and the tests that execute them
+
+| Invariant | Tests |
 | --- | --- |
-| I1: A different recorded boot/start identity is never a writer unless marked. | r218 a2's reused child in a foreign group; reused guardian with forks; reused group id; mixed genuine/reused pids; boot changes; descendant pruning; generated ownership cases. |
-| I2: A live marked process always counts. | Marker override, state-root scoping, marked escapes, incomplete identity rows, and generated ownership/failure cases. |
-| I3: Every live descendant through a verified ancestry chain counts. | Several generations, escaped groups, zombie parents, and an independent ancestry-path oracle. |
-| I4: Every failed inspection keeps the census unverified. | Table, marker, boot, legacy boot, late-marker stat/identity, missing recorded identity and missing snapshot start data failures; generated failure cases. |
-| I5: Fixed inspection inputs produce deterministic results. | Both property tests reverse table, marker and recorded-map order and compare serialized evidence byte for byte. |
-| I6: Reused pids alone permit normal daemon finalization. | `tests/unit/test_daemon_pid_reuse.py` runs `_finalize` with fake adapters and a temporary store for reused-child and reused-guardian/forks cases; both succeed with rc 0, reach salvage and never quarantine. |
+| I1: a process whose identity differs from the one recorded for its pid is never counted by that pid (not a root, does not validate the group) unless marked. | `test_i1_r218_a2_reused_child_in_foreign_group_is_exited`, `test_i1_confirmed_historical_incidents_reused_root_is_exited` (eggnest, chronicle), `test_i1_reused_guardian_cannot_attribute_its_forked_children`, `test_i1_reused_group_leader_rejects_entire_new_group`, `test_i1_group_from_another_boot_is_not_owned`, `test_i1_mixed_genuine_and_reused_pids_keeps_only_genuine_writers`, `test_i1_reused_child_that_joined_a_verified_tree_counts_through_the_tree`; Hypothesis: `test_i1_generated_reused_pids_alone_are_verified_empty` (250 reused-only tables) and the general property below. |
+| I2: a live process with both markers is always counted. | `test_i2_attempt_markers_override_reused_identity_and_group`, `test_i2_i4_incomplete_snapshot_identity_keeps_writer_without_fresh_read`; both properties. |
+| I3: every live descendant of a verified root is counted, through several generations. | `test_i3_verified_root_counts_generations_in_escaped_groups`, `test_i3_verified_zombie_root_still_attributes_its_live_descendants`, `test_i3_recycled_pid_inside_a_verified_chain_still_counts`; property oracle (each pid's own ancestry path, independent of the traversal). |
+| I4: every inspection failure leaves the census unverified. | `test_i4_failed_inspection_never_proves_release` (snapshot, markers, boot), `test_i4_missing_live_root_or_group_leader_identity_prevents_release`, `test_legacy_boot_identity_matches_or_remains_unverified`, `test_i4_uuid_record_against_legacy_boot_fallback_cannot_prove_exit`, `test_i4_snapshot_without_root_or_leader_start_cannot_prove_exit`, `test_i4_late_marked_process_with_failed_single_pid_inspection_prevents_release`, `test_c5_12_only_a_fresh_boot_read_calls_a_start_matching_root_another_boot`; Hypothesis `test_i4_i5_generated_inspection_failures_stay_unverified_and_deterministic` (100 examples). |
+| I5: deterministic for a given snapshot. | Both general properties reverse the table, marker and recorded-map order and compare the serialized evidence byte for byte. |
+| I6: an attempt whose only live pids are reused finalizes normally through `_finalize`. | `tests/unit/test_daemon_pid_reuse.py::test_i6_only_reused_pids_finalize_normally_and_reach_salvage` (r218 child in a foreign group; reused guardian with a forked child), with the settle window already expired: `succeeded`, rc 0, salvage reached, no quarantine. Also probe containment and quarantine resolution with recorded identities. |
 
-The Hypothesis tests run 250 ownership examples and 100 failure examples.
-Additional daemon tests cover probe containment and quarantine release with
-recorded identities. Existing process tests retain their signalling checks.
+The general property (`test_i1_i2_i3_i5_generated_census_obeys_identity_ancestry_and_markers`,
+250 examples) also checks that recorded identities for pids that are
+neither root nor leader decide nothing: the census is identical when they
+are dropped.
+
+Every rule is pinned by a test. Each of these mutants turned the identity
+tests red: roots seeded without the identity check; the group always owned;
+the WIP's identity filter on the walk; no fresh boot read; re-reading a row
+with no start; the daemon passing no recorded identities (I6 fails).
+The four daemon-level tests in `test_daemon_pid_reuse.py` all fail when run
+against a clean c79aed84.
 
 ## Signalling
 
-Signalling behavior is unchanged. `signal_group` freshly checks the recorded
-leader with `same_process` and confirms that its pgid equals its pid before
-`killpg`. `signal_process` checks the previously recorded identity before `kill`.
-`same_process` accepts only an `alive` liveness result; mismatches, zombies,
-missing processes and unknown inspections cannot authorize a signal. Synthetic
-tests assert that reused identities cause no signals.
+Unchanged, and it cannot reach a reused pid. `signal_group` returns without
+signalling unless `same_process(pgid, boot_id, proc_start)` holds for the
+recorded leader (a fresh `ps` start read and a boot match, with a fresh boot
+read before a mismatch counts) and `os.getpgid(pgid) == pgid`. Only then does it
+call `killpg`. `signal_process` requires `same_process` on the recorded
+identity before `kill`. The kill protocol adds census identities to its
+signal targets only for group members while the recorded leader is live and
+verified, which by the group rule are the attempt's own members. The r218,
+eggnest and chronicle attempts were quarantined in `_finalize`, which sends
+no signal.
 
-## Why r218 a2 remained finalizing
+## Why r218 a2 sat in `finalizing` for 20 hours
 
-Only read-only SQLite (`mode=ro`) and targeted `grep` of `daemon.log` were used
-against the live state root. The attempt's events were:
+Store events (read-only): `attempt.finalizing` at 2026-09-28T01:42:09Z,
+`job.cancel_requested` at 14:56:37Z, `attempt.quarantined` at 22:11:51Z.
+`daemon.log` has 49 lines for the attempt. All are `worker
+20260927-151250-r218-conv-opus/a2 failed: SalvageError (n in a row, next try
+in … s)`, climbing to 512 in a row at the 60 s ceiling. The count reset
+several times; it is held in memory and clears on any pass that returns
+normally and on a daemon restart.
 
-| Event | UTC time on 2026-09-28 | Event sequence |
-| --- | --- | --- |
-| `attempt.finalizing` | 01:42:09 | 785224 |
-| `job.cancel_requested` | 14:56:37 | 839896 |
-| `attempt.quarantined` | 22:11:51 | 885118 |
+- `_process_attempt` sends a `finalizing` attempt to `_finalize` before it
+  looks at a cancel request. `_finalize` runs `_salvage` before it reads
+  cancellation, and a `SalvageError` propagates. The worker pool retries it
+  with capped backoff (C-5.10) forever, and logs only the exception type, so
+  the git failure itself is not recoverable from the permitted evidence. The
+  baseline commit and tree exist, and no salvage ref was written.
+- The false quarantine is what ended the loop. With this fix, the same stall
+  would have no end.
+- The cause is outside containment and the fix is not small: finalization
+  needs a bound on salvage retries and a terminal state that keeps the
+  workspace. The unmerged branch `fix/salvage-unindexable` (c1f95838, with
+  follow-ups on `fix/salvage-unindexable-r2`) does exactly this: an
+  unindexable path is skipped, transient failures are retried three times,
+  any other failure is recorded and the attempt ends. It describes the same
+  symptom for other r218 attempts on 2026-09-27. No pull request for it
+  exists.
 
-Log lines 693012–693016 show repeated `SalvageError` failures from finalization;
-line 698964 reaches 512 consecutive failures with a 60-second retry delay.
-Line 701598 still shows salvage failures beside 19:14:15Z context, and later
-failures persist beside 21:56Z context. This was repeated salvage failure, not
-an extended exit-settle window.
+## Validation
 
-`_process_attempt` dispatches a finalizing attempt to `_finalize` before its
-cancellation branch. `_finalize` calls `_salvage` before applying cancellation;
-`SalvageError` escapes and `_schedule` retries indefinitely with capped backoff.
-The underlying Git error is not recoverable from the permitted evidence: the
-logger intentionally records exception types without their messages, and the
-attempt/events contain no structured cause. Changing salvage retry or
-cancellation behavior needs separate investigation; it is not changed here.
-This particular job ended cancelled (rc 130), while its attempt was quarantined;
-the uncancelled incidents can instead become lost (rc 125).
+- **Focused tests.** `test_containment_identity.py` (44),
+  `test_daemon_pid_reuse.py` (4), `test_procs.py`, `test_daemon_settle.py`,
+  `tests/process/test_guardian_process.py` and
+  `tests/fake/test_daemon_contract.py` all pass on the final tree.
+- **Full suite.** Run on the final tree (CPython 3.14.7 free-threaded,
+  `SUBFLEET_LIVE=0`, a private `SUBFLEET_HOME`, basetemp under `$TMPDIR`)
+  in capped foreground batches with JUnit accounting of every collected node
+  id. Of 7,077 collected: **7,054 passed, 6 skipped, 16 failed, 1 error**.
+  The machine's load average was 15 to 150 throughout.
+  - **9 fail in this environment by design, identically on c79aed84.** Seven
+    `tests/e2e/test_conversations.py` tests and
+    `tests/frontend/test_core_live.py::test_the_app_core_drives_a_development_daemon`
+    fail with `person-only: … the caller carries Subfleet's attempt markers`.
+    The peer check (`conversations/peers.py`, `judge`) refuses a caller
+    whose ancestry runs under a Subfleet guardian, and this validation ran
+    inside a Subfleet attempt. A clean c79aed84 clone fails the same 8 with
+    identical normalized messages. The one error
+    (`test_a_claude_conversation_hands_off_to_codex_with_its_pending_messages`,
+    a 3 s daemon-start timeout) passed on rerun on both trees.
+  - **8 are load-sensitive timing tests that fail intermittently on both
+    trees.** None calls `containment()`. In the reruns (9 on the fix, 7 on
+    c79aed84, concurrent):
 
-## Validation environment and delivery
+    | Test | Fix | c79aed84 |
+    | --- | --- | --- |
+    | `test_daemon_stacks_prints_every_thread_of_the_live_daemon` | 1/9 | 1/7 |
+    | `test_c6_8_git_past_its_cap_requeues_and_the_next_pass_admits[read-only-False]` | 0/9 | 0/7 |
+    | `test_shim_forwards_model_and_original_argv[args0-gpt-6-astra]` (bash 5 s timeout) | 3/9 | 0/7 |
+    | `test_wait_rechecks_on_its_own_clock_without_a_commit` | 4/9 | 3/7 |
+    | `test_version_timeout_is_reported_as_a_timeout` | 2/9 | 1/7 |
+    | `test_c16_3_run_minted_id_refused_on_re_send_finds_its_job` (client's 1 s reply wait) | 2/9 | 0/7 |
+    | `test_no_wake_up_is_lost[0]` | 5/9 | 3/7 |
+    | `test_no_wake_up_is_lost[3]` | 2/9 | 3/7 |
 
-Independent focused verification with `uv run pytest` on CPython 3.14.7
-free-threaded passed: **88 passed in 159.52 seconds**, with no warnings.
-The run covered `test_containment_identity.py`, `test_daemon_pid_reuse.py`
-and `test_procs.py`, used `SUBFLEET_LIVE=0` and a separate short temporary root,
-and saved `.uv-cache/containment-independent-focused.xml`. `git diff --check`
-passed. An independent source review confirmed the census wiring, ownership
-rules, and unchanged signalling guards; a separate read-only review confirmed
-the stall evidence and cancellation ordering.
-
-Full-suite collection on CPython 3.13.9 found **7,070 tests**. The earlier
-free-threaded full-suite attempts did not finish and are not counted as complete
-runs. A subsequent CPython 3.13.9 run with four workers and a 60-second timeout
-also stopped making progress after worker terminations, around 29%, without
-writing its JUnit report. The host's observed load average reached 239 during
-validation. Those incomplete runs do not establish full-suite counts or prove
-that any observed failure is pre-existing.
-
-The current serial retry uses the already cached CPython 3.13.9 environment,
-`uv run --offline --no-sync --with pytest-timeout pytest --timeout=60
---timeout-method=signal -v --tb=short`, a short separate `--basetemp`, and JUnit
-output at `.uv-cache/containment-313-warm.xml`. Its per-test journal is
-`.uv-cache/containment-313-warm.log`. No tests are excluded; live-provider tests
-stay disabled (`SUBFLEET_LIVE=0`). Full-suite results and matched baseline
-reproduction remain pending. The clean baseline is the exact
-`c79aed840404c7ea532189ec0ac9cd0471cefb01` tree in `.uv-cache/baseline`, independently
-verified to have no tracked changes; failures must reproduce there before being
-called pre-existing. Native Swift tests allow up to 900 seconds themselves, so
-the outer 60-second cap can also cause timeout failures.
-
-The sandbox permits workspace files but denies writes to the shared Git
-metadata outside this workspace. The assigned checkout's original HEAD and
-the caller's branch are therefore unchanged. Commits are preserved on a
-workspace-local `fix/containment-pid-reuse` branch in
-`.uv-cache/containment-commits.git`, with an importable bundle at
-`.uv-cache/containment-pid-reuse.bundle`. That bundle requires the base commit
-above. No history was rewritten, no caller files were written, and nothing was
-pushed or submitted as a pull request.
-
-Implementation commits are `34771082` (identity-aware census, daemon wiring,
-contract and tests), `c343b24c` (the two additional historical incidents), and
-`4b6f1559` (ownership guarantees and the salvage-stall finding), and `c8cb29b6`
-(incident outcome and workspace-local delivery clarification), followed by
-`ff745fbd` (independent focused validation and stall verification). The change-list
-entry distinguishes r218's false quarantine from the uncancelled incidents'
-lost outcomes.
+    Six of the eight failed on c79aed84 as well. The two that did not are a
+    bash script's 5 s timeout and a CLI's 1 s reply wait against an
+    in-process fake. Neither can reach the changed code, and the difference
+    is not significant (Fisher p ≈ 0.22 and 0.47).
+- **Review.** An independent Opus review found no blocking issue. It agreed
+  with the I3-over-literal-I1 reading. It found the leaderless-group
+  overclaim, which is now corrected, and it is the source of the two limits
+  above.
