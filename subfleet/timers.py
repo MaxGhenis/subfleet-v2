@@ -287,21 +287,32 @@ class Timers:
 
     def _reserve(self, lane, purpose):
         holder = 'probe:timer:' + str(uuid4())
-        with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
-            current = self.store.get_lane(lane.lane_id)
-            if not current or not current.enabled or current.owner != 'v2' or current.desktop:
-                return None
-            if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
-                return None
-            if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
-                return None
-            if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
-                return None
-            self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
-            self.store.add_event('timer.reservation', lane_id=lane.lane_id,
-                                 data={'holder': holder, 'purpose': purpose})
+        # C-5.7a: the holder is the turn's before its lease exists, as it stays
+        # the turn's until its lease is released or kept (`_release`). A pass of
+        # `_recover_probes` that finds the lease therefore finds the holder
+        # owned, or its turn over: it never acts on a probe a turn is still on.
         with self._lock:
             self.active_holders.add(holder)
+        reserved = False
+        try:
+            with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
+                current = self.store.get_lane(lane.lane_id)
+                if not current or not current.enabled or current.owner != 'v2' or current.desktop:
+                    return None
+                if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
+                    return None
+                if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
+                    return None
+                if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
+                    return None
+                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
+                self.store.add_event('timer.reservation', lane_id=lane.lane_id,
+                                     data={'holder': holder, 'purpose': purpose})
+            reserved = True
+        finally:
+            if not reserved:
+                with self._lock:
+                    self.active_holders.discard(holder)
         return holder
 
     def _release(self, holder, *, quarantined=False):
