@@ -71,6 +71,20 @@ def test_c5_6_a_traced_or_older_child_is_not_owned_through_its_parent_link():
     assert set(owned_closure(shown, [ident(100, T1)])) == {100, 101}
 
 
+def test_c5_6_a_torn_read_never_hands_a_stranger_to_a_reused_group_id():
+    """C-5.6 (review of 9d7d4f5b): `ps` fills rows one at a time, so stranger 500's row
+    can name group 300 from before 300's last member left and the id went to an owned
+    process that made a new group 300. The start order keeps the stranger out."""
+    shown = table(
+        (100, 1, 100, "Ss", T0),
+        (101, 100, 100, "S", T0),
+        (300, 101, 300, "S", T2),      # owned, new, leads a new group 300
+        (500, 42, 300, "S", T1),       # a stranger's row, read before its group was reused
+        (301, 300, 300, "S", T2),      # the new leader's own child: owned
+    )
+    assert set(owned_closure(shown, [ident(100)])) == {100, 101, 300, 301}
+
+
 def test_c5_6_roots_count_only_with_their_recorded_start_zombies_never():
     """C-5.3, C-5.6: a recorded pid now held by another process (another start) proves nothing."""
     shown = table((100, 1, 100, "Ss", T2), (101, 100, 100, "S", T2), (102, 1, 102, "Z", T0))
@@ -210,7 +224,8 @@ def reference_closure(shown: ProcessTable, roots) -> set[int]:
             ppid, pgid, stat, start = rows[pid]
             by_parent = (ppid in owned and "X" not in stat
                          and start_seconds(start) >= start_seconds(rows[ppid][3]))
-            by_group = pgid in owned and rows[pgid][1] == pgid
+            by_group = (pgid in owned and rows[pgid][1] == pgid
+                        and start_seconds(start) >= start_seconds(rows[pgid][3]))
             if by_parent or by_group:
                 more.add(pid)
         if not more:
@@ -332,6 +347,24 @@ def test_c5_7b_the_quarantine_census_lets_recorded_pids_answer_only_for_themselv
     # The group's leader is gone and its pid free: a member left in it may be the attempt's.
     reads(table((102, 1, 100, "S", T0)))
     assert containment(100, 100, None, ATTEMPT, ROOT, guardian=guardian).live_pids == {102}
+
+
+def test_c5_7b_an_empty_group_ends_only_once_its_leader_is_gone_and_a_reused_id_ends_it(reads):
+    """C-5.5, C-5.7b (review of 9d7d4f5b): a recorded group with no process in it has
+    not ended while its recorded leader lives, since the leader can make it again with
+    `setpgid(0, 0)`; once the leader is gone it has; and a stranger leading the group's
+    id proves the recorded group ended, which the census reports."""
+    leader = ident(200, T1)
+    reads(table((200, 1, 250, "S", T1)))                     # the leader moved to another group
+    found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
+    assert found.ended_groups == frozenset() and found.verified_empty
+    reads(table((200, 1, 200, "S", T1), (201, 200, 200, "S", T2)))   # ... and made group 200 again
+    assert containment(None, None, None, ATTEMPT, ROOT, groups={200: leader}).live_pids == {200, 201}
+    reads(table((7, 1, 7, "S", T0)))                          # the leader and the group are gone
+    assert containment(None, None, None, ATTEMPT, ROOT, groups={200: leader}).ended_groups == {200}
+    reads(table((200, 1, 200, "Ss", T2), (202, 200, 200, "S", T2)))  # a stranger reused the id
+    found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
+    assert found.ended_groups == {200} and found.verified_empty
 
 
 def test_c5_5_a_marker_needs_both_halves_and_a_failed_read_is_unverifiable(reads):

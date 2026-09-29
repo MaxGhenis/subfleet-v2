@@ -563,3 +563,113 @@ def test_c5_6_the_kill_signals_owned_groups_and_loose_owned_processes_only(world
     evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
     assert set(evidence["owned_identities"]) == {"4100", "4101", "4200", "4201", "4300"}
     assert daemon.store.get_attempt(a["attempt_id"])["state"] == "quarantined"     # the world never emptied
+
+
+# --- the review of 9d7d4f5b ------------------------------------------------------------
+
+def with_owned_groups(daemon, aid, groups: dict[int, str]) -> None:
+    evidence = json.loads(daemon.store.get_attempt(aid)["evidence_json"] or "{}")
+    evidence["owned_groups"] = identities(groups.items())
+    daemon.store.update_attempt(aid, evidence_json=json.dumps(evidence))
+
+
+def test_c5_7b_a_sweep_defers_when_a_newer_census_recorded_something(world_daemon, monkeypatch):
+    """C-5.7b: the sweep's fresh reads precede its lock. An operator's `--confirm-dead`
+    that runs in between finds a writer born after those reads and records it; the
+    sweep must not release on its older reads (it defers), and the next sweep holds."""
+    daemon, harness, world = world_daemon
+    job_id, aid = quarantine(daemon, harness)
+    real = procs.census_reads
+    calls = []
+
+    def reads():
+        found = real()
+        calls.append(1)
+        if len(calls) == 2:                                    # the fresh pair has just been read
+            world.rows, world.marks = {4700: (1, 4700, "S", T2)}, {4700: aid}
+            daemon._resolve_quarantine(daemon.store.get_attempt(aid), protocol.KillArgs(job_id, confirm_dead=True))
+        return found
+
+    monkeypatch.setattr(daemon_module.procs, "census_reads", reads)
+    daemon._recheck_quarantines()
+    assert len(calls) == 2
+    assert daemon.store.get_attempt(aid)["state"] == "quarantined" and leases(daemon, job_id, aid)
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "quarantined"
+    world.rows, world.marks = {}, {}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "lost"
+
+
+def test_c5_7b_an_unverifiable_census_still_records_what_it_found(world_daemon):
+    """C-5.7b: the table shows a recorded shell and its child in a session of its own,
+    but the environment scan fails. The child is recorded anyway, so when the shell
+    exits and the child (no marker, parent launchd) is in no source, it still holds."""
+    daemon, harness, world = world_daemon
+    job_id, aid = quarantine(daemon, harness, owned=[(4200, T1)])
+    world.rows = {4200: (1, 4200, "Ss", T1), 4201: (4200, 4301, "Ss", T2)}
+    world.fail_scan = True
+    daemon._recheck_quarantines()
+    world.fail_scan = False
+    recorded = json.loads(daemon.store.get_attempt(aid)["quarantine_reason"])["recorded"]
+    assert (4201, T2) in {(r["pid"], r["proc_start"]) for r in recorded}
+    world.rows = {4201: (1, 4301, "Ss", T2)}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "quarantined"
+    world.rows = {}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "lost"
+
+
+def test_c5_7b_a_group_is_not_ended_while_its_leader_can_make_it_again(world_daemon):
+    """C-5.7b: owned P led group 4200, moved to another group, and lives: 4200 is empty
+    but not ended. P then makes group 4200 again, forks a child and exits between sweeps;
+    the child (no marker, parent launchd) is found through the recorded group."""
+    daemon, harness, world = world_daemon
+    job_id, aid = quarantine(daemon, harness, owned=[(4200, T1)])
+    with_owned_groups(daemon, aid, {4200: T1})
+    world.rows = {4200: (1, 4250, "S", T1)}
+    daemon._recheck_quarantines()
+    assert 4200 not in json.loads(daemon.store.get_attempt(aid)["quarantine_reason"]).get("groups_ended", [])
+    world.rows = {4201: (1, 4200, "S", T2)}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "quarantined"
+    world.rows = {}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "lost"
+
+
+def test_c5_7b_a_reused_group_id_is_remembered_as_ended(world_daemon):
+    """C-5.7b: while another owned process keeps the quarantine live, a stranger leads
+    a reused group 4200. The recorded group's end is recorded then, so when the stranger
+    exits leaving its worker in 4200, that worker never holds the quarantine."""
+    daemon, harness, world = world_daemon
+    job_id, aid = quarantine(daemon, harness, owned=[(4300, T1)])
+    with_owned_groups(daemon, aid, {4200: T0})
+    world.rows = {4300: (1, 4300, "S", T1), 4200: (1, 4200, "Ss", T2), 4202: (4200, 4200, "S", T2)}
+    daemon._recheck_quarantines()
+    assert 4200 in json.loads(daemon.store.get_attempt(aid)["quarantine_reason"])["groups_ended"]
+    world.rows = {4202: (1, 4200, "S", T2)}                   # the stranger's leader and our 4300 are gone
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "lost"
+
+
+def test_c5_6_when_ps_fails_a_recorded_non_leader_is_still_sent_sigterm(world_daemon, monkeypatch):
+    """C-5.6: with no table to say which owned processes lead a group, each is offered
+    as a leader and, where that is refused, signalled singly after its identity check."""
+    daemon, harness, world = world_daemon
+    job_id, a = running(daemon, harness)
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon.store.update_attempt(a["attempt_id"], evidence_json=json.dumps(
+        {"owned_identities": identities([(4100, T0), (4300, T1)])}))
+    a = daemon.store.get_attempt(a["attempt_id"])
+    world.fail_table = True
+    signals = []
+    monkeypatch.setattr(daemon_module.procs, "signal_group",
+                        lambda pgid, sig, **identity: signals.append(("group", pgid, sig)) or pgid == 4100)
+    monkeypatch.setattr(daemon_module.procs, "signal_process",
+                        lambda ident, sig: signals.append(("process", ident.pid, sig)) or True)
+    daemon._kill_attempt(a)
+    term = sorted(s for s in signals if s[2] == signal.SIGTERM)
+    assert ("process", 4300, signal.SIGTERM) in term and ("group", 4300, signal.SIGTERM) in term
+    assert ("process", 4100, signal.SIGTERM) not in term                 # its group took the signal

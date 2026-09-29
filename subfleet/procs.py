@@ -375,10 +375,17 @@ def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict
       its tracer. `ps` marks a traced process `X`, so a stranger the job's
       debugger attached to is never owned through that link; the start order is
       a second check, since a process can never be forked before its parent;
-    - a live member of a process group an owned process leads. A group lies in
-      one session and `setpgid` joins only a group of the caller's own session;
-      the guardian's session (it calls `setsid`, C-5.1) and every session a
-      process forked in it creates hold only processes forked inside them.
+    - a live member of a process group an owned process leads, which started no
+      earlier than that leader. A group lies in one session and `setpgid` joins
+      only a group of the caller's own session; the guardian's session (it calls
+      `setsid`, C-5.1) and every session a process forked in it creates hold
+      only processes forked inside them. The start order is needed because `ps`
+      reads rows one at a time: a stranger's row can name group G, then G's
+      last member leaves, and G's id goes to an owned process that makes a new
+      group G before G's own row is read (review of 9d7d4f5b). Such a stranger
+      started before that leader did. A process that joined an older owned
+      group from within its session is owned through its parent link instead,
+      if at all.
 
     Returns identities as the table gives them. Raises `InspectionError` when a
     root's boot identity is needed and cannot be read; a root that is absent, a
@@ -403,7 +410,8 @@ def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict
                  if since is not None and "X" not in table.rows[child][2]
                  and (start_seconds(table.rows[child][3]) or 0) >= since]
         if table.rows[pid][1] == pid:
-            found.extend(members.get(pid, ()))
+            found.extend(member for member in members.get(pid, ())
+                         if since is not None and (start_seconds(table.rows[member][3]) or 0) >= since)
         for member in found:
             if member in owned:
                 continue
@@ -559,11 +567,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
     `groups` are process groups the attempt recorded, each with the identity of
     the owned process that led it when it was recorded. Their members are
-    counted even once that leader is gone, because POSIX reuses no pid while a
-    group with that id has a member; a group is not counted while the snapshot
-    shows its id held by another process (another start) that leads it. A
-    recorded group the snapshot shows no process in at all, zombies included, is
-    reported in `ended_groups`: it can never be the attempt's again.
+    counted even once that leader is gone, because XNU gives no new process a
+    pid that is still a group's id. A group is not counted while the snapshot
+    shows its id held by another process (another start) that leads it: the
+    recorded leader is gone and its group ended before the id was reused, so
+    the group is reported in `ended_groups`. So is a recorded group the snapshot
+    shows no process in at all, zombies included, once its recorded leader is
+    gone too; while that leader lives it can make the group again with
+    `setpgid(0, 0)` (review of 9d7d4f5b). A group in `ended_groups` can never be
+    the attempt's again.
 
     `guardian`, when the attempt recorded one, makes the recorded pids answer
     only for themselves: the walk starts at the guardian only while the snapshot
@@ -601,12 +613,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             counted[pgid] = guardian if guardian is not None and guardian.pid == pgid else None
         _, by_group = seen.links()
         for group, leader in counted.items():
+            leader_lives = live(group) and (leader is None or table[group][3] == leader.proc_start)
             if not seen.has_group(group):
-                ended.add(group)
+                if not leader_lives:
+                    ended.add(group)
                 continue
             if (leader is not None and live(group) and table[group][1] == group
                     and table[group][3] != leader.proc_start):
-                continue                              # a stranger holds the id and leads the group
+                ended.add(group)                      # a stranger holds the id and leads a new group
+                continue
             members.update(by_group.get(group, ()))
         for pid in alive:
             if table[pid][1] == pid:

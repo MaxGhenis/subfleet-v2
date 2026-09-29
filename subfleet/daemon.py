@@ -4641,7 +4641,11 @@ class Daemon:
             owned = self._update_owned(a, table, guardian_leads=leads)
         except procs.InspectionError:
             owned = self._owned.get(a["attempt_id"]) or Owned.of(json.loads(a.get("evidence_json") or "{}"))
-            return owned, {pid: ident for pid, ident in owned.processes.items() if pid != a.get("pgid")}, {}
+            # Which of them lead a group is unknown: each is offered as a leader,
+            # and one that is not (or not the same process) is signalled singly,
+            # each after its own identity check (`_signal_owned`).
+            maybe = {pid: ident for pid, ident in owned.processes.items() if pid != a.get("pgid")}
+            return owned, maybe, maybe
         leaders = {pid: ident for pid, ident in owned.processes.items()
                    if pid != a.get("pgid") and table.shows(ident) and table.rows[pid][1] == pid}
         covered = {a.get("pgid"), *leaders}
@@ -4655,11 +4659,16 @@ class Daemon:
         """C-5.4, C-5.6: signal each group an owned process leads, besides the
         recorded one, and each owned process in none of the groups signalled.
         `signal_group` and `signal_process` confirm the identity afresh (and that
-        a leader still leads its group) before they signal."""
+        a leader still leads its group) before they signal. A process in both
+        maps (no table said which leads a group) is signalled singly only when
+        its group could not be."""
+        signalled = set()
         for pid, ident in sorted(leaders.items()):
-            procs.signal_group(pid, sig, boot_id=ident.boot_id, proc_start=ident.proc_start)
+            if procs.signal_group(pid, sig, boot_id=ident.boot_id, proc_start=ident.proc_start):
+                signalled.add(pid)
         for pid, ident in sorted(loose.items()):
-            procs.signal_process(ident, sig)
+            if pid not in signalled:
+                procs.signal_process(ident, sig)
 
     def _unlaunched(self, a: dict, detail: str) -> None:
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
@@ -4832,9 +4841,10 @@ class Daemon:
         census, however old its table, can drop an identity a newer one wrote;
         the rest is the latest census, for `runs show`. Written only when
         something changed, under `_quarantine_lock` and on the row as it is now.
-        An unverifiable census writes nothing."""
-        if census.unverifiable:
-            return
+        A census that could not verify (a `ps` failed) still records what its
+        other sources did establish: a process found only this once, through a
+        recorded shell that then exits, would otherwise be no census's to find
+        (review of 9d7d4f5b)."""
         with (contextlib.nullcontext() if locked else self._quarantine_lock), \
                 self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"],
                                        data=census.to_dict()) as tx:
@@ -4846,9 +4856,13 @@ class Daemon:
                 return
             before = quarantine_evidence(dict(current))
             after = merged_evidence(before, census)
+            if census.unverifiable:
+                # Only what it established is kept; the census shown stays the
+                # last one that could verify.
+                after = {**before, "recorded": after["recorded"], "groups_ended": after["groups_ended"]}
             if (set(recorded_identities(after["recorded"])) == set(recorded_identities(before.get("recorded")))
                     and after["groups_ended"] == sorted(before.get("groups_ended") or [])
-                    and after["live_pids"] == before.get("live_pids")):
+                    and after.get("live_pids") == before.get("live_pids")):
                 return                              # nothing written: no event either
             tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?",
                        (json.dumps({**after, "rechecked_at": utcnow()}, sort_keys=True), a["attempt_id"]))
@@ -4903,6 +4917,13 @@ class Daemon:
                     if current is None or current["state"] != "quarantined":
                         continue                    # an operator resolved it meanwhile (C-5.7)
                     current = dict(current)
+                    if (current["quarantine_reason"], current["evidence_json"]) != (
+                            a["quarantine_reason"], a["evidence_json"]):
+                        # Another census (an operator's, under this lock) recorded
+                        # something since this sweep began, perhaps a process born
+                        # after `fresh` was read: that census is newer than these
+                        # reads, so this sweep does not decide (review of 9d7d4f5b).
+                        continue
                     census = self._quarantine_census(current, fresh)
                     if not census.verified_empty:
                         self._note_live(current, census, locked=True)
