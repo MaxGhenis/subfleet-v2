@@ -32,6 +32,7 @@ from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
+from ..retention_git import discard_registration
 from ..salvage import SalvageError
 from ..state_files import open_state, read_state
 from . import attachments as attachment_store
@@ -502,8 +503,10 @@ class ConversationService:
             else:
                 # Not a worktree on this branch (an add cut short). No turn ever ran
                 # in it: a conversation dispatches only once its worktree is recorded.
+                # Only its own registration goes: a repository-wide `git worktree
+                # prune` would drop every other one whose tree is missing (d635).
                 shutil.rmtree(target, ignore_errors=True)
-                git("worktree", "prune")
+                discard_registration(top, target, timeout=timeout)
         if not adopted:
             has_branch = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]

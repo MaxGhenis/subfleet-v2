@@ -680,6 +680,42 @@ def test_discarding_a_broken_allocation_removes_only_its_own_registration(world)
     assert (w.repo / ".git" / "worktrees" / "other").is_dir()
 
 
+@pytest.mark.parametrize("leftover", ["plain-directory", "detached-worktree"])
+def test_rebuilding_a_conversation_worktree_removes_only_its_own_registration(world, leftover):
+    """Review of a9a6cbf4, B2: `_cut_worktree` rebuilt a directory that was not
+    a worktree on its branch with a repository-wide `git worktree prune`, which
+    dropped a job's registration whose tree was missing, and the commit only
+    its HEAD held. Now only the conversation's own registration goes."""
+    import types
+
+    from subfleet.conversations.service import ConversationService
+    from subfleet.salvage import git_toplevel
+    w = world
+    job_tree = w.root / "worktrees" / "job-x"
+    git(w.repo, "worktree", "add", "--quiet", "--detach", str(job_tree), "HEAD")
+    (job_tree / "g").write_text("unpushed")
+    git(job_tree, "add", "g")
+    git(job_tree, "commit", "--quiet", "-m", "only in this worktree's HEAD")
+    only = git(job_tree, "rev-parse", "HEAD")
+    shutil.rmtree(job_tree)                                  # tree missing, registration unlocked
+    target = w.root / "worktrees" / "conversation-c1"
+    if leftover == "plain-directory":
+        target.mkdir()                                       # an add cut short before git wrote anything
+    else:
+        git(w.repo, "worktree", "add", "--quiet", "--detach", str(target), "HEAD")   # registered, off its branch
+    stub = types.SimpleNamespace(
+        store=types.SimpleNamespace(subdirectory=lambda name: w.root / name,
+                                    update_conversation=lambda cid, **fields: fields),
+        daemon=types.SimpleNamespace(policy={}))
+    stub._git_toplevel = lambda directory: git_toplevel(directory, timeout_s=60)
+    stub._git_timeout_s = lambda key="workspace_git_timeout_s": 60.0
+    record = ConversationService._cut_worktree(stub, {"conversation_id": "c1", "workspace": str(w.repo)})
+    assert record["worktree"]["branch"] == "subfleet/c1"
+    assert git(target, "symbolic-ref", "--short", "HEAD") == "subfleet/c1"
+    assert (w.repo / ".git" / "worktrees" / "job-x").is_dir()
+    assert git(w.repo, "rev-parse", "worktrees/job-x/HEAD") == only
+
+
 # --- every pin keeps its job ---------------------------------------------------------------
 
 PINS = ["running", "queued", "gate-review", "live-attempt", "quarantined", "unread-notice", "parent",

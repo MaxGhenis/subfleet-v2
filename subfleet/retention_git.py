@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -167,6 +168,42 @@ def find_registration(repository: Path, tree: Path, timeout: float = 60,
             continue
         if os.path.realpath(_resolve(admin, backlink)) == wanted:
             return Registration(Path(os.path.realpath(admin)), common, b"")
+    return None
+
+
+def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,
+                         timeout: float = 60) -> Path | None:
+    """Remove `tree`'s own registration from `repository`, and nothing else.
+
+    Only the admin directory directly under ``<common>/worktrees`` whose
+    ``gitdir`` backlink names ``tree/.git`` is deleted, and only if it is not
+    locked (a lock is someone's claim: retention's, or a person's `git worktree
+    lock`). A repository-wide `git worktree prune` would also drop every other
+    registration whose tree is missing at that moment, with the commits only
+    its HEAD and reflogs hold (d635: never run a repository-wide prune). Best
+    effort, for callers about to re-add the tree: returns the directory
+    removed, or None.
+    """
+    try:
+        out = run(["rev-parse", "--git-common-dir"], cwd=Path(repository), timeout=timeout).stdout
+        common = _resolve(Path(repository), out.decode("utf-8", "surrogateescape").strip())
+        wanted = os.path.realpath(Path(tree) / ".git")
+        admins = sorted((common / "worktrees").iterdir())
+    except (GitError, OSError):
+        return None
+    for admin in admins:
+        if admin.is_symlink() or not admin.is_dir():
+            continue       # never follow a link out of the repository
+        try:
+            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+        except OSError:
+            continue
+        if os.path.realpath(_resolve(admin, backlink)) != wanted:
+            continue
+        if os.path.lexists(admin / "locked"):
+            return None
+        shutil.rmtree(admin, ignore_errors=True)
+        return admin
     return None
 
 
