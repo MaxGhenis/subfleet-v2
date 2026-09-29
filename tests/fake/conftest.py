@@ -42,13 +42,19 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str) -> Harness:
+    def start(self, *options: str, open_files: int | None = None) -> Harness:
+        """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
         env = {**os.environ, "PYTHONPATH": str(REPO), "SUBFLEET_HOME": str(self.root)}
+
+        def limit():
+            import resource
+            resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
         self.process = subprocess.Popen(
             [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
              *options], cwd=REPO, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            preexec_fn=limit if open_files is not None else None,
         )
 
         def ready():
@@ -217,8 +223,12 @@ def daemon(request, process_inspection_available):
             # Keep the state root of a failed test so daemon.log and the store can be read.
             report = getattr(request.node, "rep_call", None)
             if report is not None and report.failed:
-                import re, shutil, sys
+                import re, shutil, stat, sys
                 keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                # A daemon ended hard (C-5.8a, or a crash) leaves daemon.sock,
+                # which copytree cannot copy.
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                ignore=lambda d, names: [n for n in names if stat.S_ISSOCK(
+                                    os.lstat(os.path.join(d, n)).st_mode)])
                 print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)

@@ -61,6 +61,11 @@ class Store:
         # C-3.8: the audit event each open transaction will record, innermost last.
         self._audits: list[dict[str, Any]] = []
         self._undone: list[int] = []
+        # Bumped by every committed top-level transaction that kept a change (C-3.8:
+        # net of what nested transactions rolled back). A reader compares it without
+        # taking `_lock` (an int read is atomic) to learn whether anything it derived
+        # from the store can have changed.
+        self.generation = 0
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
@@ -162,7 +167,10 @@ class Store:
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes - before != self._undone[-1]:
+                # C-3.8: what this transaction keeps, net of what its children rolled
+                # back. It decides both the event and, at the top level, the generation.
+                kept = self.connection.total_changes - before != self._undone[-1]
+                if kept:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"],
@@ -173,6 +181,8 @@ class Store:
                     # also includes what this one's children rolled back: hand that on,
                     # or a grandchild's undone write makes the parent record an event.
                     self._undone[-2] += self._undone[-1]
+                elif kept:
+                    self.generation += 1
             except BaseException:
                 if depth == 0:
                     self.connection.rollback()

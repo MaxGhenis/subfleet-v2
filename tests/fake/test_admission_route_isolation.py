@@ -962,8 +962,8 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
                                       ClockSource.REPORTED, "fixture"))
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
-    fable = service.policy["models"]["fable"]["id"]
-    _transient_on(service, job_id, "claude-a", fable)                  # the pair: fable, not the chain's opus
+    sonnet = service.policy["models"]["sonnet"]["id"]
+    _transient_on(service, job_id, "claude-a", sonnet)                 # the pair: sonnet, not the chain's opus
     service.store.update_lane("claude-a", desktop=1)
     service._admit()
     assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed"]
@@ -972,7 +972,7 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     service.store.update_job(job_id, next_check_at=utcnow())
     service._admit()
     last = service.store.list_attempts(job_id)[-1]
-    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", sonnet)
 
 
 def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet):
@@ -986,12 +986,12 @@ def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet)
     older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
-    fable = service.policy["models"]["fable"]["id"]
-    _transient_on(service, job_id, "claude-a", fable)
+    sonnet = service.policy["models"]["sonnet"]["id"]
+    _transient_on(service, job_id, "claude-a", sonnet)
     service._retry_verdicts[job_id] = (job_id + "/a1", False)         # a look let the pin go
     service._admit()
     last = service.store.list_attempts(job_id)[-1]
-    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", sonnet)
 
 
 def test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once(fleet):

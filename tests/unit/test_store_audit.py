@@ -230,7 +230,9 @@ def test_c3_8_a_transaction_records_an_event_exactly_when_it_or_a_committed_desc
     transaction's exit it has written one event, under its last title, exactly
     when it committed and it or a committed descendant kept a row, and none
     otherwise. After the outermost one ends, the store holds exactly the rows and
-    events of the transactions whose every ancestor committed.
+    events of the transactions whose every ancestor committed, the store's
+    generation has moved once if the outermost one kept anything and not at all
+    otherwise, and the audit stacks are back at depth zero.
     """
     rng, ids = random.Random(seed), itertools.count(1)
     with Store(tmp_path / "state.sqlite3") as store:
@@ -241,6 +243,7 @@ def test_c3_8_a_transaction_records_an_event_exactly_when_it_or_a_committed_desc
             committed, rows, kept_events = model(tree, decided)
             last_event = store.one("SELECT COALESCE(MAX(event_id), 0) AS id FROM events")["id"]
             last_row = store.one("SELECT COALESCE(MAX(notice_id), 0) AS id FROM service_notices")["id"]
+            generation = store.generation
             try:
                 execute(store, tree, seen)
             except Boom:
@@ -255,3 +258,6 @@ def test_c3_8_a_transaction_records_an_event_exactly_when_it_or_a_committed_desc
                                       (last_row,))
             assert [row["kind"] for row in stored_events] == kept_events, tree
             assert [int(row["text"]) for row in stored_rows] == rows, tree
+            # C-5.11: the generation moves exactly when the outermost transaction kept something.
+            assert store.generation == generation + (1 if committed and rows else 0), tree
+            assert (len(store._audits), len(store._undone), store._depth) == (0, 0, 0), tree
