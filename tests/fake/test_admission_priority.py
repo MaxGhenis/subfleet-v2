@@ -416,3 +416,31 @@ def test_c6_13_a_workspace_retry_is_held_by_the_guard_before_its_git(state_daemo
     daemon._admit()
     assert prepared == [] and daemon.store.list_attempts(job) == []
     assert daemon._holds[job]["reason"] == ("machine-busy" if clock == "due" else "workspace")
+
+
+def test_c10_3_a_newer_unreadable_registry_supersedes_an_older_idle_read(state_daemon, monkeypatch):
+    """Review of PR #72 (PR gate, round 2): an older refresh reads an empty registry
+    and is held; a newer read (priority discovery) finds the registry unreadable,
+    which is use. The older refresh then yields to it: the answer is use."""
+    import threading
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    entered, release, calls = threading.Event(), threading.Event(), []
+
+    def listing(directory=None):
+        calls.append(None)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(10)
+            return registry_module.Listing()                        # empty: idle
+        return None                                                   # unreadable
+    monkeypatch.setattr(daemon_module.registry, "listing", listing)
+    answers = []
+    older = threading.Thread(target=lambda: answers.append(daemon._desktop_in_use()))
+    older.start()
+    assert entered.wait(10)
+    assert daemon._session_rows() is None                            # the newer read, kept
+    release.set()
+    older.join(10)
+    assert answers == [True] and daemon._desktop_answer() is True

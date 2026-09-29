@@ -962,8 +962,11 @@ class Daemon:
         with self._desktop_use_lock:
             if started >= self._registry_rows[0]:
                 self._registry_rows = (started, found)
-            elif self._registry_rows[1] is not None:
-                started, found = self._registry_rows       # a later read was kept meanwhile
+            else:
+                # A later read was kept meanwhile; an unreadable registry (None)
+                # included, which is use and must supersede an older idle read
+                # (review of PR #72).
+                started, found = self._registry_rows
         return started, found
 
     def _subfleet_processes(self, found: dict) -> tuple[frozenset[int], frozenset[str]]:
