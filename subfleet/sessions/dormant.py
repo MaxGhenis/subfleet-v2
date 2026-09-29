@@ -988,7 +988,8 @@ def pending_wakes(facts: Mapping[str, Any], *, transport: str, now: datetime,
               if (age := _age_s(item.get("at"), now)) is not None and age < settle_s]
     if transport != "conversation" or status is None:
         return len(recent)
-    ids = [str(item["message_id"]) for item in wakes if item.get("message_id")][-200:]
+    newest = sorted(wakes, key=lambda item: str(item.get("at") or ""), reverse=True)
+    ids = [str(item["message_id"]) for item in newest if item.get("message_id")][:200]
     if not ids:
         return 0
     try:
