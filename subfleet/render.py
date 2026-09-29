@@ -172,6 +172,20 @@ _HOLD_TEXT = {
 }
 
 
+def operator_looks(rows) -> list[dict[str, Any]]:
+    """C-5.7a: a probe's latest operator looks, newest first, as `--wait` reads
+    them: each look's event id and the ids of the requests it acted on."""
+    looks = []
+    for row in rows:
+        try:
+            said = json.loads(row["data_json"])
+            ids = [entry.get("id") for entry in said.get("requests") or () if isinstance(entry, dict)]
+        except Exception:                   # noqa: BLE001 - a look that cannot be read names no request
+            ids = []
+        looks.append({"event_id": row["event_id"], "at": row["ts"], "ids": ids})
+    return looks
+
+
 def probe_resolutions(lane_id: str, job_id: str | None) -> list[str]:
     """C-5.7a: the two commands that resolve a quarantined probe, as an operator types them.
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
 from pathlib import Path
@@ -582,7 +583,7 @@ def test_c5_7a_offline_status_and_show_list_the_same_probes(routing_state, monke
     service._recover_probes()                           # a `probe.still_live`: the operator's last look
     online = service._probe_rows()
     shared = ("holder", "lane_id", "lane_ids", "job_id", "kind", "state", "created_at", "recorded_at",
-              "live_pids", "unverifiable", "errors", "containment", "operator_look", "resolve")
+              "live_pids", "unverifiable", "errors", "containment", "operator_look", "operator_looks", "resolve")
     offline = Offline(service.root)
     assert [{key: row[key] for key in shared} for row in offline.status()["probes"]] == \
         [{key: row[key] for key in shared} for row in online]
@@ -728,6 +729,104 @@ def test_c5_7a_a_request_is_recorded_by_one_resolution_even_when_the_pass_raises
     assert len(world.censuses) == censuses, "the clock, not the request, decides the next look"
 
 
+def test_c5_7a_a_probe_lists_its_latest_operator_looks_with_the_requests_each_acted_on(routing_state, monkeypatch):
+    """`--wait` reads `operator_looks` to find the look that acted on its own
+    request, even behind a later request's look: newest first, each with the ids
+    it acted on, online and offline alike."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    first = kill(service, job_id, confirm_dead=True)["probes"][0]["request_id"]
+    service._recover_probes()
+    second = release_probe(service, "codex-1", confirm_dead=True)["request_id"]
+    service._recover_probes()
+    [row] = service._probe_rows()
+    assert [look["ids"] for look in row["operator_looks"]] == [[second], [first]]
+    assert row["operator_looks"][0]["event_id"] == row["operator_look"]["event_id"]
+    assert Offline(service.root).status()["probes"][0]["operator_looks"] == row["operator_looks"]
+
+
+def test_c5_7a_a_store_that_cannot_say_whether_a_request_was_recorded_keeps_it(routing_state, monkeypatch):
+    """Before acting, a pass asks the store which entries a committed resolution
+    already recorded. If the store cannot answer, the pass raises and keeps the
+    request whole; once the store answers again, the request is acted on once."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="kept")
+    query = service.store.query
+
+    def failing(sql, params=()):
+        if RESOLUTIONS_BY_HOLDER in sql:
+            raise sqlite3.OperationalError("database is locked")
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "query", failing)
+    with pytest.raises(sqlite3.OperationalError):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "query", query)
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept" and service.store.list_leases(HOLDER)
+    service._recover_probes()
+    assert len(kinds(service, "probe.force_released")) == 1
+
+
+def test_c5_7a_a_request_recorded_before_a_raise_the_store_could_not_confirm_is_not_acted_on_again(
+        routing_state, monkeypatch):
+    """The safety review's interleaving (2026-09-29, second round): a
+    `probe.still_live` commits, the pass raises before it marks the request
+    acted, and the store cannot then say whether the request was recorded, so it
+    is kept. The next pass reconciles before it acts: the entry already recorded
+    is not acted on again, and a request asked meanwhile, merged with it, is."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    first = kill(service, job_id, confirm_dead=True, operator_note="first")["probes"][0]["request_id"]
+    add_event, query = service.store.add_event, service.store.query
+    outage = {"on": False}
+
+    def then_raise(kind, *args, **kwargs):
+        written = add_event(kind, *args, **kwargs)
+        if kind == "probe.still_live":
+            outage["on"] = True                         # the store goes away right after the commit
+            raise RuntimeError("raised after the commit")
+        return written
+
+    def failing(sql, params=()):
+        if outage["on"] and RESOLUTIONS_BY_HOLDER in sql:
+            raise sqlite3.OperationalError("database is locked")
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "add_event", then_raise)
+    monkeypatch.setattr(service.store, "query", failing)
+    with pytest.raises(RuntimeError, match="after the commit"):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "add_event", add_event)
+    kept = service._probe_resolutions[HOLDER]
+    assert [entry["id"] for entry in kept["requests"]] == [first], "kept whole: the store could not say"
+    second = release_probe(service, "codex-1", force_release=True, operator_note="second")["request_id"]
+    outage["on"] = False
+    service._recover_probes()
+    looks, forced = kinds(service, "probe.still_live"), kinds(service, "probe.force_released")
+    assert [[entry["id"] for entry in look["data"]["requests"]] for look in looks] == [[first]]
+    assert [[entry["id"] for entry in event["data"]["requests"]] for event in forced] == [[second]]
+    assert forced[0]["data"]["operator_note"] == "second" and not service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_an_unreadable_resolution_event_does_not_lose_a_request(routing_state, monkeypatch):
+    """A resolution event whose `requests` cannot be read (no writer makes one)
+    names no request: the pass that raised keeps its request, and raises its own
+    error, not the reader's."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    service.store.add_event("probe.still_live", job_id=job_id, lane_id="codex-1", data={"holder": HOLDER, "requests": 5})
+    kill(service, job_id, confirm_dead=True, operator_note="kept")
+
+    def broken(holder, request):
+        raise RuntimeError("store unavailable")
+    service._resolve_probe = broken
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._resolve_probe
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept"
+
+
 def test_c5_7a_a_pass_keeps_a_request_whose_holder_its_first_read_missed(routing_state, monkeypatch):
     """The pass reads the leases first and prunes last. A timer turn can take its
     lease, be quarantined and let go, and be asked about in between: the pass
@@ -848,17 +947,49 @@ def test_c5_7a_a_pass_whose_lease_check_raises_keeps_the_request(routing_state, 
     assert not service.store.list_leases(HOLDER) and len(kinds(service, "probe.force_released")) == 1
 
 
-@settings(max_examples=300, deadline=None)
-@given(created=st.integers(0, 7), issued=st.integers(0, 7 * 10**6), naive=st.booleans())
-def test_c5_7a_coverage_is_decided_in_whole_seconds(created, issued, naive):
-    """I5 for any fraction: a probe created at second `created` (as `utcnow()`
-    writes it) is reached by a request issued at any instant of a later second,
-    and never by one issued in the same second or before, whatever fraction the
-    request carries."""
+#: The query that finds a holder's committed resolutions (`_probe_unrecorded`).
+RESOLUTIONS_BY_HOLDER = "AND json_extract(data_json,'$.holder')=? UNION ALL SELECT data_json FROM events"
+
+@settings(max_examples=500, deadline=None)
+@given(created=st.integers(0, 7), issued=st.integers(0, 7 * 10**6),
+       offset=st.one_of(st.none(), st.just(0), st.integers(-14 * 3600 * 10**6, 14 * 3600 * 10**6)))
+def test_c5_7a_coverage_is_decided_in_whole_seconds(created, issued, offset):
+    """I5 for any fraction and any offset: a probe created at second `created`
+    (as `utcnow()` writes it) is reached by a request issued at any instant of a
+    later UTC second, and never by one issued in the same second or before,
+    whatever fraction the request carries and whatever offset, of whole seconds
+    or not, it is written in (`None`: naive, read as UTC)."""
     row = {"created_at": f"2026-09-29T12:00:0{created}Z"}
-    seconds, micros = divmod(issued, 10**6)
-    stamp = f"2026-09-29T12:00:0{seconds}.{micros:06d}" + ("" if naive else "Z")
-    assert daemon_module.probe_covered(row, stamp) is (created < seconds)
+    instant = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc) + timedelta(microseconds=issued)
+    if offset is None:
+        stamp = instant.replace(tzinfo=None).isoformat()
+    else:
+        stamp = instant.astimezone(timezone(timedelta(microseconds=offset))).isoformat()
+    assert daemon_module.probe_covered(row, stamp) is (created < issued // 10**6)
+
+
+@settings(max_examples=300, deadline=None)
+@given(entries=st.lists(st.builds(
+    lambda n, force, note, via: {"id": f"r{n}", "mode": "force-release" if force else "confirm-dead",
+                                 "operator_note": note, "at": f"2026-09-29T12:00:0{n % 10}Z", "via": via},
+    st.integers(0, 9), st.booleans(), st.one_of(st.none(), st.sampled_from(["a", "b"])),
+    st.sampled_from(["kill", "lanes release-probe"])), max_size=6, unique_by=lambda entry: entry["id"]),
+       again=st.lists(st.integers(0, 5), max_size=4))
+def test_c5_7a_a_request_is_one_request_by_its_id(entries, again):
+    """Merging is idempotent by id: putting back a request that is already
+    there, whole or in part, changes nothing. And the fold of the requests as
+    they were asked equals `probe_request` of their entries, which is how a
+    request less its recorded entries is rebuilt (a differential check)."""
+    merge = daemon_module.merge_probe_requests
+    one = [daemon_module.probe_request([entry]) for entry in entries]
+    folded = None
+    for request in one:
+        folded = merge(folded, request)
+    assert folded == daemon_module.probe_request(entries)
+    for n in again:
+        if n < len(one):
+            assert merge(folded, one[n]) == folded
+            assert merge(folded, folded) == folded
 
 
 PENDING = st.builds(
