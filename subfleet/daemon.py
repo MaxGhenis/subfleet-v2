@@ -50,6 +50,7 @@ from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model, turn_cap
 from .retention import RetentionState, maintenance
+from .retention_git import discard_registration
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -2766,23 +2767,7 @@ class Daemon:
         worktree prune` would also drop every other registration whose tree is
         missing at that moment (d635: never run a repository-wide prune)."""
         shutil.rmtree(workdir, ignore_errors=True)
-        try:
-            found = subprocess.run(["git", "-C", repository, "rev-parse", "--git-common-dir"],
-                                   capture_output=True, text=True, timeout=cap)
-            if found.returncode:
-                return
-            common = os.path.realpath(os.path.join(repository, found.stdout.strip()))
-            wanted = os.path.realpath(os.path.join(workdir, ".git"))
-            for admin in sorted(Path(common, "worktrees").iterdir()):
-                try:
-                    backlink = (admin / "gitdir").read_text().strip()
-                except OSError:
-                    continue
-                target = backlink if os.path.isabs(backlink) else os.path.join(admin, backlink)
-                if os.path.realpath(target) == wanted and not (admin / "locked").exists():
-                    shutil.rmtree(admin, ignore_errors=True)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        discard_registration(repository, workdir, timeout=cap)
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
