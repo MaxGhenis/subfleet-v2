@@ -952,20 +952,42 @@ LEASE_CHECK = "SELECT 1 FROM leases WHERE holder=?"
 
 @settings(max_examples=500, deadline=None)
 @given(created=st.integers(0, 7), issued=st.integers(0, 7 * 10**6),
-       offset=st.one_of(st.none(), st.just(0), st.integers(-14 * 3600 * 10**6, 14 * 3600 * 10**6)))
+       offset=st.one_of(st.none(), st.just("Z"), st.integers(-14 * 60, 14 * 60)))
 def test_c5_7a_coverage_is_decided_in_whole_seconds(created, issued, offset):
-    """I5 for any fraction and any offset: a probe created at second `created`
-    (as `utcnow()` writes it) is reached by a request issued at any instant of a
-    later UTC second, and never by one issued in the same second or before,
-    whatever fraction the request carries and whatever offset, of whole seconds
-    or not, it is written in (`None`: naive, read as UTC)."""
+    """I5 for any fraction and any offset `issued_at` may carry (`Z`, whole
+    minutes, or none: UTC): a probe created at second `created` (as `utcnow()`
+    writes it) is reached by a request issued at any instant of a later UTC
+    second, and never by one issued in the same second or before."""
     row = {"created_at": f"2026-09-29T12:00:0{created}Z"}
     instant = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc) + timedelta(microseconds=issued)
     if offset is None:
         stamp = instant.replace(tzinfo=None).isoformat()
+    elif offset == "Z":
+        stamp = instant.replace(tzinfo=None).isoformat() + "Z"
     else:
-        stamp = instant.astimezone(timezone(timedelta(microseconds=offset))).isoformat()
+        stamp = instant.astimezone(timezone(timedelta(minutes=offset))).isoformat()
     assert daemon_module.probe_covered(row, stamp) is (created < issued // 10**6)
+
+
+@pytest.mark.parametrize("stamp", [
+    "2026-09-29T12:00:00+00:00:00.500000",      # an offset under a second: 3.12 reads it as none
+    "2026-09-29T12:00:00+00:00:01", "2026-09-29T12:00:00.5-05:00:30",
+    "2026-09-29 12:00:00Z", "2026-09-29T12:00Z", "2026-W40-2T12:00:00Z", "20260929T120000Z",
+    "2026-09-29T12:00:00.1234567Z", "not a time"])
+def test_c5_7a_an_issued_at_outside_the_one_form_is_refused(routing_state, monkeypatch, stamp):
+    """`issued_at` takes one form, `YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]`. Other
+    forms Python reads differently from one version to the next (an offset in
+    seconds or fractions of one), or not at all, so the same stamp could name
+    two instants and reach a probe it should not (I5): both handlers refuse
+    them, with the probe untouched."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    for ask in (lambda: kill(service, job_id, force_release=True, issued_at=stamp),
+                lambda: release_probe(service, "codex-1", force_release=True, issued_at=stamp)):
+        with pytest.raises(protocol.ProtocolError) as refused:
+            ask()
+        assert refused.value.code == Exit.INVALID_INPUT
+    assert HOLDER not in service._probe_resolutions and service.store.list_leases(HOLDER)
 
 
 @settings(max_examples=300, deadline=None)
