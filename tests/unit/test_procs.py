@@ -16,6 +16,10 @@ import os
 from subfleet import client, procs
 
 
+RECORDED = {pid: procs.ProcessIdentity(pid, "100", "Sat Sep  5 10:00:00 2026")
+            for pid in (42, 43)}
+
+
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session=None):
     def read(argv, *, empty_ok=False):
         if fail is not None and any(os.path.basename(str(a)) == fail for a in argv):
@@ -27,7 +31,9 @@ def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session
         if "pid=,stat=" in argv:
             return groups
         if "pid=,ppid=,pgid=,stat=,lstart=" in argv:
-            return parents
+            return "\n".join(row if len(row.split(None, 4)) == 5 else
+                             row + " Sat Sep  5 10:00:00 2026"
+                             for row in parents.splitlines())
         if "pid=,command=" in argv:
             return markers
         if "lstart=" in argv:
@@ -97,7 +103,7 @@ def test_containment_three_sources_find_setsid_escape(monkeypatch):
     census(monkeypatch, parents="42 1 42 S\n43 42 43 S\n44 42 42 Z\n99 1 99 S\n",
            markers="99 python SUBFLEET_ATTEMPT=job/a1 PRIVATE_TOKEN=secret-sentinel\n"
                    "100 python SUBFLEET_ATTEMPT=job/a10\n")
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.group_pids == {42}
     assert result.descendant_pids == {42, 43}
     assert result.marker_pids == {99}
@@ -113,7 +119,7 @@ def test_containment_three_sources_find_setsid_escape(monkeypatch):
 def test_containment_failed_source_is_unverifiable(monkeypatch, failed):
     """C-5.5 every enumeration source must succeed before releasing a workspace."""
     census(monkeypatch, fail=failed)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.unverifiable
     assert not result.verified_empty
 
@@ -121,13 +127,13 @@ def test_containment_failed_source_is_unverifiable(monkeypatch, failed):
 def test_containment_empty_all_sources_proves_release(monkeypatch):
     """C-5.5 verified empty requires all three sources to return no live pid."""
     census(monkeypatch)
-    assert procs.containment(42, 42, None, "job/a1").verified_empty
+    assert procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED).verified_empty
 
 
 def test_containment_descends_from_recorded_child_after_guardian_exit(monkeypatch):
     """C-5.5 recorded child roots preserve a descendant census after reparenting."""
     census(monkeypatch, parents="43 1 43 S\n44 43 43 S\n45 44 43 S\n")
-    assert procs.containment(42, 42, 43, "job/a1").descendant_pids == {43, 44, 45}
+    assert procs.containment(42, 42, 43, "job/a1", recorded_identities=RECORDED).descendant_pids == {43, 44, 45}
 
 
 def test_signal_group_refuses_reused_leader(monkeypatch):
@@ -203,9 +209,9 @@ def test_containment_marker_requires_the_state_root_when_given(monkeypatch):
     census(monkeypatch, parents="42 1 42 S\n",
            markers=("99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/other-root\n"
                     "100 python SUBFLEET_ROOT=/tmp/this-root SUBFLEET_ATTEMPT=job/a1\n"))
-    scoped = procs.containment(42, 42, None, "job/a1", root="/tmp/this-root")
+    scoped = procs.containment(42, 42, None, "job/a1", root="/tmp/this-root", recorded_identities=RECORDED)
     assert scoped.marker_pids == {100}
-    unscoped = procs.containment(42, 42, None, "job/a1")
+    unscoped = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert unscoped.marker_pids == {99, 100}
 
 
@@ -219,7 +225,7 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     # 50 kept the group after reparenting to launchd; 60 is its child in a new group.
     assert result.group_pids == {42, 43, 50}
     assert result.descendant_pids == {42, 43}
@@ -233,7 +239,7 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
 def test_containment_zombie_group_member_is_not_live(monkeypatch):
     """C-5.5 a zombie in the recorded group is already reaped for containment purposes."""
     census(monkeypatch, parents="42 1 42 Z\n43 42 42 Z\n")
-    assert procs.containment(42, 42, 43, "job/a1").verified_empty
+    assert procs.containment(42, 42, 43, "job/a1", recorded_identities=RECORDED).verified_empty
 
 
 def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
@@ -265,7 +271,7 @@ def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypa
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.group_pids == set(range(42, 63)) and not result.unverifiable
     assert result.identities[50] == procs.ProcessIdentity(50, "100", START)
     assert [os.path.basename(argv[0]) for argv in reads if os.path.basename(argv[0]) == "ps"] == ["ps", "ps"]
@@ -275,7 +281,7 @@ def test_c5_12_a_pid_the_snapshot_cannot_describe_is_asked_about_singly(monkeypa
     """C-5.5 a marker process born after the snapshot still gets an identity, or leaves the census."""
     census(monkeypatch, parents=f"42 1 42 S {START}\n",
            markers="77 provider SUBFLEET_ATTEMPT=job/a1\n")
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.marker_pids == {77}
     assert result.identities[77] == procs.ProcessIdentity(77, "100", START)
 
@@ -300,13 +306,13 @@ def test_c5_12_a_census_that_finds_nothing_needs_no_boot_identity(monkeypatch):
     """C-5.5, C-5.12 a failed `sysctl` cannot make an empty census unverifiable; a census that finds a live pid
     says its identity is unavailable, not that `ps` could not enumerate."""
     census(monkeypatch, parents=f"1 0 1 Ss {START}\n7 1 7 S {START}\n", fail="sysctl")
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.verified_empty and result.errors == ()
     census(monkeypatch, parents=f"42 1 42 Ss {START}\n43 42 42 S {START}\n", fail="sysctl")
-    result = procs.containment(42, 42, None, "job/a1")
-    assert result.unverifiable and result.live_pids == {42, 43}
-    assert sorted(result.errors) == ["identity inspection unavailable for pid 42",
-                                     "identity inspection unavailable for pid 43"]
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
+    assert result.unverifiable and not result.verified_empty
+    assert not result.live_pids  # unreadable roots confer no ownership
+    assert result.errors == ("identity inspection unavailable for pid 42",)
 
 
 def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(monkeypatch):
@@ -575,7 +581,7 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
             return ""                                           # gone by the identity read
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities=RECORDED)
     assert result.verified_empty and result.errors == (), result
 
 

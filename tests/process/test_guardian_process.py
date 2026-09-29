@@ -102,7 +102,9 @@ def test_ignore_sigterm_escalates_and_verifies_containment(tmp_path):
         # until the kernel finishes tearing it down, longer for a provider at the
         # `utility` QoS (C-5.1) under load (up to 0.78 s at load ~190, 2026-09-27).
         settle_until = time.monotonic() + KILL_SETTLE_S
-        while not procs.containment(process.pid, process.pid, None, "ignore/a1").verified_empty:
+        while not procs.containment(process.pid, process.pid, None, "ignore/a1",
+                recorded_identities={process.pid: procs.ProcessIdentity(
+                    process.pid, start["boot_id"], start["proc_start"])}).verified_empty:
             assert time.monotonic() < settle_until, "census not verified empty within kill_settle_s"
             time.sleep(.05)
     finally:
@@ -124,7 +126,10 @@ def test_nested_setsid_survives_group_and_remains_contained_evidence(tmp_path):
         assert escaped is not None
         assert process.wait(timeout=3) == 0
         receipt = json.loads((tmp_path / "exit.json").read_text())
-        result = procs.containment(process.pid, process.pid, receipt["child_pid"], "escape/a1")
+        start = json.loads((tmp_path / "start.json").read_text())
+        result = procs.containment(process.pid, process.pid, receipt["child_pid"], "escape/a1",
+            recorded_identities={process.pid: procs.ProcessIdentity(
+                process.pid, start["boot_id"], start["proc_start"])})
         assert not result.group_pids
         assert escaped_pid in result.marker_pids
         assert not result.verified_empty

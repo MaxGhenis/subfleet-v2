@@ -2740,7 +2740,8 @@ class Daemon:
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+                                 record.get("child_pid"), record["holder"], root=str(self.root),
+                                 recorded_identities=self._containment_identities(record))
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -4318,8 +4319,26 @@ class Daemon:
             self._lost(a)
         return True
 
+    @staticmethod
+    def _containment_identities(record: dict) -> dict[int, procs.ProcessIdentity]:
+        """C-5.5: launch identity plus ownership recorded before this census.
+
+        Attempts keep owned identities in evidence_json; probes keep the same
+        map directly in their durable record. The guardian's launch row is
+        authoritative, including before any group census has been recorded.
+        """
+        evidence = json.loads(record.get("evidence_json") or "{}")
+        owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in
+                 record.get("owned_identities", evidence.get("owned_identities", {})).items()}
+        guardian = record.get("guardian_pid")
+        if guardian and record.get("boot_id") and record.get("proc_start"):
+            owned[guardian] = procs.ProcessIdentity(guardian, record["boot_id"], record["proc_start"])
+        return owned
+
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
+        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"),
+                                 a["attempt_id"], root=str(self.root),
+                                 recorded_identities=self._containment_identities(a))
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:

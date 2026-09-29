@@ -135,6 +135,7 @@ def test_c5_6_kill_escalates_ignored_sigterm_and_records_killed_by(daemon):
 def test_c5_6_c13_1_writable_kill_salvages_dirty_workspace_after_verified_containment(daemon):
     """C-5.6, C-13.1 kill verifies containment and salvages dirty writable work without changing HEAD or index."""
     from subfleet.procs import containment
+    from subfleet.daemon import Daemon
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=daemon.workdir, capture_output=True,
@@ -161,7 +162,8 @@ def test_c5_6_c13_1_writable_kill_salvages_dirty_workspace_after_verified_contai
     attempt = daemon.attempts(job_id)[0]
     assert attempt["state"] == "interrupted" and attempt["killed_by"]
     assert containment(attempt["pgid"], attempt["guardian_pid"], attempt["child_pid"],
-                       attempt["attempt_id"]).verified_empty
+                       attempt["attempt_id"],
+                       recorded_identities=Daemon._containment_identities(attempt)).verified_empty
     saved = daemon.rows("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
                          (attempt["attempt_id"],))
     assert len(saved) == 1

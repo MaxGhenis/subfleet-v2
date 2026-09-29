@@ -330,6 +330,8 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # Recorded pids now occupied by another identity, never ownership by number.
+    reused_pids: frozenset[int] = frozenset()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -346,9 +348,10 @@ class Containment:
             "marker_pids": sorted(self.marker_pids),
             "live_pids": sorted(self.live_pids),
             "unverifiable": self.unverifiable,
-            "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
+            "identities": {str(pid): asdict(value) for pid, value in sorted(self.identities.items())},
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
+            "reused_pids": sorted(self.reused_pids),
         }
 
 
@@ -382,7 +385,8 @@ def group_members(pgid: int) -> dict[int, str]:
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str, root: str | None = None) -> Containment:
+                attempt_id: str, root: str | None = None, *,
+                recorded_identities: dict[int, ProcessIdentity] | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -396,11 +400,22 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     the census records as evidence, and the start time that is its identity, so
     a census is two `ps` reads however many processes it finds (C-5.12);
     commands and environments are never retained.
+
+    Roots must match their recorded boot and start before their parent links
+    confer ownership. Known reused pids also stop the walk. A group may outlive
+    its leader: POSIX reserves its id while any member remains, so on the same
+    boot an absent leader leaves the group attributable. A different identity
+    at the leader pid proves the original group emptied and its id was reused;
+    that group's members confer no ownership. Missing or unreadable identity
+    evidence prevents release. Attempt/root markers independently confer
+    ownership, even on a pid whose recorded identity differs.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
     errors: list[str] = []
+    recorded = recorded_identities or {}
+    reused: set[int] = set()
     try:
         seen: ProcessTable | None = snapshot()
         table = seen.rows
@@ -412,15 +427,63 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
+    boot_matches: dict[str, bool] = {}
+    matches: dict[int, bool] = {}
+
+    def same_boot(boot: str) -> bool:
+        if boot not in boot_matches:
+            match = boot_identity.matches(boot, seen.boot(), seen.legacy_seconds)
+            if match is None:
+                raise InspectionError("recorded boot identity is unavailable")
+            boot_matches[boot] = match
+        return boot_matches[boot]
+
+    def matches_record(pid: int) -> bool:
+        # Compare even a zombie when it is an intermediate parent or the group
+        # leader; zombies cannot be writers, but their identity still matters.
+        if pid not in matches:
+            known = recorded.get(pid)
+            try:
+                if not known or known.pid != pid or not known.boot_id or not known.proc_start:
+                    raise InspectionError("recorded identity is unavailable")
+                if not table[pid][3]:
+                    raise InspectionError("snapshot start identity is unavailable")
+                matches[pid] = table[pid][3] == known.proc_start and same_boot(known.boot_id)
+                if not matches[pid]:
+                    reused.add(pid)
+            except InspectionError:
+                errors.append(f"identity inspection unavailable for pid {pid}")
+                matches[pid] = False
+        return matches[pid]
+
+    def attributable(pid: int) -> bool:
+        return pid not in recorded or matches_record(pid)
+
     if seen is not None:
-        groups = set(seen.group(pgid))
+        members = seen.group(pgid)
+        if members:
+            leader = recorded.get(pgid)
+            if pgid in table:
+                group_owned = matches_record(pgid)
+            else:
+                try:
+                    if not leader or leader.pid != pgid or not leader.boot_id or not leader.proc_start:
+                        raise InspectionError("recorded group leader identity is unavailable")
+                    group_owned = same_boot(leader.boot_id)
+                except InspectionError:
+                    errors.append("group leader identity inspection unavailable")
+                    group_owned = False
+            if group_owned:
+                groups = {pid for pid in sorted(members) if attributable(pid)}
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        roots = {pid for pid in sorted({p for p in (guardian_pid, child_pid) if p and p > 0})
+                 if pid in table and matches_record(pid)}
         found = set(roots)
         frontier = roots
         while frontier:
-            frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
+            frontier = {pid for pid, row in sorted(table.items())
+                        if row[0] in frontier and pid not in found and attributable(pid)}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
     try:
@@ -443,11 +506,20 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
     identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers:
+    for pid in sorted(groups | descendants | markers):
         try:
-            # The snapshot's own start time when it has one; a pid it could not
-            # describe (a marker spawned after the read) is asked about singly.
-            current = (seen.identity(pid) if seen is not None else None) or identity(pid)
+            if pid in markers and pid in recorded and pid in table:
+                matches_record(pid)  # record reuse; markers still count independently
+            # A snapshot row is authoritative for this census. Missing start
+            # data is an inspection failure, not permission to replace the row
+            # with a later read that could erase a writer or describe PID reuse.
+            # Only a marker born after the table needs a separate identity read.
+            if pid in table:
+                current = seen.identity(pid)
+                if current is None:
+                    raise InspectionError("snapshot start identity is unavailable")
+            else:
+                current = identity(pid)
             if current is not None:
                 identities[pid] = current
             else:
@@ -460,7 +532,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+                       bool(errors), identities, tuple(sorted(set(errors))), shapes, frozenset(reused))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
