@@ -605,24 +605,36 @@ def test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing(core_
     assert all(steer_frames(runner) == [] for runner in runners.values())
 
 
+@pytest.mark.parametrize("cause", ["catching-up", "not-taken-back"])
 @pytest.mark.parametrize("catches_up", [True, False])
-def test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly(core_probe, tmp_path, daemon, catches_up):
+def test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly(core_probe, tmp_path, daemon, catches_up,
+                                                                       cause):
     """Steer review finding 3: the daemon answers `not-steerable` while the running turn's
-    runner is still catching up (a daemon restart) or the provider is not ready. A steer
-    that names its turn (`into`) is asked again briefly, so it lands once the turn can
-    take it, written to the provider once; a turn that never can leaves it queued, the
-    steer refused `not-steerable` after `steerAttempts` tries, holding nothing after."""
+    runner is still catching up after a daemon restart, or while the restarted daemon has
+    not taken the turn's runner back yet, or the provider is not ready. A steer that names
+    its turn (`into`) is asked again briefly, so it lands once the turn can take it,
+    written to the provider once; a turn that never can leaves it queued, the steer
+    refused `not-steerable` after `steerAttempts` tries, holding nothing after."""
     harness, server = daemon
     host, steered, after = ids(3)
     runners = go_live_when_submitted(harness, host)
-    after_submitted(harness, steered, lambda r: setattr(runners[host], "replay_caught_up", False))
+    attempt = f"job-{host[:8]}/a1"                          # the runner's key in the service (`make_live`)
+
+    def not_ready(ready: bool) -> None:
+        if cause == "catching-up":
+            runners[host].replay_caught_up = ready
+        elif ready:
+            harness.service.runners[attempt] = runners[host]
+        else:
+            harness.service.runners.pop(attempt, None)
+    after_submitted(harness, steered, lambda r: not_ready(False))
     real = harness.service.op_message_steer
 
     def steer(args, peer):
         try:
             return real(args, peer)
         finally:
-            runners[host].replay_caught_up = catches_up     # caught up by the next try, or never
+            not_ready(catches_up)                           # ready by the next try, or never
     harness.service.op_message_steer = steer
     out = run_steps(core_probe, tmp_path, server.path, [
         create_step(harness, "req-n"),
@@ -835,6 +847,33 @@ def test_c24_9_a_withdrawal_that_cannot_read_where_the_message_is_never_interrup
     assert [c.split(" ")[0] for c in out["calls"]] == ["message.cancel", "message.status"]
 
 
+@pytest.mark.parametrize("state,interrupts", [("starting", True), ("running", True), ("approval-needed", True),
+                                              ("queued", False), ("complete", False), ("cancelled", False)])
+def test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s(
+        core_probe, tmp_path, harness, state, interrupts):
+    """C-29.7: after `too-late`, Stop reads where the message is and interrupts it only
+    while it is its own turn's (waiting to start, starting, running or asking). One
+    queued again (another client could steer it before the interrupt arrived, and the
+    daemon would point that interrupt at the host) or already settled is left alone."""
+    cid = harness.create()["conversation_id"]
+    (mid,) = ids(1)
+    harness.submit(cid, "also", message_id=mid)
+    too_late = {"id": "fixture", "ok": False, "v": 1, "error": {
+        "code": 2, "message": "too-late: the provider may already have this message", "fix": "use turn.interrupt"}}
+    (row,) = statuses(harness, mid)
+    now = {**row, "state": state}
+    answers = [("message.cancel", too_late),
+               ("message.status", json.loads(protocol.encode(protocol.ok("", {"messages": [now]}))))]
+    if interrupts:
+        answers.append(("turn.interrupt", json.loads(protocol.encode(protocol.ok("", {**now, "stop_requested": True})))))
+    out = run_steps(core_probe, tmp_path, scripted(tmp_path, answers), [{"do": "stop", "key": mid, "state": "queued"}])
+    result = out["results"][0]
+    assert "error" not in result, result
+    assert [c.split(" ")[0] for c in out["calls"]] == ["message.cancel", "message.status"] + (
+        ["turn.interrupt"] if interrupts else [])
+    assert result["receipt"]["state"] == state
+
+
 def test_c24_9_slash_commands_and_shell_input_are_never_steered(core_probe, tmp_path):
     """They wait for the turn to end, as in Claude Code (DESIGN.md section 9)."""
     texts = ["/compact", "  /model opus", "!ls -la", "\n!git status", "fix it", "a/b and !c", "", "   "]
@@ -987,6 +1026,36 @@ def test_c24_9_esc_passes_over_a_too_late_steer_only_while_it_is_still_in_that_t
         f"escape:recall:{steered}", f"too-late:{stop_words}", f"escape:stop:{queued_for_later}"]
 
 
+def test_c24_9_esc_passes_over_a_queued_steer_the_daemon_says_has_left_the_queue(core_probe, tmp_path, harness):
+    """C-29.7: the app shows a refused steer S queued, but the daemon answers Esc's cancel
+    `too-late`: S left the queue meanwhile (another client steered it, its frame written).
+    Esc does not ask about S again while the app still shows it as it was, nor once it
+    sees S steering in that turn; once S is back in the queue (the turn ended without
+    reading it), Esc takes it back."""
+    cid, host, _ = running_host(harness)
+    steered = harness.submit(cid, "also the lexer", after=host)["message_id"]
+    first = statuses(harness, host, steered)
+    record_state(harness, steered, "steering", f"steer:{host}")
+    steering = statuses(harness, steered)
+    record_state(harness, steered, "queued", "steer-missed: the turn ended before the provider read it")
+    missed = statuses(harness, steered)
+    out = fold(core_probe, tmp_path, cid, [
+        {"receipts": first},
+        {"steer_answer": {"message_id": steered, "refusal": {"reason": "not-steerable", "message": "not-steerable"}}},
+        {"esc": True},                                     # takes S back ...
+        {"too_late": steered},                             # ... but it has left the queue
+        {"esc": True},                                     # shown as it was: passed over, the turn stops
+        {"receipts": steering},
+        {"esc": True},                                     # steering in that turn: still passed over
+        {"receipts": missed},
+        {"esc": True},                                     # back in the queue: taken back
+    ])
+    stop_words = "Claude already has it; it joins at the next step. Press Esc again to stop the turn."
+    assert [r for r in out["results"] if r.startswith(("escape:", "too-late:"))] == [
+        f"escape:recall:{steered}", f"too-late:{stop_words}", f"escape:stop:{host}", f"escape:stop:{host}",
+        f"escape:recall:{steered}"]
+
+
 def test_c24_9_a_too_late_answer_says_what_the_next_esc_does(core_probe, tmp_path, harness):
     """Review finding 16: with an older steer still unread, the next Esc takes that one
     back, and the words say so; only with none left does it stop the turn."""
@@ -1006,6 +1075,11 @@ def test_c24_9_a_too_late_answer_says_what_the_next_esc_does(core_probe, tmp_pat
     assert [r for r in out["results"] if r.startswith(("escape:", "too-late:"))] == [
         f"escape:recall:{newer}", f"too-late:{told}take back the message before it.",
         f"escape:recall:{older}", f"too-late:{told}stop the turn.", f"escape:stop:{host}"]
+    # Too late for the older one while the newer is still unread: the next Esc takes the newer.
+    out = fold(core_probe, tmp_path, cid, [{"receipts": statuses(harness, host, older, newer)},
+                                           {"too_late": older, "assistant": "Codex"}, {"esc": True}])
+    assert [r for r in out["results"] if r.startswith(("escape:", "too-late:"))] == [
+        f"too-late:{told}take back the newer message.", f"escape:recall:{newer}"]
 
 
 def test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn(core_probe, tmp_path, harness):
