@@ -823,10 +823,11 @@ def test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing(seeded, monke
 #
 # Invariants, for every outcome of the pass and every way saving its report can
 # go: the exit code, the error and the fix are the ones the same pass gives with
-# a working save (a finished pass whose report is lost exits 1, not 0); the
-# report is on disk or printed in full, and is the report a working save writes
-# but for the save's own error; a copy the pass took is on disk and named in any
-# fix; and the store ends the same either way.
+# a working save (a finished pass whose report is lost exits 1, not 0); a report
+# that saving failed to write, or of a pass that stopped, is printed in full and
+# is the report a working save writes but for the save's own error; a copy the
+# pass took is on disk and, once rows are deleted, named in any fix (every stop
+# driven here names it); and the store ends the same either way.
 
 NO_SPACE = "OSError: [Errno 28] No space left on device"
 
@@ -1015,6 +1016,20 @@ def test_an_error_closing_the_store_replaces_neither_the_outcome_nor_the_report(
         os.close(handle)
 
 
+def test_an_error_prints_on_one_line_of_the_human_report(seeded, monkeypatch, capsys):
+    """C-17.4: a line break inside an error cannot pass for another row of the report."""
+    store, root = seeded
+    unsavable(monkeypatch, lambda: RuntimeError("a\nb\rc\x85d\u2028e f"))
+    assert prune_decisions.main(["--state-root", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert (f"{'error':<16} report not saved: RuntimeError: a\\nb\\rc\\x85d\\u2028e f"
+            in captured.out.splitlines())
+    assert "(saving it failed: RuntimeError: a\\nb\\rc\\x85d\\u2028e f)" in captured.err
+    # The full report keeps the error exactly as raised.
+    assert printed_report(captured.err)["errors"] == ["report not saved: RuntimeError: "
+                                                      "a\nb\rc\x85d\u2028e f"]
+
+
 def test_an_error_before_the_plan_says_nothing_was_deleted(seeded, monkeypatch, capsys):
     """C-17.4: an error opening the store is not pointed at a report that does not exist."""
     store, root = seeded
@@ -1042,7 +1057,7 @@ CLOCK = "2026-09-29T12:00:00Z"
 
 @pytest.fixture(scope="module")
 def template(tmp_path_factory):
-    """A closed store with rows to delete in three batches of three, copied per example."""
+    """A closed store with eight rows to delete, in batches of 3, 3 and 2; copied per example."""
     root = tmp_path_factory.mktemp("template")
     with Store(root / "state.sqlite3") as store:
         for job_id, state in ((TERMINAL, "succeeded"), (MIXED, "failed"), (LIVE, "waiting")):
@@ -1154,7 +1169,7 @@ def test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is(template,
             assert [line for line in s_out.splitlines() if not line.startswith(where)] == \
                 [line for line in c_out.splitlines() if not line.startswith(where)]
             assert [line for line in s_out.splitlines() if line.startswith("error ")] == \
-                [f"{'error':<16} {error}" for error in errors]
+                [f"{'error':<16} {prune_decisions._one_line(error)}" for error in errors]
         # A copy the pass took is on disk, and any fix names it.
         copy = oracle["backups"].get("copy", {}).get("path")
         if copy:

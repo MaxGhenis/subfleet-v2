@@ -2,8 +2,8 @@
 
 Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
-`add_decision` each time it left a job waiting), and nothing reads those rows
-again: `subfleet why` (the daemon's `why` verb) and offline `runs show` each
+`add_decision` each time a routing verdict left a job waiting), and nothing
+reads those rows again: `subfleet why` (the daemon's `why` verb) and offline `runs show` each
 serve one row per job, and no foreign key in `store_schema.sql` points at
 `decisions`. #16 stopped the repeats — a wait that reaches the verdict it
 reached last time adds no row (C-6.10) — and this module is the one-off
@@ -1092,7 +1092,8 @@ def _fail(code: int, message: str, fix: str | None = None,
     if report is not None and report.path:
         print(f"  report: {report.path}", file=sys.stderr)
     elif report is not None:
-        why = f"saving it failed: {report.save_error}" if report.save_error else "--no-report"
+        why = (f"saving it failed: {_one_line(report.save_error)}" if report.save_error
+               else "--no-report")
         print(f"  report: not saved ({why}); here it is in full:", file=sys.stderr)
         print(json.dumps(report.as_dict(), indent=1, sort_keys=True, default=str),
               file=sys.stderr)
@@ -1159,11 +1160,17 @@ def _print(report: PruneReport) -> None:
                                         "wal_checkpoint(TRUNCATE) could not truncate the log"
                      + (" and the rebuilt file did not give its pages back to the filesystem"
                         if report.vacuum else "")))
-    rows.extend(("error", error) for error in report.errors)
+    rows.extend(("error", _one_line(error)) for error in report.errors)
     for label, value in rows:
         print(f"{label:<16} {value}")
     if report.path:
         print(f"{'report':<16} {report.path}")
+
+
+def _one_line(text: str) -> str:
+    """`text` on one line: a line break in an error must not start a row of its own."""
+    return "".join(char if char.isprintable() else char.encode("unicode_escape").decode()
+                   for char in text)
 
 
 def _show(report: PruneReport, as_json: bool) -> None:
@@ -1204,10 +1211,12 @@ def main(argv: list[str] | None = None) -> int:
     except PruneError as stop:
         # Every refusal, failed proof, unhandled stop and unsaved report
         # arrives in one shape. A pass that finished still prints its report
-        # where a finished pass does; only the file is missing.
+        # where a finished pass does, after the record on stderr, so a stdout
+        # that cannot be written loses nothing; only the file is missing.
+        code = _fail(stop.code, str(stop), stop.fix, stop.report)
         if isinstance(stop, PruneReportUnsaved):
             _show(stop.report, args.json)
-        return _fail(stop.code, str(stop), stop.fix, stop.report)
+        return code
     except SchemaVersionError as mismatch:
         # C-3.5: the store is newer than this build knows, and the message
         # carries both versions; `Store` raises it before the pass has a report.
