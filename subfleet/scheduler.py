@@ -249,9 +249,9 @@ def _future_closure(closure: Mapping[str, Any], now: datetime) -> bool:
 def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
     """C-23.37: stronger models come from policy, never provider name guesses.
 
-    Explicit priorities compare models across separate task chains (Fable's
-    writing chain and the general-work chain). Older policies still express
-    ordering within their upward-only chains.
+    Explicit priorities compare models across separate task chains (a writing
+    chain and the general-work chain; until 2026-09-27 Fable's). Older policies
+    still express ordering within their upward-only chains.
     """
     model = policy["models"][short]
     higher = set()
@@ -341,7 +341,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
-    # Repeated tiers on Fable and Terra do not create another admission chance.
+    # Repeated tiers (the one-model writing chains, Terra) do not create another
+    # admission chance.
     chain = list(dict.fromkeys(chain))
     in_flight = dict(view.get("in_flight", {}))
     if "in_flight" not in view:

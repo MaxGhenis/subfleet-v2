@@ -11,6 +11,7 @@ from subfleet.contracts import Exit
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from subfleet.scheduler import (evaluate, exit_code, ordered_jobs, probe_required,
                                 resolve_lane, waiting_metadata)
+from tests.fable_reserve import load_fable_reserve_policy
 
 
 NOW = "2026-09-05T10:33:00Z"
@@ -22,7 +23,8 @@ SIX_DAYS = "2026-09-11T10:33:00Z"
 def policy():
     """The shipped policy with the reserve rule (C-11.7) switched off: these cases
     describe admission mechanics that the rule sits on top of. `reserve_policy`
-    below is the policy as shipped, for the reserve cases."""
+    below reserves Fable, as the shipped policy did until 2026-09-27, for the
+    reserve cases (`tests/fable_reserve.py`)."""
     loaded = load_policy(DEFAULT_POLICY_PATH)
     loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
     return loaded
@@ -30,7 +32,16 @@ def policy():
 
 @pytest.fixture
 def reserve_policy():
-    return load_policy(DEFAULT_POLICY_PATH)
+    return load_fable_reserve_policy()
+
+
+@pytest.fixture
+def fable_policy(reserve_policy):
+    """Fable restored as a model, without the reserve: model-scoped closures and
+    stranded capacity across chains (C-9.6, C-23.37) need a second Claude model
+    above Opus, and until 2026-09-27 the shipped policy's was Fable."""
+    reserve_policy["reserve"] = {**reserve_policy["reserve"], "models": []}
+    return reserve_policy
 
 
 def lane(identity="claude-1", **changes):
@@ -151,20 +162,48 @@ def test_claude_worst_window_headroom_then_in_flight_then_id(policy):
     assert decision.evaluations[0]["candidates"] == ["claude-3", "claude-4", "claude-2", "claude-1"]
 
 
-def test_fable_model_scoped_closure_leaves_opus_eligible(policy):
+def test_fable_model_scoped_closure_leaves_opus_eligible(fable_policy):
     """C-11.2, C-9.6: claude-fable-5-1 admission closure preserves Opus on the account."""
     snapshot = view([lane()], closures=[closure("claude-1", "claude-fable-5-1")])
-    assert evaluate(policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
-    denied = evaluate(policy, snapshot, job(pinned_model="fable"))
+    assert evaluate(fable_policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
+    denied = evaluate(fable_policy, snapshot, job(pinned_model="fable"))
     assert exit_code(denied) == Exit.NO_LANE
     assert denied.evaluations[0]["rejections"][0]["reason"] == f"closed:claude-fable-5-1:{TOMORROW}"
 
 
 @pytest.mark.parametrize("model", ["opus", "fable"])
-def test_account_scoped_closure_removes_both_claude_models(policy, model):
+def test_account_scoped_closure_removes_both_claude_models(fable_policy, model):
     """C-11.2, C-9.6: an account closure applies to both Fable and Opus."""
-    assert exit_code(evaluate(policy, view([lane()], closures=[closure("claude-1")]),
+    assert exit_code(evaluate(fable_policy, view([lane()], closures=[closure("claude-1")]),
                               job(pinned_model=model))) == Exit.NO_LANE
+
+
+@pytest.mark.parametrize("pin", ["fable", "claude-fable-5", "claude-fable-5-1"])
+def test_retired_fable_pin_is_evaluated_as_opus_with_a_note(policy, pin, capsys):
+    """C-11.1: the shipped policy retires Fable (2026-09-27); every spelling of a
+    Fable pin evaluates Opus, says so on stderr, and never names Fable's model."""
+    snapshot = view([lane()], closures=[closure("claude-1", "claude-fable-5-1")])
+    decision = evaluate(policy, snapshot, job(pinned_model=pin))
+    assert decision.chain == ("opus",)
+    assert decision.chosen_lane == "claude-1"
+    assert decision.evaluations[0]["model_id"] == "claude-opus-5-5"
+    assert f"retired model {pin!r} resolves to 'opus'" in capsys.readouterr().err
+
+
+def test_shipped_policy_ignores_the_fable_bucket(policy):
+    """C-11.7, C-23.37: with Fable retired and nothing reserved, Fable's weekly bucket
+    neither reserves Opus's headroom nor strands a lane: Opus picks by its own order."""
+    assert policy["reserve"]["models"] == []
+    snapshot = view([lane("claude-1"), lane("claude-2")],
+                    [reading("claude-1", .1), reading("claude-2", .7),
+                     reading("claude-1", .99, scope="claude-fable-5-1", source="oauth-usage")],
+                    [closure("claude-2", "claude-fable-5-1")])
+    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    assert decision.chosen_lane == "claude-1"
+    details = decision.evaluations[0]["candidate_details"]
+    assert "reserve" not in details["claude-1"]
+    assert details["claude-2"]["stranded_scopes"] == []
+    assert decision.evaluations[0]["stranding_closures"] == []
 
 
 def test_v1_never_candidate_and_desktop_requires_allow_desktop(policy):
@@ -244,15 +283,21 @@ def test_unknown_model_names_input_key(policy):
         evaluate(policy, view([lane()]), job(pinned_model="unknown"))
 
 
+@pytest.mark.parametrize("tier", ["trivial", "easy", "standard", "hard"])
 @pytest.mark.parametrize("task", ["authored-prose", "strategy", "adjudication"])
-def test_fable_only_chains_never_leave_claude_provider(policy, task):
-    """C-11.1–2, C-21: authored prose, strategy, and adjudication remain Fable-only."""
+def test_writing_chains_are_opus_only_and_never_leave_claude_provider(policy, task, tier):
+    """C-11.1–2, C-21: authored prose, strategy, and adjudication run on Opus at every
+    tier (Fable until its retirement on 2026-09-27) and never promote to Codex."""
     snapshot = view([lane(), lane("codex-1")], [reading("codex-1")],
-                    [closure("claude-1", "claude-fable-5-1")])
-    decision = evaluate(policy, snapshot, job(task=task, tier="trivial"))
-    assert decision.chain == ("fable",)
+                    [closure("claude-1", "claude-opus-5-5")])
+    decision = evaluate(policy, snapshot, job(task=task, tier=tier))
+    assert decision.chain == ("opus",)
     assert exit_code(decision) == Exit.NO_LANE
     assert all(row["provider"] == "claude" for row in decision.evaluations)
+    # Fable's own bucket is no longer this chain's business.
+    open_lane = view([lane(), lane("codex-1")], [reading("codex-1")],
+                     [closure("claude-1", "claude-fable-5-1")])
+    assert evaluate(policy, open_lane, job(task=task, tier=tier)).chosen_lane == "claude-1"
 
 
 def test_chain_never_falls_below_requested_tier(policy):
@@ -592,12 +637,12 @@ def test_unmeasured_reserve_reason_bound_and_absence_preserve_default(reserve_po
     assert missing.chosen_lane is None and missing.chain == ("opus",)
 
 
-def test_c23_37_stranded_claude_capacity_precedes_otherwise_better_lane(policy):
+def test_c23_37_stranded_claude_capacity_precedes_otherwise_better_lane(fable_policy):
     """C-23.37: a Fable-limited lane spends its remaining Opus capacity first."""
     blocked = closure("claude-2", FABLE)
     snapshot = view([lane("claude-1"), lane("claude-2")],
                     [reading("claude-1", .1), reading("claude-2", .7)], [blocked])
-    result = evaluate(policy, snapshot, job(pinned_model="opus"))
+    result = evaluate(fable_policy, snapshot, job(pinned_model="opus"))
     assert result.chosen_lane == "claude-2"
     details = result.evaluations[0]["candidate_details"]["claude-2"]
     assert details["stranded_scopes"] == [FABLE]
@@ -610,12 +655,12 @@ def test_c23_37_stranded_claude_capacity_precedes_otherwise_better_lane(policy):
     (FABLE, {"released_at": NOW}),
     ("unknown-model", {}),
 ])
-def test_c23_37_only_live_higher_model_closures_strand(policy, scope, changes):
+def test_c23_37_only_live_higher_model_closures_strand(fable_policy, scope, changes):
     """C-23.37: lower, unknown, expired, and released limits confer no preference."""
     snapshot = view([lane("claude-1"), lane("claude-2")],
                     [reading("claude-1", .1), reading("claude-2", .7)],
                     [closure("claude-2", scope, **changes)])
-    assert evaluate(policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
+    assert evaluate(fable_policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
 
 
 def test_c23_37_stranding_cannot_bypass_reserve_or_account_closure(reserve_policy):

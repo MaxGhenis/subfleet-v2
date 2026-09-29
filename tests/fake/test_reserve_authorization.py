@@ -15,6 +15,7 @@ from subfleet.contracts import (
     Outcome, OutcomeClass, Reading, ReadingLabel,
 )
 from subfleet.daemon import after, utcnow
+from tests.fable_reserve import fable_reserve_data
 from tests.fake.test_state_contract import receipt_fixture, state_daemon
 from tests.fake_adapter import FakeAdapter
 
@@ -31,6 +32,10 @@ def reserve_state(state_daemon, monkeypatch):
     monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     service.desktop_prober = lambda: None
+    # Fable is retired from the shipped policy (2026-09-27); the reserve rule is not, so
+    # this state reserves Fable as the shipped policy did (tests/fable_reserve.py).
+    reserved = fable_reserve_data()
+    service.policy.update(models=reserved["models"], retired=reserved["retired"])
     service.policy["reserve"] = {"models": ["fable"], "cap_ratio": 2., "min_slack": .05}
     home = service.root / "claude-home"
     home.mkdir()
