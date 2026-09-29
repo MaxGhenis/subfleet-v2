@@ -438,7 +438,7 @@ def test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversat
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
         aid = running_attempt(world, daemon, cid, first)
         svc._adopt_runners()
         (runner,) = RecordingRunner.made
@@ -495,7 +495,7 @@ def test_an_adopted_turn_on_a_held_conversation_never_writes_its_message(world, 
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
         aid = running_attempt(world, daemon, cid, first)
         adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
         log = [{"kind": "intent", "seq": 1, "tag": "init", "op": "write"}, {"kind": "written", "seq": 1}]
@@ -1081,7 +1081,7 @@ def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(
     svc, daemon = service(world)
     try:
         first = submit(svc, world.conversation_id())
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
         svc.store.update_message(first, stop_requested_at="2026-09-25T20:00:00.000Z")
         aid = running_attempt(world, daemon, world.conversation_id(), first)
         adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
@@ -1121,7 +1121,7 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
     svc, daemon = service(world)
     cid = world.conversation_id()
     mid = submit(svc, cid)
-    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(mid, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, mid)
     adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
     tags, receipts = [], []
@@ -1164,7 +1164,7 @@ def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, 
     svc, daemon = service(world)
     cid = world.conversation_id()
     mid = submit(svc, cid)
-    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(mid, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, mid)
     adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
     (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
@@ -1348,7 +1348,7 @@ def test_a_runner_the_store_refuses_to_mark_is_still_started(world, monkeypatch)
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
         running_attempt(world, daemon, cid, first)
         real = svc.store.set_state
 
@@ -1420,7 +1420,7 @@ def test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop(world
     svc, daemon = service(world)
     cid = world.conversation_id()
     first = submit(svc, cid)
-    svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(first, WAITING, reason="admission: submitted; waiting for the daemon to place it", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, first)
     (world.root / "jobs" / "turn-cv-held-20260925" / "a1" / "stdout").write_text(json.dumps(_init_answer()) + "\n")
     other = next(m for m in (str(uuid.uuid4()) for _ in range(1000)) if svc._handover(m) is not svc._handover(first))

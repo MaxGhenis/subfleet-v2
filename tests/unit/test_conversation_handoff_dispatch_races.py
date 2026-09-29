@@ -14,7 +14,7 @@ def test_dispatch_rechecks_order_after_a_handoff_restores_an_earlier_message(wor
     """
     cid, (first, second) = source(world, "first", "second")
     job_id = turn_job(world, first, cid, state="waiting")
-    world.store.set_state(first, "waiting", job_id=job_id)
+    world.store.set_state(first, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id=job_id)
     assert world.service._cancel_job_without_attempt(
         job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
     world.service._settle_unstarted()
@@ -102,7 +102,7 @@ def test_settlement_of_an_old_cancelled_job_cannot_settle_a_restored_turn(world,
     """A settlement snapshot taken before rollback cannot cancel the new turn."""
     cid, (mid,) = source(world, "first")
     job_id = turn_job(world, mid, cid)
-    world.store.set_state(mid, "waiting", job_id=job_id)
+    world.store.set_state(mid, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id=job_id)
     assert world.store.fence(cid, "handoff:h-1")
     assert world.service._cancel_job_without_attempt(
         job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
@@ -126,7 +126,7 @@ def test_an_interrupted_fence_lift_releases_the_active_handoff_for_recovery(worl
     """
     cid, (mid,) = source(world, "first")
     job_id = turn_job(world, mid, cid)
-    world.store.set_state(mid, "waiting", job_id=job_id)
+    world.store.set_state(mid, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id=job_id)
     restore = world.store.restore_after_handoff
 
     def fail_commit(*args, **kwargs):
@@ -155,7 +155,7 @@ def test_a_notification_failure_after_commit_keeps_the_handoff_files(world, monk
     """
     cid, (mid,) = source(world, "first")
     job_id = turn_job(world, mid, cid)
-    world.store.set_state(mid, "waiting", job_id=job_id)
+    world.store.set_state(mid, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id=job_id)
     notify = world.store.notify
 
     def fail_after_commit():
@@ -226,7 +226,7 @@ def test_handoff_rollbacks_do_not_use_up_provider_readmissions(world, monkeypatc
                                    payload_digest=message["digest"], kind="turn", state="waiting",
                                    workdir=str(world.workspace), prompt_path=message["text_path"],
                                    sandbox="read-only", name=f"turn-{cid}")
-        world.store.set_state(mid, "waiting", job_id=job_id)
+        world.store.set_state(mid, "waiting", reason="admission: submitted; waiting for the daemon to place it", job_id=job_id)
         with pytest.raises(OSError, match="transient commit failure"):
             handoff(world, cid, request_id=f"h-{index}")
     assert world.daemon.store.one("SELECT COUNT(*) AS n FROM attempts")["n"] == 0

@@ -27,7 +27,7 @@ from typing import Any, Iterator
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES, WAITING
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -986,6 +986,10 @@ class ConversationStore:
         turn sequence. Returns whether it moved."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
+        if state == WAITING and not reason:
+            # C-24.4, I3: a waiting message always says why; the app never guesses
+            # (it had shown "Waiting for capacity" for a lease another turn held).
+            raise ValueError("a waiting message needs its reason")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
         sets, params = ["state=?", "state_reason=?", "updated_at=?"], [state, reason, utcnow()]
         for key, value in fields.items():
@@ -1008,6 +1012,21 @@ class ConversationStore:
             if cur.rowcount:
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
                 self._change(tx, row["conversation_id"], message_id, state, reason=reason)
+            return bool(cur.rowcount)
+
+    def note_wait(self, message_id: str, job_id: str, reason: str) -> bool:
+        """C-24.4, I3: why a waiting message's turn job is not placed yet, written while
+        that job still carries it and only when it changes, with a change-feed row so
+        the app shows it. Returns whether it changed."""
+        if not reason:
+            raise ValueError("a waiting message needs its reason")
+        with self.transaction() as tx:
+            cur = tx.execute("UPDATE messages SET state_reason=?, updated_at=? WHERE message_id=? AND state=? "
+                             "AND job_id=? AND COALESCE(state_reason,'')<>?",
+                             (reason, utcnow(), message_id, WAITING, job_id, reason))
+            if cur.rowcount:
+                row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+                self._change(tx, row["conversation_id"], message_id, WAITING, reason=reason)
             return bool(cur.rowcount)
 
     def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:

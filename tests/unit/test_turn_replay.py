@@ -53,7 +53,7 @@ class World:
         self.svc = self.service()
         cid = conversation(self.svc)
         self.mid = submit(self.svc, cid)
-        self.svc.store.set_state(self.mid, "waiting")
+        self.svc.store.set_state(self.mid, "waiting", reason="admission: submitted; waiting for the daemon to place it")
         self.aid = turn_attempt(self.svc, self.mid, state="running", n=0)
         job = self.root / "jobs" / self.aid.split("/")[0]
         self.adir = job / "a1"
@@ -469,7 +469,7 @@ class Ended:
         self.svc = self.service()
         self.cid = conversation(self.svc)
         self.mid = submit(self.svc, self.cid)
-        self.svc.store.set_state(self.mid, "waiting")
+        self.svc.store.set_state(self.mid, "waiting", reason="admission: submitted; waiting for the daemon to place it")
         self.aid = turn_attempt(self.svc, self.mid, state="running", n=0)
         self.job_id = self.aid.split("/")[0]
         job = self.root / "jobs" / self.job_id

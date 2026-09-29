@@ -39,7 +39,8 @@ from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
-from . import codex_brief
+from . import codex_brief, waits
+from .. import folders
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
@@ -90,6 +91,9 @@ EXTERNAL_WRITER_RECHECK_S = 5.0
 #: A Codex thread's other writer is seen only by starting a provider: every 30 s.
 CODEX_WRITER_RECHECK_S = 30.0
 DEFER_MAX_S = 300.0
+#: C-24.4 (I3): a held turn's reason is looked at again this often while its hold
+#: stands, so a lease's new holder or a renamed conversation reaches the message.
+NOTE_REFRESH_S = 30.0
 # The handover locks (`ConversationService._handover`, C-24.7).
 HANDOVER_STRIPES = 64
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
@@ -151,6 +155,10 @@ class ConversationService:
         self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
         self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
         self._replayed: set[str] = set()       # ended attempts `_replay_unsettled` has replayed
+        # C-24.4 (I3): turn job id -> (the hold it was last noted for, when); a note is
+        # written only when the hold changes or NOTE_REFRESH_S has passed.
+        self._noted: dict[str, tuple[str, float]] = {}
+        self._note_lock = threading.Lock()
         self._closed = False
 
     def close(self) -> None:
@@ -1604,6 +1612,76 @@ class ConversationService:
             return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
         return None
 
+    # --- why a message waits (C-24.4, C-29.11; I3) --------------------------------
+
+    def note_holds(self, holds: dict[str, dict], *, placed=()) -> None:
+        """After each turn pass: every waiting message whose turn job admission left
+        unplaced says why in its `state_reason` (`waits.hold_reason`), and one whose
+        job it placed says it is starting. Written only when the reason changes, and
+        looked at again at most once a hold per NOTE_REFRESH_S while it stands (a
+        lease's holder, a title, may change under the same hold)."""
+        now = self.clock()
+        with self._note_lock:
+            live = set(holds) | set(placed)
+            self._noted = {job_id: value for job_id, value in self._noted.items() if job_id in live}
+        for job_id in placed:
+            self._note(job_id, "placed", lambda: waits.PLACED, now)
+        for job_id, hold in holds.items():
+            signature = json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
+                                   sort_keys=True, default=str)
+            self._note(job_id, signature, lambda hold=hold: waits.hold_reason(
+                hold, describe=self._describe_lease, who=self._who), now)
+
+    def _note(self, job_id: str, signature: str, reason_of, now: float) -> None:
+        with self._note_lock:
+            last = self._noted.get(job_id)
+            if last and last[0] == signature and now - last[1] < NOTE_REFRESH_S:
+                return
+            self._noted[job_id] = (signature, now)
+        job = self.daemon.store.one("SELECT request_id, kind FROM jobs WHERE job_id=?", (job_id,))
+        request = str((job or {}).get("request_id") or "")
+        if not job or job["kind"] != "turn" or not request.startswith("turn:"):
+            return
+        reason = reason_of()
+        if reason:
+            self.store.note_wait(request.split(":")[1], job_id, reason[:500])
+
+    def _who(self, job_id: str) -> str:
+        """A job as a person knows it: a turn by its conversation's title."""
+        job = self.daemon.store.one("SELECT job_id, kind, name FROM jobs WHERE job_id=?", (job_id,))
+        if job is None:
+            return f"job {job_id}"
+        if job["kind"] == "turn" and str(job["name"] or "").startswith("turn-"):
+            return self._conversation_words(job["name"][len("turn-"):])
+        kind = {"dispatch": "detached job", "gate-review": "gate review"}.get(job["kind"], f"{job['kind']} job")
+        return f"{kind} {job_id}"
+
+    def _conversation_words(self, conversation_id: str) -> str:
+        row = self.store.one("SELECT title FROM conversations WHERE conversation_id=?", (conversation_id,))
+        title = (row or {}).get("title")
+        return f"conversation \u201c{title}\u201d" if title else f"conversation {conversation_id}"
+
+    def _describe_lease(self, key: str) -> str:
+        """Who holds one lease a turn waits for, and what that means for it."""
+        row = self.daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))
+        holder = str(row["holder"]) if row else None
+        owner = holder.split(":", 1)[1] if holder and holder.startswith(("retention:", "gate-round:")) else holder
+        job_id = owner.split("/", 1)[0] if owner else None
+        parsed = folders.parse(key)
+        if parsed:
+            return f"{self._who(parsed[2])} is writing in this folder"
+        if holder is None:
+            return "what it waited for was just released; it starts at the next look"
+        if key.startswith(folders.EXCLUSIVE):
+            if holder.startswith("retention:"):
+                return "retention is removing a finished job's worktree in this folder"
+            return f"{self._who(job_id)} is writing in this folder, and a detached writer works alone"
+        if key.startswith("conversation:"):
+            return f"this conversation's previous turn ({job_id}) has not finished"
+        if key.startswith(("native:", "native-session:")):
+            return f"its session is in use by {self._who(job_id)}"
+        return f"{key} is held by {self._who(job_id)}"
+
     def bound_session(self, session_id: str | None) -> dict | None:
         """C-26.3: the conversation a native session is bound to, of either provider."""
         if not session_id:
@@ -1711,7 +1789,8 @@ class ConversationService:
                         # or handed off while it waits; a claim recovered after a crash
                         # goes back to `queued` (review of 6290a51, finding 2).
                         back = QUEUED if prior_state == QUEUED or prior_reason == CLAIMED else WAITING
-                        self.store.set_state(mid, back, reason=None if back == QUEUED else prior_reason,
+                        self.store.set_state(mid, back, reason=None if back == QUEUED else
+                                             prior_reason or f"deferred: {why}"[:200],
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
                     self._defer(self.store.message(mid), why)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
@@ -1723,6 +1802,8 @@ class ConversationService:
         reason = prior_reason
         if reason and not reason.startswith("readmit:"):
             reason = None                       # a claim or a deferral is over once the job exists
+        # I3: until admission looks at the job and says what holds it (`note_holds`).
+        reason = reason or waits.SUBMITTED
         if self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), job_id=job["job_id"],
                                 expect_turn_seq=message["turn_seq"]):
             return

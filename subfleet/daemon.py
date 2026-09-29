@@ -554,6 +554,7 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
         # by side (`_admit_turns` beside `_admit`), so a turn never waits for a
         # detached job's evaluation, workspace or probe. `_admission_lock` guards
@@ -3107,6 +3108,17 @@ class Daemon:
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
             lock.release()
+        if kind == "turn":
+            # C-24.4 (I3): every message a turn pass left waiting says why, and one it
+            # placed says it is starting. Its failure is logged, never the pass's.
+            try:
+                self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()))
+                self._note_error = None
+            except Exception as exc:                      # noqa: BLE001
+                error = f"{type(exc).__name__}: {exc}"[:300]
+                if error != self._note_error:             # said once, not every tick
+                    self.log.warning("admission: could not note why turns wait: %s", error)
+                self._note_error = error
         # C-6.11 over both kinds' holds. The other pass never waits for the note
         # lock, and its placements are noted next time. `_note_admission` builds a
         # view at most once per ten minutes of idleness, which delays this pass's
@@ -3385,7 +3397,8 @@ class Daemon:
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
-                holds[job["job_id"]] = {"reason": "workspace"}
+                holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
+                                        "error": str(exc)[:200]}
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
@@ -3554,6 +3567,11 @@ class Daemon:
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if kind == "turn" and not decision.chosen_lane:
+                                # C-24.4, C-29.11: what each lane said, for the message's
+                                # reason (`conversations.waits`), never just "capacity".
+                                from .conversations import waits as turn_waits
+                                hold["lanes"] = turn_waits.lane_summary(decision)
                             rechecks = self._capacity_wait(
                                 job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
@@ -3733,6 +3751,7 @@ class Daemon:
             if status != "placed":
                 continue
             tally["placed"] += 1
+            tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
             # the next one, that is a release the next pass must still see.
