@@ -1187,12 +1187,13 @@ class Daemon:
             # `caller_session`.
             fence: tuple[str | None, str] | None = None
             resume_workspace = None
-            fence = None
+            retire_fence = None
             if args.kind == "resume":
                 # d635: while the resume reads its source's job directory, and
                 # until its own row pins the source (C-8.4 `parent`), retention
-                # may not start retiring the source (review Astra 9).
-                fence = self._fence_resume(args)
+                # may not start retiring the source (review Astra 9). Not
+                # `fence`, which is C-26.13's session fence just above.
+                retire_fence = self._fence_resume(args)
                 args, resume = self._resume_submission(args)
                 # Where the resume starts is the source's, not the request's: it
                 # stays out of the digest, so a resume retried across an upgrade
@@ -1442,8 +1443,8 @@ class Daemon:
                     self._validate_conflicts(values, cleared, write_target)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
-                if fence is not None:
-                    tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", fence)
+                if retire_fence is not None:
+                    tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", retire_fence)
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True,
                     **self._where_it_writes(job_id, sandbox.value)}
