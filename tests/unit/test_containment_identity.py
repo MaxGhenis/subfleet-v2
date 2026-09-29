@@ -3,6 +3,13 @@
 All process tables and environment reads are synthetic. No test examines or
 signals a host process. The property oracle follows each candidate's ancestry
 individually, independently of containment's descendant traversal.
+
+Identity gates what a recorded pid would decide on its own: whether the
+guardian or child seeds the walk, and whether the recorded group is still the
+attempt's. Kernel links from a verified process (parent, or membership of the
+verified group) need no recorded identity, so a live process the attempt
+started at a pid it once used before is still counted (I3 over a literal
+reading of I1; intended, see `test_i3_recycled_pid_inside_a_verified_chain_still_counts`).
 """
 
 from __future__ import annotations
@@ -52,7 +59,10 @@ def install_census(monkeypatch, rows, *, marked=(), wrong_root=(), boot=BOOT,
         pytest.fail(f"unexpected host inspection: {argv}")
 
     def boot_id():
-        raise procs.InspectionError("synthetic boot inspection failure")
+        # A fresh read (C-5.12) agrees with the table unless boot reads fail.
+        if failure == "boot":
+            raise procs.InspectionError("synthetic boot inspection failure")
+        return boot
 
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "_read", read)
@@ -154,7 +164,8 @@ def test_i2_attempt_markers_override_reused_identity_and_group(monkeypatch):
     result = contain({pid: recorded(pid) for pid in (10, 20, 30, 31)})
     assert result.live_pids == result.marker_pids == {10, 20, 30}
     assert not result.group_pids and not result.descendant_pids
-    assert {10, 20, 30} <= result.reused_pids
+    # Only the recorded roots and leader are compared; 30 counts by its marker.
+    assert result.reused_pids == {10, 20}
     assert all(identity.proc_start == REUSED_START for identity in result.identities.values())
 
 
@@ -177,13 +188,46 @@ def test_i3_verified_zombie_root_still_attributes_its_live_descendants(monkeypat
     assert not result.unverifiable
 
 
-def test_i1_reused_known_descendant_breaks_ancestry_chain(monkeypatch):
-    install_census(monkeypatch, {20: (1, 20, "S", START),
-                                30: (20, 30, "S", REUSED_START),
-                                31: (30, 31, "S", REUSED_START)})
+@pytest.mark.parametrize("link", ["parent", "group"])
+def test_i3_recycled_pid_inside_a_verified_chain_still_counts(monkeypatch, link):
+    """Intended precedence of I3 over a literal I1: pid 30 was recorded for an
+    earlier process of this attempt, and the attempt's live child now holds it.
+    Its parent (or its group) is verified, so the kernel's link, not the stale
+    record, decides. Excluding it would release a workspace with a writer live."""
+    if link == "parent":
+        rows = {20: (1, 20, "S", START),
+                30: (20, 30, "S", REUSED_START),
+                31: (30, 31, "S", REUSED_START)}
+    else:   # the guardian has exited; its group, and 30 in it, remain
+        rows = {30: (1, 10, "S", REUSED_START),
+                31: (30, 10, "S", REUSED_START)}
+    install_census(monkeypatch, rows)
     result = contain({10: recorded(10), 20: recorded(20), 30: recorded(30)})
-    assert result.live_pids == {20}
-    assert result.reused_pids == {30}
+    assert result.live_pids == set(rows)
+    assert not result.reused_pids and not result.unverifiable
+    assert result.identities[30].proc_start == REUSED_START
+
+
+def test_i1_reused_child_that_joined_a_verified_tree_counts_through_the_tree(monkeypatch):
+    """A reused child pid is no root, but the verified guardian's own grandchild
+    may hold it: it counts as a descendant, and the pid is still reported reused."""
+    install_census(monkeypatch, {10: (1, 10, "S", START),
+                                40: (10, 900, "S", START),
+                                20: (40, 900, "S", REUSED_START)})
+    result = contain({10: recorded(10), 20: recorded(20)})
+    assert result.descendant_pids == {10, 40, 20}
+    assert result.reused_pids == {20}
+
+
+def test_absent_leader_group_is_attributed_even_if_its_id_was_taken_again(monkeypatch):
+    """The documented limit of the group rule, in the safe direction: after the
+    recorded group emptied, another process took pid 10, made group 10, forked
+    and exited. The snapshot cannot tell those members from survivors of the
+    attempt's own group, so they count (quarantine, never a release)."""
+    install_census(monkeypatch, {50: (1, 10, "S", REUSED_START)})
+    result = contain({10: recorded(10), 20: recorded(20)})
+    assert result.group_pids == {50}
+    assert not result.verified_empty
 
 
 @pytest.mark.parametrize("rows,identities", [
@@ -232,6 +276,31 @@ def test_legacy_boot_identity_matches_or_remains_unverified(monkeypatch, source,
         # Shifted wall-clock boot seconds are uncertain, not proof of reuse.
         assert result.unverifiable and result.errors
         assert not result.verified_empty and not result.reused_pids
+
+
+@pytest.mark.parametrize("fresh", ["agrees", "differs", "fails"])
+def test_c5_12_only_a_fresh_boot_read_calls_a_start_matching_root_another_boot(monkeypatch, fresh):
+    """The table's boot identity may be up to BOOT_ID_TTL_S old; as in `liveness`,
+    a recorded process whose start matches is called gone on a boot mismatch
+    only when a fresh read agrees (C-5.12)."""
+    install_census(monkeypatch, {20: (1, 20, "S", START)}, boot=OTHER_BOOT)
+    reads = []
+
+    def fresh_boot():
+        reads.append(1)
+        if fresh == "fails":
+            raise procs.InspectionError("synthetic boot inspection failure")
+        return OTHER_BOOT if fresh == "agrees" else BOOT
+
+    monkeypatch.setattr(procs, "boot_id", fresh_boot)
+    result = contain({10: recorded(10), 20: recorded(20)})
+    assert reads == [1]
+    if fresh == "agrees":        # another boot: the child exited long ago
+        assert result.verified_empty and result.reused_pids == {20}
+    elif fresh == "differs":     # the stale table was wrong: the child is live
+        assert result.descendant_pids == {20} and not result.reused_pids
+    else:
+        assert result.unverifiable and not result.verified_empty and not result.reused_pids
 
 
 @pytest.mark.parametrize("leader_present", [False, True])
@@ -318,28 +387,31 @@ def process_forests(draw):
     return Scenario(rows, identities, marked, wrong_root, boot)
 
 
+def holds_record(case, pid):
+    """Does the generated row at `pid` hold the identity recorded for it?"""
+    known = case.identities.get(pid)
+    return (pid in case.rows and known is not None
+            and (known.boot_id, known.proc_start) == (case.boot, case.rows[pid][3]))
+
+
 def expected_sources(case):
-    """Ownership oracle expressed as each pid's path to an authenticated root."""
+    """Ownership oracle: each pid's own ancestry path, and the group leader rule."""
     live = {pid for pid, row in case.rows.items() if not row[2].startswith("Z")}
-    mismatched = {pid for pid in case.rows.keys() & case.identities.keys()
-                  if (case.identities[pid].boot_id, case.identities[pid].proc_start)
-                  != (case.boot, case.rows[pid][3])}
-    roots = {pid for pid in (10, 20) if pid in case.rows and pid not in mismatched}
+    roots = {pid for pid in (10, 20) if holds_record(case, pid)}
+    reused = {pid for pid in (10, 20) if pid in case.rows and not holds_record(case, pid)}
     descendants = set()
-    for pid in live - mismatched:
+    for pid in live:
         ancestor, visited = pid, set()
         while ancestor in case.rows and ancestor not in visited:
-            if ancestor in mismatched:
-                break
             if ancestor in roots:
                 descendants.add(pid)
                 break
             visited.add(ancestor)
             ancestor = case.rows[ancestor][0]
-    group_valid = (case.identities[10].boot_id == case.boot
-                   and (10 not in case.rows or 10 not in mismatched))
-    groups = {pid for pid in live - mismatched if case.rows[pid][1] == 10} if group_valid else set()
-    return groups, descendants, mismatched
+    group_valid = (holds_record(case, 10) if 10 in case.rows
+                   else case.identities[10].boot_id == case.boot)
+    groups = {pid for pid in live if case.rows[pid][1] == 10} if group_valid else set()
+    return groups, descendants, reused
 
 
 PROPERTY_SETTINGS = settings(max_examples=250, deadline=None,
@@ -350,15 +422,22 @@ PROPERTY_SETTINGS = settings(max_examples=250, deadline=None,
 @PROPERTY_SETTINGS
 @given(case=process_forests())
 def test_i1_i2_i3_i5_generated_census_obeys_identity_ancestry_and_markers(monkeypatch, case):
-    groups, descendants, mismatched = expected_sources(case)
+    groups, descendants, reused = expected_sources(case)
     install_census(monkeypatch, case.rows, marked=case.marked, wrong_root=case.wrong_root, boot=case.boot)
     result = contain(case.identities)
     assert not result.unverifiable
-    assert not ((result.live_pids - result.marker_pids) & mismatched)  # I1
+    assert result.reused_pids == reused
+    # I1: a reused root is counted only through a verified link or its marker.
+    for pid in reused & (result.live_pids - result.marker_pids):
+        assert pid in descendants or pid in groups
     assert result.marker_pids == case.marked                          # I2
     assert result.descendant_pids == descendants                      # I3
     assert result.group_pids == groups
     assert result.live_pids == groups | descendants | case.marked
+    # Recorded identities of pids that are neither root nor leader decide nothing.
+    install_census(monkeypatch, case.rows, marked=case.marked, wrong_root=case.wrong_root, boot=case.boot)
+    anchors_only = contain({pid: case.identities[pid] for pid in (10, 20)})
+    assert anchors_only.to_dict() == result.to_dict()
     # I5 includes evidence ordering: reverse table and marker input order and
     # require byte-for-byte equal serialized evidence, not merely set equality.
     install_census(monkeypatch, case.rows, marked=case.marked, wrong_root=case.wrong_root,
@@ -388,3 +467,37 @@ def test_i4_i5_generated_inspection_failures_stay_unverified_and_deterministic(m
     install_census(monkeypatch, case.rows, marked=case.marked, boot=case.boot,
                    failure=failure, reverse=True)
     assert json.dumps(result.to_dict()) == json.dumps(contain(case.identities).to_dict())  # I5
+
+
+@st.composite
+def reused_only_tables(draw):
+    """The incident shape: every recorded root and the leader are gone or held by
+    another process, and unrelated processes fork freely around their pids."""
+    rows = {}
+    for root in (10, 20):
+        fate = draw(st.sampled_from(["absent", "reused", "reused-zombie"]))
+        if fate != "absent":
+            rows[root] = (draw(st.sampled_from([1, 900])), draw(st.sampled_from([root, 900])),
+                          "Z" if fate == "reused-zombie" else "S", REUSED_START)
+    for pid in range(30, 30 + draw(st.integers(0, 12))):
+        parent = draw(st.sampled_from([1, 900, *rows]))
+        # POSIX: with pid 10 free, no live group 10 can exist but the attempt's
+        # own, which by definition this table does not have.
+        group = draw(st.sampled_from([900, pid, *([10] if 10 in rows else [])]))
+        rows[pid] = (parent, group, "S", REUSED_START)
+    wrong_root = draw(st.sets(st.sampled_from(sorted(rows)), max_size=len(rows))) if rows else set()
+    boot = draw(st.sampled_from([BOOT, OTHER_BOOT]))
+    return rows, wrong_root, boot
+
+
+@settings(max_examples=250, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(table=reused_only_tables())
+def test_i1_generated_reused_pids_alone_are_verified_empty(monkeypatch, table):
+    """I1 as the incidents met it: nothing the attempt started is alive, only
+    processes at its old pids and their forks, so the census proves exit."""
+    rows, wrong_root, boot = table
+    install_census(monkeypatch, rows, wrong_root=wrong_root, boot=boot)
+    result = contain({10: recorded(10), 20: recorded(20)})
+    assert result.verified_empty, result.to_dict()
+    assert result.reused_pids == {pid for pid in (10, 20) if pid in rows}

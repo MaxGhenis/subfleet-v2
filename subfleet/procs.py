@@ -330,7 +330,8 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
-    # Recorded pids now occupied by another identity, never ownership by number.
+    # The recorded guardian, child or group-leader pids another process now
+    # holds (C-5.5): exited roots and an emptied group, never writers by pid.
     reused_pids: frozenset[int] = frozenset()
 
     @property
@@ -401,14 +402,21 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     a census is two `ps` reads however many processes it finds (C-5.12);
     commands and environments are never retained.
 
-    Roots must match their recorded boot and start before their parent links
-    confer ownership. Known reused pids also stop the walk. A group may outlive
-    its leader: POSIX reserves its id while any member remains, so on the same
-    boot an absent leader leaves the group attributable. A different identity
-    at the leader pid proves the original group emptied and its id was reused;
-    that group's members confer no ownership. Missing or unreadable identity
-    evidence prevents release. Attempt/root markers independently confer
-    ownership, even on a pid whose recorded identity differs.
+    Identity decides only what a recorded pid would otherwise decide (C-5.3).
+    The guardian and the child seed the parent walk only when the snapshot
+    shows, at their pids, the processes recorded for them; a pid another
+    process now holds is an exited root, reported in `reused_pids`, never a
+    writer. The walk then follows the kernel's parent links, which need no
+    recorded identity: a live child of a verified process is the attempt's,
+    even at a pid an earlier process of the attempt once held. The recorded
+    group is the attempt's while its leader pid holds the recorded leader
+    (live or a zombie), or holds nothing on the recorded boot: POSIX does not
+    reuse a pid while a group with that id has members, so the id is still
+    the attempt's. Another process at the leader pid proves that the old
+    group emptied and a new one took the id; none of it is attributed. The
+    attempt markers count whatever the identity. Identity evidence one of
+    these decisions needs that is missing or cannot be compared prevents
+    release.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
@@ -427,63 +435,66 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
-    boot_matches: dict[str, bool] = {}
-    matches: dict[int, bool] = {}
+    boots: dict[str, bool] = {}
+    verdicts: dict[int, bool] = {}
 
-    def same_boot(boot: str) -> bool:
-        if boot not in boot_matches:
-            match = boot_identity.matches(boot, seen.boot(), seen.legacy_seconds)
+    def same_boot(recorded_boot: str) -> bool:
+        """Is a recorded boot this table's (C-5.3)? `InspectionError` when unknown."""
+        if recorded_boot not in boots:
+            match = boot_identity.matches(recorded_boot, seen.boot(), seen.legacy_seconds)
+            if match is False:
+                # C-5.12: the table's boot identity may be `BOOT_ID_TTL_S` old.
+                # Only a fresh read may say "another boot" about a recorded
+                # process, as in `liveness`.
+                forget_boot_id()
+                match = boot_identity.matches(recorded_boot, boot_id(), seen.legacy_seconds)
             if match is None:
-                raise InspectionError("recorded boot identity is unavailable")
-            boot_matches[boot] = match
-        return boot_matches[boot]
+                raise InspectionError("recorded boot identity cannot be compared")
+            boots[recorded_boot] = match
+        return boots[recorded_boot]
 
-    def matches_record(pid: int) -> bool:
-        # Compare even a zombie when it is an intermediate parent or the group
-        # leader; zombies cannot be writers, but their identity still matters.
-        if pid not in matches:
+    def recorded_here(pid: int) -> bool:
+        """Is the row at `pid`, a zombie's too, the process recorded for it? A
+        different start alone proves another process and needs no boot read."""
+        if pid not in verdicts:
             known = recorded.get(pid)
             try:
                 if not known or known.pid != pid or not known.boot_id or not known.proc_start:
                     raise InspectionError("recorded identity is unavailable")
                 if not table[pid][3]:
                     raise InspectionError("snapshot start identity is unavailable")
-                matches[pid] = table[pid][3] == known.proc_start and same_boot(known.boot_id)
-                if not matches[pid]:
+                verdicts[pid] = table[pid][3] == known.proc_start and same_boot(known.boot_id)
+                if not verdicts[pid]:
                     reused.add(pid)
             except InspectionError:
                 errors.append(f"identity inspection unavailable for pid {pid}")
-                matches[pid] = False
-        return matches[pid]
-
-    def attributable(pid: int) -> bool:
-        return pid not in recorded or matches_record(pid)
+                verdicts[pid] = False
+        return verdicts[pid]
 
     if seen is not None:
         members = seen.group(pgid)
         if members:
-            leader = recorded.get(pgid)
             if pgid in table:
-                group_owned = matches_record(pgid)
+                owned_group = recorded_here(pgid)
             else:
+                leader = recorded.get(pgid)
                 try:
                     if not leader or leader.pid != pgid or not leader.boot_id or not leader.proc_start:
                         raise InspectionError("recorded group leader identity is unavailable")
-                    group_owned = same_boot(leader.boot_id)
+                    owned_group = same_boot(leader.boot_id)
                 except InspectionError:
                     errors.append("group leader identity inspection unavailable")
-                    group_owned = False
-            if group_owned:
-                groups = {pid for pid in sorted(members) if attributable(pid)}
+                    owned_group = False
+            if owned_group:
+                groups = set(members)
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in sorted({p for p in (guardian_pid, child_pid) if p and p > 0})
-                 if pid in table and matches_record(pid)}
+        roots = {pid for pid in (guardian_pid, child_pid)
+                 if pid and pid > 0 and pid in table and recorded_here(pid)}
         found = set(roots)
         frontier = roots
         while frontier:
-            frontier = {pid for pid, row in sorted(table.items())
-                        if row[0] in frontier and pid not in found and attributable(pid)}
+            frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
     try:
@@ -508,18 +519,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     identities: dict[int, ProcessIdentity] = {}
     for pid in sorted(groups | descendants | markers):
         try:
-            if pid in markers and pid in recorded and pid in table:
-                matches_record(pid)  # record reuse; markers still count independently
-            # A snapshot row is authoritative for this census. Missing start
-            # data is an inspection failure, not permission to replace the row
-            # with a later read that could erase a writer or describe PID reuse.
-            # Only a marker born after the table needs a separate identity read.
-            if pid in table:
-                current = seen.identity(pid)
-                if current is None:
-                    raise InspectionError("snapshot start identity is unavailable")
-            else:
-                current = identity(pid)
+            # A snapshot row is authoritative for this census: one without a
+            # start is an inspection failure, not leave to replace it with a
+            # later read that could drop a writer or describe a reused pid.
+            # Only a marker born after the table is asked about singly.
+            current = seen.identity(pid) if pid in table else identity(pid)
+            if current is None and pid in table:
+                raise InspectionError("snapshot start identity is unavailable")
             if current is not None:
                 identities[pid] = current
             else:
@@ -532,7 +538,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(sorted(set(errors))), shapes, frozenset(reused))
+                       bool(errors), identities, tuple(dict.fromkeys(errors)), shapes,
+                       frozenset(reused))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
