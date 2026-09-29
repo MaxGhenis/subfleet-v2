@@ -276,6 +276,9 @@ def probe_covered(row: dict, issued_at: str | None) -> bool:
     it was issued, and the CLI sends a request again (C-16.3) with the same
     `issued_at`. A request without one, from an older CLI, reaches every probe.
     A record without a readable `created_at` is taken to predate the request.
+    Both instants are compared in whole seconds, as `utcnow()` writes
+    `created_at`: a probe created in the second the request was issued counts
+    as newer, whatever fraction of that second either carried.
     """
     if not issued_at:
         return True
@@ -283,7 +286,8 @@ def probe_covered(row: dict, issued_at: str | None) -> bool:
         created = datetime.fromisoformat(str(row.get("created_at")).replace("Z", "+00:00"))
     except ValueError:
         return True
-    return (created if created.tzinfo else created.replace(tzinfo=timezone.utc)) < issued_instant(issued_at)
+    created = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+    return created.replace(microsecond=0) < issued_instant(issued_at).replace(microsecond=0)
 
 
 def issued_instant(issued_at: str) -> datetime:
@@ -3348,14 +3352,20 @@ class Daemon:
         # its account (one lease each), and a look that has just released it
         # must not be followed by another through its second lease.
         holders = list(dict.fromkeys(lease["holder"] for lease in leases))
-        # A holder a turn still owns may have taken its lease, and been paced or
-        # asked about, after the read above: it is the turn's, and not pruned.
+        # Prune what belongs to a holder that no longer holds a lease: a clock
+        # (released: nothing left to look at) or a request (released another
+        # way: nothing to resolve). A holder the read above missed may have
+        # taken its lease since, been looked at and been asked about, so each
+        # candidate's lease is read again, now; a request is only ever recorded
+        # for a holder that held one, so a holder without one now has let it go.
         kept = set(holders) | set(self.timers.active_holders)
-        for gone in set(self._probe_rechecks) - kept:
-            self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
+        stale = [holder for holder in {*self._probe_rechecks, *self._probe_resolutions} - kept
+                 if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,))]
+        for gone in stale:
+            self._probe_rechecks.pop(gone, None)
         with self._probe_resolution_lock:
-            for gone in set(self._probe_resolutions) - kept:
-                self._probe_resolutions.pop(gone, None)   # released another way: nothing to resolve
+            for gone in stale:
+                self._probe_resolutions.pop(gone, None)
         for holder in holders:
             if holder in self.timers.active_holders:
                 continue
@@ -3367,16 +3377,21 @@ class Daemon:
                 if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)):
                     continue      # released since this pass read the leases: nothing left to look at
                 if request is not None:
-                    self._resolve_probe(holder, request)  # C-5.7a: the operator's, whatever the clock says
-                    continue
+                    if self._resolve_probe(holder, request):  # C-5.7a: the operator's, whatever the clock says
+                        continue
+                    # The record no longer says quarantined, and the lease is
+                    # held: a look contained it and could not finish. The
+                    # request waits, and this pass's look is the ordinary one,
+                    # which finishes it or quarantines it again.
+                    self._keep_probe_request(holder, request)
+                    request = None
             except BaseException:
-                if request is not None:
-                    # A pass that raised (C-5.10 retries it), reading the lease
-                    # again or resolving, has not acted on the request: it
-                    # stays, merged with any asked since.
-                    with self._probe_resolution_lock:
-                        self._probe_resolutions[holder] = merge_probe_requests(
-                            request, self._probe_resolutions.get(holder))
+                # A pass that raised (C-5.10 retries it), reading the lease again
+                # or resolving, keeps the request it took, unless a resolution
+                # recording it was committed before the raise: each request is
+                # recorded by one resolution at most.
+                if request is not None and not self._probe_request_recorded(holder, request):
+                    self._keep_probe_request(holder, request)
                 raise
             record = self._probe_record(holder)
             if not record:
@@ -3393,7 +3408,41 @@ class Daemon:
                     key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
             self._finish_probe(record, outcome)
 
-    def _resolve_probe(self, holder: str, request: dict) -> None:
+    def _probe_request_recorded(self, holder: str, request: dict) -> bool:
+        """C-5.7a: whether a committed resolution of `holder` names one of this
+        request's ids (`probe.confirmed_dead`, `probe.force_released`,
+        `probe.still_live`). A pass that raised puts a request back only if none
+        does, so a raise after the commit, whatever raised, never has the same
+        request recorded twice. A store that cannot answer puts it back: acted on
+        at least once, never dropped."""
+        if request.get("acted"):
+            return True
+        ids = {entry.get("id") for entry in request.get("requests", ()) if isinstance(entry, dict)} - {None}
+        if not ids:
+            return False
+        marks = ",".join("?" for _ in PROBE_RESOLUTION_KINDS)
+        try:
+            rows = self.store.query(f"SELECT data_json FROM events WHERE kind IN ({marks}) ORDER BY event_id DESC",
+                                    PROBE_RESOLUTION_KINDS)
+        except sqlite3.Error:
+            return False
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("holder") == holder and any(
+                    isinstance(entry, dict) and entry.get("id") in ids for entry in data.get("requests") or ()):
+                return True
+        return False
+
+    def _keep_probe_request(self, holder: str, request: dict) -> None:
+        """C-5.7a: put back a request this pass took and did not act on, merged
+        with any asked since (the one taken is the older)."""
+        with self._probe_resolution_lock:
+            self._probe_resolutions[holder] = merge_probe_requests(request, self._probe_resolutions.get(holder))
+
+    def _resolve_probe(self, holder: str, request: dict) -> bool:
         """C-5.7a: an operator's resolution of a quarantined probe, as C-5.7 resolves an attempt.
 
         Runs on the thread that looks at quarantined probes (`_recover_probes`),
@@ -3401,12 +3450,21 @@ class Daemon:
         releases only on verified empty, finishing the probe with an `unknown`
         outcome; anything else leaves it quarantined, and the look is recorded
         (`probe.still_live`). `--force-release` records the override and
-        releases without containment. A probe that is no longer quarantined
-        (contained by its own look since the request) has nothing to resolve.
+        releases without containment.
+
+        It answers whether it dealt with the request. With no record there is
+        nothing an operator can resolve, and the request is dropped. A record
+        that no longer says quarantined while its lease is held (a look found it
+        contained and could not finish) is not the operator's to resolve yet:
+        False, and the caller keeps the request for when it is quarantined
+        again. Each commit that records the request marks it `acted`, so a raise
+        after it never puts the request back to be recorded twice.
         """
         record = self._probe_record(holder)
-        if not record or record.get("state") != "quarantined":
-            return
+        if not record:
+            return True
+        if record.get("state") != "quarantined":
+            return False
         resolution = {"holder": holder, "operator_note": request.get("operator_note"),
                       "requested_at": request.get("requested_at"), "via": request.get("via"),
                       "requests": request.get("requests", [])}
@@ -3418,16 +3476,20 @@ class Daemon:
             resolution["receipt"] = {key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}
         if request.get("force_release"):
             self._force_release_probe(record, resolution)
-            return
+            request["acted"] = True
+            return True
         # The record is quarantined, so this is a census and nothing else: no
         # signal (C-5.7). It paces the clock and records changed evidence as
         # any look does.
         if not self._contain_probe(record, save_contained=False):
             self.store.add_event("probe.still_live", job_id=record["job_id"], lane_id=record["lane_id"],
                                  data={**resolution, "containment": record.get("containment")})
-            return
+            request["acted"] = True
+            return True
         self._finish_probe(record, Outcome(OutcomeClass.UNKNOWN, "an operator confirmed the probe dead"),
                            resolution={**resolution, "containment": record.get("containment")})
+        request["acted"] = True
+        return True
 
     def _force_release_probe(self, record: dict, resolution: dict) -> None:
         """C-5.7a `--force-release`: the operator's override, recorded; no census and no signal.

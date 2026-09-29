@@ -426,15 +426,62 @@ def test_c5_7a_a_request_for_a_probe_released_another_way_is_dropped(routing_sta
     assert not service._probe_resolutions and not kinds(service, "probe.force_released")
 
 
-def test_c5_7a_a_request_for_a_probe_contained_since_is_dropped(routing_state, monkeypatch):
-    """The record is read again when the request is acted on: a probe that is no
-    longer quarantined has nothing for an operator to resolve."""
+def test_c5_7a_a_request_for_a_contained_probe_that_still_holds_its_lease_waits(routing_state, monkeypatch):
+    """A look found the probe contained and could not finish it (the record says
+    `contained`, the lease is held). That is not the operator's to resolve, and
+    the request is not dropped either: it waits, the pass's look is the ordinary
+    one, and once that look quarantines the probe again (its census found
+    survivors), the next pass acts on the request."""
     service, harness = routing_state
     job_id, world = admission_probe(service, harness, monkeypatch)
-    kill(service, job_id, force_release=True)
+    kill(service, job_id, force_release=True, operator_note="kept")
     service._save_probe({**service._probe_record(HOLDER), "state": "contained"})
     service._recover_probes()
     assert service.store.list_leases(HOLDER) and not kinds(service, "probe.force_released")
+    assert service._probe_record(HOLDER)["state"] == "quarantined", "the ordinary look quarantined it again"
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept"
+    service._recover_probes()
+    [forced] = kinds(service, "probe.force_released")
+    assert forced["data"]["operator_note"] == "kept" and not service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_request_asked_while_a_look_that_contained_the_probe_fails_to_finish_is_kept(
+        routing_state, monkeypatch):
+    """The safety review's interleaving (2026-09-29): the daemon's own look
+    finds the probe verified empty and records `contained`; a --force-release is
+    asked during its census; the look's finish fails. The request is not lost:
+    the next looks find survivors again and quarantine it, and the request is
+    then acted on."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    world.table, world.now = EMPTY, world.now + 61
+    look = service._probe_census
+    asked = []
+
+    def census_then_ask(record):
+        found = look(record)
+        if not asked:
+            asked.append(release_probe(service, "codex-1", force_release=True, operator_note="during"))
+        return found
+    monkeypatch.setattr(service, "_probe_census", census_then_ask)
+
+    def broken(record, outcome, **kwargs):
+        raise RuntimeError("store unavailable")
+    service._finish_probe = broken
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._finish_probe
+    assert asked[0]["status"] == "resolution requested"
+    assert service._probe_record(HOLDER)["state"] == "contained" and service.store.list_leases(HOLDER)
+    world.table = census(SURVIVOR)
+    service._recover_probes()                           # waits; the ordinary look quarantines it again
+    assert service._probe_record(HOLDER)["state"] == "quarantined"
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "during"
+    service._recover_probes()
+    [forced] = kinds(service, "probe.force_released")
+    assert forced["data"]["operator_note"] == "during" and not service.store.list_leases(HOLDER)
 
 
 def test_c5_7a_a_restart_forgets_a_request_and_asking_again_is_safe(routing_state, monkeypatch):
@@ -654,6 +701,82 @@ def test_c5_7a_each_request_has_an_id_that_the_look_acting_on_it_names(routing_s
     assert later not in ids and all(entry["id"] != later for entry in service._probe_rows()[0]["operator_look"]["requests"])
 
 
+def test_c5_7a_a_request_is_recorded_by_one_resolution_even_when_the_pass_raises_after_it(
+        routing_state, monkeypatch):
+    """Each request is recorded by one resolution at most: a pass that raises
+    after its `probe.still_live` committed does not put the request back, so the
+    retried pass does not take a second census and record the same request
+    again."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, confirm_dead=True, operator_note="once")
+    add_event = service.store.add_event
+
+    def then_raise(kind, *args, **kwargs):
+        written = add_event(kind, *args, **kwargs)
+        if kind == "probe.still_live":
+            raise RuntimeError("raised after the commit")
+        return written
+    monkeypatch.setattr(service.store, "add_event", then_raise)
+    with pytest.raises(RuntimeError, match="after the commit"):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "add_event", add_event)
+    assert HOLDER not in service._probe_resolutions
+    censuses = len(world.censuses)
+    service._recover_probes()
+    assert len(kinds(service, "probe.still_live")) == 1
+    assert len(world.censuses) == censuses, "the clock, not the request, decides the next look"
+
+
+def test_c5_7a_a_pass_keeps_a_request_whose_holder_its_first_read_missed(routing_state, monkeypatch):
+    """The pass reads the leases first and prunes last. A timer turn can take its
+    lease, be quarantined and let go, and be asked about in between: the pass
+    reads that holder's lease again before it drops anything of it."""
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    release_probe(service, holder, force_release=True)
+    query = service.store.query
+
+    def stale(sql, params=()):
+        if sql == "SELECT * FROM leases WHERE holder LIKE 'probe:%'":
+            return []                                   # read before the turn took its lease
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "query", stale)
+    service._recover_probes()
+    monkeypatch.setattr(service.store, "query", query)
+    assert holder in service._probe_resolutions and holder in service._probe_rechecks
+    service._recover_probes()
+    assert len(kinds(service, "probe.force_released")) == 1 and not service.store.list_leases(holder)
+
+
+def test_c5_7a_a_timer_turn_owns_its_holder_before_it_takes_the_lease(routing_state, monkeypatch):
+    """The safety review's blocker (2026-09-29): a pass that found a timer's
+    lease before the turn had claimed the holder could act on the probe while
+    the turn did, and the turn could then write `quarantined` over a lease the
+    pass had released. The holder is in `timers.active_holders` before the
+    lease is taken, and a refused reservation leaves nothing behind."""
+    service, _ = routing_state
+    lane = service.store.get_lane("codex-1")
+    seen = []
+    acquire = service.store.acquire_lease
+
+    def watched(key, holder, *args, **kwargs):
+        seen.append(holder in service.timers.active_holders)
+        return acquire(key, holder, *args, **kwargs)
+    monkeypatch.setattr(service.store, "acquire_lease", watched)
+    holder = service.timers._reserve(lane, "probe")
+    assert holder and seen == [True] and holder in service.timers.active_holders
+    service.timers._release(holder)
+    assert service.timers._reserve(lane, "probe") is not None
+    blocked = second_lane(service, "codex-9")
+    service.dispatch("lanes", {"action": "hold", "lane_id": blocked, "until": after(3600)})
+    before = set(service.timers.active_holders)
+    assert service.timers._reserve(service.store.get_lane(blocked), "probe") is None
+    assert set(service.timers.active_holders) == before, "a refused reservation owns nothing"
+
+
 def test_c5_7a_a_pass_keeps_the_clock_and_request_of_a_holder_a_turn_owns(routing_state, monkeypatch):
     """A timer turn can take its lease, quarantine its probe (setting the clock)
     and be asked about after a pass read the leases: the pass does not prune
@@ -723,6 +846,19 @@ def test_c5_7a_a_pass_whose_lease_check_raises_keeps_the_request(routing_state, 
 
 #: The lease `_recover_probes` reads again after it takes a request.
 LEASE_CHECK = "SELECT 1 FROM leases WHERE holder=?"
+
+
+@settings(max_examples=300, deadline=None)
+@given(created=st.integers(0, 7), issued=st.integers(0, 7 * 10**6), naive=st.booleans())
+def test_c5_7a_coverage_is_decided_in_whole_seconds(created, issued, naive):
+    """I5 for any fraction: a probe created at second `created` (as `utcnow()`
+    writes it) is reached by a request issued at any instant of a later second,
+    and never by one issued in the same second or before, whatever fraction the
+    request carries."""
+    row = {"created_at": f"2026-09-29T12:00:0{created}Z"}
+    seconds, micros = divmod(issued, 10**6)
+    stamp = f"2026-09-29T12:00:0{seconds}.{micros:06d}" + ("" if naive else "Z")
+    assert daemon_module.probe_covered(row, stamp) is (created < seconds)
 
 
 #: One operator request as `_request_probe_resolution` builds it.
