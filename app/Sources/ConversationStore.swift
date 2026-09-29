@@ -334,6 +334,7 @@ struct ConversationStoreState: Equatable {
         var timeline = timelines[id] ?? Timeline(conversationID: id)
         timeline.apply(receipts: open.messages)
         timeline.attach(approvals: open.pending_approvals)
+        timeline.reconcile(pending: open.pending_approvals)
         timelines[id] = timeline
     }
 
@@ -342,6 +343,8 @@ struct ConversationStoreState: Equatable {
         if let conversationID, timelines[conversationID] == nil {
             timelines[conversationID] = Timeline(conversationID: conversationID)
         }
+        // Its events are read again from where they stopped (C-27.5).
+        if let conversationID { timelines[conversationID]?.startReading() }
     }
 
     @discardableResult
@@ -373,6 +376,7 @@ struct ConversationStoreState: Equatable {
     mutating func apply(approvals: [ApprovalView], conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.attach(approvals: approvals)
+        timeline.reconcile(pending: approvals)
         timelines[conversationID] = timeline
         pendingApprovals[conversationID] = approvals.filter { $0.state == "pending" }.count
     }

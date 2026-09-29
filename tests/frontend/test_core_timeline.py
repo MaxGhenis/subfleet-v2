@@ -215,7 +215,8 @@ def test_c27_1_an_approval_known_before_its_event_is_one_card(core_probe, tmp_pa
         {"page": page(harness, cid)},
     ])
     early = items_of(result["snapshots"][0], mid, "approval")
-    assert len(early) == 1 and early[0]["card"]["approval_id"] and early[0]["card"]["request_id"] is None
+    # The view carries the provider's request id (C-27.5), so the card has it before its event.
+    assert len(early) == 1 and early[0]["card"]["approval_id"] and early[0]["card"]["request_id"] == "perm-q"
     cards = items_of(result, mid, "approval")
     assert len(cards) == 1
     card = cards[0]["card"]

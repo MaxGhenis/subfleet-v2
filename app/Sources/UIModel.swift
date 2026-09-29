@@ -12,6 +12,12 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
+/// One request to bring a conversation's oldest waiting card into view.
+struct ApprovalReveal: Equatable {
+    let conversationID: String
+    let token: Int
+}
+
 @MainActor
 final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
@@ -29,6 +35,13 @@ final class UIModel: ObservableObject {
     /// A finished turn's changed-file counts, for its status line.
     @Published var turnChanges: [String: DiffStats] = [:]
     private var turnChangesAsked: Set<String> = []
+    /// The person asked to see a conversation's oldest waiting card (the sidebar's
+    /// hand badge, the strip's Review); cleared once it is in view.
+    @Published private(set) var approvalReveal: ApprovalReveal?
+    private var reveals = 0
+    /// What the stale-approvals check last read, per conversation (the daemon's
+    /// count and the cards shown), so an unchanged mismatch is read once.
+    private var staleRead: [String: [Int]] = [:]
 
     let paths: AppPaths
     let drafts: DraftStore
@@ -133,6 +146,7 @@ final class UIModel: ObservableObject {
         state.apply(watch: page)
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
+        refreshApprovalsIfStale()
         if page.changes.contains(where: { !known.contains($0.conversation_id) }) {
             Task { await refreshList() }
         }
@@ -519,6 +533,39 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// Bring a conversation's oldest waiting card into view. Each request is its
+    /// own, so asking again for the same conversation asks again.
+    func revealApprovals(in conversationID: String) {
+        reveals += 1
+        approvalReveal = ApprovalReveal(conversationID: conversationID, token: reveals)
+    }
+
+    /// The view brought the requested card into view.
+    func revealed(_ conversationID: String) {
+        if approvalReveal?.conversationID == conversationID { approvalReveal = nil }
+    }
+
+    /// The daemon counts fewer pending approvals in the focused conversation than
+    /// the timeline shows cards: one ended with no event saying so (C-27.5).
+    /// Read the pending set again, which withdraws the cards it no longer lists;
+    /// a mismatch that reading leaves as it was is not read again.
+    private func refreshApprovalsIfStale() {
+        guard let engine, let id = state.focusedConversationID, let timeline = state.timelines[id],
+              let count = state.pendingApprovals[id] else { return }
+        let shown = timeline.pendingApprovalItems.count
+        // Agreeing again ends the mismatch, so a later one with the same counts is read too.
+        guard count < shown else { staleRead[id] = nil; return }
+        let seen = [count, shown]
+        guard staleRead[id] != seen else { return }
+        staleRead[id] = seen
+        Task {
+            if let approvals = try? await onOutbox({ try engine.approvals(conversationID: id) }) {
+                state.apply(approvals: approvals, conversationID: id)
+                updateBadge()
+            }
+        }
+    }
+
     /// The approval id for a card the events made before `approval.list` was read.
     func approvalID(for card: ApprovalCard, conversationID: String) async -> String? {
         if let id = card.approvalID { return id }
@@ -526,9 +573,10 @@ final class UIModel: ObservableObject {
             return nil
         }
         state.apply(approvals: approvals, conversationID: conversationID)
-        return state.timelines[conversationID]?.turns.values.flatMap(\.pendingApprovals)
-            .first { $0.requestID == card.requestID }?.approvalID
-            ?? approvals.first { $0.state == "pending" && $0.kind == card.kind }?.approval_id
+        // The card joined to one of the daemon's pending approvals, or none: another
+        // pending approval of the same kind is not this one (C-27.5).
+        guard let requestID = card.requestID else { return nil }
+        return state.timelines[conversationID]?.pendingApprovalCards.first { $0.requestID == requestID }?.approvalID
     }
 
     // MARK: Sidebar settings
