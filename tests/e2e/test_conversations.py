@@ -701,7 +701,9 @@ def test_a_turn_claude_code_runs_for_a_background_task_neither_ends_nor_answers_
     `after_result_s`, and the message's own turn runs to its own result. Before the fix
     the first result completed the message and, `after_result_s` later, SIGINT stopped
     the message's turn in the middle of its tool call."""
-    conv = conv_with(env={"SUBFLEET_FAKE_BASH_COMMAND": "sleep 5; echo ran"}, clocks={"after_result_s": 3})
+    # The command outlasts `after_result_s` from the other turn's result by 4 s; the fake
+    # has 8 s after the message's own result to see stdin close and exit, even at load.
+    conv = conv_with(env={"SUBFLEET_FAKE_BASH_COMMAND": "sleep 12; echo ran"}, clocks={"after_result_s": 8})
     cid = conv.create()
     mid = conv.submit(cid, "check the state [fake:notified] [fake:bash]")
     done = conv.until_state(mid, "complete", "failed", "interrupted", "delivery-unknown", timeout=60)
@@ -734,7 +736,12 @@ def test_a_stop_while_claude_code_runs_its_own_turn_takes_the_waiting_message_ou
     done = conv.until_state(mid, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
     assert (done["state"], done["state_reason"]) == ("interrupted", "stopped")
     kinds = [e["kind"] for e in conv.events(cid) if e["message_id"] == mid]
-    assert "accepted" not in kinds and "turn.other" in kinds and kinds.count("turn.completed") == 1
+    assert "accepted" not in kinds and kinds.count("turn.completed") == 1
+    # The receipt (`cancelled`) comes before the aborted turn's result, which is then after the end.
+    job = conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",))[0]["job_id"]
+    turn = json.loads((conv.e2e.root / "jobs" / job / "a1" / "turn.json").read_text())
+    assert (turn["not_run"], turn["accepted"]) == ("cancelled", False)
+    assert reconciled(conv, cid, mid)["delivery"] == "not-delivered"
     interrupts = [r for r in conv.stdin_rows() if (r.get("request") or {}).get("subtype") == "interrupt"]
     assert [r["request"].get("cancel_queued") for r in interrupts] == [True]
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None

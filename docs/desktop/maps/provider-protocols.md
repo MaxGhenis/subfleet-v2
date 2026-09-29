@@ -159,10 +159,17 @@ recorded under `~/.subfleet/jobs` on 2026-09-29 (108 attempts, 2.1.280 and
   result a stream-json run writes before it exits on a known startup failure
   (`cwd_unavailable`, `org_verify_failed`, `temp_dir_unusable`, …).
 - `interrupt {cancel_queued: true}` also cancels our message if it has not
-  started, with a `cancelled` lifecycle for it; 2.1.280 and 2.1.284 advertise
-  `interrupt_cancel_queued_v1`. Closing stdin cancels nothing: on EOF the CLI
-  still runs what is queued (observed 2026-09-28, job
+  started, with a `cancelled` lifecycle for it and its uuid in the receipt's
+  `cancelled` list; 2.1.280 and 2.1.284 advertise `interrupt_cancel_queued_v1`.
+  A message already being folded into the running turn is swept too, but "its
+  `queued_command` attachment may already appear in the aborted turn's
+  transcript". Closing stdin cancels nothing: on EOF the CLI still runs what is
+  queued (observed 2026-09-28, job
   20260928-152257-turn-cv-1790623376839-ca22af954212).
+- A message folded into a running turn is written to the transcript as
+  `{"type":"attachment","attachment":{"type":"queued_command","source_uuid":<its uuid>,…}}`,
+  which the next `--resume` reads; reconciliation counts it as the transcript
+  holding the message (C-24.6).
 
 `claude_turn.py` `_whose` attributes each `result` from these (C-26.5).
 

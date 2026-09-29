@@ -147,6 +147,7 @@ class Fake:
         self.interrupted = threading.Event()
         self.cancel_queued = False              # the last interrupt asked to cancel queued messages
         self.current_uuid: str | None = None    # the message whose turn is running
+        self.queued_uuid: str | None = None     # a message waiting behind a turn of the fake's own
         self.out_lock = threading.Lock()
         self.log_path = os.environ.get("SUBFLEET_FAKE_TURN_LOG")
         self.transcript: Path | None = None
@@ -196,9 +197,12 @@ class Fake:
                     "response": {"applied": self.applied(), "effective": {}, "sources": {}}}})
                 continue
             if row.get("type") == "control_request" and request.get("subtype") == "interrupt":
+                # `interrupt_receipt_v1`: what survives the interrupt, and what `cancel_queued` took out.
                 self.cancel_queued = request.get("cancel_queued") is True
+                waiting = [self.queued_uuid] if self.queued_uuid else []
+                receipt = {"still_queued": [], "cancelled": waiting} if self.cancel_queued else {"still_queued": waiting}
                 self.emit({"type": "control_response", "response": {
-                    "subtype": "success", "request_id": row.get("request_id"), "response": {}}})
+                    "subtype": "success", "request_id": row.get("request_id"), "response": receipt}})
                 self.interrupted.set()
                 continue
             self.inbox.put(row)
@@ -346,6 +350,7 @@ class Fake:
                    "summary": "Background shell command didn't finish before the previous session ended"})
         self.emit({"type": "command_lifecycle", "command_uuid": command_uuid, "state": "queued",
                    "uuid": str(uuid.uuid4())})
+        self.queued_uuid = command_uuid
         self.emit({"type": "system", "subtype": "init", "model": served_model(self.model_value), "cwd": os.getcwd(),
                    "permissionMode": flag(self.argv, "--permission-mode") or "default",
                    "capabilities": ["interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"]})
@@ -364,6 +369,7 @@ class Fake:
                    "is_error": aborted, "num_turns": 0, "result": "", "errors": [], "permission_denials": [],
                    "duration_ms": 5, "origin": {"kind": "task-notification"}, "result_index": 0,
                    "terminal_reason": "aborted_streaming" if aborted else None, "uuid": str(uuid.uuid4())})
+        self.queued_uuid = None
         if aborted and self.cancel_queued:
             self.emit({"type": "command_lifecycle", "command_uuid": command_uuid, "state": "cancelled",
                        "uuid": str(uuid.uuid4())})

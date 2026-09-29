@@ -477,3 +477,25 @@ def test_c29_8_load_earlier_follows_up_to_its_cap_and_opening_follows_none(core_
     assert follow([empty(5000), "error", empty(4000)], 16, True)["fetched"] == 1
     ended = follow([empty(5000), {"items": [row], "next_before": None}], 16, True)
     assert ended["fetched"] == 2 and ended["complete"] is True
+
+
+def test_c26_5_a_turn_the_provider_ran_itself_is_marked_where_it_ended(core_probe, tmp_path, harness):
+    """C-26.5: resuming a session, Claude Code ran a turn for a background task's
+    notification while the message waited. What that turn wrote stays in the timeline,
+    and a notice marks where it ended, so it does not read as the message's answer; the
+    message's own turn then runs and completes."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "hello")["message_id"]
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(), {"type": "command_lifecycle", "command_uuid": mid, "state": "queued"},
+              claude_assistant("msg_n", [{"type": "text", "text": "The background build finished."}]),
+              {**claude_result(), "num_turns": 0, "result": "The background build finished.",
+               "origin": {"kind": "task-notification"}},
+              replay(mid), claude_assistant("msg_1", [{"type": "text", "text": "Fixed."}]),
+              {**claude_result(), "user_message_uuid": mid})
+    result = fold(core_probe, tmp_path, cid, [{"page": page(harness, cid)}])
+    shown = [(i["type"], i.get("text")) for i in items_of(result, mid) if i["type"] in ("notice", "text")]
+    assert shown == [("text", "The background build finished."),
+                     ("notice", "Claude Code finished a turn for a background task before starting this message"),
+                     ("text", "Fixed.")]
+    assert result["turns"][mid]["outcome"]["state"] == "complete" and result["turns"][mid]["accepted"] is True

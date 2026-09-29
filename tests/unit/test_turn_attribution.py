@@ -186,6 +186,18 @@ def test_c26_5_a_notification_turn_that_hits_the_limit_leaves_the_message_to_its
     assert (turn.outcome.state, turn.outcome.reason, turn.outcome.accepted) == ("failed", "limited", True)
 
 
+def test_c26_7_a_session_that_ends_without_a_result_after_a_limit_records_it():
+    """C-26.7: stdout ended with no result after the session reported a limit, in whichever
+    turn: the account's refusal is the best evidence of why, so finalization records the
+    closure (the message itself is reconciled, C-24.6)."""
+    turn, _ = run([INIT_OK, lifecycle("queued"), LIMIT])
+    outcome = turn.eof(999).outcome
+    assert (outcome.state, outcome.reason, outcome.limited, outcome.ended_by) == (
+        "failed", "ended-without-result", True, "eof")
+    turn, _ = run([INIT_OK, lifecycle("queued")])
+    assert turn.eof(999).outcome.limited is False
+
+
 def test_c24_4_a_result_naming_the_message_acknowledges_it():
     """C-24.4: a `result` whose `user_message_uuids` holds the message is the provider saying
     it consumed it, even with no echo or lifecycle before it."""
@@ -212,11 +224,64 @@ def test_c24_7_a_stop_while_the_message_waits_takes_it_out_of_the_queue():
     assert interrupt["request"] == {"subtype": "interrupt", "cancel_queued": True}
     assert steps[-2].outcome is None
     outcome = turn.outcome
-    assert (outcome.state, outcome.reason, outcome.accepted, outcome.ended_by) == (
-        "interrupted", "stopped", False, "provider")
+    assert (outcome.state, outcome.reason, outcome.accepted, outcome.ended_by, outcome.not_run) == (
+        "interrupted", "stopped", False, "provider", "cancelled")
+    # C-24.6: reconciled by the transcript; with no record of it, stopped, the conversation free.
+    absent = reconcile.Evidence(acknowledged=False, frame="written", process_gone=True, native="absent")
     settled = reconcile.settle({**outcome.__dict__, "stop_reason": "stopped"}, provider="claude", turn_seq=0,
-                               gather=lambda: pytest.fail("the provider's word needs no reconciliation"))
+                               gather=lambda: absent)
     assert (settled.state, settled.reason, settled.block) == ("interrupted", "stopped", None)
+
+
+def test_c24_7_the_interrupt_s_receipt_listing_the_message_as_cancelled_ends_it_too():
+    """C-26.5: `interrupt_receipt_v1` lists what `cancel_queued` took out of the queue."""
+    receipt = row(type="control_response", response={"subtype": "success", "request_id": "subfleet-interrupt",
+                                                      "response": {"still_queued": [], "cancelled": [MID]}})
+    turn, _ = run([INIT_OK, lifecycle("queued"), receipt], interrupt_before=2)
+    assert (turn.outcome.state, turn.outcome.not_run, turn.outcome.accepted) == ("interrupted", "cancelled", False)
+    kept = row(type="control_response", response={"subtype": "success", "request_id": "subfleet-interrupt",
+                                                   "response": {"still_queued": [MID]}})
+    turn, _ = run([INIT_OK, lifecycle("queued"), kept], interrupt_before=2)
+    assert turn.outcome is None                          # an older CLI kept it: the stop escalates
+
+
+def test_c26_5_a_session_failure_before_acknowledgement_takes_the_waiting_message_out_first():
+    """C-26.5 (review of 6f2b54e4, finding 3): closing stdin cancels nothing queued, so a
+    session failure that ends the turn before the message started sends the interrupt
+    with `cancel_queued` ahead of the close; the message never runs unwatched after it."""
+    failure = row(type="result", subtype="error_during_execution", is_error=True, num_turns=0, errors=["boom"])
+    turn, steps = run([INIT_OK, lifecycle("queued"), failure])
+    assert frames(steps) == ["init", "user-message", "settings", "interrupt", "close"]
+    assert json.loads(steps[-1].frames[0].line)["request"]["cancel_queued"] is True
+    assert (turn.outcome.state, turn.outcome.reason) == ("failed", "error_during_execution")
+    turn, steps = run([failure])                         # nothing was sent yet: nothing to take out
+    assert frames(steps) == ["init", "close"]
+
+
+def test_c26_5_a_startup_failure_ends_the_turn_whatever_else_the_result_says():
+    """C-26.5 (review of 6f2b54e4, finding 6): `startup_failure_reason` is checked first,
+    after acknowledgement and on a result that calls itself a success."""
+    odd = row(type="result", subtype="success", is_error=False, num_turns=0, startup_failure_reason="bypass_root",
+              user_message_uuid=MID)
+    turn, steps = run([INIT_OK, ECHO, odd])
+    assert (turn.outcome.state, turn.outcome.reason) == ("failed", "success")
+    assert steps[-1].events[-1].data["session_failure"] == "bypass_root"
+
+
+def test_c26_7_a_limit_another_turn_met_does_not_classify_the_message():
+    """C-26.7 (review of 6f2b54e4, finding 1): a notification turn refused for quota
+    before the message started does not make the message `limited`: not when the queue
+    then discards it, and not when its own turn fails for another reason."""
+    turn, _ = run([INIT_OK, lifecycle("queued"), LIMIT,
+                   notification_result(ok=False, subtype="success", words="You've hit your session limit"),
+                   lifecycle("discarded")])
+    assert (turn.outcome.reason, turn.outcome.limited, turn.outcome.not_run) == ("provider-discarded", False, "discarded")
+    turn, _ = run([INIT_OK, lifecycle("queued"), LIMIT, notification_result(ok=False, subtype="success"),
+                   lifecycle("started"), ECHO, our_result(ok=False)])
+    assert (turn.outcome.reason, turn.outcome.limited) == ("error_during_execution", False)
+    # A result that names the message with nothing before it: the limit in its turn is its own.
+    turn, _ = run([INIT_OK, LIMIT, our_result(ok=False, subtype="success")])
+    assert (turn.outcome.reason, turn.outcome.limited) == ("limited", True)
 
 
 @pytest.mark.parametrize("state", ["refused", "discarded"])
@@ -250,12 +315,82 @@ def test_c24_8_a_notification_turn_after_a_driver_stop_is_not_the_provider_finis
 
 def test_c26_5_another_turn_s_output_is_shown_but_answers_nothing():
     """C-26.5: what a notification turn writes is session output the person sees, but it
-    is no answer to the message: `answered` counts only output after acknowledgement."""
-    turn, steps = run([INIT_OK, lifecycle("queued"), text("msg_n", "The background build finished."),
+    is no answer to the message: `answered` counts only output after acknowledgement,
+    whether streamed, whole, or a tool call."""
+    tool = row(type="assistant", parent_tool_use_id=None, message={"id": "msg_t", "model": MODEL, "content": [
+        {"type": "tool_use", "id": "tu_n", "name": "Bash", "input": {"command": "ls"}}]})
+    delta = row(type="stream_event", event={"type": "content_block_delta", "index": 0,
+                                            "delta": {"type": "text_delta", "text": "Looking\n"}})
+    turn, steps = run([INIT_OK, lifecycle("queued"), delta, tool, text("msg_n", "The background build finished."),
                        notification_result(words="The background build finished.")])
     assert [e.kind for e in events(steps)].count("text") == 1 and not turn.answered
     turn, _ = run([ECHO, text("msg_1", "Fixed."), our_result()], turn)
     assert turn.outcome.answered
+
+
+def test_c24_4_a_message_known_only_by_its_result_s_name_keeps_its_answer():
+    """C-24.4, C-26.5 (review of 6f2b54e4, correctness finding 2): with no echo or
+    lifecycle before it, what the message's own turn wrote counts once its result names
+    it; what another turn wrote before that turn's result does not."""
+    turn, _ = run([INIT_OK, text("msg_n", "Background noted."), notification_result(),
+                   text("msg_1", "Fixed."), our_result()])
+    assert turn.outcome.state == "complete" and turn.outcome.answered
+    turn, _ = run([INIT_OK, text("msg_n", "Background noted."), notification_result(), our_result()])
+    assert turn.outcome.state == "complete" and not turn.outcome.answered
+
+
+def test_c26_5_after_the_message_started_the_next_result_is_its_turn_s():
+    """C-26.5 (review of 6f2b54e4, correctness finding 5): `command_lifecycle started` says
+    the message drained into the one running turn, a fold into a turn Claude Code began
+    included, so the next result is that turn's even if it names nobody and gives that
+    origin; the message never waits on a result that named nobody."""
+    turn, steps = run([INIT_OK, lifecycle("queued"), lifecycle("started"), notification_result()])
+    assert (turn.outcome.state, turn.outcome.accepted) == ("complete", True)
+    turn, steps = run([INIT_OK, ECHO, notification_result()])       # the echo alone says less
+    assert turn.outcome is None
+
+
+def test_c24_7_cancelling_another_turn_s_request_before_the_message_started_stops_the_message():
+    """C-24.7, C-26.5 (review of 6f2b54e4, correctness finding 4): a tool request from a
+    turn the session ran before the message started shows on the message; the person's
+    cancel-turn there also takes the message out of the queue."""
+    ask = row(type="control_request", request_id="r1", request={"subtype": "can_use_tool", "tool_name": "Bash",
+                                                                "input": {"command": "ls"}, "tool_use_id": "tu1"})
+    turn, _ = run([INIT_OK, lifecycle("queued"), ask])
+    step = turn.respond("r1", "cancel-turn")
+    assert [f.tag for f in step.frames] == ["approval:r1", "interrupt"]
+    assert json.loads(step.frames[1].line)["request"]["cancel_queued"] is True
+    turn.feed(notification_result(ok=False, terminal_reason="aborted_tools"), 900)
+    turn.feed(lifecycle("cancelled"), 1000)
+    assert (turn.outcome.state, turn.outcome.reason, turn.outcome.not_run) == ("interrupted", "stopped", "cancelled")
+    turn, _ = run([INIT_OK, ECHO, ask])                                # the message's own request: no second stop
+    assert [f.tag for f in turn.respond("r1", "cancel-turn").frames] == ["approval:r1"]
+
+
+def test_c24_6_a_stop_the_driver_sent_itself_that_swept_the_message_is_recorded():
+    """C-24.6, C-26.8 (review of 6f2b54e4, correctness finding 3): a model mismatch before
+    the message started ends the turn with an interrupt that carries `cancel_queued`; the
+    queue's `cancelled` after that is recorded, so reconciliation knows it will not run."""
+    wrong = row(type="system", subtype="init", model="claude-haiku-4-5", session_id=SID)
+    turn, _ = run([INIT_OK, lifecycle("queued"), wrong, notification_result(ok=False), lifecycle("cancelled")])
+    assert (turn.outcome.reason, turn.not_run, turn.outcome.not_run) == ("model-mismatch", "cancelled", None)
+    settled = reconcile.settle({**turn.outcome.__dict__, "not_run": turn.not_run}, provider="claude", turn_seq=0,
+                               gather=lambda: reconcile.Evidence(acknowledged=False, frame="written",
+                                                                 process_gone=True, native="absent"))
+    assert (settled.state, settled.reason, settled.block) == ("failed", "model-mismatch", None)
+
+
+def test_c24_6_a_session_failure_is_reconciled_not_taken_as_the_message_s_end():
+    """C-24.6, C-26.5 (review of 6f2b54e4, correctness finding 6): the session's failure is
+    no terminal event of the message's, so the driver ends the turn and its delivery is
+    reconciled: before the message was written, not delivered."""
+    failure = row(type="result", subtype="error_during_execution", is_error=True, num_turns=0,
+                  startup_failure_reason="cwd_unavailable")
+    turn, _ = run([failure])
+    assert turn.outcome.ended_by == "driver"
+    gone = reconcile.Evidence(acknowledged=False, frame="absent", process_gone=True, native="absent")
+    settled = reconcile.settle(turn.outcome.__dict__, provider="claude", turn_seq=0, gather=lambda: gone)
+    assert (settled.state, settled.reason, settled.block) == ("failed", "not-delivered: error_during_execution", None)
 
 
 def test_c26_6_a_replay_of_the_traced_case_is_identical():
@@ -323,7 +458,7 @@ def well_formed(draw) -> tuple[list[str], dict]:
     rows.append(ours)
     for index in range(draw(st.integers(0, 2))):
         rows.append(notification_result(index=10 + index))
-    limited = LIMIT in rows[:ours_at]
+    limited = ours_limited                                  # its own turn's; others' limits were theirs
     body = json.loads(ours)
     if ok:
         expected = ("complete", None)
@@ -331,7 +466,7 @@ def well_formed(draw) -> tuple[list[str], dict]:
         expected = ("failed", "limited")
     else:
         expected = ("failed", body["subtype"])
-    return rows, {"ours_at": ours_at, "state": expected, "num_turns": num_turns}
+    return rows, {"ours_at": ours_at, "state": expected, "num_turns": num_turns, "ack": ack}
 
 
 def terminal_steps(steps) -> list:
@@ -359,7 +494,9 @@ def test_property_the_message_s_own_result_decides_its_turn(case):
     turn, steps = run(rows)
     check_one_outcome(turn, steps)                                           # I2
     assert (turn.outcome.state, turn.outcome.reason) == want["state"]       # I4
-    assert turn.outcome.accepted and turn.outcome.ended_by == "provider"    # I1
+    assert turn.outcome.accepted and turn.outcome.ended_by == "provider"
+    before = rows[:want["ours_at"]]                                          # I1, from the stream itself
+    assert lifecycle("started") in before or ECHO in before or want["ack"] == "name-only"
     carrier = terminal_steps(steps)[0]
     assert steps.index(carrier) == want["ours_at"] + 1                       # ends on our own row (I3)
     assert carrier.events[-1].data["num_turns"] == want["num_turns"]
@@ -369,49 +506,90 @@ def test_property_the_message_s_own_result_decides_its_turn(case):
     assert frames(steps) == frames(again) and replayed.outcome == turn.outcome
 
 
-#: Every row shape the driver reads that bears on which turn a result closes.
+#: Every row shape the driver reads that bears on which turn a result closes, each tagged
+#: by hand with what it is, so the oracle below never asks the driver (review of
+#: 6f2b54e4, finding 4). Results: `startup` (a startup failure), `named-ours`,
+#: `named-other`, `began` (unnamed, Claude Code began the turn: an origin other than
+#: human), `plain` (unnamed, no such origin). Other rows: `ack` (the echo acknowledges
+#: the message), `started` (its lifecycle does, and it drained into a turn), `not-run`
+#: (the queue will not run it), `none`.
 START = row(type="stream_event", event={"type": "message_start", "message": {"id": "msg_s"}})
 DELTA = row(type="stream_event", event={"type": "content_block_delta", "index": 0,
                                         "delta": {"type": "text_delta", "text": "partial"}})
-ALPHABET = st.sampled_from([
-    HOOK, NOTICE, SYS_INIT, REQUESTING, ECHO, LIMIT, text("msg_a", "a"), text("msg_b", "b"), START, DELTA,
-    *(lifecycle(state) for state in ("queued", "started", "completed", "cancelled", "discarded", "refused")),
-    *(lifecycle(state, OTHER) for state in ("queued", "started", "cancelled")),
-    notification_result(), notification_result(ok=False), notification_result(origin=None),
-    notification_result(ok=False, origin=None), notification_result(origin="human"),
-    notification_result(ok=False, origin="human"), notification_result(ok=False, origin="peer"),
-    our_result(), our_result(ok=False), our_result(named=False), our_result(ok=False, named=False),
-    our_result(names=(OTHER,)), our_result(names=(OTHER, MID)), our_result(ok=False, subtype="success"),
-    row(type="result", subtype="error_during_execution", is_error=True, num_turns=0,
-        startup_failure_reason="temp_dir_unusable"),
-    row(type="result", subtype="success", is_error=False, num_turns=0, startup_failure_reason="bypass_root"),
-])
+TAGGED = [
+    *((line, "none") for line in (HOOK, NOTICE, SYS_INIT, REQUESTING, LIMIT, text("msg_a", "a"),
+                                  text("msg_b", "b"), START, DELTA, lifecycle("queued"), lifecycle("completed"),
+                                  lifecycle("queued", OTHER), lifecycle("started", OTHER),
+                                  lifecycle("cancelled", OTHER))),
+    (ECHO, "ack"), (lifecycle("started"), "started"),
+    *((lifecycle(state), "not-run") for state in ("cancelled", "discarded", "refused")),
+    (notification_result(), "began"), (notification_result(ok=False), "began"),
+    (notification_result(ok=False, origin="peer"), "began"), (notification_result(origin="channel"), "began"),
+    (notification_result(origin=None), "plain"), (notification_result(ok=False, origin=None), "plain"),
+    (notification_result(origin="human"), "plain"), (notification_result(ok=False, origin="human"), "plain"),
+    (our_result(named=False), "plain"), (our_result(ok=False, named=False), "plain"),
+    (our_result(), "named-ours"), (our_result(ok=False), "named-ours"), (our_result(names=(OTHER, MID)), "named-ours"),
+    (our_result(ok=False, subtype="success"), "named-ours"), (our_result(names=(OTHER,)), "named-other"),
+    (row(type="result", subtype="error_during_execution", is_error=True, num_turns=0,
+         startup_failure_reason="temp_dir_unusable"), "startup"),
+    (row(type="result", subtype="success", is_error=False, num_turns=0, startup_failure_reason="bypass_root",
+         user_message_uuid=MID), "startup"),
+]
 
 
-@hypothesis.given(st.lists(ALPHABET, max_size=14), st.integers(0, 15), st.booleans())
-@hypothesis.settings(max_examples=600, deadline=None)
-def test_property_no_stream_completes_an_unacknowledged_message_or_ends_it_on_another_s_result(rows, cut, stop):
-    """I1, I2, I3, I5 on any sequence of those rows, the message sent first, with a stop
-    landing anywhere or nowhere."""
-    rows = [INIT_OK, *rows]
-    turn, steps = run(rows, interrupt_before=cut if stop else None)
+def oracle(tagged: list[tuple[str, str]], stop: int | None) -> tuple[int | None, list[int], dict[int, bool]]:
+    """The documented rule, read off the tags: the row index the turn ends at (-1: the
+    stop before the message was sent), the indexes of results that are another turn's,
+    and whether the message was acknowledged by each row (by its stream, never the driver)."""
+    acked = started = False
+    others, acked_at = [], {}
+    for index, (line, tag) in enumerate(tagged):
+        if stop == 0 and index == 0:
+            return -1, others, acked_at                  # stopped while `initialize` was unanswered
+        body = json.loads(line)
+        ok = body.get("is_error") is False and body.get("subtype") == "success"
+        if tag in ("ack", "started") and not acked:
+            acked, started = True, tag == "started"
+        acked_at[index] = acked or tag == "named-ours"
+        if tag == "not-run" and not acked:
+            return index, others, acked_at
+        if tag in ("began", "plain") and started:
+            return index, others, acked_at               # the one turn it drained into
+        if tag in ("named-other", "began") or (tag == "plain" and not acked and ok):
+            others.append(index)
+        elif tag in ("startup", "named-ours", "plain"):
+            return index, others, acked_at
+    return None, others, acked_at
+
+
+@hypothesis.given(st.lists(st.sampled_from(TAGGED), max_size=14), st.integers(0, 15), st.booleans())
+@hypothesis.settings(max_examples=800, deadline=None)
+def test_property_no_stream_completes_an_unacknowledged_message_or_ends_it_on_another_s_result(tagged, cut, stop):
+    """I1, I2, I3, I5 on any sequence of those rows, the message sent first (INIT_OK), a
+    stop landing anywhere or nowhere, against the tag oracle."""
+    tagged = [(INIT_OK, "none"), *tagged]
+    rows = [line for line, _ in tagged]
+    stop_at = cut if stop else None
+    turn, steps = run(rows, interrupt_before=stop_at)
     check_one_outcome(turn, steps)                                           # I2
-    if turn.outcome is not None and turn.outcome.state == "complete":
-        assert turn.outcome.accepted                                         # I1
-    offset = 0
+    want_end, others, acked_at = oracle(tagged, stop_at)
     probe = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     probe.start()
-    for index, line in enumerate(rows):                                       # I3, row by row
-        if stop and index == cut:
-            probe.interrupt()
-        body = json.loads(line)
-        other = body.get("type") == "result" and probe.phase != "ended" and probe._whose(body) == "other"
+    offset, ended_at = 0, None
+    for index, line in enumerate(rows):
+        if index == stop_at:
+            if probe.interrupt().outcome is not None and ended_at is None:
+                ended_at = -1
         step = probe.feed(line, offset)
         offset += len(line) + 1
-        if other:
+        if step.outcome is not None and ended_at is None:
+            ended_at = index
+        if index in others and (want_end is None or index < want_end):          # I3
             kinds = [e.kind for e in step.events]
             assert step.outcome is None and step.frames == [] and kinds.count("turn.other") == 1
-            assert set(kinds) <= {"turn.other", "text.delta", "status"}           # what that turn still held
+    assert ended_at == want_end, (ended_at, want_end)
+    if turn.outcome is not None and turn.outcome.state == "complete":
+        assert want_end is not None and acked_at[want_end]                   # I1, by the stream's own evidence
     assert probe.outcome == turn.outcome                                      # I5
     if turn.outcome is None:
         assert "close" not in frames(steps)
