@@ -514,6 +514,8 @@ def test_a_title_waiting_behind_a_command_is_never_written_after_a_barrier(barri
         runner._timers()
         runner._send_outbox()
         assert TITLE_FRAME not in turn.logged() and TITLE_CANCEL_FRAME not in turn.logged()
+        # Not even tried: after a close the relay would refuse the write and hide it.
+        assert turn.requested() is None and not runner.optional_ack_lost
         assert not runner.relay_failed and runner.frame_refused is None
 
 
