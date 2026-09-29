@@ -10,12 +10,21 @@ reaches the network and never reads a credential: the account's email is
 derived from the fixture token the lane resolves (`tests/fake/profile.py`).
 
 Each user message picks its behaviour with a `[fake:<scenario>]` directive in
-its text; `[fake:write]` combines with any other:
+its text; `[fake:write]`, `[fake:notified]` and `[fake:notified-slow]` combine
+with any other:
 
     (none)            streamed text, then a success result
     write             first writes `fake-<first 8 of the message uuid>.txt` (three
                       lines) and appends `edited by <those 8>` to `tracked.txt` in its
                       working directory, as a turn that edits files does (C-26.14)
+    notified          first runs a turn of its own for a background task's notification
+                      while the message waits queued, as Claude Code 2.1.284 did on
+                      resuming a session whose shell outlived its last process
+                      (2026-09-28): `command_lifecycle queued`, that turn's `result`
+                      (num_turns 0, `origin` task-notification, naming no message), then
+                      `command_lifecycle started` and the message's own turn (C-26.5)
+    notified-slow     as `notified`, but that turn streams until an interrupt; one with
+                      `cancel_queued` cancels the queued message, which never runs
     approval          asks to run a Bash command; allow runs it, deny says so
     question          AskUserQuestion; the chosen answers are echoed back
     slow              streams until interrupted; the interrupt ends the turn
@@ -75,6 +84,8 @@ import uuid
 from pathlib import Path
 
 DIRECTIVE = re.compile(r"\[fake:([a-z-]+)\]")
+#: Directives that combine with a scenario rather than naming one.
+MODIFIERS = ("write", "notified", "notified-slow")
 LEVELS = ["low", "medium", "high", "xhigh", "max"]
 CATALOG = [
     {"value": "default", "resolvedModel": "claude-opus-5-5[1m]", "displayName": "Default (recommended)",
@@ -134,6 +145,8 @@ class Fake:
         self.session_id = flag(argv, "--session-id") or flag(argv, "--resume") or str(uuid.uuid4())
         self.inbox: "queue.Queue[dict | None]" = queue.Queue()
         self.interrupted = threading.Event()
+        self.cancel_queued = False              # the last interrupt asked to cancel queued messages
+        self.current_uuid: str | None = None    # the message whose turn is running
         self.out_lock = threading.Lock()
         self.log_path = os.environ.get("SUBFLEET_FAKE_TURN_LOG")
         self.transcript: Path | None = None
@@ -183,6 +196,7 @@ class Fake:
                     "response": {"applied": self.applied(), "effective": {}, "sources": {}}}})
                 continue
             if row.get("type") == "control_request" and request.get("subtype") == "interrupt":
+                self.cancel_queued = request.get("cancel_queued") is True
                 self.emit({"type": "control_response", "response": {
                     "subtype": "success", "request_id": row.get("request_id"), "response": {}}})
                 self.interrupted.set()
@@ -272,10 +286,14 @@ class Fake:
             if isinstance(content, list) else []
         self.hook("UserPromptSubmit", prompt=text)
         directives = DIRECTIVE.findall(text)
-        scenario = next((d for d in directives if d != "write"), "reply")
+        scenario = next((d for d in directives if d not in MODIFIERS), "reply")
         self.interrupted.clear()
+        self.current_uuid = row.get("uuid")
         if scenario == "exit-before-ack":
             return 1
+        if ("notified" in directives or "notified-slow" in directives) and not self.notification_turn(
+                str(row.get("uuid")), slow="notified-slow" in directives):
+            return None
         self.record({"type": "user", "uuid": row.get("uuid"), "message": {"role": "user", "content": text}})
         self.emit({"type": "user", "uuid": row.get("uuid"), "message": message, "parent_tool_use_id": None,
                    "isReplay": True})
@@ -311,9 +329,50 @@ class Fake:
         self.record({"type": "assistant", "uuid": str(uuid.uuid4()), "message": body})
 
     def result(self, ok: bool, subtype: str = "success", *, text: str = "", errors=None) -> None:
+        # 2.1.280 and 2.1.284 name the message a turn consumed on its result.
+        named = {"user_message_uuid": self.current_uuid, "user_message_uuids": [self.current_uuid]} \
+            if self.current_uuid else {}
         self.emit({"type": "result", "subtype": subtype, "is_error": not ok, "num_turns": 1, "result": text,
-                   "errors": errors or [], "permission_denials": [], "duration_ms": 5})
+                   "errors": errors or [], "permission_denials": [], "duration_ms": 5, **named})
         return None
+
+    def notification_turn(self, command_uuid: str, *, slow: bool) -> bool:
+        """A turn Claude Code runs on its own while the message waits in its queue:
+        the notification that a background task did not outlive the last process
+        (the shapes of job 20260928-152257-turn-cv-1790623376839-ca22af954212). Its
+        `result` names no message and gives its origin. Whether the message runs."""
+        self.emit({"type": "system", "subtype": "task_notification", "task_id": "bfake0001",
+                   "status": "stopped", "output_file": "",
+                   "summary": "Background shell command didn't finish before the previous session ended"})
+        self.emit({"type": "command_lifecycle", "command_uuid": command_uuid, "state": "queued",
+                   "uuid": str(uuid.uuid4())})
+        self.emit({"type": "system", "subtype": "init", "model": served_model(self.model_value), "cwd": os.getcwd(),
+                   "permissionMode": flag(self.argv, "--permission-mode") or "default",
+                   "capabilities": ["interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"]})
+        aborted = False
+        if slow:
+            mid = f"msg_{uuid.uuid4().hex[:12]}"
+            self.emit({"type": "stream_event", "event": {"type": "message_start", "message": {"id": mid}}})
+            for n in range(1200):
+                if self.interrupted.is_set():
+                    aborted = True
+                    break
+                self.emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                              "delta": {"type": "text_delta", "text": f"task {n}\n"}}})
+                time.sleep(0.05)
+        self.emit({"type": "result", "subtype": "error_during_execution" if aborted else "success",
+                   "is_error": aborted, "num_turns": 0, "result": "", "errors": [], "permission_denials": [],
+                   "duration_ms": 5, "origin": {"kind": "task-notification"}, "result_index": 0,
+                   "terminal_reason": "aborted_streaming" if aborted else None, "uuid": str(uuid.uuid4())})
+        if aborted and self.cancel_queued:
+            self.emit({"type": "command_lifecycle", "command_uuid": command_uuid, "state": "cancelled",
+                       "uuid": str(uuid.uuid4())})
+            return False
+        # An interrupt without `cancel_queued` stopped only that turn; the message runs next.
+        self.interrupted.clear()
+        self.emit({"type": "command_lifecycle", "command_uuid": command_uuid, "state": "started",
+                   "uuid": str(uuid.uuid4())})
+        return True
 
     def write_files(self, message_uuid: str) -> None:
         """Edit the working directory as a writing turn would: one new file, one

@@ -131,6 +131,41 @@ The frame types are:
 
 Text deltas are `stream_event` frames with `.event.delta.type=="text_delta"` (headless docs jq example). Per-message lifecycle frames named `command_lifecycle` exist in the binary (8 schema references), with states such as queued, started, completed and cancelled.
 
+#### Not every `result` answers our message (2.1.284, read 2026-09-29)
+
+The CLI runs turns of its own: resuming a session whose background task was
+still running when its last process ended, it runs a turn for the task's
+notification (`system/task_notification`, `status: stopped`) while our
+message waits in its command queue, and ends that turn with its own `result`.
+The schemas embedded in the 2.1.284 executable, and every Claude turn attempt
+recorded under `~/.subfleet/jobs` on 2026-09-29 (108 attempts, 2.1.280 and
+2.1.284), say how to tell the turns apart:
+
+- `command_lifecycle {command_uuid, state}`: `queued` when our message enters
+  the queue, `started` when it drains into a turn, then one terminal state:
+  `completed`, `cancelled` (swept by an interrupt with `cancel_queued`, or
+  consumed into a turn that was aborted or died), `discarded` (the session ended
+  with it queued) or `refused` (the receive-side policy declined it; never
+  preceded by `queued`). A command that starts a fresh turn emits `completed`
+  after that turn's `result`; one folded into a running turn emits it before.
+- `result.user_message_uuid` and `result.user_message_uuids` name the client
+  messages the turn consumed, folds included. Every one of our 91 results named
+  our uuid; none of the 50 notification turns' results named any.
+- `result.origin.kind` says where a turn's prompt came from (`human`,
+  `channel`, `peer`, `task-notification`, …); all 50 notification results
+  carried `task-notification`, `num_turns` 0 and no `user_message_uuid`, and
+  arrived after our `queued` and before our `started`.
+- `result.startup_failure_reason` marks the zeroed `error_during_execution`
+  result a stream-json run writes before it exits on a known startup failure
+  (`cwd_unavailable`, `org_verify_failed`, `temp_dir_unusable`, …).
+- `interrupt {cancel_queued: true}` also cancels our message if it has not
+  started, with a `cancelled` lifecycle for it; 2.1.280 and 2.1.284 advertise
+  `interrupt_cancel_queued_v1`. Closing stdin cancels nothing: on EOF the CLI
+  still runs what is queued (observed 2026-09-28, job
+  20260928-152257-turn-cv-1790623376839-ca22af954212).
+
+`claude_turn.py` `_whose` attributes each `result` from these (C-26.5).
+
 ### Settings control requests
 - `set_model {model?}`: "subsequent conversation turns" (`Yr`, offset 172219988)
 - `set_permission_mode {mode}` (`Fr`, offset 172219572)

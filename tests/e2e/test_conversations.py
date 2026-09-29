@@ -693,6 +693,54 @@ def test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock(conv_wi
     assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] == "unfinished-turn"
 
 
+def test_a_turn_claude_code_runs_for_a_background_task_neither_ends_nor_answers_the_message(conv_with):
+    """C-26.5, C-24.4 (2026-09-28: 12 of 24 revived sessions). Resuming a session whose
+    background shell outlived its last process, Claude Code runs a turn of its own for
+    the task's notification and ends it with a `result` while the message waits queued.
+    That result is recorded (`turn.other`); it neither ends the message's turn nor starts
+    `after_result_s`, and the message's own turn runs to its own result. Before the fix
+    the first result completed the message and, `after_result_s` later, SIGINT stopped
+    the message's turn in the middle of its tool call."""
+    conv = conv_with(env={"SUBFLEET_FAKE_BASH_COMMAND": "sleep 5; echo ran"}, clocks={"after_result_s": 3})
+    cid = conv.create()
+    mid = conv.submit(cid, "check the state [fake:notified] [fake:bash]")
+    done = conv.until_state(mid, "complete", "failed", "interrupted", "delivery-unknown", timeout=60)
+    assert done["state"] == "complete", done
+    events = [e for e in conv.events(cid) if e["message_id"] == mid]
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("turn.completed") == 1 and kinds[-1] == "turn.completed"
+    assert kinds.index("turn.other") < kinds.index("accepted") < kinds.index("turn.completed")
+    other = events[kinds.index("turn.other")]["data"]
+    assert (other["origin"], other["num_turns"]) == ("task-notification", 0)
+    assert events[-1]["data"]["num_turns"] == 1                     # the message's own result
+    assert [(row["rc"], row["stdout"]) for row in conv.turn_log() if "bash" in row] == [(0, "ran\n")]
+    tags = [record["tag"] for record in relay_log(conv, mid)]
+    assert "signal:int:late" not in tags and tags[-1] == "close"
+    assert [e for e in events if e["kind"] == "text"][-1]["data"]["text"] == "The command ran."
+
+
+def test_a_stop_while_claude_code_runs_its_own_turn_takes_the_waiting_message_out_of_its_queue(conv):
+    """C-24.7, C-26.5: a stop that lands while the session runs a turn of its own, the
+    message still queued behind it, cancels the message in the queue (`cancel_queued`).
+    The queue's `cancelled` is the provider's last word on it: the message ends stopped,
+    it never ran, and the conversation is free. Before the fix that turn's `result` ended
+    the message's turn and closed stdin, and the message ran anyway, unwatched."""
+    cid = conv.create()
+    mid = conv.submit(cid, "go on [fake:notified-slow]")
+    conv.e2e.until(lambda: any(e["kind"] == "text.delta" and e["message_id"] == mid for e in conv.events(cid)),
+                   timeout=20)
+    assert conv.message(mid)["state"] == "starting"                 # not acknowledged: still queued
+    conv.call("turn.interrupt", message_id=mid)
+    done = conv.until_state(mid, "interrupted", "failed", "complete", "delivery-unknown", timeout=20)
+    assert (done["state"], done["state_reason"]) == ("interrupted", "stopped")
+    kinds = [e["kind"] for e in conv.events(cid) if e["message_id"] == mid]
+    assert "accepted" not in kinds and "turn.other" in kinds and kinds.count("turn.completed") == 1
+    interrupts = [r for r in conv.stdin_rows() if (r.get("request") or {}).get("subtype") == "interrupt"]
+    assert [r["request"].get("cancel_queued") for r in interrupts] == [True]
+    assert conv.call("conversation.open", conversation_id=cid)["conversation"]["blocked_by"] is None
+    assert conv.attempt(mid)["killed_by"] is None
+
+
 def test_a_claude_turn_on_the_wrong_model_fails_model_mismatch(conv):
     """C-26.8: the served model differs from the request: the driver stops the turn with the
     provider's own interrupt; the message fails `model-mismatch`. The provider finished the

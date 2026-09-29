@@ -6,12 +6,23 @@ stream-json --verbose --include-partial-messages --replay-user-messages
 `initialize` control request, checks the account and settings it reports,
 sends the user message carrying the message id as its `uuid`, maps the output
 to events, turns `can_use_tool` requests into approvals, and ends the turn on
-`result` by closing stdin.
+the `result` of the turn that ran that message, by closing stdin.
+
+Not every `result` is that one (C-26.5). Resuming a session whose background
+task was still running when its last process ended, Claude Code runs a turn of
+its own for the task's notification, and ends it with a `result` (`num_turns`
+0, `origin.kind` `task-notification`) while our message waits in its command
+queue. That `result` had ended 43 of the 108 Claude turn attempts recorded
+under ~/.subfleet/jobs by 2026-09-29 (2.1.280 and 2.1.284) before their message
+started, 12 of 24 revived sessions on 2026-09-28 among them. `_whose` decides
+which turn a `result` closes; one that is not ours is recorded as `turn.other`
+and the turn goes on.
 
 Shapes are those Claude Code 2.1.280 accepted and produced in a local probe
 (2026-09-24: `initialize` answered with `account`, `models`,
-`fast_mode_state`; exit 0 on stdin EOF) and the SDK wire schema documented in
-`docs/desktop/maps/provider-protocols.md` §2.
+`fast_mode_state`; exit 0 on stdin EOF), the SDK wire schema documented in
+`docs/desktop/maps/provider-protocols.md` §2, and the result and
+`command_lifecycle` schemas the 2.1.284 executable carries (read 2026-09-29).
 """
 
 from __future__ import annotations
@@ -32,6 +43,21 @@ INIT_REQUEST_ID = "subfleet-init"
 SETTINGS_REQUEST_ID = "subfleet-settings"
 INTERRUPT_REQUEST_ID = "subfleet-interrupt"
 UNSUPPORTED = "Subfleet does not support this request; answer it in the provider's own app."
+
+#: The interrupt a stop and a model mismatch send (C-24.7, C-26.8). `cancel_queued`
+#: also takes the message out of the command queue when it has not started, so a
+#: stop that lands while the session runs a turn of its own never lets the message
+#: run after it: the queue answers with a `cancelled` lifecycle for it. 2.1.280 and
+#: 2.1.284 advertise it (`interrupt_cancel_queued_v1` in `system init`
+#: `capabilities`); a CLI without it ignores the field and the stop escalates.
+INTERRUPT_LINE = json.dumps({"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                             "request": {"subtype": "interrupt", "cancel_queued": True}}, separators=(",", ":"))
+
+#: `command_lifecycle` states that say a queued message will not run in this
+#: session: swept by an interrupt with `cancel_queued`, the session ended with it
+#: queued, or its receive-side policy declined it (2.1.284 schema). Before the
+#: message started, each is the provider's last word on it.
+NOT_RUN = ("cancelled", "discarded", "refused")
 
 #: Claude Code's ultracode (C-26.8): xhigh effort plus standing dynamic-workflow
 #: orchestration. It is not a documented `--effort` value (2.1.280 lists low, medium, high,
@@ -216,9 +242,7 @@ class ClaudeTurn:
         if self.phase in ("new", "initializing"):
             # The message was never written: nothing reached the model.
             return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
-        request = {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
-                   "request": {"subtype": "interrupt"}}
-        return Step(frames=[Frame("interrupt", "write", _line(request))],
+        return Step(frames=[Frame("interrupt", "write", INTERRUPT_LINE)],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
 
     def interrupted_earlier(self) -> None:
@@ -293,8 +317,9 @@ class ClaudeTurn:
             # After the terminal event: background output belongs to the same
             # message and never changes its outcome (C-26.5). A `result` after the
             # driver itself ended the turn (a model mismatch) says the provider
-            # finished it (C-24.8).
-            if kind == "result":
+            # finished it (C-24.8), unless it closes a turn that was not this
+            # message's (a background task's notification run after it).
+            if kind == "result" and self._whose(row) != "other":
                 self.terminal_after_end = True
             if kind == "control_response" and (row.get("response") or {}).get("request_id") == SETTINGS_REQUEST_ID:
                 return self._settings(row["response"], source)      # C-26.8: evidence, not an outcome
@@ -315,10 +340,20 @@ class ClaudeTurn:
                                           source.next())])
             return Step()
         if kind == "command_lifecycle":
-            if row.get("command_uuid") == self.spec.message_id and row.get("state") == "started" and not self.accepted:
+            if row.get("command_uuid") != self.spec.message_id or self.accepted:
+                return Step()
+            state = row.get("state")
+            if state == "started":
                 self.accepted = True
                 return Step(events=[Event("accepted", {"message_id": self.spec.message_id, "by": "lifecycle"},
                                           source.next())])
+            if state in NOT_RUN:
+                # C-26.5: the queue says the message will not run in this session
+                # (after a stop, `cancel_queued` took it out). No `result` will come
+                # for it; nothing of it reached the model.
+                stopped = self.interrupt_requested
+                return self._end(INTERRUPTED if stopped else FAILED, "stopped" if stopped else f"provider-{state}",
+                                 source=source.next(), extra={"lifecycle": state}, ended_by="provider")
             return Step()
         if row.get("parent_tool_use_id"):
             return Step()                       # a subagent's frames stay inside its tool call
@@ -523,7 +558,8 @@ class ClaudeTurn:
         return Step(events=[Event("status", {"phase": phase}, source.phase())])
 
     def _delta(self, kind: str, block: str, text: str, source: "_Sources") -> Step:
-        self.answered = True
+        # Output before the message started is another turn's (C-26.5): shown, but no answer to it.
+        self.answered = self.answered or self.accepted
         buffer = self._buffers.setdefault(f"{kind}|{block}", redact.DeltaBuffer())
         ready = buffer.feed(text)
         return Step(events=[Event(kind, {"block": block, "text": ready}, source.next())]) if ready else Step()
@@ -571,7 +607,7 @@ class ClaudeTurn:
             key = f"{message_id}:{start + offset}"
             btype = block.get("type")
             if btype == "text" and block.get("text"):
-                self.answered = True
+                self.answered = self.answered or self.accepted
                 self._buffers.pop(f"text.delta|{key}", None)
                 step.events.append(Event("text", {"block": key, "text": redact.bounded_text(block["text"])}, source.next()))
             elif btype == "thinking" and block.get("thinking"):
@@ -579,7 +615,7 @@ class ClaudeTurn:
                 step.events.append(Event("thinking", {"block": key, "text": redact.bounded_text(block["thinking"])},
                                          source.next()))
             elif btype == "tool_use":
-                self.answered = True
+                self.answered = self.answered or self.accepted
                 started = redact.tool_started(str(block.get("name") or "tool"), block.get("input"),
                                               tool_id=block.get("id"))
                 self._tools[str(block.get("id"))] = started["hidden"]
@@ -610,9 +646,63 @@ class ClaudeTurn:
         return Step(events=[Event("limits", {"status": info.get("status"), "type": info.get("rateLimitType"),
                                              "resets_at": info.get("resetsAt"), "windows": windows}, source.next())])
 
+    def _whose(self, row: dict) -> str:
+        """Which turn a `result` closes (C-26.5): `ours`, `other` (a turn Claude Code
+        ran for something else), or `session` (a failure of the session itself,
+        which ends every turn, ours included).
+
+        The result's own join key decides first: `user_message_uuid` and
+        `user_message_uuids` name the client messages its turn consumed, folds
+        included (2.1.284 schema). All 91 of our results recorded under
+        ~/.subfleet/jobs by 2026-09-29 named our uuid (2.1.280 and 2.1.284), and
+        none of the 50 notification turns' results named any. A startup
+        failure (`startup_failure_reason`) is the session's. An unnamed result whose
+        `origin` says Claude Code began the turn itself (a task notification, a
+        peer's or a channel's message; not `human`) is another turn's: every
+        producer that stamps `origin` names the message on the message's own
+        result. A result that names none and says nothing of its origin (an older
+        producer, or a session-scoped failure) is ours once the message was
+        acknowledged (C-24.4): a message that has started owns the session's one
+        running turn. Before that, the message has run in no turn, so a success
+        closes some other turn; an error is taken as the session's failure and ends
+        ours, as before, rather than leave it waiting on a session that may be gone."""
+        named = {str(row["user_message_uuid"])} if row.get("user_message_uuid") else set()
+        if isinstance(row.get("user_message_uuids"), list):
+            named |= {str(u) for u in row["user_message_uuids"] if u}
+        if named:
+            return "ours" if self.spec.message_id in named else "other"
+        if row.get("startup_failure_reason"):
+            return "session"
+        origin = row.get("origin")
+        began = origin.get("kind") if isinstance(origin, dict) else None
+        if isinstance(began, str) and began and began != "human":
+            return "other"
+        if self.accepted:
+            return "ours"
+        return "other" if row.get("is_error") is False and row.get("subtype") == "success" else "session"
+
     def _result(self, row: dict, source: "_Sources") -> Step:
-        step = self._flush(source.next())
-        ok = row.get("is_error") is False and row.get("subtype") == "success"
+        whose = self._whose(row)
+        step = self._flush(source.next())                  # what the turn it closes still held
+        if whose == "other":
+            # C-26.5: not this message's turn. Recorded, and the message waits on.
+            origin = row.get("origin")
+            data = {"origin": origin.get("kind") if isinstance(origin, dict) else None,
+                    "subtype": row.get("subtype"), "is_error": row.get("is_error"),
+                    "num_turns": row.get("num_turns"), "result_index": row.get("result_index"),
+                    "terminal_reason": row.get("terminal_reason"),
+                    "detail": redact.bounded_text(str(row.get("result") or ""))[:300] or None}
+            step.events.append(Event("turn.other", data, source.next()))
+            if self._phase is not None:
+                # The strip no longer shows that other turn's work as this message's.
+                step.extend(self._announce("sent", source))
+            return step
+        if whose == "ours" and not self.accepted:
+            # The result names the message: the provider consumed it (C-24.4).
+            self.accepted = True
+            step.events.append(Event("accepted", {"message_id": self.spec.message_id, "by": "result"}, source.next()))
+        # A session's failure is never this message's success.
+        ok = whose == "ours" and row.get("is_error") is False and row.get("subtype") == "success"
         if ok:
             state, reason = COMPLETE, None
         elif self.interrupt_requested:
@@ -624,10 +714,11 @@ class ClaudeTurn:
         detail = None if ok else redact.bounded_text(
             "\n".join([str(row.get("result") or ""), *map(str, row.get("errors") or [])]).strip())[:1000]
         denials = row.get("permission_denials") or []
-        end = self._end(state, reason, detail=detail, source=source.next(),
-                        extra={"permission_denials": len(denials), "num_turns": row.get("num_turns"),
-                               "fast_mode_state": row.get("fast_mode_state"),
-                               "stop_too_late": ok and self.interrupt_requested}, ended_by="provider")
+        extra = {"permission_denials": len(denials), "num_turns": row.get("num_turns"),
+                 "fast_mode_state": row.get("fast_mode_state"), "stop_too_late": ok and self.interrupt_requested}
+        if whose == "session":
+            extra["session_failure"] = str(row.get("startup_failure_reason") or "unattributed")
+        end = self._end(state, reason, detail=detail, source=source.next(), extra=extra, ended_by="provider")
         return step.extend(end)
 
     # --- helpers ---------------------------------------------------------------
@@ -641,8 +732,7 @@ class ClaudeTurn:
         if served == expected or model_matches_requested(served, expected):
             return Step()
         # C-26.8: stop at once; a turn on the wrong model is not the turn asked for.
-        step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", _line(
-            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": {"subtype": "interrupt"}}))])
+        step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", INTERRUPT_LINE)])
         self.interrupt_requested = True
         return step.extend(self._end(FAILED, "model-mismatch", detail=f"asked for {self.spec.model_id}, served {model}",
                                      source=source.next()))

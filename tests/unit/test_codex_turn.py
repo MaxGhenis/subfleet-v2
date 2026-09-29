@@ -418,7 +418,8 @@ def test_a_blocking_hook_is_shown_as_activity():
 def test_each_outcome_says_what_ended_the_turn():
     """C-24.6: `turn/completed` and an error answer to `turn/start` are the provider's; a
     refusal on the thread is the driver's; the end of stdout is `eof`. A `turn/completed`
-    after the driver ended the turn is noted."""
+    after the driver ended the turn is noted when it is the message's own turn's (C-26.5):
+    not the other writer's on a thread refused as busy, whose `turn/start` was never sent."""
     done = CodexTurn(spec())
     to_running(done)
     end = done.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed",
@@ -433,7 +434,13 @@ def test_each_outcome_says_what_ended_the_turn():
     step = busy.feed(resp(ID_THREAD, {"thread": {"id": "thr-9", "status": {"type": "active"}}, "model": "gpt-6-astra"}), 3)
     assert step.outcome.ended_by == "driver"
     busy.feed(note("turn/completed", threadId="thr-9", turn={"id": "t", "status": "completed", "items": []}), 4)
-    assert busy.terminal_after_end
+    assert not busy.terminal_after_end
+    broken = CodexTurn(spec())
+    to_running(broken)
+    step = broken.feed(note("thread/status/changed", threadId="thr-1", status={"type": "systemError"}), 40)
+    assert step.outcome.ended_by == "driver"
+    broken.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "failed", "items": []}), 41)
+    assert broken.terminal_after_end
     cut = CodexTurn(spec())
     to_running(cut)
     assert cut.eof(50).outcome.ended_by == "eof"

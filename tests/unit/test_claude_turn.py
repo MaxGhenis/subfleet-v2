@@ -213,8 +213,10 @@ def test_interrupt_during_the_turn_uses_the_control_protocol():
     """C-24.7 a running turn gets the provider's interrupt, then its result is `interrupted`."""
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(turn)
+    turn.feed(line(type="user", uuid=MID, message={}), 1)
     step = turn.interrupt()
-    assert json.loads(step.frames[0].line)["request"] == {"subtype": "interrupt"}
+    # `cancel_queued` would also take a message that had not started out of the queue.
+    assert json.loads(step.frames[0].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
     assert json.loads(step.frames[0].line)["request_id"] == INTERRUPT_REQUEST_ID
     end = turn.feed(line(type="result", subtype="error_during_execution", is_error=True), 9)
     assert end.outcome.state == "interrupted"
@@ -310,6 +312,7 @@ def test_a_success_that_races_a_stop_is_complete():
     """C-24.4 the provider's success wins over a late stop, recorded as stop_too_late."""
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(turn)
+    turn.feed(line(type="user", uuid=MID, message={}), 1)
     turn.interrupt()
     end = turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 9)
     assert end.outcome.state == "complete" and end.events[-1].data["stop_too_late"] is True
@@ -455,6 +458,7 @@ def test_output_after_result_is_kept_without_changing_the_outcome():
     `result` changes nothing."""
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(turn)
+    turn.feed(line(type="user", uuid=MID, message={}), 1)
     turn.feed(line(type="result", subtype="success", is_error=False, result="done"), 9)
     late = turn.feed(line(type="assistant", message={"id": "m2", "model": "claude-opus-5-5",
                                                      "content": [{"type": "text", "text": "background done"}]}), 10)
@@ -560,6 +564,7 @@ def test_each_outcome_says_what_ended_the_turn():
     stdout; after the driver's own stop, a later `result` is noted (the provider finished)."""
     done = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(done)
+    done.feed(line(type="user", uuid=MID, message={}), 1)
     assert done.feed(line(type="result", subtype="success", is_error=False), 9).outcome.ended_by == "provider"
     refused = ClaudeTurn(spec(lane_email="other@example.org"), read_bytes=lambda p: b"")
     assert started(refused).outcome.ended_by == "driver"

@@ -399,7 +399,8 @@ class TurnRunner:
             self.batch_bytes += len(json.dumps(event.data, default=str))
             if event.kind == "served":
                 self.served.update({k: v for k, v in event.data.items() if v is not None})
-            if event.kind == "text" and event.data.get("text"):
+            if event.kind == "text" and event.data.get("text") and self.driver.accepted:
+                # Text from before the message started was another turn's (C-26.5), never its answer.
                 self.final_text = event.data["text"]
             if event.kind == "accepted":
                 self._flush()
