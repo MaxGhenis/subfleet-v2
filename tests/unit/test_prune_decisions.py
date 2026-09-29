@@ -792,7 +792,11 @@ def test_main_applies_and_prints_a_human_report(seeded, capsys):
 
 
 def test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing(seeded, monkeypatch):
-    """C-3.4, C-11.5 the 2026-09-21 dry run: a row written mid-plan for a waiting job no longer fails the check."""
+    """C-3.4, C-11.5: a row a running daemon writes mid-plan for a waiting job does not fail the check.
+
+    Without the dry run's one read transaction this fails with "the plan would
+    delete the row why serves".
+    """
     store, root = seeded
     store.close()
     real_plan = prune_decisions.plan

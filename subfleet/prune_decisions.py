@@ -1,14 +1,14 @@
 """Remove the redundant rows a job's `decisions` history accumulated (C-11.5).
 
-The admission pass records a whole routing decision for a job that is only
-waiting for capacity, once per re-check, and nothing reads those rows again:
-`subfleet why` (the daemon's `why` verb) and offline `runs show` each serve one
-row per job, and no foreign key in `store_schema.sql` points at `decisions`.
-The store this module was written for held 97,816 `decisions` rows, 97,623 of
-them with no attempt id, over 97 jobs that were all terminal (measured
-2026-09-21 against `~/.subfleet/state.sqlite3`, for the incident recorded
-2026-09-20). Stopping the write is a separate fix; this module is the one-off
-operator pass that gives the space already spent back.
+Until #16 the admission pass recorded a whole routing decision for a job that
+was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
+`add_decision` each time it left a job waiting), and nothing reads those rows
+again: `subfleet why` (the daemon's `why` verb) and offline `runs show` each
+serve one row per job, and no foreign key in `store_schema.sql` points at
+`decisions`. #16 stopped the repeats — a wait that reaches the verdict it
+reached last time adds no row (C-6.10) — and this module is the one-off
+operator pass that gives back the space the rows already written take. The dry
+run measures how many of them a store holds.
 
 What it guarantees:
 
@@ -341,11 +341,14 @@ def _restore_fix(copy_path: str | None) -> str:
 
     All three files are named. SQLite replays a `state.sqlite3-wal` it finds
     beside a database over whatever `state.sqlite3` is there, so a restore that
-    moves only the database aside is read back as something other than the copy:
-    on a synthetic store, following the shorter instruction with a hot log
-    present gave a malformed image. `subfleet doctor` is not the check for this
-    — `doctor.py` opens it read-only to query unfinished jobs with unknown lane
-    pins, but does not check integrity or restored row counts.
+    moves only the database aside is read back as something other than the copy.
+    `test_prune_restore.py` shows both ways, on synthetic stores with a hot log
+    present: over a copy whose pages line up with the log, the replay is clean
+    and `integrity_check` says ok over the wrong rows; over a copy `VACUUM INTO`
+    compacted, as this pass takes it, the image is malformed. `subfleet doctor`
+    is not the check for this — `doctor.py` opens it read-only to query
+    unfinished jobs with unknown lane pins, but does not check integrity or
+    restored row counts.
     """
     if not copy_path:
         return "nothing was deleted and no copy was taken; the store is as it was"
@@ -846,11 +849,13 @@ def _pass(store: Store, report: PruneReport, *, database: Path, state_root: Path
 
     A real pass holds `daemon.lock` from before its first read, so nothing else
     writes while it plans. A dry run takes no lock, and a daemon that is running
-    writes decision rows while it reads: measured on 2026-09-21, a row written
-    between `plan` and `_check_plan` for a job still waiting made the dry run
-    refuse its own plan. In WAL mode one read transaction sees one instant, so
-    the plan, its check and its fingerprints agree with each other; rows written
-    after that instant are simply not in the report.
+    writes decision rows while it reads: without one read transaction, a row
+    written between `plan` and `_check_plan` for a job still waiting makes the
+    dry run refuse its own plan ("the plan would delete the row why serves"),
+    which `test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing`
+    reproduces. In WAL mode one read transaction sees one instant, so the plan,
+    its check and its fingerprints agree with each other; rows written after
+    that instant are simply not in the report.
     """
     if apply:
         _pass_body(store, report, database=database, state_root=state_root, backups=backups,
@@ -948,11 +953,11 @@ def _checkpoint(conn: sqlite3.Connection) -> bool:
 
     The pragma returns one row, `(busy, log, checkpointed)`, and reports another
     connection holding the log in `busy` rather than raising: measured on a
-    synthetic store, `(0, 0, 0)` idle and `(1, 3, 0)` with a second connection
-    inside a read transaction. A busy checkpoint leaves the log where it was,
-    and after a VACUUM leaves the file the size it was, so the pass records it
-    and says so rather than reporting a rebuild that never reached the
-    filesystem.
+    synthetic store, `(0, 0, 0)` idle and `(1, n, 0)` — busy, n frames in the
+    log, none checkpointed — with a second connection inside a read
+    transaction. A busy checkpoint leaves the log where it was, and after a
+    VACUUM leaves the file the size it was, so the pass records it and says so
+    rather than reporting a rebuild that never reached the filesystem.
     """
     row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
     return bool(row[0]) if row is not None else False

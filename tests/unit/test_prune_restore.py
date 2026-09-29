@@ -19,6 +19,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings, strategies as st
 
 from subfleet.prune_decisions import _restore_fix
@@ -144,6 +145,65 @@ os._exit(0)
     assert unsafe_fingerprints["settings"][0] == expected["settings"][0]
     assert unsafe_fingerprints["settings"] != expected["settings"]
     assert unsafe_fingerprints != expected
+
+    completed = _run_recipe(safe, backup)
+    assert "ok" in completed.stdout.splitlines()
+    assert _fingerprints(safe / "state.sqlite3") == expected
+    displaced, = safe.glob("state-before-restore.*")
+    assert {path.name: path.read_bytes() for path in displaced.iterdir()} == originals
+    assert backup.read_bytes() == backup_bytes
+
+
+def test_restore_recipe_clears_hot_wal_over_a_compacted_copy_with_malformed_control(tmp_path):
+    """The copy a pass takes is compacted by `VACUUM INTO`, so an old log's pages do not fit it."""
+    crashed = tmp_path / "crashed"
+    crashed.mkdir()
+    backup = tmp_path / "backup.sqlite3"
+    subprocess.run([sys.executable, "-c", r'''
+import os
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1], isolation_level=None)
+assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+connection.execute("PRAGMA wal_autocheckpoint=0")
+connection.executescript(
+    "CREATE TABLE decisions (id INTEGER PRIMARY KEY, payload TEXT);"
+    "CREATE TABLE events (id INTEGER PRIMARY KEY, message TEXT);")
+connection.execute("BEGIN")
+connection.executemany("INSERT INTO decisions VALUES (?, ?)",
+                       [(i, "before " + "x" * 2000) for i in range(3000)])
+connection.execute("COMMIT")
+# Free pages in the live file, which VACUUM INTO leaves out of the copy.
+connection.execute("DELETE FROM decisions WHERE id % 3 = 0")
+assert connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+connection.execute("VACUUM INTO ?", (sys.argv[2],))
+connection.execute("BEGIN")
+connection.execute("DELETE FROM decisions WHERE id < 1500")
+connection.execute("INSERT INTO events VALUES (1, 'pruned')")
+connection.execute("COMMIT")
+os._exit(0)
+''', str(crashed / "state.sqlite3"), str(backup)], check=True, timeout=60)
+    assert (crashed / "state.sqlite3-wal").stat().st_size > 32
+    expected = _fingerprints(backup)
+    assert expected["decisions"][0] == 2000
+    backup_bytes = backup.read_bytes()
+
+    unsafe = tmp_path / "unsafe"
+    safe = tmp_path / "safe"
+    shutil.copytree(crashed, unsafe)
+    shutil.copytree(crashed, safe)
+    originals = {name: (safe / name).read_bytes() for name in STORE_FILES}
+
+    (unsafe / "state.sqlite3").rename(unsafe / "old.sqlite3")
+    shutil.copyfile(backup, unsafe / "state.sqlite3")
+    connection = sqlite3.connect(unsafe / "state.sqlite3")
+    try:
+        assert connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]
+        with pytest.raises(sqlite3.DatabaseError, match="malformed"):
+            connection.execute("SELECT COUNT(*) FROM decisions").fetchone()
+    finally:
+        connection.close()
 
     completed = _run_recipe(safe, backup)
     assert "ok" in completed.stdout.splitlines()
