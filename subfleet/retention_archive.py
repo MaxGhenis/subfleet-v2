@@ -51,6 +51,8 @@ DEFER_BUSY_S = 3600
 DEFER_CHANGED_S = 3600
 DEFER_SCAN_FAILED_S = 900
 DEFER_ERROR_S = 6 * 3600
+#: An error that repeats doubles its deferral, up to this (N10).
+DEFER_ERROR_MAX_S = 24 * 3600
 DEFER_PERMANENT_S = 24 * 3600
 DEFER_PINNED_S = 3600
 #: A cache left by a rolled-back attempt is dropped after this long.
@@ -189,6 +191,8 @@ class Retirement:
         self.building = self.work / "archive"
         self.conflicts = ctx.root / "retention-conflicts" / job_id
         self.journal = journal if journal is not None else load_journal(ctx.root, job_id)
+        #: Progress records the last `archive` call wrote (0: it only re-walked).
+        self.last_work = 0
 
     # --- journal ------------------------------------------------------------------
 
@@ -278,7 +282,8 @@ class Retirement:
             "admin": str(reg.admin) if reg else None, "common": str(common) if common else None,
             "object_format": fmt, "lock": None, "moved": {"worktree": False, "job": False},
             "salvage": salvage, "archive": None, "started_at": _now(),
-            "attempts": int(cache.get("attempts", 0)) + 1, "check1": False,
+            "attempts": int(cache.get("attempts", 0)) + 1, "failures": int(cache.get("failures", 0)),
+            "check1": False,
         }
         self.save()
 
@@ -385,7 +390,10 @@ class Retirement:
         (metadata only) and reads again only what changed.
         """
         builder = _Builder(self, slice_end, self.root)
-        return builder.run()
+        try:
+            return builder.run()
+        finally:
+            self.last_work = builder.work
 
     def manifest(self) -> dict[str, Any]:
         base = self.building
@@ -616,8 +624,15 @@ class Retirement:
 
     # --- rollback ------------------------------------------------------------------------
 
-    def rollback(self, reason: str, *, keep_cache: bool) -> dict[str, Any]:
-        """Put everything back where it was (design 5.6). Never deletes job bytes."""
+    def rollback(self, reason: str, *, keep_cache: bool, failures: int = 0,
+                 defer_until: float | None = None) -> dict[str, Any]:
+        """Put everything back where it was (design 5.6). Never deletes job bytes.
+
+        With `keep_cache`, the archive built so far stays with an idle journal
+        that records the consecutive error count and, in wall-clock time, when
+        the job may be tried again, so a daemon restart does not retry it at
+        once and the next attempt reads only what changed (review of a9a6cbf4,
+        N8, N10)."""
         j = self.journal
         report: dict[str, Any] = {"reason": reason, "conflicts": []}
         if j is None:
@@ -657,7 +672,8 @@ class Retirement:
                                         data={"reason": reason, **({"conflicts": report["conflicts"]} if report["conflicts"] else {})}) as conn:
             conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{self.job_id}",))
         if keep_cache and os.path.isdir(self.building):
-            self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time())
+            self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time(),
+                      failures=failures, defer_until=defer_until)
         else:
             self._drop_journal()
             try:
@@ -717,6 +733,10 @@ class _Builder:
         self.progress_path = self.dir / "progress.jsonl"
         self.progress: dict[str, dict[str, Any]] = {}
         self.pending: list[dict[str, Any]] = []
+        #: New progress records this call: a slice parks only after at least one,
+        #: so a tree whose cached re-walk or one file's read outlasts the slice
+        #: still moves forward every pass (review of a9a6cbf4, N3).
+        self.work = 0
 
     # progress --------------------------------------------------------------------------
 
@@ -736,6 +756,7 @@ class _Builder:
                 self.progress.setdefault(record["k"], {}).update(record)
 
     def _note(self, record: dict[str, Any]) -> None:
+        self.work += 1
         self.progress.setdefault(record["k"], {}).update(record)
         self.pending.append(record)
         if len(self.pending) >= 256:
@@ -755,7 +776,7 @@ class _Builder:
 
     def _tick(self) -> None:
         self.ctx.check()
-        if self.ctx.clock() >= self.slice_end:
+        if self.work and self.ctx.clock() >= self.slice_end:
             raise _Parked()
 
     # the run -------------------------------------------------------------------------
@@ -909,7 +930,7 @@ class _Builder:
             if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):
                 raise rfs.TreeError("changed", f"{entry['p']} was replaced")
             if omittable:
-                digest, blob = rfs.read_hashes(fd, before.st_size, fmt, self._tick)
+                digest, blob = rfs.read_hashes(fd, before.st_size, fmt, self.ctx.check)
                 after = os.fstat(fd)
                 if not rfs.same_content_signature(before, after):
                     raise rfs.TreeError("changed", f"{entry['p']} changed while it was read")
@@ -928,8 +949,8 @@ class _Builder:
             os.unlink(key, dir_fd=files_fd)       # a clone of a crashed attempt, unrecorded
         except FileNotFoundError:
             pass
-        method = rfs.clone_or_copy(fd, files_fd, key, self._tick)
-        digest, _ = rfs.read_hashes(fd, before.st_size, None, self._tick)
+        method = rfs.clone_or_copy(fd, files_fd, key, self.ctx.check)
+        digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
         after = os.fstat(fd)
         if not rfs.same_content_signature(before, after):
             os.unlink(key, dir_fd=files_fd)
@@ -1069,8 +1090,11 @@ class _Builder:
         return info
 
     def _verify_store(self, trees: dict[str, dict[str, Any]]) -> None:
-        """Read every stored file back and check its size and sha256."""
+        """Read every stored file back and check its size and sha256. Every copy
+        that does not read back is removed, so a kept cache never offers it
+        again and the next attempt clones those files anew (N10)."""
         fd = rfs.open_dir(self.files)
+        bad: list[str] = []
         try:
             checked: set[str] = set()
             for tree in trees.values():
@@ -1085,18 +1109,23 @@ class _Builder:
                     handle = os.open(name, rfs.O_FILE, dir_fd=fd)
                     try:
                         st = os.fstat(handle)
-                        if st.st_size != entry["size"]:
-                            raise Defer("archive did not read back", DEFER_ERROR_S, entry["p"])
-                        digest, _ = rfs.read_hashes(handle, st.st_size, None, self._tick)
-                    except rfs.TreeError as exc:
-                        raise Defer("archive did not read back", DEFER_ERROR_S, entry["p"]) from exc
+                        digest = None
+                        if st.st_size == entry["size"]:
+                            digest, _ = rfs.read_hashes(handle, st.st_size, None, self.ctx.check)
+                    except rfs.TreeError:
+                        digest = None
                     finally:
                         os.close(handle)
                     if digest != entry["sha256"]:
-                        raise Defer("archive did not read back", DEFER_ERROR_S, entry["p"])
+                        os.unlink(name, dir_fd=fd)
+                        bad.append(entry["p"])
+                        continue
                     self._note({"k": "v:" + name, "sha256": digest})
         finally:
             os.close(fd)
+        if bad:
+            raise Defer("archive did not read back", DEFER_ERROR_S,
+                        ", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else ""))
 
     def _drop_unreferenced(self, trees: dict[str, dict[str, Any]]) -> None:
         """Clones of file versions an earlier attempt saw and this one does not."""

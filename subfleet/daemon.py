@@ -91,6 +91,10 @@ READ_CONNECTIONS = 6
 RETENTION_PASS_S = 180
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
+#: A pass that reports more work but changed nothing doubles the wait before the
+#: next, up to this (review of a9a6cbf4, N2: one unmeasurable job kept retention
+#: in 5-second catch-up for ever).
+RETENTION_CATCH_UP_MAX_S = 3600
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -445,6 +449,7 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         # d635: deferrals and measured sizes carried between retention passes.
         self._retention_state = RetentionState()
+        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         # Every connection not yet closed, for shutdown; `_reading`, those whose
         # reader still runs, is what `MAX_CONNECTIONS` counts (C-16.1).
         self._connections: set[socket.socket] = set()
@@ -2559,12 +2564,18 @@ class Daemon:
         for error in (result.get("errors") or [])[:5]:
             self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
         if result.get("more"):
+            if result.get("progressed", True):
+                self._retention_catch_up_s = RETENTION_CATCH_UP_S
+            else:
+                self._retention_catch_up_s = min(RETENTION_CATCH_UP_MAX_S, 2 * self._retention_catch_up_s)
+            delay = self._retention_catch_up_s
             self.log.info("retention catch-up: retired %d jobs, %d in flight, %d deferred; continuing in %g seconds",
                           len(result.get("pruned") or ()), len(result.get("in_flight") or ()),
-                          len(result.get("deferred") or {}), RETENTION_CATCH_UP_S)
-            self.timers.mark("retention", next_due=after(RETENTION_CATCH_UP_S))
-            self._last_maintenance = time.monotonic() - 3600 + RETENTION_CATCH_UP_S
+                          len(result.get("deferred") or {}), delay)
+            self.timers.mark("retention", next_due=after(delay))
+            self._last_maintenance = time.monotonic() - 3600 + delay
             return
+        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         if result.get("pruned"):
             self.log.info("retention: retired %d jobs", len(result["pruned"]))
         self.timers.mark("retention", next_due=after(3600))
