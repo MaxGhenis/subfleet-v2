@@ -311,3 +311,86 @@ def test_c23_44_a_probe_never_starts_on_a_credential_found_revoked_after_the_eva
     daemon._admit()
     assert probes == [] and daemon.store.list_attempts(job) == []
     assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-1:slot:0'")
+
+
+def test_c10_3_a_slow_idle_read_never_replaces_a_newer_busy_one(state_daemon, monkeypatch):
+    """Review of PR #72's plan (round 4): two reads of the registry at once, with the
+    production cache lifetimes. The older one, idle, is held inside its read while a
+    newer one reads busy and is kept; when the older one finishes it is not kept,
+    and the answer a reservation reads stays busy, aged from the newer read."""
+    import threading
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    now = time.time() * 1000
+    idle = registry_module.SessionRow(session_id="s", pid=os.getpid(), socket=None, name=None, cwd=None,
+                                      started_at=now, alive=True, socket_present=False, registry_path="x",
+                                      entrypoint="claude-desktop", status="idle",
+                                      status_updated_at=now - 40 * 60_000)
+    busy = registry_module.SessionRow(**{**idle.__dict__, "status": "busy", "status_updated_at": now})
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def listing(directory=None):
+        calls.append(None)
+        if len(calls) == 1:                                        # the older read: idle, and slow
+            entered.set()
+            assert release.wait(10)
+            return registry_module.Listing((idle,), ())
+        return registry_module.Listing((busy,), ())
+    monkeypatch.setattr(daemon_module.registry, "listing", listing)
+    answers = []
+    older = threading.Thread(target=lambda: answers.append(daemon._desktop_in_use()))
+    older.start()
+    assert entered.wait(10)
+    assert daemon._desktop_in_use() is True                       # the newer read, kept
+    kept = daemon._desktop_use[0]
+    release.set()
+    older.join(10)
+    assert answers == [True]                                       # the older read yields to the newer
+    assert daemon._desktop_use[0] == kept and daemon._desktop_use[1] is True
+    # The rows the priority classes read (C-6.9) are the newer read's too.
+    assert [row.status for row in daemon._registry_rows[1]["rows"]] == ["busy"]
+    assert daemon._desktop_answer() is True
+    # An answer older than the bound is use, whatever it said.
+    daemon._desktop_use = (time.monotonic() - daemon_module.DESKTOP_IN_USE_MAX_AGE_S - 1, False, {})
+    assert daemon._desktop_answer() is True
+
+
+def test_c10_3_a_slow_answer_never_replaces_a_newer_one_after_the_registry_read(state_daemon, monkeypatch):
+    """The same race one step later: the older refresh has its rows (idle) and is
+    held while it judges them; a newer refresh reads busy rows and is kept. The
+    older answer, observed earlier, is not kept."""
+    import threading
+    from subfleet.sessions import registry as registry_module
+
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module, "LIVENESS_TTL_S", 0)        # each refresh reads the registry
+    now = time.time() * 1000
+    idle = registry_module.SessionRow(session_id="s", pid=os.getpid(), socket=None, name=None, cwd=None,
+                                      started_at=now, alive=True, socket_present=False, registry_path="x",
+                                      entrypoint="claude-desktop", status="idle",
+                                      status_updated_at=now - 40 * 60_000)
+    busy = registry_module.SessionRow(**{**idle.__dict__, "status": "busy", "status_updated_at": now})
+    reads = []
+    monkeypatch.setattr(daemon_module.registry, "listing",
+                        lambda directory=None: reads.append(None) or registry_module.Listing(
+                            (idle,) if len(reads) == 1 else (busy,), ()))
+    entered, release = threading.Event(), threading.Event()
+    judged = daemon._subfleet_processes
+
+    def slow_first(found):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(10)
+        return judged(found)
+    monkeypatch.setattr(daemon, "_subfleet_processes", slow_first)
+    answers = []
+    older = threading.Thread(target=lambda: answers.append(daemon._desktop_in_use()))
+    older.start()
+    assert entered.wait(10)
+    daemon._desktop_use = (0.0, None, None)                          # no cached answer: read again
+    assert daemon._desktop_in_use() is True
+    release.set()
+    older.join(10)
+    assert answers == [True] and daemon._desktop_use[1] is True

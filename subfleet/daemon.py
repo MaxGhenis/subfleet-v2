@@ -115,6 +115,9 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: serves; C-6.9: how long one reading of which callers are live serves.
 DESKTOP_IN_USE_TTL_S = 5
 LIVENESS_TTL_S = 2
+#: C-10.3: a reservation treats an in-use answer older than this as use (its
+#: registry read began that long ago; the reservation refreshed it just before).
+DESKTOP_IN_USE_MAX_AGE_S = 10
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -926,9 +929,18 @@ class Daemon:
         cannot be listed: whoever reads that must treat it as unknown. An absent
         directory is no rows.
         """
+        return self._session_read()[1]
+
+    def _session_read(self) -> tuple[float, dict | None]:
+        """`_session_rows` with the monotonic instant its registry read began.
+
+        Two threads may read at once (admission, a read op, the timers). Each
+        answer is kept only if no answer read later was kept meanwhile, so a
+        slow read never replaces a newer one (review of PR #72's plan)."""
         read_at, found = self._registry_rows
         if found is not None and time.monotonic() - read_at < LIVENESS_TTL_S:
-            return found
+            return read_at, found
+        started = time.monotonic()
         listed = registry.listing()
         if listed is None:
             found = None
@@ -947,8 +959,12 @@ class Daemon:
                 unreadable = [pid for pid in listed.unreadable if registry.pid_alive(pid)]
                 groups = {}
             found = {"rows": rows, "unreadable": unreadable, "groups": groups}
-        self._registry_rows = (time.monotonic(), found)
-        return found
+        with self._desktop_use_lock:
+            if started >= self._registry_rows[0]:
+                self._registry_rows = (started, found)
+            elif self._registry_rows[1] is not None:
+                started, found = self._registry_rows       # a later read was kept meanwhile
+        return started, found
 
     def _subfleet_processes(self, found: dict) -> tuple[frozenset[int], frozenset[str]]:
         """C-10.3: the registry rows' pids that belong to a live Subfleet attempt (its
@@ -974,7 +990,7 @@ class Daemon:
         read_at, value, _ = self._desktop_use
         if value is not None and time.monotonic() - read_at < DESKTOP_IN_USE_TTL_S:
             return value
-        found = self._session_rows()
+        observed, found = self._session_read()
         if found is None:
             in_use, evidence = True, {"error": "the Claude Code session registry could not be read"}
         else:
@@ -983,8 +999,27 @@ class Daemon:
                 found["rows"], now_ms=time.time() * 1000,
                 recent_s=admission_settings(self.policy)["desktop_recent_s"],
                 owned_pids=owned_pids, owned_sessions=owned_sessions, unreadable=len(found["unreadable"]))
-        self._desktop_use = (time.monotonic(), in_use, evidence)      # replaced whole: other threads read it
-        return in_use
+        with self._desktop_use_lock:
+            # Kept only if observed after the answer kept now, and aged from its
+            # registry read, never from when it was computed: a slow read that
+            # finishes after a newer one never replaces it, nor looks fresher
+            # than it is (review of PR #72's plan). Replaced whole: other
+            # threads read it.
+            if observed >= self._desktop_use[0]:
+                self._desktop_use = (observed, in_use, evidence)
+            return self._desktop_use[1]
+
+    def _desktop_answer(self) -> bool | None:
+        """C-10.3: the in-use answer a reservation reads inside its transaction.
+
+        None before any read; True once the answer is older than
+        `DESKTOP_IN_USE_MAX_AGE_S` (the reservation refreshed it just before,
+        so an answer that old means the refresh could not replace it): this
+        answer only ever keeps the desktop lane out."""
+        read_at, value, _ = self._desktop_use
+        if value is None:
+            return None
+        return True if time.monotonic() - read_at > DESKTOP_IN_USE_MAX_AGE_S else value
 
     def _record_desktop_use(self) -> None:
         """C-10.3: each change of the in-use answer, and the first after a start, is
@@ -3168,7 +3203,7 @@ class Daemon:
                         is_desktop = desktop.owns(dataclasses.asdict(lane))
                     # C-10.3: refused only while Claude Code uses the desktop login,
                     # as the decision it probes for was judged (`basis`).
-                    in_use = self._desktop_use[1]
+                    in_use = self._desktop_answer()
                     if (is_desktop and (basis.get("desktop_in_use") if in_use is None else in_use) is not False
                             and not decision_job.get("allow_desktop")):
                         return None, desktop
@@ -4003,7 +4038,7 @@ class Daemon:
         # change since the early view changes the desktop lane's facts, and the
         # check judges that lane again (review of the uncap plan: reusing the
         # view's answer reserved the lane after Claude Code had become active).
-        in_use = self._desktop_use[1]
+        in_use = self._desktop_answer()
         lanes = [self.timers.merge_lane(capacity.mark_desktop(
                      dict(row), desktop=basis["desktop"],
                      desktop_in_use=basis.get("desktop_in_use") if in_use is None else in_use))

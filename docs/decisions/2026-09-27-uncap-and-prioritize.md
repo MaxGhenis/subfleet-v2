@@ -1,4 +1,4 @@
-# Uncap admission and place by priority (plan, 2026-09-27, revision 6)
+# Uncap admission and place by priority (plan, 2026-09-27, revision 7)
 
 Max's ruling, 2026-09-27, in chat: "we should uncap everything and instead use
 prioritization." On the desktop account, excluding it "makes sense if we're using
@@ -229,7 +229,7 @@ busy or recently active, so the login is protected. Working through the Subfleet
 app runs turns as attempts, so after 30 minutes with no Claude Code activity the
 desktop lane opens, last in line.
 
-The answer is read at most every 5 s, off the store lock. It is put on the desktop
+The answer is read at most every 5 s, off the store lock, and kept only if its registry read began after the answer kept already; it is aged from that read, and a reservation treats an answer older than 10 s as use. It is put on the desktop
 lane row as `desktop_in_use`, which joins `scheduler.LANE_FACTS`; a desktop lane
 without it counts as in use. **The reservation reads it again** (review finding
 3). Before each reservation try, the daemon refreshes the answer off the lock (at
@@ -373,6 +373,19 @@ with fake providers.
   only decides when that lane is excluded.
 - It adds no knob for per-job priority. A terminal `subfleet run` outside a Claude
   Code session is `background` unless its parent is live.
+
+## Changes since revision 6 (Astra round 4, the gate's last: one P2)
+
+- **Stale overwrites.** Two refreshes of the desktop signal at once could publish
+  out of order. A slow, older, idle read would then replace a newer busy answer,
+  and its age would restart. Both caches (the registry rows and the in-use answer)
+  now keep an answer only if it was observed after the one they hold, and age it
+  from when its registry read began, not from when it finished.
+- **Age bound.** A reservation reads the answer through `_desktop_answer`, which
+  treats an answer older than `DESKTOP_IN_USE_MAX_AGE_S` (10 s) as use.
+- **Tests.** Two daemon tests use production cache lifetimes and each fails on
+  the mutant that drops its guard. One holds the older refresh inside its
+  registry read. The other holds it after the read, while it judges the rows.
 
 ## Changes since revision 5 (Astra round 3: changes requested)
 
