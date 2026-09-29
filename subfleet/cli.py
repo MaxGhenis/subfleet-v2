@@ -43,7 +43,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, descriptors, ids, policy, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -58,7 +58,8 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import REQUEST_ID_MAX, JobState, Sandbox, WAIT_POLL_MAX_S, Exit
+from .contracts import (REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox,
+                        WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -69,9 +70,10 @@ EXIT_CODES = {int(code) for code in Exit}
 TERMINAL_STATES = {state.value for state in JobState if state.terminal}
 LIVE_STATES = {state.value for state in JobState if not state.terminal}
 
-# Deprecated but accepted through milestone 8 with a stderr note (C-17.2).
-RETIRED_MODELS = {"sol": "astra"}
+# Retired pins stay accepted with a stderr note and dispatch their successor (C-17.2).
+RETIRED_MODELS = policy.RETIRED_MODELS
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
+# v1's `-t fable` pinned the writing model; Fable is retired, so it lands on opus.
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
 MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "sol")
@@ -504,6 +506,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_pick(args: argparse.Namespace) -> int:
     """Permanent v1 path/email output; routing evidence and authority are v2's."""
+    _retire_model(args, "pick", "--model", "model")
     try:
         data = _client(args).call("pick", {"family": args.family, "model": args.model,
             "exclusions": args.exclude, "min_headroom": args.min_headroom})
@@ -559,10 +562,16 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
     if getattr(args, "overflow", False):
         note(f"{PROG} run: --overflow is deprecated and ignored; the daemon "
              f"walks the chain upward on its own")
-    if args.m in RETIRED_MODELS:
-        replacement = RETIRED_MODELS[args.m]
-        note(f"{PROG} run: -m {args.m} is retired; dispatching {replacement}")
-        args.m = replacement
+    _retire_model(args, "run", "-t" if legacy in LEGACY_MODEL_CLASSES and args.m == legacy else "-m")
+
+
+def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
+    """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor."""
+    value = getattr(args, attr, None)
+    if value in RETIRED_MODELS:
+        replacement = RETIRED_MODELS[value]
+        note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
+        setattr(args, attr, replacement)
 
 
 INBOX_KEEP_S = 7 * 24 * 3600
@@ -1930,6 +1939,7 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    _retire_model(args, "why")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
                            allow_desktop=bool(args.allow_desktop))
@@ -2262,14 +2272,50 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
             f"process runs no handler" if stopped else ""))
     # Wait on the identity we signalled, not on daemon.lock: a daemon that
     # cleans up removes the lock, and a missing lock is not evidence of an exit.
-    deadline = time.monotonic() + 15.0
+    # C-5.8a: a daemon whose stop cannot drain ends itself STOP_GRACE_S after it
+    # handles the signal, so wait past that before deciding it never will.
+    if _wait_for_exit(pid, info, DAEMON_STOP_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    # Still the process we signalled, so its own bound did not end it: it never
+    # armed (a thread held the GIL through the signal), it could not run, or the
+    # daemon predates C-5.8a. End it as launchd's ExitTimeOut would, after
+    # checking the identity again (C-5.4).
+    alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
+    if alive is False:
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    if alive is None:
+        return fail(Exit.OPERATIONAL,
+                    f"daemon stop: pid {pid} is still running {DAEMON_STOP_WAIT_S:g}s after "
+                    f"SIGTERM and its identity can no longer be verified (C-5.3); not killing it")
+    try:
+        os.kill(pid, _signal.SIGKILL)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon stop: SIGKILL to {pid} failed: {exc}")
+    note(f"{PROG} daemon: pid {pid} was still running {DAEMON_STOP_WAIT_S:g}s after SIGTERM; "
+         f"its own stop bound (C-5.8a) did not end it, so sent SIGKILL")
+    if _wait_for_exit(pid, info, DAEMON_KILL_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    note(f"{PROG} daemon: pid {pid} has not exited even after SIGKILL")
+    return int(Exit.OPERATIONAL)
+
+
+#: C-5.8a: how long `daemon stop` waits for a daemon to end itself, and then for
+#: the SIGKILL it sends when it has not.
+DAEMON_STOP_WAIT_S = STOP_GRACE_S + STOP_BACKSTOP_S
+DAEMON_KILL_WAIT_S = 5.0
+
+
+def _wait_for_exit(pid: int, info: dict, seconds: float) -> bool:
+    """True once the recorded identity is gone (C-5.3), False after `seconds`."""
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if same_process(pid, info.get("boot_id"), info.get("proc_start")) is False:
-            note(f"{PROG} daemon: stopped")
-            return int(Exit.OK)
+            return True
         time.sleep(0.1)
-    note(f"{PROG} daemon: pid {pid} has not exited after 15s")
-    return int(Exit.OPERATIONAL)
+    return False
 
 
 def _holder_word(alive: bool | None, stopped: bool) -> str:
@@ -2367,6 +2413,13 @@ def _plist(root: Path) -> bytes:
         "StandardErrorPath": str(root / LOG_NAME),
         # Dispatch serves user requests, so use standard service resource limits.
         "ProcessType": "Standard",
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
+        # connection and every pipe to a child holds one. The daemon raises its
+        # own limit too, and this covers a start where it cannot.
+        "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},
+        # C-5.8a: with none set, `launchctl print` reports an exit timeout of
+        # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
+        "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
     }, sort_keys=True)
 
 
@@ -2673,7 +2726,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
     p_run.add_argument("-m", dest="m", choices=MODEL_CHOICES,
-                       help="pin one model; never falls back (sol is retired → astra)")
+                       help="pin one model; never falls back (retired: fable → opus, sol → astra)")
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")

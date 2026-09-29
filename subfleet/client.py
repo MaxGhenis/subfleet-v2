@@ -42,8 +42,10 @@ makes "not a second daemon" true (C-5.8).
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import random
 import re
 import socket
 import subprocess
@@ -71,7 +73,21 @@ DEFAULT_TIMEOUT_S = 15.0
 REQUERY_TIMEOUT_S = 60.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
+#: C-16.7: the errors of a request's send that met a socket the daemon had
+#: already answered and closed (at its connection cap it answers `busy` before
+#: reading): BrokenPipeError (EPIPE, ESHUTDOWN), ConnectionResetError, and, on
+#: macOS when the close races the send, ENOTCONN (errno 57). Measured against a
+#: unix-socket server that answers and closes at once, 8,000 sends under Python
+#: 3.12 and 3.14: 510 met EPIPE and 6 ENOTCONN, and the answer was readable
+#: after every one of them.
+SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESET,
+                                   errno.ENOTCONN})
 START_DAEMON_FIX = "subfleet daemon start"
+#: C-16.7: the first pause before a busy answer's request is sent again.
+BUSY_PAUSE_S = .05
+#: The clock and sleep `Client.call`'s busy retries use; tests replace these.
+_clock = time.monotonic
+_sleep = time.sleep
 
 
 def silent_daemon_fix(pid: int) -> str:
@@ -136,6 +152,19 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
+
+    @property
+    def busy(self) -> bool:
+        """C-16.7: the daemon was at its connection cap and answered before
+        reading the request. It sends 69 over the socket for nothing else, so
+        the request did nothing and may be sent again as it is."""
+        return self.code == Exit.DAEMON_UNAVAILABLE
+
+
+def busy_pause(streak: int) -> float:
+    """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
+    to 1 s, less up to half at random so refused clients do not return together."""
+    return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
 
 
 class ResponseLost(ProtocolError):
@@ -410,10 +439,13 @@ class Client:
     """Connects to `<state root>/daemon.sock` and speaks the C-16 protocol."""
 
     def __init__(self, root: Path | str | None = None, *,
-                 timeout: float | None = None):
+                 timeout: float | None = None, retry_busy: bool = True):
         self.root = Path(root).expanduser() if root is not None else state_root()
         # Read at construction, not at definition, so a test can shorten it.
         self.timeout = DEFAULT_TIMEOUT_S if timeout is None else timeout
+        # C-16.7: False for a caller with a faster answer than waiting, such as
+        # a prompt hook that reads the store offline when the daemon is busy.
+        self.retry_busy = retry_busy
         self._checked = False
 
     # --- paths ---------------------------------------------------------------
@@ -562,9 +594,43 @@ class Client:
 
         `DaemonUnavailable` before the request is sent, `ResponseLost` after it
         was sent and before a complete, decodable answer was read (C-16.3).
+        A busy answer (C-16.7) is not an outcome: the daemon read nothing, so the
+        same request is sent again after `busy_pause`. Retries happen only in the
+        first half of the deadline, so a retry the daemon does read still has at
+        least half the deadline to answer; one admitted with seconds left could
+        time out and turn a clean "busy" into an unknown outcome (C-16.3). The
+        first try has the whole deadline, and every message names it.
         """
-        self.check_available()
         deadline = self.timeout if timeout is None else timeout
+        started = _clock()
+        busy: DaemonError | None = None
+        streak = 0
+        while True:
+            elapsed = _clock() - started
+            if busy is not None and elapsed > deadline / 2:
+                # Checked when the retry would start, not predicted before the
+                # pause: a slow machine can overrun the sleep or the last try.
+                raise busy
+            try:
+                return self._call_once(op, args, request_id=request_id,
+                                       timeout=deadline - elapsed if busy else deadline,
+                                       stated=deadline)
+            except DaemonError as exc:
+                if not exc.busy or not self.retry_busy:
+                    raise
+                streak += 1
+                pause = busy_pause(streak)
+                if _clock() - started + pause > deadline / 2:
+                    raise
+                busy = exc
+                _sleep(pause)
+
+    def _call_once(self, op: str, args: dict[str, Any] | None, *,
+                   request_id: str, timeout: float, stated: float) -> dict[str, Any]:
+        """One connection and one request; `timeout` bounds it, `stated` is the
+        caller's deadline, which a lost answer's message names."""
+        self.check_available()
+        deadline = timeout
         request = Request(op=op, args=args or {}, id=request_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)
@@ -578,10 +644,18 @@ class Client:
                 raise self.unreachable(str(exc)) from exc
             # From here on the daemon may have the request (C-16.3).
             try:
-                conn.sendall(encode(request))
+                try:
+                    conn.sendall(encode(request))
+                except OSError as exc:
+                    # C-16.7: a daemon at its connection cap answers at once and
+                    # closes before reading the request. Its answer says why, so
+                    # a send that met that close is read past, whichever errno
+                    # the kernel gave it; anything else is a lost answer.
+                    if exc.errno not in SEND_MET_CLOSE_ERRNOS:
+                        raise
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
-                raise self.silent(f"no response from the daemon within {deadline:g}s",
+                raise self.silent(f"no response from the daemon within {stated:g}s",
                                   op=op, request_id=request_id) from exc
             except ProtocolError as exc:          # a line past MAX_RESPONSE_BYTES
                 raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
@@ -675,10 +749,35 @@ class Client:
             raise OutcomeUnknown(op, request_id, (
                 str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
         except DaemonError as exc:
+            if exc.busy:
+                return self._settle_busy_resend(op, exc, request_id, minted=minted, first=first)
             if op != "submit" or not request_id:
                 raise
             return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
         return {**result, "requeried": True}
+
+    def _settle_busy_resend(self, op: str, busy: DaemonError, request_id: str, *,
+                            minted: bool, first: ResponseLost) -> dict[str, Any]:
+        """The re-send met only busy answers (C-16.7): it was never read, so it
+        settles nothing, and the first request's outcome is still unknown (C-16.3).
+
+        A submit under a request id this call minted is answered by a job that
+        carries the id, as for a refused re-send. Anything else is reported as
+        unknown, never as busy: exit 69 would read as "nothing was sent".
+        """
+        reasons = [str(first), f"the re-sent request was not read: {busy}"]
+        if op == "submit" and request_id:
+            try:
+                job = self.find_request(request_id)
+            except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+                raise OutcomeUnknown(op, request_id, (
+                    *reasons, f"its request id could not be looked up: {exc}")) from exc
+            if job is not None and minted:
+                return {"job_id": job.get("job_id"), "request_id": request_id, "created": False,
+                        "state": job.get("state"), "requeried": True, "busy": str(busy)}
+            if job is not None:
+                reasons.append(f"job {job.get('job_id')} carries request id {request_id}")
+        raise OutcomeUnknown(op, request_id, reasons) from busy
 
     def _settle_refused_submit(self, refusal: DaemonError, request_id: str, *,
                                minted: bool, first: ResponseLost) -> dict[str, Any]:
