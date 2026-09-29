@@ -22,6 +22,7 @@ for every call.
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import os
 import re
@@ -345,6 +346,38 @@ def omission_map(common: Path, heads: Iterable[str], held: list[str], *, timeout
                 continue
             blobs.setdefault(os.fsdecode(path), {})[oid.decode()] = int(size)
     return blobs, seen[:8]
+
+
+class Ignored:
+    """Which directories of a worktree git says hold only ignored, untracked
+    files (d635 disk relief).
+
+    Built from one `ls-files --cached --others --exclude-standard` (every
+    tracked path, and every untracked file no ignore rule covers; a nested
+    repository is listed as its directory). A directory is *clear* when none
+    of those paths is it, inside it, or one of its parents.
+    """
+
+    def __init__(self, paths: Iterable[str]):
+        self.paths = sorted({p.rstrip("/") for p in paths if p})
+        self.members = set(self.paths)
+
+    @classmethod
+    def of(cls, admin: Path, tree: Path, *, timeout: float = 600,
+           cancel: threading.Event | None = None) -> Ignored:
+        out = run([f"--work-tree={tree}", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                  git_dir=admin, cwd=tree, timeout=timeout, cancel=cancel).stdout
+        return cls(os.fsdecode(p) for p in out.split(b"\0") if p)
+
+    def clear(self, rel: str) -> bool:
+        if not rel or rel in self.members:
+            return False
+        parts = rel.split("/")
+        if any("/".join(parts[:n]) in self.members for n in range(1, len(parts))):
+            return False
+        prefix = rel + "/"
+        at = bisect.bisect_left(self.paths, prefix)
+        return not (at < len(self.paths) and self.paths[at].startswith(prefix))
 
 
 def blob_id(data: bytes, fmt: str) -> str:

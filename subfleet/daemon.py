@@ -2577,7 +2577,9 @@ class Daemon:
             return
         self._retention_catch_up_s = RETENTION_CATCH_UP_S
         if result.get("pruned"):
-            self.log.info("retention: retired %d jobs", len(result["pruned"]))
+            self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive",
+                          len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
+                          result.get("archived_bytes") or 0)
         self.timers.mark("retention", next_due=after(3600))
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Only a completed pass rearms the ordinary hourly interval.

@@ -30,6 +30,8 @@ def add_verbs(sub) -> None:
     survey = verbs.add_parser("survey", help="read-only dry run: what retention would retire and keep")
     survey.add_argument("--no-sizes", action="store_true", help="skip measuring trees")
     survey.add_argument("--no-holders", action="store_true", help="skip the process listing")
+    survey.add_argument("--sample", type=int, metavar="N",
+                        help="estimate from N sampled jobs what retirement frees versus archives (read-only)")
     survey.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
 
 
@@ -45,13 +47,16 @@ def cmd_retention(args: argparse.Namespace) -> int:
             emit({"archives": archives})
             return int(Exit.OK)
         total = sum(a.get("archived_bytes", 0) for a in archives if "error" not in a)
+        freed = sum(rarch.accounting(a)["freed_bytes"] for a in archives if "error" not in a)
         for a in archives:
             if "error" in a:
                 out(f"{a['archive']}  {a['error']}")
                 continue
             out(f"{a['archive']}  {a.get('created_at', '?')}  archived {a.get('archived_bytes', 0):,} B  "
-                f"omitted {a.get('omitted_bytes', 0):,} B  {a.get('worktree') or a.get('job_dir') or ''}")
-        out(f"{len(archives)} archives, {total:,} bytes archived (APFS clones share blocks with nothing now)")
+                f"omitted {a.get('omitted_bytes', 0):,} B  regenerable {a.get('regenerable_bytes', 0):,} B  "
+                f"{a.get('worktree') or a.get('job_dir') or ''}")
+        out(f"{len(archives)} archives: {total:,} bytes kept in them; {freed:,} bytes deleted without a copy "
+            "(tracked files a remote holds, regenerable output)")
         return int(Exit.OK)
     if command == "restore":
         try:
@@ -67,6 +72,14 @@ def cmd_retention(args: argparse.Namespace) -> int:
         else:
             out(json.dumps(result, indent=2, default=str))
         return int(Exit.OK) if result.get("ok", True) else int(Exit.OPERATIONAL)
+    if command == "survey" and getattr(args, "sample", None):
+        from .retention_survey import sample
+        result = sample(root, args.sample)
+        if as_json:
+            emit(result)
+        else:
+            out(json.dumps({k: v for k, v in result.items() if k != "jobs"}, indent=2, default=str))
+        return int(Exit.OK)
     if command == "survey":
         from .retention_survey import survey
         result = survey(root, sizes=not args.no_sizes, holders=not args.no_holders)

@@ -295,7 +295,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         raise ValueError("retention limits must be nonnegative")
     state = state if state is not None else RetentionState()
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
-                                "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": []}
+                                "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
+                                "freed_bytes": 0, "freed_disk_bytes": 0, "archived_bytes": 0}
     try:
         _checkpoint(cancel, deadline)
     except _Interrupted as exc:
@@ -739,7 +740,15 @@ class _Pass:
             return
         self.acted += 1
         self.progress["reclaimed"].append(job_id)
-        data = {"deleted": report["deleted"], "bytes": report["bytes"], "errors": report["errors"][:20]}
+        # Truthful accounting (d635 disk relief): what the deletion gave back
+        # (tracked files a remote holds and regenerable output, deleted without
+        # a copy) apart from what it moved into the archive (clones: deleting
+        # the originals frees nothing). `unlinked_bytes` is every file removed.
+        moved = rarch.accounting(report.get("totals") or {})
+        for key in ("freed_bytes", "freed_disk_bytes", "archived_bytes"):
+            self.progress[key] += moved[key]
+        data = {"deleted": report["deleted"], "unlinked_bytes": report["bytes"], **moved,
+                "errors": report["errors"][:20]}
         if report["kept"]:
             data["kept"] = report["kept"][:50]
             data["kept_count"] = len(report["kept"])

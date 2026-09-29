@@ -18,6 +18,7 @@ import fcntl
 import hashlib
 import os
 import stat
+import struct
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -268,6 +269,124 @@ def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None =
     finally:
         os.close(out)
     return "copy"
+
+
+# --- what deleting a file frees ----------------------------------------------------
+
+class _AttrList(ctypes.Structure):
+    _fields_ = [("bitmapcount", ctypes.c_ushort), ("reserved", ctypes.c_uint16),
+                ("commonattr", ctypes.c_uint32), ("volattr", ctypes.c_uint32), ("dirattr", ctypes.c_uint32),
+                ("fileattr", ctypes.c_uint32), ("forkattr", ctypes.c_uint32)]
+
+
+_getattrlistat = getattr(_libc, "getattrlistat", None)
+if _getattrlistat is not None:
+    _getattrlistat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.POINTER(_AttrList), ctypes.c_void_p,
+                               ctypes.c_size_t, ctypes.c_ulong]
+    _getattrlistat.restype = ctypes.c_int
+_ATTR_BIT_MAP_COUNT = 5
+_ATTR_CMNEXT_PRIVATESIZE = 0x00000008       # <sys/attr.h>: bytes not shared with any clone (APFS)
+_FSOPT_NOFOLLOW = 0x00000001
+_FSOPT_ATTR_CMN_EXTENDED = 0x00000020
+
+
+def private_bytes(parent_fd: int, name: str, st: os.stat_result) -> int:
+    """Bytes deleting this file would give back: 0 if it has other links; on
+    APFS, its blocks no clone shares (a file cloned into the archive, or a
+    virtualenv cloned from uv's cache, gives back little or nothing); else its
+    allocated blocks."""
+    if st.st_nlink > 1:
+        return 0
+    if _getattrlistat is not None:
+        request = _AttrList(_ATTR_BIT_MAP_COUNT, 0, 0, 0, 0, 0, _ATTR_CMNEXT_PRIVATESIZE)
+        buffer = ctypes.create_string_buffer(32)
+        if _getattrlistat(parent_fd, os.fsencode(name), ctypes.byref(request), buffer, len(buffer),
+                          _FSOPT_NOFOLLOW | _FSOPT_ATTR_CMN_EXTENDED) == 0:
+            length, value = struct.unpack_from("=Iq", buffer, 0)
+            if length >= 12:
+                return max(0, value)
+    return st.st_blocks * 512
+
+
+# --- regenerable output (d635 disk relief) -----------------------------------------------
+
+#: The CACHEDIR.TAG standard's signature (https://bford.info/cachedir/): the
+#: tool that wrote it declares the directory a cache it can regenerate. pytest,
+#: ruff, mypy, tox (4.x, `tox/util/path.py`) and uv write it.
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+CACHE_DIRS = (".pytest_cache", ".ruff_cache", ".mypy_cache", ".tox", ".uv-cache")
+VENV_DIRS = (".venv", "venv")
+BYTECODE = (".pyc", ".pyo")
+
+
+def regenerable(parent_fd: int, name: str, st: os.stat_result) -> str | None:
+    """The kind of regenerable output a directory is, identified by its
+    structure, never by its name alone (d635 disk relief), or None:
+
+    - ``venv``: ``.venv`` or ``venv`` holding a ``pyvenv.cfg`` with a ``home`` key;
+    - ``node_modules``: ``node_modules`` beside a ``package.json``;
+    - ``pycache``: ``__pycache__`` holding only ``.pyc``/``.pyo`` files;
+    - ``cache``: ``.pytest_cache``, ``.ruff_cache``, ``.mypy_cache``, ``.tox`` or
+      ``.uv-cache`` holding a ``CACHEDIR.TAG`` with the standard's signature.
+
+    Every marker must be a regular file (never a link). `build/`, `dist/`,
+    `target/` and `.cache/` are never regenerable here: work has been found in
+    them. Whether git ignores the directory and tracks nothing in it is the
+    caller's second condition.
+    """
+    if not stat.S_ISDIR(st.st_mode):
+        return None
+    try:
+        if name in VENV_DIRS:
+            text = _marker(parent_fd, name, st, "pyvenv.cfg")
+            if text is not None and any(line.partition("=")[0].strip() == "home" and "=" in line
+                                        for line in text.decode("utf-8", "replace").splitlines()):
+                return "venv"
+        elif name == "node_modules":
+            if _regular(parent_fd, "package.json"):
+                return "node_modules"
+        elif name == "__pycache__":
+            fd = open_dir(name, dir_fd=parent_fd, expect=st)
+            try:
+                for child in os.listdir(fd):
+                    cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
+                    if not stat.S_ISREG(cst.st_mode) or not child.endswith(BYTECODE):
+                        return None
+            finally:
+                os.close(fd)
+            return "pycache"
+        elif name in CACHE_DIRS:
+            text = _marker(parent_fd, name, st, "CACHEDIR.TAG")
+            if text is not None and text.startswith(CACHEDIR_SIGNATURE):
+                return "cache"
+    except (OSError, TreeError):
+        return None
+    return None
+
+
+def _regular(dir_fd: int, name: str) -> bool:
+    try:
+        return stat.S_ISREG(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+    except OSError:
+        return False
+
+
+def _marker(parent_fd: int, directory: str, st: os.stat_result, name: str, limit: int = 65536) -> bytes | None:
+    """The first `limit` bytes of a regular file `name` inside `directory`, or None."""
+    fd = open_dir(directory, dir_fd=parent_fd, expect=st)
+    try:
+        try:
+            handle = os.open(name, O_FILE, dir_fd=fd)
+        except OSError:
+            return None
+        try:
+            if not stat.S_ISREG(os.fstat(handle).st_mode):
+                return None
+            return os.read(handle, limit)
+        finally:
+            os.close(handle)
+    finally:
+        os.close(fd)
 
 
 # --- durability ------------------------------------------------------------------
