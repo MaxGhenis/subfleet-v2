@@ -232,8 +232,8 @@ run, but its notes do not name them.
     - `test_reading_view.py`: 5.
   - Three things did not complete within a 10-minute foreground window:
     - `test_core_live` (one test, driving a development daemon). The first attempt's daemon missed the harness's 10 s start; the second did not finish.
-    - `test_menu_view.py` (7) and `test_status_model.py` (21). Their Swift compiles ran at about 4% CPU on the saturated disk. Neither file drives the daemon, their Swift inputs are unchanged since `5218ecbd`, and both passed there this session.
-- **`app/build.sh`**: neither of two attempts finished within the 10-minute foreground window. The `-O` build of all app sources never completed under this load, and each attempt was stopped with nothing left running.
+    - `test_menu_view.py` (7) and `test_status_model.py` (21). Their Swift compiles ran at about 4% CPU on the saturated disk. Neither file drives the daemon, their Swift inputs are unchanged since `5218ecbd`, and both passed there this session. A second attempt, each file alone, was also stopped during its compile.
+- **`app/build.sh`**: none of three attempts finished within the 10-minute foreground window. The last ran alone at load 29. The `-O` build of all app sources never completed under this load, and each attempt was stopped with nothing left running.
   - `app/Sources` and the Info.plist are byte-identical to `5218ecbd`. The previous run reported that build passing (`Built: /private/tmp/claude-titles-app/Subfleet.app`, rc=0); that was not re-verified here.
   - This session, every file in `app/Sources` compiled without `-O` under the probes' model (`SUBFLEET_MODEL_TEST`) and view (`SUBFLEET_VIEW_TEST`) configurations. The app's `@main` entry and the `-O` build were not compiled.
 
@@ -245,3 +245,36 @@ run, but its notes do not name them.
   survived its pytest's guarded kill, because it runs in its own session. Found at about
   20 minutes old, terminated, and its `/private/tmp` state root removed. Nothing this run
   started is still running.
+
+## Appendix: the mutants
+
+- Each row is one in-place edit, run against the tests shown and then restored.
+- Line numbers are at HEAD `6954e1bd`; the file is `runner.py` unless the row names another.
+- "Killed by" names the test that failed.
+
+| Mutant | Rule | Edit | Result | Killed by |
+|---|---|---|---|---|
+| R1-claim-refuses-stop | 1 | `store.py:546`: drop the claim's `NOT EXISTS` stop clause | killed | claim-waits-behind-a-stop [recorded-stop, persons-stop] |
+| R1-recheck-after-claim | 1 | `:819`: no second `_title_may_go()` after the claim | killed | claim-waits-behind-a-stop [daemon-stop] |
+| R1-recorded-stop-read | 1 | `:786`: ignore a recorded `stop_requested_at` | killed | cancellation-goes-once [recorded] (added for this mutant) |
+| R1-asked-stop | 1 | `:768`: drop `stop_reason`/`stop_at` from `_title_closed` | survived | the queued interrupt (`:782`) and `interrupt_requested` (`:769`) still hold |
+| R1-asked-stop-all-guards | 1 | Drop those, the close checks and the command gate | killed | no-title-after-a-barrier [asked-stop]; waiting-behind-a-command (all 4) |
+| R1-close | 1 | `:769-770`: drop the close checks | killed | no-title-after-a-barrier [close] |
+| R1-outcome | 1 | `:768`: drop `driver.outcome` | survived | the outcome's close (`:769`) and the never-set `accepted` (`:783`) still hold |
+| R1-outcome-and-close | 1 | Drop the outcome and the close checks | killed | no-title-after-a-barrier [close]; waiting-behind-a-command [close, outcome] |
+| R1-replay-after-recorded-outcome | 1 | `:691`: never drop the message or answers after a recorded outcome | killed | `test_turn_replay` recorded-terminal-turn test |
+| R1-message-after-recorded-stop | 1 | `:853`: ignore a recorded stop at the handover | killed | `test_turn_runner` stop-after-first-look [claude, codex] |
+| R2-outbox-waits | 2 | `:782`: send while a frame of the turn waits | killed | title-waits-for-acceptance-and-every-frame |
+| R2-commands-wait | 2 | `:782`: send while a command waits | killed | steer-queued-while-the-title-is-claimed |
+| R2-acceptance | 2 | `:783`: send before the provider's acceptance | killed | title-waits-for-acceptance-and-every-frame |
+| R2-no-handover-lock | 2 | `:823`: write the title under the handover lock | killed | stop-recorded-while-a-title-write-is-held |
+| R2-line-bound | 2 | `titles.py:61`: never shorten the line | killed | title-line-fits-a-pipe [emoji, cjk] |
+| R3-withheld-only | 3 | `:767`: drop `withheld` | survived | the message was never written or accepted (`:783`); the stopped-before-send outcome (`:768`) |
+| R3-all-guards | 3 | Skip `_title_closed` and the written and accepted checks | killed | withheld-message [both] |
+| R4-replayed-message | 4 | `:766`: drop `replayed_message` | killed | replay-never-sends-again [False] |
+| R4-replay-all-guards | 4 | `:766`: drop `replayed_message` and `recorded` | killed | replay-never-sends-again [False] |
+| R4-claim-once | 4 | `store.py:545`: drop `title_requested_at IS NULL` | killed | only-first-person-message-claims-one-request |
+| R4-cancel-only-written | 4 | `:778-779`: cancel whether or not the request was written | killed | cancellation-only-for-a-request-the-relay-took [unreached, refused] |
+| R5-resync-after-lost-title | 5 | `:676`: no handshake after an unanswered title write | killed | lost-title-write-never-fails-the-turn [reached]; steer-after-an-unanswered-title-write [reached] |
+| R5-steer-host-stop | 5 | `:887`: ignore the host's recorded stop at a steer's handover | killed | `test_turn_runner` steer-withdrawn-when-stop-wins [host] |
+| R6-timeout-attribute | 6 | `:821`: touch `relay.timeout_s` before the title write | killed | relay-only-through-status-send-close (static); relay-with-only-status-send-close |
