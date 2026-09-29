@@ -235,15 +235,16 @@ def test_c5_7b_live_evidence_is_written_only_when_its_live_set_changes(world_dae
     job_id, aid = quarantine(daemon, harness, listed=[(4300, T1)])
     world.rows, world.marks = {4300: (1, 4300, "S", T1)}, {4300: aid}
     daemon._recheck_quarantines()
-    first = events(daemon, aid, "quarantine.still_live")     # the one thing learnt: the recorded group ended
-    assert len(first) == 1 and first[0]["ended_groups"] == [4100]
+    daemon._recheck_quarantines()
+    learnt = events(daemon, aid, "quarantine.still_live")     # the recorded group: vacant, then vacant again
+    assert len(learnt) == 2 and learnt[0]["vacant_groups"] == [4100]
     for _ in range(4):
         daemon._recheck_quarantines()
-    assert len(events(daemon, aid, "quarantine.still_live")) == 1       # the quarantine already listed 4300
+    assert len(events(daemon, aid, "quarantine.still_live")) == 2       # the quarantine already listed 4300
     world.rows[4301] = (4300, 4300, "S", T2)
     for _ in range(3):
         daemon._recheck_quarantines()
-    assert len(events(daemon, aid, "quarantine.still_live")) == 2
+    assert len(events(daemon, aid, "quarantine.still_live")) == 3
     evidence = json.loads(daemon.store.get_attempt(aid)["quarantine_reason"])
     assert evidence["groups_ended"] == [4100] and evidence["reason"] == "writers remain after exit receipt"
     assert {(r["pid"], r["proc_start"]) for r in evidence["recorded"]} == {(4300, T1), (4301, T2)}
@@ -422,7 +423,7 @@ def test_c5_7b_a_lease_is_never_released_while_a_recorded_identity_is_alive(
                     + daemon_module.recorded_identities(json.loads(a["evidence_json"] or "{}").get("owned_identities"))
                     + [ProcessIdentity(a["guardian_pid"], BOOT, a["proc_start"])])
         g, g_start = a["guardian_pid"], a["proc_start"]
-        stranger = live(g) and world.rows[g][1] == g and world.rows[g][3] != g_start
+        stranger = g in world.rows and world.rows[g][3] != g_start      # the id is held: the group ended
         ended = g in set(listed.get("groups_ended") or ())
         members = [] if stranger or ended else [pid for pid, row in world.rows.items() if row[1] == g and live(pid)]
         expected = not (fail or any(live(r.pid, r.proc_start) for r in recorded)
@@ -498,6 +499,8 @@ def test_c5_12_a_table_read_before_the_last_that_added_adds_but_never_drops(worl
     assert set(daemon._owned[a["attempt_id"]].groups) == {4100, 4200}
     daemon._record_owned(a, shown(old, began=13, ended=14))
     assert set(daemon._owned[a["attempt_id"]].processes) == {4100, 4101}
+    assert set(daemon._owned[a["attempt_id"]].groups) == {4100, 4200}          # vacant once: not yet
+    daemon._record_owned(a, shown(old, began=15, ended=16))
     assert set(daemon._owned[a["attempt_id"]].groups) == {4100}
 
 
@@ -517,6 +520,8 @@ def test_c5_6_a_recorded_group_outlives_its_leader_until_no_process_is_in_it(wor
     daemon._record_owned(a, shown(zombie, began=14, ended=15))
     assert 4200 in daemon._owned[a["attempt_id"]].groups                  # a zombie keeps its group
     daemon._record_owned(a, shown({pid: TREE[pid] for pid in (4100, 4101)}, began=16, ended=17))
+    assert 4200 in daemon._owned[a["attempt_id"]].groups                  # vacant once: not yet
+    daemon._record_owned(a, shown({pid: TREE[pid] for pid in (4100, 4101)}, began=18, ended=19))
     assert 4200 not in daemon._owned[a["attempt_id"]].groups
 
 
@@ -673,3 +678,104 @@ def test_c5_6_when_ps_fails_a_recorded_non_leader_is_still_sent_sigterm(world_da
     term = sorted(s for s in signals if s[2] == signal.SIGTERM)
     assert ("process", 4300, signal.SIGTERM) in term and ("group", 4300, signal.SIGTERM) in term
     assert ("process", 4100, signal.SIGTERM) not in term                 # its group took the signal
+
+
+# --- the review of 4c742703 ------------------------------------------------------------
+
+def test_c5_7b_one_vacant_table_is_not_the_end_of_a_group(world_daemon):
+    """C-5.7b: a table in which recorded group 4200 has no process (its leader forked a
+    hidden child and exited while `ps` was reading) only notes the group as ending;
+    when the next table shows the child in the group, it holds, and the group ends only
+    after two tables in a row find it vacant."""
+    daemon, harness, world = world_daemon
+    job_id, aid = quarantine(daemon, harness, owned=[(4300, T1)])
+    with_owned_groups(daemon, aid, {4200: T1})
+    world.rows = {4300: (1, 4300, "S", T1)}                     # 4300 keeps the quarantine live
+    daemon._recheck_quarantines()
+    evidence = json.loads(daemon.store.get_attempt(aid)["quarantine_reason"])
+    assert 4200 in evidence["groups_ending"] and 4200 not in evidence["groups_ended"]
+    world.rows = {4201: (1, 4200, "S", T2)}                     # the child in group 4200; 4300 gone
+    daemon._recheck_quarantines()
+    evidence = json.loads(daemon.store.get_attempt(aid)["quarantine_reason"])
+    assert daemon.store.get_attempt(aid)["state"] == "quarantined" and 4201 in evidence["live_pids"]
+    assert 4200 not in evidence["groups_ending"]
+    world.rows = {}
+    daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(aid)["state"] == "lost"
+
+
+def test_c5_12_the_running_record_keeps_a_group_its_living_leader_can_remake(world_daemon):
+    """C-5.6, C-5.12: owned P leaves group 4200 and lives; the record keeps 4200. P then
+    remakes it, forks a child and exits before the next table: the child is found through
+    the recorded group once the guardian is gone too."""
+    daemon, harness, world = world_daemon
+    job_id, a = running(daemon, harness)
+    daemon._record_owned(a, shown(TREE, began=10, ended=11))
+    moved = {**{pid: TREE[pid] for pid in (4100, 4101)}, 4200: (4101, 4250, "S", T1)}
+    daemon._record_owned(a, shown(moved, began=12, ended=13))
+    daemon._record_owned(a, shown(moved, began=14, ended=15))
+    assert 4200 in daemon._owned[a["attempt_id"]].groups
+    world.rows = {4202: (1, 4200, "S", T2)}                     # guardian, provider and P gone
+    assert 4202 in daemon._contain(a).live_pids
+
+
+def test_c5_12_the_running_record_drops_a_group_only_after_two_vacant_tables(world_daemon):
+    """C-5.12: a group vacant in one table (perhaps a torn read) stays recorded; vacant in
+    a second table read after it, it is dropped; a reused id drops it at once."""
+    daemon, harness, world = world_daemon
+    job_id, a = running(daemon, harness)
+    daemon._record_owned(a, shown(TREE, began=10, ended=11))
+    bare = {pid: TREE[pid] for pid in (4100, 4101)}
+    daemon._record_owned(a, shown(bare, began=12, ended=13))
+    assert 4200 in daemon._owned[a["attempt_id"]].groups
+    daemon._record_owned(a, shown(bare, began=12.5, ended=13.5))  # overlapped the first sighting's read
+    assert 4200 in daemon._owned[a["attempt_id"]].groups
+    daemon._record_owned(a, shown(bare, began=14, ended=15))
+    assert 4200 not in daemon._owned[a["attempt_id"]].groups
+    daemon._record_owned(a, shown(TREE, began=16, ended=17))
+    daemon._record_owned(a, shown({**bare, 4200: (1, 4200, "S", T2)}, began=18, ended=19))   # reused
+    assert 4200 not in daemon._owned[a["attempt_id"]].groups
+
+
+def test_c5_6_once_the_guardian_is_gone_the_recorded_groups_members_are_signalled_singly(world_daemon, monkeypatch):
+    """C-5.4, C-5.6: the recorded group's signal needs its living guardian; without it an
+    owned member left in that group is sent SIGTERM singly, after its identity check."""
+    daemon, harness, world = world_daemon
+    job_id, a = running(daemon, harness)
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._record_owned(a, shown(TREE, began=10, ended=11))
+    world.rows = {4101: (1, 4100, "S", T0), 4201: (1, 4200, "S", T1)}   # guardian and zsh gone
+    signals = []
+    monkeypatch.setattr(daemon_module.procs, "signal_group",
+                        lambda pgid, sig, **identity: signals.append(("group", pgid, sig)) or False)
+    monkeypatch.setattr(daemon_module.procs, "signal_process",
+                        lambda ident, sig: signals.append(("process", ident.pid, sig)) or True)
+    daemon._kill_attempt(daemon.store.get_attempt(a["attempt_id"]))
+    term = {s for s in signals if s[2] == signal.SIGTERM}
+    assert {("process", 4101, signal.SIGTERM), ("process", 4201, signal.SIGTERM)} <= term
+
+
+def test_c5_6_a_kill_reads_again_to_own_a_tool_process_forked_this_second(world_daemon, monkeypatch):
+    """C-5.6: the kill's first table began in the second a tool session was forked, so
+    it cannot own it; the kill waits for the second to turn, reads again, owns it, and
+    signals its group, before its parent is killed and it is no one's."""
+    daemon, harness, world = world_daemon
+    job_id, a = running(daemon, harness)
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    rows = {4100: (1, 4100, "Ss", T0), 4101: (4100, 4100, "S", T0), 4200: (4101, 4200, "Ss", T2)}
+    world.rows = rows
+    tables = [procs.ProcessTable(rows, BOOT, began_wall=procs.start_seconds(T2) + .2),
+              procs.ProcessTable(rows, BOOT, began_wall=procs.start_seconds(T2) + 1.2)]
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: tables.pop(0) if tables else procs.ProcessTable(rows, BOOT))
+    clock = [procs.start_seconds(T2) + .25]
+    monkeypatch.setattr(daemon_module.time, "time", lambda: clock[0])
+    waited = []
+    monkeypatch.setattr(daemon.stopping, "wait", lambda timeout: waited.append(timeout) or False)
+    signals = []
+    monkeypatch.setattr(daemon_module.procs, "signal_group",
+                        lambda pgid, sig, **identity: signals.append(("group", pgid, sig)) or True)
+    monkeypatch.setattr(daemon_module.procs, "signal_process",
+                        lambda ident, sig: signals.append(("process", ident.pid, sig)) or True)
+    daemon._kill_attempt(a)
+    assert waited and 0 < waited[0] <= 1.1
+    assert ("group", 4200, signal.SIGTERM) in signals

@@ -200,6 +200,10 @@ class Owned:
     owned processes led when they were recorded (pgid -> that leader)."""
     processes: dict[int, procs.ProcessIdentity] = dataclasses.field(default_factory=dict)
     groups: dict[int, procs.ProcessIdentity] = dataclasses.field(default_factory=dict)
+    # pgid -> end (monotonic) of the table that first found the group vacant; a
+    # table read after that end must agree before the group is dropped
+    # (`procs.group_state`). In memory only: a restart looks twice again.
+    ending: dict[int, float] = dataclasses.field(default_factory=dict, compare=False)
 
     @classmethod
     def of(cls, evidence: dict) -> "Owned":
@@ -236,16 +240,25 @@ def merged_evidence(before: dict, census, *, reason: str | None = None) -> dict:
     """C-5.7, C-5.7b: quarantine evidence after `census`: its reason (`reason`, or
     the one `before` gave), the census itself, `recorded`, every identity any
     census of this quarantine found live, once per pid and start, and
-    `groups_ended`, every recorded group a census has seen end. The last two only
-    grow; nothing else in `before` is kept but a `recheck_error`."""
+    `groups_ended`, every recorded group a census has proved ended (another
+    process holds its id) or found vacant twice running (`groups_ending` holds the
+    first sighting). `recorded` and `groups_ended` only grow; nothing else in
+    `before` is kept but a `recheck_error`."""
     recorded = {(ident.pid, ident.proc_start): ident for ident in
                 recorded_identities(before.get("recorded")) + recorded_identities(before.get("identities"))
                 + list(census.identities.values())}
     kept = {key: before[key] for key in ("recheck_error",) if key in before}
     reason = reason if reason is not None else before.get("reason")
+    # A group another process's pid proves ended is ended at once; one this census
+    # found vacant is ended only if the census before it (whose reads ended before
+    # this one's began: it was written before this row was read) found it vacant
+    # too, and is otherwise noted in `groups_ending` (`procs.group_state`).
+    pending = set(before.get("groups_ending") or ())
+    ended = set(before.get("groups_ended") or ()) | set(census.ended_groups) | (set(census.vacant_groups) & pending)
     return {**({"reason": reason} if reason else {}), **census.to_dict(), **kept,
             "recorded": [dataclasses.asdict(recorded[key]) for key in sorted(recorded)],
-            "groups_ended": sorted(set(before.get("groups_ended") or ()) | set(census.ended_groups))}
+            "groups_ended": sorted(ended),
+            "groups_ending": sorted(set(census.vacant_groups) - ended)}
 
 
 def imported_external(attempt: dict) -> bool:
@@ -4596,10 +4609,21 @@ class Daemon:
         began = table.began_at if table.began_at is not None else table.taken_at
         last = self._owned_table_at.get(aid)
         if last is None or began >= last:
-            owned = Owned(proven, {**{group: leader for group, leader in prior.groups.items()
-                                      if table.has_group(group)}, **led})
+            groups, ending = {}, {}
+            for group, leader in prior.groups.items():
+                state = procs.group_state(table, group, leader)
+                if state == "reused":
+                    continue                        # proof: the recorded group ended
+                if state == "vacant":
+                    first = prior.ending.get(group)
+                    if first is not None and began >= first:
+                        continue                    # vacant in two tables read one after the other
+                    ending[group] = first if first is not None else table.taken_at
+                groups[group] = leader
+            owned = Owned(proven, {**groups, **led},
+                          {group: at for group, at in ending.items() if group not in led})
         else:
-            owned = Owned({**prior.processes, **proven}, {**prior.groups, **led})
+            owned = Owned({**prior.processes, **proven}, {**prior.groups, **led}, dict(prior.ending))
         if any(pid not in prior.processes or prior.processes[pid].proc_start != ident.proc_start
                for pid, ident in proven.items()) or set(led) - set(prior.groups):
             self._owned_table_at[aid] = max(last or table.taken_at, table.taken_at)
@@ -4635,6 +4659,15 @@ class Daemon:
         identity before they signal (C-5.4)."""
         try:
             table = procs.snapshot()
+            if self._young_in(a, table):
+                # A process started in the second this table's read began is not
+                # owned through it (`procs.owned_closure`); one a tool session
+                # just forked would go unsignalled and, once its parent is
+                # killed, be no one's. Read again once the second has turned.
+                wait = int(table.began_wall) + 1.05 - time.time() if table.began_wall is not None else 0
+                if wait > 0 and self.stopping.wait(min(wait, 1.1)):
+                    raise procs.InspectionError("stopping")
+                table = procs.snapshot()
             guardian = a.get("guardian_pid")
             leads = bool(guardian and table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
                          and table.rows[guardian][1] == a["pgid"])
@@ -4648,10 +4681,23 @@ class Daemon:
             return owned, maybe, maybe
         leaders = {pid: ident for pid, ident in owned.processes.items()
                    if pid != a.get("pgid") and table.shows(ident) and table.rows[pid][1] == pid}
-        covered = {a.get("pgid"), *leaders}
+        # The recorded group's signal reaches its members only while the guardian
+        # leads it (C-5.4); once it is gone, its owned members are signalled singly.
+        covered = {*leaders, *([a.get("pgid")] if leads else [])}
         loose = {pid: ident for pid, ident in owned.processes.items()
                  if table.shows(ident) and table.rows[pid][1] not in covered}
         return owned, leaders, loose
+
+    def _young_in(self, a: dict, table: procs.ProcessTable) -> bool:
+        """Would this table's proof of the attempt's ownership pass over a process
+        too new to own in it (`procs.owned_closure`'s `deferred`)?"""
+        prior = self._owned.get(a["attempt_id"]) or Owned.of(json.loads(a.get("evidence_json") or "{}"))
+        roots = list(prior.processes.values())
+        if a.get("guardian_pid") and a.get("proc_start"):
+            roots.append(procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"]))
+        deferred: set[int] = set()
+        procs.owned_closure(table, roots, deferred=deferred)
+        return bool(deferred)
 
     @staticmethod
     def _signal_owned(leaders: dict[int, procs.ProcessIdentity], loose: dict[int, procs.ProcessIdentity],
@@ -4857,11 +4903,15 @@ class Daemon:
             before = quarantine_evidence(dict(current))
             after = merged_evidence(before, census)
             if census.unverifiable:
-                # Only what it established is kept; the census shown stays the
-                # last one that could verify.
-                after = {**before, "recorded": after["recorded"], "groups_ended": after["groups_ended"]}
+                # Only what it established is kept: identities, and ends that
+                # reuse proves. It neither starts nor finishes a vacancy's second
+                # look, and the census shown stays the last one that could verify.
+                after = {**before, "recorded": after["recorded"],
+                         "groups_ended": sorted(set(before.get("groups_ended") or ()) | set(census.ended_groups)),
+                         "groups_ending": sorted(before.get("groups_ending") or ())}
             if (set(recorded_identities(after["recorded"])) == set(recorded_identities(before.get("recorded")))
                     and after["groups_ended"] == sorted(before.get("groups_ended") or [])
+                    and after["groups_ending"] == sorted(before.get("groups_ending") or [])
                     and after.get("live_pids") == before.get("live_pids")):
                 return                              # nothing written: no event either
             tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?",

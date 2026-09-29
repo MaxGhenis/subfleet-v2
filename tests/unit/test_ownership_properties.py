@@ -85,6 +85,19 @@ def test_c5_6_a_torn_read_never_hands_a_stranger_to_a_reused_group_id():
     assert set(owned_closure(shown, [ident(100)])) == {100, 101, 300, 301}
 
 
+def test_c5_6_what_a_too_new_owner_would_reach_is_reported_deferred():
+    """C-5.6: a guardian and its tree all started in the read's second: only the
+    guardian (a root) is owned, and what it would have reached is `deferred`, so the
+    kill protocol knows to read again once the second has turned."""
+    rows = {100: (1, 100, "Ss", T2), 101: (100, 100, "S", T2), 200: (101, 200, "Ss", T2)}
+    deferred: set[int] = set()
+    young = ProcessTable(rows, BOOT, began_wall=start_seconds(T2) + .3)
+    assert set(owned_closure(young, [ident(100, T2)], deferred=deferred)) == {100}
+    assert deferred == {101}
+    older = ProcessTable(rows, BOOT, began_wall=start_seconds(T2) + 1.1)
+    assert set(owned_closure(older, [ident(100, T2)])) == {100, 101, 200}
+
+
 def test_c5_6_roots_count_only_with_their_recorded_start_zombies_never():
     """C-5.3, C-5.6: a recorded pid now held by another process (another start) proves nothing."""
     shown = table((100, 1, 100, "Ss", T2), (101, 100, 100, "S", T2), (102, 1, 102, "Z", T0))
@@ -211,9 +224,13 @@ def reference_closure(shown: ProcessTable, roots) -> set[int]:
     """C-5.6 read literally, as a fixpoint over every pair: slow, and independent of
     `owned_closure`'s indexes and frontier."""
     rows = shown.rows
+    cutoff = int(shown.began_wall) if shown.began_wall is not None else None
 
     def live(pid):
         return pid in rows and not rows[pid][2].startswith("Z")
+
+    def settled(pid):
+        return cutoff is None or start_seconds(rows[pid][3]) < cutoff
 
     owned = {r.pid for r in roots if live(r.pid) and rows[r.pid][3] == r.proc_start}
     while True:
@@ -222,11 +239,11 @@ def reference_closure(shown: ProcessTable, roots) -> set[int]:
             if pid in owned or not live(pid):
                 continue
             ppid, pgid, stat, start = rows[pid]
-            by_parent = (ppid in owned and "X" not in stat
+            by_parent = (ppid in owned and settled(ppid) and "X" not in stat
                          and start_seconds(start) >= start_seconds(rows[ppid][3]))
-            by_group = (pgid in owned and rows[pgid][1] == pgid
+            by_group = (pgid in owned and settled(pgid) and rows[pgid][1] == pgid
                         and start_seconds(start) >= start_seconds(rows[pgid][3]))
-            if by_parent or by_group:
+            if (by_parent or by_group) and settled(pid):
                 more.add(pid)
         if not more:
             return owned
@@ -237,8 +254,9 @@ steps = st.lists(st.tuples(st.integers(0, 7), st.integers(0, 50), st.integers(0,
 
 
 @settings(max_examples=500, deadline=None, derandomize=True, database=None)
-@given(steps=steps, records=st.dictionaries(st.integers(0, 119), st.integers(0, 50), min_size=2, max_size=10))
-def test_c5_6_ownership_never_reaches_a_stranger_and_matches_the_reference(steps, records):
+@given(steps=steps, records=st.dictionaries(st.integers(0, 119), st.integers(0, 50), min_size=2, max_size=10),
+       read_at=st.one_of(st.none(), st.integers(-3, 1)))
+def test_c5_6_ownership_never_reaches_a_stranger_and_matches_the_reference(steps, records, read_at):
     """C-5.6: whatever the process table did (forks, new sessions and groups, exits and
     orphans, traces, pid reuse), `owned_closure` proves owned only processes the guardian's
     tree forked, and exactly the ones C-5.6's rules reach (the reference fixpoint).
@@ -254,6 +272,8 @@ def test_c5_6_ownership_never_reaches_a_stranger_and_matches_the_reference(steps
             if live:
                 recorded.append(model.identity(live[records[n] % len(live)]))
     shown = model.table()
+    if read_at is not None:                    # a read that began around the newest processes' second
+        shown = ProcessTable(shown.rows, BOOT, began_wall=start_seconds(model.lstart(model.clock)) + read_at + .5)
     owned = owned_closure(shown, recorded)
     strangers = {pid for pid in owned if not model.procs[pid]["ours"]}
     assert not strangers, (strangers, shown.rows)
@@ -349,22 +369,43 @@ def test_c5_7b_the_quarantine_census_lets_recorded_pids_answer_only_for_themselv
     assert containment(100, 100, None, ATTEMPT, ROOT, guardian=guardian).live_pids == {102}
 
 
-def test_c5_7b_an_empty_group_ends_only_once_its_leader_is_gone_and_a_reused_id_ends_it(reads):
-    """C-5.5, C-5.7b (review of 9d7d4f5b): a recorded group with no process in it has
-    not ended while its recorded leader lives, since the leader can make it again with
-    `setpgid(0, 0)`; once the leader is gone it has; and a stranger leading the group's
-    id proves the recorded group ended, which the census reports."""
+def test_c5_7b_a_recorded_group_is_live_vacant_or_proven_ended(reads):
+    """C-5.5, C-5.7b (reviews of 9d7d4f5b and 4c742703): a recorded group with no
+    process in it is not vacant while its recorded leader lives (it can make the group
+    again with `setpgid(0, 0)`); once the leader is gone it is vacant, which one table
+    does not prove; a process with another start holding the group's id proves it
+    ended, whether or not that process leads a group of that id now."""
     leader = ident(200, T1)
     reads(table((200, 1, 250, "S", T1)))                     # the leader moved to another group
     found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
-    assert found.ended_groups == frozenset() and found.verified_empty
+    assert (found.ended_groups, found.vacant_groups) == (frozenset(), frozenset()) and found.verified_empty
     reads(table((200, 1, 200, "S", T1), (201, 200, 200, "S", T2)))   # ... and made group 200 again
     assert containment(None, None, None, ATTEMPT, ROOT, groups={200: leader}).live_pids == {200, 201}
     reads(table((7, 1, 7, "S", T0)))                          # the leader and the group are gone
-    assert containment(None, None, None, ATTEMPT, ROOT, groups={200: leader}).ended_groups == {200}
+    found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
+    assert (found.ended_groups, found.vacant_groups) == (frozenset(), {200})
     reads(table((200, 1, 200, "Ss", T2), (202, 200, 200, "S", T2)))  # a stranger reused the id
     found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
     assert found.ended_groups == {200} and found.verified_empty
+    reads(table((200, 1, 250, "S", T2), (201, 1, 200, "S", T2)))     # ... and left the group it made
+    found = containment(None, None, None, ATTEMPT, ROOT, groups={200: leader})
+    assert found.ended_groups == {200} and found.verified_empty
+
+
+def test_c5_6_nothing_that_started_in_or_after_the_reads_second_is_owned_through_a_relationship():
+    """C-5.6 (review of 4c742703): a stranger's row read before its group's id went to a
+    new owned process, both started in the same second, passes the start order; the read's
+    own start time keeps the stranger out, and the new process owns its children on the
+    next table."""
+    rows = {100: (1, 100, "Ss", T0), 101: (100, 100, "S", T0),
+            300: (101, 300, "S", T2),                          # owned, new: leads a new group 300
+            500: (42, 300, "S", T2),                           # a stranger's torn row, same second
+            301: (300, 300, "S", T2)}
+    torn = ProcessTable(rows, BOOT, began_wall=start_seconds(T2) + .4)
+    assert set(owned_closure(torn, [ident(100)])) == {100, 101}
+    later = ProcessTable({pid: row for pid, row in rows.items() if pid != 500}, BOOT,
+                         began_wall=start_seconds(T2) + 1.2)
+    assert set(owned_closure(later, [ident(100)])) == {100, 101, 300, 301}
 
 
 def test_c5_5_a_marker_needs_both_halves_and_a_failed_read_is_unverifiable(reads):

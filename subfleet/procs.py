@@ -245,6 +245,11 @@ class ProcessTable:
     #: C-5.12: when the read began (`taken_at` is when it ended). A process born
     #: after `began_at` may be missing; one that died before it cannot be shown.
     began_at: float | None = None
+    #: C-5.6: the wall clock (`time.time()`) when the read began. `ps` lists the
+    #: pids first and fills each row later, so a process that started at or after
+    #: this second is in the table only under a pid that changed hands mid-read,
+    #: or is too new to vouch for; ownership never passes through it here.
+    began_wall: float | None = None
     _boot: list = field(default_factory=list, init=False, repr=False, compare=False)
     _seconds: list = field(default_factory=list, init=False, repr=False, compare=False)
     _index: list = field(default_factory=list, init=False, repr=False, compare=False)
@@ -361,7 +366,8 @@ class ProcessTable:
         return self.live(recorded.pid) and self.rows[recorded.pid][3] == recorded.proc_start
 
 
-def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict[int, ProcessIdentity]:
+def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity], *,
+                  deferred: set[int] | None = None) -> dict[int, ProcessIdentity]:
     """C-5.6: every process this one table proves the attempt owns, by identity.
 
     A root is owned when the table shows it alive by C-5.3 (pid, start, and boot,
@@ -387,6 +393,17 @@ def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict
       group from within its session is owned through its parent link instead,
       if at all.
 
+    Neither kind passes through a process that started at or after the second
+    in which the table's read began (`began_wall`): `ps` lists the pids and then
+    fills each row (XNU `proc_iterate`), so such a process is in the table only
+    under a pid that changed hands during the read, where a row read earlier can
+    name its pid or its group while meaning the old holder's; with a start in
+    the same second the start order cannot tell (reviews of 9d7d4f5b and
+    4c742703). A process that new is owned on the next table, as soon as it is
+    older than that table's read; each one this table would otherwise have
+    reached is added to `deferred`, so a caller that must decide now (the kill
+    protocol) can read again once the second has turned.
+
     Returns identities as the table gives them. Raises `InspectionError` when a
     root's boot identity is needed and cannot be read; a root that is absent, a
     zombie, or another process needs none. Nothing here is authority to signal
@@ -394,6 +411,12 @@ def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict
     afresh (C-5.4).
     """
     children, members = table.links()
+    cutoff = int(table.began_wall) if table.began_wall is not None else None
+
+    def settled(pid: int) -> bool:
+        started = start_seconds(table.rows[pid][3])
+        return started is not None and (cutoff is None or started < cutoff)
+
     owned: dict[int, ProcessIdentity] = {}
     frontier: list[int] = []
     for root in roots:
@@ -412,8 +435,13 @@ def owned_closure(table: ProcessTable, roots: Iterable[ProcessIdentity]) -> dict
         if table.rows[pid][1] == pid:
             found.extend(member for member in members.get(pid, ())
                          if since is not None and (start_seconds(table.rows[member][3]) or 0) >= since)
+        young = not settled(pid)                    # too new to vouch for anyone in this table
         for member in found:
             if member in owned:
+                continue
+            if young or not settled(member):
+                if deferred is not None and table.live(member):
+                    deferred.add(member)
                 continue
             current = table.identity(member)
             if current is not None:
@@ -427,7 +455,7 @@ def snapshot() -> ProcessTable:
 
     The boot identity is not read here but when the table first needs it."""
     rows: dict[int, tuple[int, int, str, str]] = {}
-    began = time.monotonic()
+    began, began_wall = time.monotonic(), time.time()
     try:
         for row in _read(TABLE_ARGV).splitlines():
             parts = row.split(None, 4)
@@ -437,7 +465,7 @@ def snapshot() -> ProcessTable:
                                    parts[4].strip() if len(parts) > 4 else "")
     except ValueError as exc:
         raise InspectionError("ps printed a row that is not a process") from exc
-    return ProcessTable(rows, began_at=began)
+    return ProcessTable(rows, began_at=began, began_wall=began_wall)
 
 
 @dataclass(frozen=True)
@@ -451,9 +479,11 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
-    # C-5.7b: recorded groups the snapshot shows no process in, not even a
-    # zombie: POSIX never lets such a group be the attempt's again.
+    # C-5.7b: recorded groups this snapshot proves ended (their id is held by
+    # another process), and those it shows vacant (no process in them, their
+    # leader gone), which a later snapshot must confirm (`group_state`).
     ended_groups: frozenset[int] = frozenset()
+    vacant_groups: frozenset[int] = frozenset()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -474,6 +504,7 @@ class Containment:
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
             "ended_groups": sorted(self.ended_groups),
+            "vacant_groups": sorted(self.vacant_groups),
         }
 
 
@@ -504,6 +535,30 @@ def group_members(pgid: int) -> dict[int, str]:
     except ValueError as exc:
         raise InspectionError("group enumeration unavailable") from exc
     return members
+
+
+def group_state(table: ProcessTable, pgid: int, leader: ProcessIdentity | None) -> str:
+    """C-5.5, C-5.6, C-5.7b: what one table says of a recorded group.
+
+    `"reused"`: the group's id, which is its leader's pid, is held by a process
+    with another start. XNU allocates no pid that is still a group's id
+    (`kern_fork.c`), so the recorded group had ended before that process was
+    born: proof, from one table, that the group is not the attempt's.
+    `"live"`: some process, a zombie included, is in the group, or its recorded
+    leader is alive and can make it again with `setpgid(0, 0)`.
+    `"vacant"`: neither. One table is not proof: `ps` fills rows after listing
+    the pids, so a leader that forks and exits mid-read can leave a member that
+    no row shows. A caller persists the group as ended only once a table read
+    after this one agrees (reviews of 9d7d4f5b and 4c742703).
+    """
+    row = table.rows.get(pgid)
+    if leader is not None and row is not None and row[3] != leader.proc_start:
+        return "reused"
+    if table.has_group(pgid):
+        return "live"
+    if row is not None and not row[2].startswith("Z") and (leader is None or row[3] == leader.proc_start):
+        return "live"
+    return "vacant"
 
 
 #: C-5.5: the environment scan. Its output holds every process's environment, so
@@ -569,13 +624,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     the owned process that led it when it was recorded. Their members are
     counted even once that leader is gone, because XNU gives no new process a
     pid that is still a group's id. A group is not counted while the snapshot
-    shows its id held by another process (another start) that leads it: the
-    recorded leader is gone and its group ended before the id was reused, so
-    the group is reported in `ended_groups`. So is a recorded group the snapshot
-    shows no process in at all, zombies included, once its recorded leader is
-    gone too; while that leader lives it can make the group again with
-    `setpgid(0, 0)` (review of 9d7d4f5b). A group in `ended_groups` can never be
-    the attempt's again.
+    shows its id held by another process (another start): the recorded leader is
+    gone and its group ended before the id was reused, so the group is reported
+    in `ended_groups`, which is proof. A recorded group the snapshot shows no
+    process in at all, zombies included, once its recorded leader is gone too,
+    is reported in `vacant_groups`, which is not: a later snapshot must agree
+    (`group_state`).
 
     `guardian`, when the attempt recorded one, makes the recorded pids answer
     only for themselves: the walk starts at the guardian only while the snapshot
@@ -590,6 +644,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     descendants: set[int] = set()
     markers: set[int] = set()
     ended: set[int] = set()
+    vacant: set[int] = set()
     errors: list[str] = []
     if reads is None:
         try:
@@ -613,16 +668,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             counted[pgid] = guardian if guardian is not None and guardian.pid == pgid else None
         _, by_group = seen.links()
         for group, leader in counted.items():
-            leader_lives = live(group) and (leader is None or table[group][3] == leader.proc_start)
-            if not seen.has_group(group):
-                if not leader_lives:
-                    ended.add(group)
-                continue
-            if (leader is not None and live(group) and table[group][1] == group
-                    and table[group][3] != leader.proc_start):
-                ended.add(group)                      # a stranger holds the id and leads a new group
-                continue
-            members.update(by_group.get(group, ()))
+            state = group_state(seen, group, leader)
+            if state == "reused":
+                ended.add(group)                      # another process holds the id: the group ended
+            elif state == "vacant":
+                vacant.add(group)
+            else:
+                members.update(by_group.get(group, ()))
         for pid in alive:
             if table[pid][1] == pid:
                 members.update(by_group.get(pid, ()))
@@ -684,7 +736,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in members | descendants | markers if pid in table}
     return Containment(frozenset(members), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes, frozenset(ended))
+                       bool(errors), identities, tuple(errors), shapes, frozenset(ended), frozenset(vacant))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
