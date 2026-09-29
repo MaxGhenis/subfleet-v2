@@ -18,6 +18,7 @@ resolution may signal).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 from pathlib import Path
@@ -30,7 +31,7 @@ from hypothesis import strategies as st
 from subfleet import cli, daemon as daemon_module, procs, protocol, render
 from subfleet.adapters import registry
 from subfleet.contracts import Exit
-from subfleet.daemon import PROBE_RESOLUTION_KINDS, Daemon, after, utcnow
+from subfleet.daemon import PROBE_RESOLUTION_KINDS, Daemon, after, merge_probe_requests, utcnow
 from subfleet.offline import Offline
 from tests.fake.conftest import Harness
 from tests.fake.test_probe_quarantine_pacing import (HOLDER, OTHER, SURVIVOR, UNVERIFIABLE, World, census,
@@ -552,6 +553,77 @@ def test_c5_7a_a_pass_that_raises_keeps_the_request(routing_state, monkeypatch):
     pending = service._probe_resolutions[HOLDER]
     assert pending["force_release"] is True and len(pending["requests"]) == 2
     monkeypatch.undo()
+
+
+@pytest.mark.parametrize("mode", ["force-release", "confirm-dead"])
+def test_c5_7a_a_pass_that_raises_with_nothing_asked_meanwhile_keeps_the_request(routing_state, monkeypatch, mode):
+    """The usual pass that raises: nothing was asked while it ran. The request it
+    took goes back exactly as it was, the pass raises its own exception (putting
+    the request back once raised a TypeError instead, and lost it), and the next
+    pass acts on it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, **{mode.replace("-", "_"): True}, operator_note="first")
+    taken = copy.deepcopy(service._probe_resolutions[HOLDER])
+    target = "_force_release_probe" if mode == "force-release" else "_probe_census"
+    working = getattr(service, target)
+
+    def broken(*args):
+        raise RuntimeError("store unavailable")
+    monkeypatch.setattr(service, target, broken)
+    with pytest.raises(RuntimeError, match="store unavailable"):
+        service._recover_probes()
+    pending = service._probe_resolutions[HOLDER]
+    assert pending == taken
+    assert (pending["force_release"], pending["operator_note"], len(pending["requests"])) == (
+        mode == "force-release", "first", 1)
+    assert service.store.list_leases(HOLDER)
+    monkeypatch.setattr(service, target, working)
+    world.table = EMPTY
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and HOLDER not in service._probe_resolutions
+    [resolved] = kinds(service, "probe.force_released" if mode == "force-release" else "probe.confirmed_dead")
+    assert [(item["mode"], item["operator_note"]) for item in resolved["data"]["requests"]] == [(mode, "first")]
+
+
+PENDING = st.builds(
+    lambda force, note, at, via: {"force_release": force, "operator_note": note, "requested_at": at, "via": via,
+                                  "requests": [{"mode": "force-release" if force else "confirm-dead",
+                                                "operator_note": note, "at": at, "via": via}]},
+    st.booleans(), st.none() | st.sampled_from(["", "ps is failing", "checked"]),
+    st.sampled_from(["2026-09-29T15:00:00Z", "2026-09-29T15:00:01Z"]), st.sampled_from(["kill", "lanes release-probe"]))
+
+
+def test_c5_7a_merging_with_no_request_keeps_the_one_there_is():
+    """A request handler finds nothing pending (older missing), and a pass that
+    raised puts back what it took when nothing was asked meanwhile (newer missing)."""
+    request = {"force_release": True, "operator_note": "ps is failing", "requested_at": "2026-09-29T15:00:00Z",
+               "via": "kill", "requests": [{"mode": "force-release", "operator_note": "ps is failing",
+                                            "at": "2026-09-29T15:00:00Z", "via": "kill"}]}
+    expected = copy.deepcopy(request)
+    assert merge_probe_requests(None, request) == expected
+    assert merge_probe_requests(request, None) == expected
+    assert merge_probe_requests(None, None) is None
+
+
+@settings(deadline=None)
+@given(first=st.none() | PENDING, second=st.none() | PENDING, third=st.none() | PENDING)
+def test_c5_7a_merging_requests_is_associative_and_keeps_every_request(first, second, third):
+    """However the pending requests are grouped as they are merged (a handler's,
+    or a raised pass putting back what it took), the result is the same: a
+    --force-release asked by any of them, every request in order, and the
+    newest note given."""
+    merged = merge_probe_requests(merge_probe_requests(first, second), third)
+    assert merged == merge_probe_requests(first, merge_probe_requests(second, third))
+    asked = [request for request in (first, second, third) if request]
+    if not asked:
+        assert merged is None
+        return
+    assert merged["force_release"] == any(request["force_release"] for request in asked)
+    assert merged["requests"] == [item for request in asked for item in request["requests"]]
+    notes = [request["operator_note"] for request in asked if request["operator_note"] is not None]
+    assert merged["operator_note"] == (notes[-1] if notes else None)
+    assert (merged["requested_at"], merged["via"]) == (asked[-1]["requested_at"], asked[-1]["via"])
 
 
 def test_c5_7a_the_receipt_is_kept_with_a_confirm_dead(routing_state, monkeypatch):

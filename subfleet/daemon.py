@@ -247,15 +247,20 @@ def issued_instant(issued_at: str) -> datetime:
     return instant if instant.tzinfo else instant.replace(tzinfo=timezone.utc)
 
 
-def merge_probe_requests(older: dict | None, newer: dict) -> dict:
+def merge_probe_requests(older: dict | None, newer: dict | None) -> dict | None:
     """C-5.7a: two resolutions of one probe asked before it was acted on.
 
     `--force-release` is kept once asked: an override an operator was told had
     been accepted is never quietly downgraded by a later `--confirm-dead`. Every
     request is kept, with its note, for the event that records the resolution.
+    Either may be missing, and the other is kept: a handler finds nothing
+    pending, and a pass that raised puts back what it took, usually with
+    nothing asked since.
     """
     if not older:
         return newer
+    if not newer:
+        return older
     return {**newer, "force_release": bool(older["force_release"] or newer["force_release"]),
             "operator_note": newer["operator_note"] if newer["operator_note"] is not None else older["operator_note"],
             "requests": [*older["requests"], *newer["requests"]]}
