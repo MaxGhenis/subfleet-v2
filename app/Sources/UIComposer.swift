@@ -267,12 +267,8 @@ struct ComposerView: View {
             .controlSize(.small)
         }
         .padding(10)
-        .onAppear {
-            takeRecall(loaded: loadDraft())
-        }
-        .onChange(of: conversation.conversation_id) { _, _ in
-            takeRecall(loaded: loadDraft())
-        }
+        .onAppear { takeRecall() }
+        .onChange(of: conversation.conversation_id) { _, _ in takeRecall() }
         .onChange(of: text) { _, _ in saveDraft() }
         .onChange(of: model.composerRecall[conversation.conversation_id]?.id) { _, _ in takeRecall() }
         .alert("Give this conversation more permission?", isPresented: Binding(get: { widenTo != nil },
@@ -319,15 +315,20 @@ struct ComposerView: View {
         model.drafts.delete(conversation.conversation_id)
     }
 
-    /// Esc took an unread steer back: its words go into the composer ahead of
-    /// anything typed since, and its images are staged again. `UIModel.escape`
-    /// already put them in the draft, so a composer that just loaded the draft
-    /// (`loaded`) has them; one on screen since merges them in and saves.
-    private func takeRecall(loaded: Bool = false) {
+    /// Load this conversation's draft if the composer has not yet, then take in
+    /// what Esc took back: its words go into the composer ahead of anything typed
+    /// since, and its images are staged again. `UIModel.escape` put them in the
+    /// draft too (`inDraft`), so a composer that has just loaded the draft has
+    /// them; one on screen since merges them in and saves. The draft is loaded
+    /// first whichever change SwiftUI hands over first (the conversation's or the
+    /// recall's), so the words never land in the text of the conversation shown
+    /// before.
+    private func takeRecall() {
+        let loaded = loadDraft()
         let key = conversation.conversation_id
         guard let recall = model.composerRecall[key] else { return }
         model.composerRecall[key] = nil
-        guard !loaded else { return }
+        guard !(loaded && recall.inDraft) else { return }
         let merged = recalledDraft(Draft(text: text, attachments: staged, settings: settings, updated_at: ""),
                                    text: recall.text, staged: recall.staged, now: "")
         text = merged.text

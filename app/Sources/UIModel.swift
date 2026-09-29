@@ -31,8 +31,8 @@ final class UIModel: ObservableObject {
     /// Words Esc took back from the running turn, per conversation, for its composer.
     /// They are in the conversation's draft too (`recalledDraft`), so they outlive this.
     @Published var composerRecall: [String: ComposerRecall] = [:]
-    /// Steers the daemon answered `too-late` for, each with the turn it was in then:
-    /// Esc passes over one only while it is still in that turn (`stillTooLate`).
+    /// Steers the daemon answered `too-late` for, each with what the app saw of it then:
+    /// Esc passes over one only while it is still there (`stillTooLate`).
     private var tooLateSteers = TooLateSteers()
     private var turnChangesAsked: Set<String> = []
 
@@ -471,8 +471,8 @@ final class UIModel: ObservableObject {
     /// Stop keeps unread steers and queued messages: they run next.
     func escape(conversationID: String, assistant: String) {
         guard let engine, let timeline = state.timelines[conversationID] else { return }
-        // A steer that left the turn it was too late for (back in the queue, or
-        // steered into another turn) may be taken back again (C-24.9).
+        // A steer that moved on since it was too late (back in the queue, steered
+        // into another turn) may be taken back again (C-24.9).
         let unread: String
         switch tooLateSteers.escape(timeline) {
         case .none: return
@@ -496,8 +496,9 @@ final class UIModel: ObservableObject {
                     // must outlive leaving this conversation or quitting before it is shown.
                     let draft = recalledDraft(drafts.load(conversationID), text: words, staged: staged,
                                               now: ISO8601DateFormatter().string(from: Date()))
-                    do { try drafts.save(draft, for: conversationID) } catch { report(error) }
-                    composerRecall[conversationID] = ComposerRecall(text: words, staged: staged)
+                    var inDraft = false
+                    do { try drafts.save(draft, for: conversationID); inDraft = true } catch { report(error) }
+                    composerRecall[conversationID] = ComposerRecall(text: words, staged: staged, inDraft: inDraft)
                 case .tooLate(let receipt):
                     if let receipt { state.apply(receipt: receipt) }
                     // Its frame is written: the turn's next step reads it.
@@ -700,5 +701,9 @@ struct ComposerRecall: Equatable, Identifiable {
     let id = UUID()
     var text: String
     var staged: [StagedAttachment]
+    /// The words and images are in the conversation's draft on disk as well: a
+    /// composer that loads that draft has them already. False when saving it
+    /// failed, so the composer merges them in itself.
+    var inDraft = false
 }
 #endif
