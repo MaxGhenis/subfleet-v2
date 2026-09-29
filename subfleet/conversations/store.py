@@ -316,6 +316,7 @@ class ConversationStore:
             # app with its state (design §12).
             if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
+            self._add_turn_windows()
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
             self._add_legacy_hold()
@@ -334,6 +335,21 @@ class ConversationStore:
             self._db.execute("ROLLBACK")
             raise
         self._db.execute("COMMIT")
+
+    def _add_turn_windows(self) -> None:
+        """C-26.14 (2026-09-29): who else wrote in a turn's folder during it. Additive
+        columns, as `worktree_json`: `target` (the folder, C-6.5's write target),
+        `window_start` (when admission began the turn's start snapshot) and
+        `shared_json` (the attempt ids of the other writable turns whose windows
+        overlapped it). A row written before them keeps its workspace as its folder."""
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(turn_trees)")}
+        for column in ("target", "window_start", "shared_json"):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE turn_trees ADD COLUMN {column} TEXT")
+        self._db.execute("CREATE INDEX IF NOT EXISTS turn_trees_by_target ON turn_trees(target, ended_at)")
+        # Every open, not only the one that added the column: an open cut short
+        # between the two statements leaves no row without its folder for long.
+        self._db.execute("UPDATE turn_trees SET target=workspace WHERE target IS NULL")
 
     def _add_legacy_hold(self) -> None:
         """A schema 1 store written before `legacy_hold` gains the column (C-30.4).
@@ -1222,28 +1238,100 @@ class ConversationStore:
     def record_trees(self, *, attempt_id: str, message_id: str, conversation_id: str, workspace: str,
                      writable: bool, started_at: str, head_before: str | None = None, start_tree: str | None = None,
                      head_after: str | None = None, end_tree: str | None = None, error: str | None = None,
-                     ended: bool = False) -> None:
+                     ended: bool = False, target: str | None = None, window_start: str | None = None) -> None:
         """Record a turn attempt's start, its end, or both. Idempotent: the start is
-        written once, the end fills in; a replayed record changes nothing."""
+        written once, the end fills in; a replayed record changes nothing.
+
+        `target` is the folder the turn writes in (C-6.5's write target; the
+        workspace when not given) and `window_start` when its start snapshot began
+        (`started_at` when not given). Every record also notes, in the same
+        transaction, which other writable turns in that folder overlapped this one
+        in time (`_note_overlaps`, C-26.14)."""
         with self.transaction() as tx:
             before = tx.execute("SELECT ended_at FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
             tx.execute(
                 "INSERT INTO turn_trees(attempt_id,message_id,conversation_id,workspace,writable,head_before,start_tree,"
-                "head_after,end_tree,error,started_at,ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                "head_after,end_tree,error,started_at,ended_at,target,window_start) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(attempt_id) DO UPDATE SET "
                 "head_before=COALESCE(turn_trees.head_before,excluded.head_before), "
                 "start_tree=COALESCE(turn_trees.start_tree,excluded.start_tree), "
                 "head_after=COALESCE(turn_trees.head_after,excluded.head_after), "
                 "end_tree=COALESCE(turn_trees.end_tree,excluded.end_tree), "
                 "error=COALESCE(turn_trees.error,excluded.error), "
-                "ended_at=COALESCE(turn_trees.ended_at,excluded.ended_at)",
+                "ended_at=COALESCE(turn_trees.ended_at,excluded.ended_at), "
+                "target=COALESCE(turn_trees.target,excluded.target), "
+                "window_start=COALESCE(turn_trees.window_start,excluded.window_start)",
                 (attempt_id, message_id, conversation_id, workspace, int(bool(writable)), head_before, start_tree,
-                 head_after, end_tree, error, started_at, utcnow() if ended else None))
+                 head_after, end_tree, error, started_at, utcnow() if ended else None, target or workspace,
+                 _stamp(window_start)))
+            grown = self._note_overlaps(tx, attempt_id)
             if ended and not (before and before["ended_at"]):
                 # One change-feed row with `state` null, as an approval writes: it
                 # carries no kind, and tells a watcher to fetch this message again,
                 # its `turn.diff` included (C-26.14, design D-24, §5).
                 self._change(tx, conversation_id, message_id, None)
+                grown.discard((conversation_id, message_id))
+            for other_conversation, other_message in sorted(grown):
+                # A turn found to share its folder: its changes now say so.
+                self._change(tx, other_conversation, other_message, None)
+
+    def _note_overlaps(self, tx: sqlite3.Connection, attempt_id: str) -> set[tuple[str, str]]:
+        """C-26.14, I4: mark this writable turn and every writable turn of another
+        conversation in its folder whose time window overlaps its own as sharing
+        the folder, each in
+        the other's `shared_json`. A window runs from `window_start` to `ended_at`,
+        and is open while `ended_at` is null. Checked on every record, in the
+        recording transaction, so whichever of two turns is recorded second sees
+        the first: a pair is marked when its later row is written, whatever order
+        the starts and ends arrive in (a start is recorded when its runner is
+        adopted, possibly after another turn has ended). Marks are only ever
+        added, since a window only ever gains its end. Returns the messages whose
+        marks grew."""
+        row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+        if row is None or not row["writable"]:
+            return set()
+        start, end = _window(row)
+        # `ended_at` is always this store's millisecond stamp, so the prefilter compares
+        # like with like; the exact test is on parsed instants below.
+        # Another conversation's: two turns of one conversation never run at once (C-24.5,
+        # I2), each starting after the one before it has ended and been recorded.
+        others = tx.execute("SELECT * FROM turn_trees WHERE target=? AND conversation_id<>? AND writable=1 "
+                            "AND (ended_at IS NULL OR ended_at>=?)",
+                            (row["target"], row["conversation_id"], _stamp(start))).fetchall()
+        mine = set(json.loads(row["shared_json"] or "[]"))
+        grown: set[tuple[str, str]] = set()
+        for other in others:
+            other_start, other_end = _window(other)
+            if not overlaps(start, end, other_start, other_end):
+                continue
+            theirs = set(json.loads(other["shared_json"] or "[]"))
+            if attempt_id not in theirs:
+                tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?",
+                           (json.dumps(sorted(theirs | {attempt_id})), other["attempt_id"]))
+                grown.add((other["conversation_id"], other["message_id"]))
+            if other["attempt_id"] not in mine:
+                mine.add(other["attempt_id"])
+                grown.add((row["conversation_id"], row["message_id"]))
+        if (row["conversation_id"], row["message_id"]) in grown:
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?", (json.dumps(sorted(mine)), attempt_id))
+        return grown
+
+    def overlapping(self, target: str, start: str, *, besides_conversation: str) -> list[dict]:
+        """The writable turns of other conversations in `target` whose windows reach
+        into the time since `start` (C-26.14's `conversation.diff`, to now)."""
+        since = _instant(start)
+        rows = self.query("SELECT * FROM turn_trees WHERE target=? AND writable=1 AND conversation_id<>? "
+                          "AND (ended_at IS NULL OR ended_at>=?) ORDER BY rowid",
+                          (target, besides_conversation, _stamp(since)))
+        return [_decode_trees(row) for row in rows if overlaps(since, None, *_window(row))]
+
+    def trees_by_attempt(self, attempt_ids: list[str]) -> list[dict]:
+        """The snapshot rows of these attempts, in the order they were first written."""
+        if not attempt_ids:
+            return []
+        marks = ",".join("?" * len(attempt_ids))
+        return [_decode_trees(row) for row in
+                self.query(f"SELECT * FROM turn_trees WHERE attempt_id IN ({marks}) ORDER BY rowid", tuple(attempt_ids))]
 
     # Attempts are ordered by `rowid`, the order their rows were first written: a
     # row is written when its turn's runner starts (`service._record_start`) or, at
@@ -1438,7 +1526,39 @@ def _decode_message(row: dict) -> dict:
 def _decode_trees(row: dict) -> dict:
     out = dict(row)
     out["writable"] = bool(out["writable"])
+    out["shared"] = json.loads(out.pop("shared_json", None) or "[]")
     return out
+
+
+def _instant(value: str | datetime) -> datetime:
+    """An ISO instant, either store's stamp (seconds or milliseconds, `Z` or an offset)."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _stamp(value: str | datetime | None) -> str | None:
+    """This store's millisecond stamp for an instant; None for none or one that does
+    not parse (the window then starts at `started_at`)."""
+    if value is None:
+        return None
+    try:
+        return _instant(value).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    except (TypeError, ValueError):
+        return None
+
+
+def _window(row) -> tuple[datetime, datetime | None]:
+    """C-26.14: a turn's time window, from before its start snapshot to its recorded
+    end; open (None) while it has none."""
+    start = _instant(row["window_start"] or row["started_at"])
+    return start, (_instant(row["ended_at"]) if row["ended_at"] else None)
+
+
+def overlaps(a_start: datetime, a_end: datetime | None, b_start: datetime, b_end: datetime | None) -> bool:
+    """Two closed windows meet; an open end reaches to any later time (I4)."""
+    return (b_end is None or a_start <= b_end) and (a_end is None or b_start <= a_end)
 
 
 def _decode_approval(row: dict) -> dict:

@@ -46,8 +46,8 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
-    validate_settings, widens,
+    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, _instant, canonical_native,
+    canonical_uuid, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -886,6 +886,9 @@ class ConversationService:
         row = self.store.turn_trees(message["message_id"])
         if row is None:
             return {**head, **_unavailable("no-turn", "the message has not started a turn")}
+        # C-26.14, I4: the other conversations whose turns wrote in this folder while
+        # this one ran; its diff may hold their edits, and says so.
+        head["shared"] = self._shared_view(self.store.trees_by_attempt(row["shared"]))
         if not row["writable"]:
             return {**head, **_unavailable("read-only-turn", "a read-only turn does not write")}
         if not row["start_tree"]:
@@ -914,6 +917,10 @@ class ConversationService:
                                                           "in a git checkout with a commit")}
         start = {"tree": row["start_tree"], "head": row["head_before"], "message_id": row["message_id"],
                  "at": row["started_at"]}
+        # C-26.14: other conversations' turns in the same folder since this one began.
+        head["shared"] = self._shared_view(self.store.overlapping(
+            row["target"] or row["workspace"], row["window_start"] or row["started_at"],
+            besides_conversation=conversation["conversation_id"]))
         return {**head, **self._compare(conversation["workspace"], start, None, path)}
 
     def _compare(self, workspace: str, start: dict, end: dict | None, path: str | None) -> dict:
@@ -937,24 +944,53 @@ class ConversationService:
 
     def record_trees(self, turn: dict, attempt: dict, receipt: dict) -> None:
         """The daemon's finalization seam: a turn attempt's end (C-26.10, C-26.14)."""
+        evidence = _evidence(attempt)
         self.store.record_trees(
             attempt_id=attempt["attempt_id"], message_id=turn["message_id"], conversation_id=turn["conversation_id"],
             workspace=receipt.get("workspace") or turn["cwd"], writable=bool(receipt.get("writable")),
             started_at=attempt.get("reserved_at") or utcnow(), head_before=receipt.get("head_before"),
             start_tree=receipt.get("start_tree"), head_after=receipt.get("head_after"),
-            end_tree=receipt.get("end_tree"), error=receipt.get("error"), ended=True)
+            end_tree=receipt.get("end_tree"), error=receipt.get("error"), ended=True,
+            target=evidence.get("folder"), window_start=evidence.get("baseline_at"))
 
     def _record_start(self, turn: dict, attempt: dict) -> None:
         """A turn attempt's start, as admission recorded it (C-6.8's snapshot is the
         attempt's `baseline_tree` for a writable job; a read-only one keeps HEAD's tree,
         which is not a snapshot of the working tree and is not recorded here)."""
         writable = attempt.get("job_sandbox") == "workspace-write"
-        evidence = json.loads(attempt.get("evidence_json") or "{}")
+        evidence = _evidence(attempt)
         self.store.record_trees(
             attempt_id=attempt["attempt_id"], message_id=turn["message_id"], conversation_id=turn["conversation_id"],
             workspace=turn["cwd"], writable=writable, started_at=attempt.get("reserved_at") or utcnow(),
             head_before=evidence.get("baseline_commit"),
-            start_tree=attempt.get("baseline_tree") if writable else None)
+            start_tree=attempt.get("baseline_tree") if writable else None,
+            target=evidence.get("folder"), window_start=evidence.get("baseline_at"))
+
+    def _shared_view(self, rows: list[dict]) -> list[dict]:
+        """C-26.14: the turns another conversation ran in the folder, one entry per
+        conversation, oldest first: its title now, its messages, and when it wrote
+        (`to` null while one of its turns is still running)."""
+        by_conversation: dict[str, dict] = {}
+        for row in rows:
+            entry = by_conversation.setdefault(row["conversation_id"], {
+                "conversation_id": row["conversation_id"], "title": None, "message_ids": [],
+                "from": None, "to": None, "running": False})
+            if row["message_id"] not in entry["message_ids"]:
+                entry["message_ids"].append(row["message_id"])
+            began = row["window_start"] or row["started_at"]
+            if entry["from"] is None or _later(entry["from"], began):
+                entry["from"] = began
+            if row["ended_at"] is None:
+                entry["running"] = True
+            elif entry["to"] is None or _later(row["ended_at"], entry["to"]):
+                entry["to"] = row["ended_at"]
+        for entry in by_conversation.values():
+            conversation = self.store.one("SELECT title FROM conversations WHERE conversation_id=?",
+                                          (entry["conversation_id"],))
+            entry["title"] = conversation["title"] if conversation else None
+            if entry.pop("running"):
+                entry["to"] = None
+        return sorted(by_conversation.values(), key=lambda entry: entry["from"] or "")
 
     # --- ops: handoff (C-30.3, design D-18, review IR-28) ----------------------
 
@@ -2165,6 +2201,20 @@ def _handoff_marker(request_id: str) -> dict:
 def _handoff_id(request_id: str, part: str) -> str:
     """A message id a handoff mints, the same on every retry of one request (C-24.2)."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"subfleet:handoff:{request_id}:{part}"))
+
+
+def _evidence(attempt: dict) -> dict:
+    """An attempt's evidence as admission wrote it; nothing when it cannot be read."""
+    try:
+        value = json.loads(attempt.get("evidence_json") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _later(a: str, b: str) -> bool:
+    """Whether instant `a` is after `b`, whichever store's stamp either is in."""
+    return _instant(a) > _instant(b)
 
 
 def _read_json(path: Path) -> dict | None:

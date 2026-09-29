@@ -568,9 +568,25 @@ struct DiffResult: Codable, Equatable {
     var diff: String
     var truncated: Bool
     var scrubbed: Int
+    /// Other conversations whose turns wrote in the same folder while this turn ran
+    /// (or, for the whole conversation, since its first turn began): the diff may
+    /// hold their edits (C-26.14). Absent from a daemon older than 2026-09-29.
+    var shared: [DiffSharer]?
 
     /// Compared with the working tree now, not a turn's end snapshot.
     var isLive: Bool { to?.live == true }
+}
+
+/// One conversation that also wrote in the folder: its title now, its messages
+/// whose turns overlapped, and when (`to` is null while one of them still runs).
+struct DiffSharer: Codable, Equatable, Identifiable {
+    var conversation_id: String
+    var title: String?
+    var message_ids: [String]
+    var from: String?
+    var to: String?
+
+    var id: String { conversation_id }
 }
 
 /// One side of a comparison: a snapshot's tree and HEAD, and when it was taken.

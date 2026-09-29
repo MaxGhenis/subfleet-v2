@@ -83,9 +83,17 @@ def test_c26_14_diff_results_decode_without_losing_a_field(core_probe, tmp_path,
     harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
                                workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
                                head_after=head, end_tree=tree, ended=True)
+    # C-26.14: another conversation's turn in the same folder, still running, met this one.
+    beside = harness.create(title="Beside")["conversation_id"]
+    beside_mid = harness.submit(beside, "also here")["message_id"]
+    harness.store.record_trees(attempt_id="j-2/a1", message_id=beside_mid, conversation_id=beside,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:01Z",
+                               head_before=head, start_tree=tree)
     ended = harness.call("turn.diff", message_id=mid)
     assert ended["to"]["live"] is False and ended["from"]["message_id"] == mid
+    assert [(s["title"], s["message_ids"], s["to"]) for s in ended["shared"]] == [("Beside", [beside_mid], None)]
     whole = harness.call("conversation.diff", conversation_id=cid)
+    assert [s["conversation_id"] for s in whole["shared"]] == [beside]
     one = harness.call("turn.diff", message_id=mid, path="keep.txt")
     other = harness.create()["conversation_id"]
     waiting = harness.submit(other, "not started")["message_id"]

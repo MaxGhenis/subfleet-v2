@@ -252,3 +252,70 @@ def test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it(state_daemon, tur
         assert "provider_verdict" not in json.loads(finished["evidence_json"])
     else:
         assert job["state"] == "cancelled" and finished["outcome_class"] != "ok"
+
+
+def turn_of(daemon, harness, title, baseline_at, *, first=False):
+    """A writable turn of a conversation of its own in the harness's checkout, reserved by
+    admission and given what admission records for a turn: its start snapshot, and in its
+    evidence the folder it writes in and when that snapshot began (C-26.14)."""
+    work = harness.workdir
+    if first:
+        git(work, "init", "-b", "feature/turn")
+        git(work, "config", "user.name", "Test User")
+        git(work, "config", "user.email", "test@example.invalid")
+        (work / "tracked.txt").write_text("baseline\n")
+        git(work, "add", ".")
+        git(work, "commit", "-m", "baseline")
+    job_id, attempt, adir = reserve(daemon, harness)
+    head = git(work, "rev-parse", "HEAD")
+    conversations = daemon.conversations.store
+    conversation, _ = conversations.create_conversation(provider="claude", workspace=str(work), title=title,
+                                                        workspace_kind="in-place", settings=SETTINGS, origin="new")
+    mid = str(uuid.uuid4())
+    conversations.submit_message(conversation_id=conversation["conversation_id"], message_id=mid,
+                                 after_message_id=None, text="edit", attachments=[], settings=SETTINGS)
+    evidence = {"baseline_commit": head, "baseline_at": baseline_at, "folder": str(work.resolve())}
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE jobs SET kind='turn', sandbox='workspace-write', in_place=1, worktree=? WHERE job_id=?",
+                   (str(work), job_id))
+        tx.execute("UPDATE attempts SET baseline_tree=?, evidence_json=? WHERE attempt_id=?",
+                   (working_tree(work, head), json.dumps(evidence), attempt["attempt_id"]))
+    manifest = daemon.root / "jobs" / job_id / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data["turn"] = {"conversation_id": conversation["conversation_id"], "message_id": mid, "provider": "claude",
+                    "cwd": str(work), "settings": SETTINGS}
+    manifest.write_text(json.dumps(data))
+    return conversation["conversation_id"], mid, daemon.store.get_attempt(attempt["attempt_id"]), adir
+
+
+def test_c26_14_i4_a_turn_s_changes_name_the_conversation_that_wrote_beside_it(state_daemon):
+    """I4 end to end, through the daemon's finalization and the diff ops: conversation B's
+    turn began its snapshot before A's turn ended, but was recorded only after (its runner
+    adopted late). Each turn's `turn.diff` names the other conversation, with its title and
+    when it wrote; A's diff holds B's edit and says it may. C's turn, begun after both ended,
+    names nobody. `conversation.diff`, which runs to the working tree now, names every other
+    conversation that wrote there since its first turn began."""
+    from subfleet.daemon import utcnow_ms
+    daemon, harness = state_daemon
+    service = daemon.conversations
+    a_cid, a_mid, a_attempt, a_dir = turn_of(daemon, harness, "Alpha", utcnow_ms(), first=True)
+    (harness.workdir / "by-alpha.txt").write_text("a\n")
+    b_began = utcnow_ms()                          # B's snapshot begins while A is running
+    (harness.workdir / "by-beta.txt").write_text("b\n")
+    daemon._finalize(receipt_fixture(daemon, a_attempt, a_dir))
+    assert service.store.turn_trees(a_mid)["shared"] == []           # B not recorded yet
+    b_cid, b_mid, b_attempt, b_dir = turn_of(daemon, harness, "Beta", b_began)
+    daemon._finalize(receipt_fixture(daemon, b_attempt, b_dir))
+    c_cid, c_mid, c_attempt, c_dir = turn_of(daemon, harness, "Gamma", utcnow_ms())
+    daemon._finalize(receipt_fixture(daemon, c_attempt, c_dir))
+
+    a_diff = service.op_turn_diff({"message_id": a_mid}, None)
+    assert {f["path"] for f in a_diff["files"]} == {"by-alpha.txt", "by-beta.txt"}
+    assert [(s["conversation_id"], s["title"], s["message_ids"]) for s in a_diff["shared"]] == [(b_cid, "Beta", [b_mid])]
+    assert a_diff["shared"][0]["from"] == b_began and a_diff["shared"][0]["to"]
+    b_diff = service.op_turn_diff({"message_id": b_mid}, None)
+    assert [(s["conversation_id"], s["title"]) for s in b_diff["shared"]] == [(a_cid, "Alpha")]
+    assert service.op_turn_diff({"message_id": c_mid}, None)["shared"] == []
+    whole = service.op_conversation_diff({"conversation_id": a_cid}, None)
+    assert [s["title"] for s in whole["shared"]] == ["Beta", "Gamma"]
+    assert service.op_conversation_diff({"conversation_id": c_cid}, None)["shared"] == []
