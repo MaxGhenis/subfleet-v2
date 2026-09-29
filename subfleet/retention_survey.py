@@ -272,8 +272,19 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
         if why not in ("no-gitfile", "admin-missing"):
             info["issue"] = f"registration: {why}"
         info["git"] = why
-        if salvage_refs:
-            info["issue"] = "salvage not archivable"
+        if salvage_refs and not info.get("issue"):
+            # As `Retirement.begin`: the source repository anchors the salvage commits.
+            common = None
+            workdir = job.get("workdir")
+            if workdir and os.path.isdir(workdir):
+                try:
+                    out = rgit.run(["rev-parse", "--git-common-dir"], cwd=Path(workdir), timeout=60).stdout
+                    common = Path(os.path.realpath(Path(workdir) / out.decode("utf-8", "surrogateescape").strip()))
+                except (rgit.GitError, OSError):
+                    common = None
+            if common is None or not all(isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/")
+                                         and rgit.resolve(common, ref) for ref in salvage_refs):
+                info["issue"] = "salvage not archivable"
         return
     info["admin"] = str(reg.admin)
     lock = reg.admin / "locked"

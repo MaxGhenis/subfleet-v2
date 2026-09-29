@@ -7,8 +7,9 @@ nothing depends on a repository it does not control:
   MERGE_HEAD, FETCH_HEAD, per-worktree refs, rebase and bisect state, every
   reflog entry) and the job's salvage commits become the parents and trees of one
   synthetic *anchor* commit;
-- the anchor and the salvage refs are written to ``commits.bundle`` with every
-  commit not reachable from a network remote's remote-tracking refs;
+- the anchor, its only head, is written to ``commits.bundle`` with every commit
+  not reachable from a network remote's remote-tracking refs (a salvage ref is
+  not a head: `git bundle` drops a head a remote already holds);
 - a tracked file is left out of the byte archive only when its raw bytes hash to
   the blob at the same path in a commit those remote-tracking refs reach, in a
   repository that is not a scratch clone, and the object reads back and hashes
@@ -241,6 +242,31 @@ def held_arguments(remotes: dict[str, str]) -> list[str]:
     return [f"--glob=refs/remotes/{name}/*" for name in sorted(remotes)]
 
 
+def held_state(common: Path, remotes: dict[str, str], cancel: threading.Event | None = None) -> str:
+    """A digest of every remote-tracking ref of `remotes`, names and values: a
+    bundle made against one state has prerequisites the next may no longer
+    hold (a branch deleted on the server, then fetched with --prune)."""
+    if not remotes:
+        return ""
+    out = run(["for-each-ref", "--format=%(objectname) %(refname)",
+               *[f"refs/remotes/{name}/" for name in sorted(remotes)]], git_dir=common, cancel=cancel).stdout
+    return hashlib.sha256(out).hexdigest()
+
+
+def is_ancestor(git_dir: Path, ancestor: str, descendant: str, *, cancel: threading.Event | None = None) -> bool:
+    return run(["merge-base", "--is-ancestor", ancestor, descendant], git_dir=git_dir, ok=(0, 1),
+               timeout=600, cancel=cancel).returncode == 0
+
+
+def held_commit(git_dir: Path, commit: str, held: list[str], *, cancel: threading.Event | None = None) -> bool:
+    """Whether the held remote-tracking refs reach `commit` (then so do they
+    every commit it reaches, and a bundle of it would be empty)."""
+    if not held:
+        return False
+    out = run(["rev-list", "-n", "1", commit, "--not", *held], git_dir=git_dir, timeout=600, cancel=cancel).stdout
+    return not out.strip()
+
+
 def temp_roots() -> set[str]:
     """Directories whose contents the system or a person may delete at any time."""
     return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(), os.environ.get("TMPDIR") or "/tmp")}
@@ -462,6 +488,11 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
     typed = classify(admin, tokens | index_blobs, timeout=timeout, cancel=cancel)
     typed["index"] = {oid for oid in index_blobs if oid in typed["blob"]}
     return typed
+
+
+def no_objects() -> dict[str, set[str]]:
+    """What `admin_objects` answers for a job with no registration."""
+    return {"commit": set(), "tree": set(), "blob": set(), "tag": set(), "missing": set(), "index": set()}
 
 
 def classify(git_dir: Path, oids: Iterable[str], *, timeout: float = 300,
