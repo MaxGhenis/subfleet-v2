@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet.sessions import dormant, registry, transcripts
 from subfleet.sessions.transcripts import TurnState
@@ -101,6 +101,8 @@ def turn_of(rows) -> TurnState:
 
 @PROPERTY
 @given(tail=tails, liveness=livenesses, quiet=quiets, window=windows)
+@example(tail=[("assistant_tool_use", "")], liveness="dead", quiet=600.0, window=600.0)
+@example(tail=[("user_tool_result", "")], liveness="dead", quiet=599.999, window=600.0)
 def test_c23_56_every_tail_maps_to_exactly_one_verdict(tail, liveness, quiet, window):
     """C-23.56: for every transcript tail, liveness and quiet time, the verdict is
     exactly one of completed, interrupted and active, and it is `interrupted`
@@ -220,6 +222,9 @@ def admissible(used, pending, k, elapsed, rule) -> bool:
 
 @PROPERTY
 @given(used=used_values, resets_in=resets, pending=pendings, rule=rules)
+@example(used=64.0, resets_in=1800.0, pending=2, rule=dormant.PaceRule(batch=10))
+@example(used=65.0, resets_in=1800.0, pending=5, rule=dormant.PaceRule(batch=10))
+@example(used=40.0, resets_in=4 * 3600.0, pending=3, rule=dormant.PaceRule(batch=10))
 def test_c23_59_every_wake_sent_keeps_within_the_rule_and_no_more_could(used, resets_in, pending, rule):
     """C-23.59: the count allowed is exactly the longest run of wakes each of which
     keeps "used <= elapsed + 10 and < 70" at the usage the running wakes and the
@@ -282,6 +287,27 @@ def test_c23_59_an_unknown_window_allows_nothing(used, resets_in, label, age, pe
     if untrusted:
         assert decision.allowed == 0
     assert dormant.pace(None, now=NOW).allowed == 0
+
+
+trusted_windows = st.builds(window_at, used_values, resets,
+                            label=st.sampled_from(["provider", "provider", "unknown"]),
+                            age_s=st.floats(min_value=0, max_value=7200))
+
+
+@PROPERTY
+@given(windows=st.lists(trusted_windows, min_size=1, max_size=4), pending=pendings, rule=rules)
+def test_c23_59_the_batch_fits_every_lane_a_turn_may_land_on(windows, pending, rule):
+    """C-23.59: across the lanes a turn may be placed on, the count is the least
+    any lane with a current reading allows, and nothing unless the first lane
+    (the one admission picks now) has one."""
+    decision = dormant.pace_lanes(windows, now=NOW, rule=rule, pending=pending)
+    first = dormant.pace(windows[0], now=NOW, rule=rule, pending=pending)
+    if dormant.distrust(windows[0], now=NOW, rule=rule) is not None:
+        assert decision.allowed == 0
+        return
+    trusted = [dormant.pace(window, now=NOW, rule=rule, pending=pending).allowed for window in windows
+               if dormant.distrust(window, now=NOW, rule=rule) is None]
+    assert decision.allowed == min(trusted) <= first.allowed
 
 
 # --- liveness (C-23.57) -----------------------------------------------------------

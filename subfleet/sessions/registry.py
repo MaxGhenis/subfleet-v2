@@ -242,13 +242,21 @@ def read(directory: Path | None = None) -> Reading:
         except FileNotFoundError:
             continue                                # removed since the listing
         except (OSError, ValueError):
-            stem = name[:-len(".json")]
-            unreadable.append(int(stem) if stem.isdigit() else None)
+            unreadable.append(_named_pid(name))
             continue
         row = _parsed(path, data)
-        if row is not None:
-            found.append(row)
+        if row is None or row.pid is None:
+            # Valid JSON with no session id or no pid still names a process (its
+            # file name), and says nothing about which session that process holds.
+            unreadable.append(_named_pid(name))
+            continue
+        found.append(row)
     return Reading(rows=tuple(found), unreadable=tuple(unreadable))
+
+
+def _named_pid(name: str) -> int | None:
+    stem = name[:-len(".json")] if name.endswith(".json") else name
+    return int(stem) if stem.isdigit() else None
 
 
 def grouped(all_rows: Iterable[SessionRow] | None = None) -> dict[str, list[SessionRow]]:

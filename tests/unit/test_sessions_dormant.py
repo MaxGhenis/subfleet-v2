@@ -361,6 +361,29 @@ def test_c23_59_the_window_is_the_lane_a_turn_would_run_on(monkeypatch):
     assert dormant.pace(dormant.lane_window(view, fx.policy(), model=OPUS, now=NOW), now=NOW).allowed == 0
 
 
+@pytest.mark.parametrize("used, resets_in_s, pending, batch, allowed", [
+    (64.0, 1800, 2, 10, 4),        # 90% elapsed: the 70% ceiling binds; running wakes count
+    (65.0, 1800, 5, 10, 0),        # the five running wakes already reach 70%
+    (40.0, 4 * 3600, 3, 10, 0),    # 20% elapsed + 10 = 30% < 40% used
+    (25.0, 4 * 3600, 3, 10, 3),    # 25 + 3 + k <= 30: k in {0, 1, 2}
+    (5.0, 3600, 0, 6, 6),          # a cool window: the batch of six binds
+    (5.0, 3600, 6, 6, 0),          # six still running: the batch is full
+])
+def test_c23_59_the_pace_at_its_boundaries(used, resets_in_s, pending, batch, allowed):
+    """C-23.59, examples: each running wake has spent its point, and wake k of the
+    batch goes out only if used + running + k stays within both limits."""
+    reading = dormant.Window(used, NOW + timedelta(seconds=resets_in_s), as_of=NOW, label="provider")
+    assert dormant.pace(reading, now=NOW, rule=dormant.PaceRule(batch=batch),
+                        pending=pending).allowed == allowed
+
+
+def test_c23_56_a_quiet_time_equal_to_the_window_is_quiet():
+    """C-23.56: the quiet window is inclusive: 600 s of quiet is enough."""
+    turn = transcripts.TurnState(state="interrupted", detail="cut")
+    assert dormant.classify(turn, "dead", 600.0, window_s=600.0).state == "interrupted"
+    assert dormant.classify(turn, "dead", 599.9, window_s=600.0).state == "active"
+
+
 def test_c23_59_a_zero_window_length_paces_nothing():
     """C-23.59: `wake_window_h: 0` is "no window", which allows no wake."""
     reading = dormant.Window(5.0, NOW + timedelta(hours=1), as_of=NOW, label="provider")
@@ -400,7 +423,7 @@ class FakeConversations:
 
 def probes(**overrides):
     base = dict(processes=lambda: DEAD, reading=lambda: EMPTY,
-                copies=lambda store, local, flags: None,
+                copies=lambda store, local, flags: dormant.all_copies(store, local, flags=flags),
                 open_facts=lambda path: (True, None, {"cwd": "/w", "permission": "bypass"}),
                 branch=lambda workspace, permission: None)
     base.update(overrides)
@@ -484,7 +507,8 @@ def test_c23_60_the_strict_check_reads_every_copy_before_acting(world):
     archived = dormant.DesktopRecord(local_id=f"local_{S1}", cli_session_id=S1, model=OPUS,
                                      cwd=world["cwd"], archived=True)
     service = FakeConversations()
-    chosen = probes(copies=lambda store, local, flags: archived if S1 in local else None)
+    chosen = probes(copies=lambda store, local, flags: archived if S1 in local
+                    else dormant.all_copies(store, local, flags=flags))
     report = wake(world, fx.FakeSessions(), service, probes=chosen,
                   window=open_window(), )
     assert "archived" in row_of(report.scan, S1).reason and service.opened == [S2]
@@ -609,6 +633,173 @@ def test_c23_60_a_reservation_another_pass_took_is_not_sent_twice(world):
     assert not service.opened and "--force" in row_of(report.scan).fix
 
 
+@pytest.mark.parametrize("copies, why", [
+    (lambda store, local, flags: None, "could not be read"),
+    (lambda store, local, flags: dormant.DesktopRecord(local_id=local, cli_session_id=S1, model=OPUS,
+                                                      cwd="/w", unreadable=1), "could not be read"),
+])
+def test_c23_58_an_unread_copy_holds_the_wake(world, copies, why):
+    """C-23.58, review r1 (blocking): a copy that cannot be read may be the archived
+    one, so the strict check holds the wake rather than trusting the rest."""
+    dormant_session(world)
+    service, daemon = FakeConversations(), fx.FakeSessions()
+    report = wake(world, daemon, service, probes=probes(copies=copies))
+    assert why in row_of(report.scan).reason and not service.opened and not daemon.records
+
+
+def test_c23_58_unreadable_mirror_flags_hold_every_wake(world):
+    """C-23.58, review r1: the mirror's merged flags that cannot be read leave the
+    archive state unknown for every session, so the pass sends nothing."""
+    dormant_session(world)
+    (world["root"] / "sessions" / "mirror-flags.json").write_text("{torn")
+    service = FakeConversations()
+    report = wake(world, fx.FakeSessions(), service)
+    assert not service.opened and "flags" in row_of(report.scan).reason
+
+
+def test_c23_56_a_write_after_the_scan_holds_the_wake(world):
+    """C-23.56, review r1: the quiet window is read again just before the
+    reservation; a resume stub or a subagent's file written since the scan
+    leaves the fingerprint alone but not the quiet time."""
+    path = dormant_session(world)
+    service = FakeConversations()
+
+    def touched():
+        stamp = NOW.timestamp() - 5
+        os.utime(path, (stamp, stamp))
+        return DEAD
+
+    report = wake(world, fx.FakeSessions(), service, probes=probes(processes=touched))
+    assert "written since the scan" in row_of(report.scan).reason and not service.opened
+
+
+def test_c23_59_one_pass_at_a_time(world):
+    """C-23.59, review r1: a second pass while one holds the lock sends nothing,
+    so two passes cannot each count the same pending wakes and each send a batch."""
+    import fcntl
+    dormant_session(world)
+    fd = dormant.transcripts.lock_fd(world["root"] / "sessions" / dormant.LOCK_NAME)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        service = FakeConversations()
+        report = wake(world, fx.FakeSessions(), service)
+        assert not service.opened and "another wake pass" in report.pace.reason
+        assert wake(world, fx.FakeSessions(), service, dry_run=True).scan.rows
+    finally:
+        os.close(fd)
+    assert wake(world, fx.FakeSessions(), FakeConversations()).woken
+
+
+def test_c23_59_a_reserved_wake_not_yet_submitted_counts_as_running():
+    """C-23.59, review r1: a reservation whose message the store has not seen yet
+    is a wake in flight; it counts while recent."""
+    answer = {"sessions": {S1: {"last_nudge": {"kind": "wake", "transport": "conversation",
+                                                "message_id": "m1", "at": fx.ago(60)}},
+                           S2: {"last_nudge": {"kind": "wake", "transport": "conversation",
+                                                "message_id": "m2", "at": fx.ago(7200)}}}}
+    unknown = lambda ids: [{"message_id": item, "state": "unknown"} for item in ids]
+    assert dormant.pending_wakes(answer, transport="conversation", now=NOW, settle_s=1800,
+                                 status=unknown) == 1
+
+
+@pytest.mark.parametrize("readings, allowed", [
+    ([("claude-9", 0.10), ("claude-1", 0.75)], 0),     # a turn may fall to the 75% lane
+    ([("claude-9", 0.10), ("claude-1", 0.20)], 6),
+    ([("claude-9", 0.10)], 6),
+])
+def test_c23_59_the_pace_is_the_tightest_lane_a_turn_may_land_on(monkeypatch, readings, allowed):
+    """C-23.59, review r1: Claude turns are not pinned, and admission falls to the
+    next candidate when the first cannot take a turn; every candidate with a
+    current reading can only lower the count."""
+    from subfleet import scheduler
+
+    class Picked:
+        chosen_lane, chosen_model, reason = readings[0][0], "opus", "ranked"
+        evaluations = ({"model": "opus", "candidates": [lane for lane, _u in readings]},)
+
+    monkeypatch.setattr(scheduler, "evaluate", lambda policy, view, job: Picked())
+    view = {"readings": [{"lane_id": lane, "scope": "account", "window": "five_hour",
+                          "utilization": used, "resets_at": fx.iso(NOW + timedelta(hours=1)),
+                          "label": "provider", "observed_at": fx.iso(NOW)} for lane, used in readings]}
+    windows = dormant.lane_windows(view, fx.policy(), model=OPUS, now=NOW)
+    assert [window.source.split()[1] for window in windows] == [lane for lane, _u in readings]
+    assert dormant.pace_lanes(windows, now=NOW).allowed == allowed
+
+
+def test_c23_59_a_lane_without_a_reading_is_named_not_trusted(monkeypatch):
+    """C-23.59: the first lane must have a reading; a fallback without one cannot
+    be measured and is named in the reason."""
+    first = dormant.Window(10.0, NOW + timedelta(hours=1), as_of=NOW, label="provider", source="lane a")
+    blank = dormant.Window(None, None, source="lane b: no five-hour reading")
+    decision = dormant.pace_lanes([first, blank], now=NOW)
+    assert decision.allowed == 6 and "not measured: lane b" in decision.reason
+    assert dormant.pace_lanes([blank, first], now=NOW).allowed == 0
+    assert dormant.pace_lanes([], now=NOW).allowed == 0
+
+
+@pytest.mark.parametrize("as_of", [None, NOW + timedelta(hours=1)])
+def test_c23_59_a_reading_with_no_time_or_a_future_one_paces_nothing(as_of):
+    """C-23.59, review r1: a reading that does not say when it was taken, or says
+    a time well in the future, is not a fresh one."""
+    reading = dormant.Window(5.0, NOW + timedelta(hours=2), as_of=as_of, label="provider")
+    assert dormant.pace(reading, now=NOW).allowed == 0
+
+
+class Boom(Exception):
+    pass
+
+
+@pytest.mark.parametrize("output", ["", "   \n", "garbage row\n", "  12 S    Mon Sep 28 17:19:00 2026 x\n"])
+def test_c23_57_a_table_without_this_process_is_no_table(output):
+    """C-23.57, review r1: `ps` output that is empty, malformed, or does not list
+    the process reading it is not a reading of this machine."""
+    assert dormant.read_processes(lambda argv: output, own_pid=4242) is None
+
+
+def test_c23_57_the_real_reader_turns_every_failure_into_unknown(monkeypatch):
+    """C-23.57, review r1: the reader itself (not a stub of it) answers None for
+    an inspection failure, an OS error and a malformed table, and liveness is
+    then unknown."""
+    from subfleet import procs
+
+    def failing(error):
+        def read(argv):
+            raise error
+        return read
+
+    for reader in (failing(procs.InspectionError("ps inspection failed (1)")),
+                   failing(OSError("fork")), lambda argv: "not a table\n"):
+        table = dormant.read_processes(reader, own_pid=4242)
+        assert table is None
+        assert dormant.liveness(S1, reading=EMPTY, processes=table) == "unknown"
+    good = f"  4242 S    Mon Sep 28 17:19:00 2026     python -m subfleet\n"
+    assert dormant.read_processes(lambda argv: good, own_pid=4242).starts == {4242: "Mon Sep 28 17:19:00 2026"}
+
+
+@pytest.mark.parametrize("body", ["{}", json.dumps({"sessionId": S2}), json.dumps({"pid": 31})])
+def test_c23_57_an_uninterpretable_registry_row_is_unreadable(tmp_path, monkeypatch, body):
+    """C-23.57, review r1: a registry file that is valid JSON but names no session
+    or no pid still names a process (its file name), whose session is unknown."""
+    home = fx.claude_home(tmp_path, monkeypatch)
+    (home / "sessions" / "31.json").write_text(body)
+    reading = registry.read()
+    assert reading.unreadable == (31,) and reading.rows == ()
+    live = dormant.Processes(starts={31: "Mon Sep 28 17:19:00 2026"}, named=frozenset())
+    assert dormant.liveness(S1, reading=reading, processes=live) == "unknown"
+
+
+def test_c23_60_a_branch_that_cannot_be_read_holds(monkeypatch, tmp_path):
+    """C-23.60, review r1: a git failure is not "no branch"; the wake is held
+    rather than bind a session whose turn the daemon may refuse on main."""
+    from subfleet import salvage
+
+    def slow(workdir, *, timeout_s=None):
+        raise TimeoutError("git timed out")
+
+    monkeypatch.setattr(salvage, "git_branch", slow)
+    assert "could not be read" in dormant.branch_refusal(str(tmp_path), "bypass")
+
+
 # --- the automatic pass (C-23.60) ---------------------------------------------------
 
 def test_c23_60_the_automatic_pass_records_what_it_did(tmp_path):
@@ -622,6 +813,19 @@ def test_c23_60_the_automatic_pass_records_what_it_did(tmp_path):
     assert summary["outcome"] == "finished" and summary["exit"] == 0
     assert summary["woken"] == [{"session_id": S1, "title": "t", "conversation_id": "cv-1"}]
     assert dormant.last_pass(tmp_path)["woken"] == summary["woken"]
+
+
+def test_c23_60_a_grandchild_holding_the_pipe_cannot_hold_a_stop(tmp_path):
+    """C-23.60 (C-5.8a), review r1: the stop ends the pass's whole process group,
+    and no wait is unbounded, even when a grandchild holds the child's stdout."""
+    cancel = threading.Event()
+    script = ("import subprocess, sys, time; "
+              "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              "time.sleep(60)")
+    threading.Timer(0.5, cancel.set).start()
+    started = time.monotonic()
+    summary = dormant.automatic_pass(tmp_path, cancel=cancel, command=[sys.executable, "-c", script])
+    assert summary["outcome"] == "stopped" and time.monotonic() - started < 10
 
 
 def test_c23_60_a_daemon_stop_ends_the_automatic_pass_in_seconds(tmp_path):
@@ -767,12 +971,18 @@ def test_c23_60_plan_needs_the_window_it_paces_against(world, daemon, capsys):
     assert cli.main(["wake", "--plan", "--all"]) == 2
     assert "--window-used" in capsys.readouterr().err
     assert cli.main(["wake", "--plan", "--all", "--window-used", "5"]) == 2
+    capsys.readouterr()
+    assert cli.main(["wake", "--all", "--window-used", "5", "--window-resets",
+                     "2026-09-05T13:00:00Z"]) == 2
+    assert "pace a --plan" in capsys.readouterr().err
 
 
 # --- policy -------------------------------------------------------------------------
 
-@pytest.mark.parametrize("key, value", [("wake_batch", -1), ("wake_model", ""),
-                                        ("wake_model", 5), ("wake_quiet_s", float("nan"))])
+@pytest.mark.parametrize("key, value", [("wake_batch", -1), ("wake_batch", 2.5), ("wake_model", ""),
+                                        ("wake_model", 5), ("wake_quiet_s", float("nan")),
+                                        ("wake_quiet_s", 0), ("wake_cost_pct", 0),
+                                        ("wake_ceiling_pct", 101), ("wake_headroom_pct", 150)])
 def test_c23_59_wake_policy_is_validated(tmp_path, key, value):
     """C-23.59 (C-6.4): the wake caps are policy data, validated like the rest."""
     from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy

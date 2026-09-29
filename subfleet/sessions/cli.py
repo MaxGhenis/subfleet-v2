@@ -412,6 +412,10 @@ def _continue_cold_wake(args: argparse.Namespace) -> int:
     if (used is None) != (resets is None):
         return fail(Exit.INVALID_INPUT, "sessions wake: --window-used and --window-resets "
                     "go together", "pass both, from the same five-hour reading")
+    if used is not None and not planned:
+        return fail(Exit.INVALID_INPUT, "sessions wake: --window-used and --window-resets "
+                    "pace a --plan", "a conversation wake spends a lane, and is paced "
+                    "against that lane's own reading (C-23.59)")
     cli = _cli()
     named = _named(args)
     survey = not named and not getattr(args, "all", False)
@@ -434,12 +438,12 @@ def _continue_cold_wake(args: argparse.Namespace) -> int:
     conversations = (dormant_module.ConversationTransport(client)
                      if transport == "conversation" else None)
 
-    def lane_window() -> "dormant_module.Window":
+    def lane_window() -> "list[dormant_module.Window]":
         try:
             view = client.call("daemon.status", {}, timeout=60)
         except Exception as exc:                        # noqa: BLE001 - the pace fails closed
-            return dormant_module.Window(None, None, source=f"daemon.status: {exc}")
-        return dormant_module.lane_window(
+            return [dormant_module.Window(None, None, source=f"daemon.status: {exc}")]
+        return dormant_module.lane_windows(
             view, policy, model=dormant_module.Settings.from_policy(policy).model, now=now)
 
     report = dormant_module.wake_pass(
@@ -809,8 +813,8 @@ def add_continue_flags(parser: argparse.ArgumentParser) -> None:
                              "an agent to send with the desktop app's send_message; "
                              "needs --window-used and --window-resets")
     parser.add_argument("--window-used", type=float, default=None, metavar="PCT",
-                        help="the five-hour window's percent used, to pace against "
-                             "(C-23.59)")
+                        help="with --plan: the desktop login's five-hour percent used, "
+                             "read just before (get_usage), to pace against (C-23.59)")
     parser.add_argument("--window-resets", default=None, metavar="WHEN",
                         help="when that five-hour window resets: ISO 8601 or epoch "
                              "seconds")
