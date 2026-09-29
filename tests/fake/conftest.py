@@ -42,13 +42,19 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str) -> Harness:
+    def start(self, *options: str, open_files: int | None = None) -> Harness:
+        """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
         env = {**os.environ, "PYTHONPATH": str(REPO), "SUBFLEET_HOME": str(self.root)}
+
+        def limit():
+            import resource
+            resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
         self.process = subprocess.Popen(
             [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
              *options], cwd=REPO, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            preexec_fn=limit if open_files is not None else None,
         )
 
         def ready():
@@ -172,6 +178,19 @@ class Harness:
                     os.kill(pid, signal.SIGKILL)
         for stream in self.logs:
             stream.close()
+        self.check_notices()
+
+    #: A test that rewrites a finished job's row into a state the daemon never
+    #: gives one (for example `running` again) turns this off: its notice then
+    #: disagrees with a row no daemon wrote.
+    notice_check = True
+
+    def check_notices(self) -> None:
+        """C-15.1: every notice's header is its job row's state and rc (2026-09-24)."""
+        if self.notice_check and (self.root / "state.sqlite3").exists():
+            from tests.fake.notice_invariant import notice_mismatches
+            problems = notice_mismatches(self.rows)
+            assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
 
 
 @pytest.fixture(scope="session")
@@ -204,8 +223,12 @@ def daemon(request, process_inspection_available):
             # Keep the state root of a failed test so daemon.log and the store can be read.
             report = getattr(request.node, "rep_call", None)
             if report is not None and report.failed:
-                import re, shutil, sys
+                import re, shutil, stat, sys
                 keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                # A daemon ended hard (C-5.8a, or a crash) leaves daemon.sock,
+                # which copytree cannot copy.
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                ignore=lambda d, names: [n for n in names if stat.S_ISSOCK(
+                                    os.lstat(os.path.join(d, n)).st_mode)])
                 print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)

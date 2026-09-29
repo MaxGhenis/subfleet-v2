@@ -213,6 +213,29 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.12: how often a healthy running attempt's processes are inspected, and the
+# oldest process table that inspection may share. The receipt, a cancel and the
+# wall clock are still read every tick; a death verdict is never taken from a
+# shared table.
+INSPECT_INTERVAL_S = 1.0
+# C-5.11: a probe records owned group members inside its paced liveness pass,
+# no more often than this even when its inspection interval is shorter.
+OWNED_CENSUS_INTERVAL_S = 0.5
+# C-5.11: `wait` re-reads the store when a transaction has committed since its
+# last look, and at least this often regardless.
+WAIT_RECHECK_S = 1.0
+# C-5.8a: a stopping daemon that has not ended this long after its stop was armed
+# dumps its threads' stacks and ends. Longer than probe containment during a stop
+# (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
+# so that finishes first.
+STOP_GRACE_S = 30
+# C-5.8a: leave faulthandler time to dump before the kernel's SIGALRM ends a
+# process whose dump timer failed, was cancelled, or is still dumping.
+STOP_DUMP_MARGIN_S = 3.0
+# C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
+# stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
+# could not arm because a thread held the GIL through the signal.
+STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300

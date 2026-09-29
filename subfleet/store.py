@@ -58,6 +58,10 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         self._lock = threading.RLock()
         self._depth = 0
+        # Bumped by every committed top-level transaction that changed a row.
+        # A reader compares it without taking `_lock` (an int read is atomic)
+        # to learn whether anything it derived from the store can have changed.
+        self.generation = 0
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
@@ -157,6 +161,8 @@ class Store:
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
+                if depth == 0 and self.connection.total_changes != before:
+                    self.generation += 1
             except BaseException:
                 if depth == 0:
                     self.connection.rollback()

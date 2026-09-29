@@ -200,6 +200,9 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
                                          "--state-root", str(root)]
     assert plist["EnvironmentVariables"]["SUBFLEET_HOME"] == str(root)
     assert plist["StandardOutPath"] == str(root / "daemon.log")
+    # C-5.8a: launchd waits past the daemon's own stop bound before SIGKILL.
+    from subfleet.contracts import STOP_BACKSTOP_S, STOP_GRACE_S
+    assert plist["ExitTimeOut"] == STOP_GRACE_S + STOP_BACKSTOP_S
     assert "would write" in captured.err
     assert not target.exists()          # --dry-run writes nothing and loads nothing
 
@@ -290,3 +293,130 @@ def test_daemon_argv_runs_the_interpreter_with_an_isolated_environment(monkeypat
     assert argv[3:5] == ["-m", "subfleet.daemon"]
     monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/opt/bin/subfleetd")
     assert cli_module._daemond_argv(tmp_path / "root")[:4] == [str(tmp_path / "python"), "-E", "-P", "/opt/bin/subfleetd"]
+
+
+# C-5.8a: stand-ins for a daemon that ends itself late (its stop bound firing)
+# and for one whose bound never armed (a thread kept the GIL through SIGTERM,
+# so its handler never ran): here, one that ignores SIGTERM outright.
+STOPPING_STUB = '''#!{python}
+import json, os, signal, sys, time
+sys.path.insert(0, {repo!r})
+from pathlib import Path
+from subfleet.client import boot_id, proc_start
+
+root = Path(sys.argv[sys.argv.index("--state-root") + 1])
+mode = sys.argv[sys.argv.index("--mode") + 1]
+if mode == "late":
+    signal.signal(signal.SIGTERM, lambda *_: (time.sleep(1.5), os._exit(1)))
+else:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(root / "daemon.lock").write_text(json.dumps({{
+    "pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid()),
+    "version": "stub"}}))
+while True:
+    time.sleep(0.05)
+'''
+
+
+@contextlib.contextmanager
+def _stopping_stub(root: Path, tmp_path: Path, mode: str):
+    import subprocess
+    import time as _time
+    path = _write_stub(tmp_path / f"stub-{mode}", STOPPING_STUB)
+    proc = subprocess.Popen([str(path), "--state-root", str(root), "--mode", mode])
+    try:
+        deadline = _time.monotonic() + 30          # a loaded machine imports slowly
+        while _time.monotonic() < deadline:
+            info = Client(root).lock_info() or {}
+            if info.get("pid") == proc.pid and info.get("proc_start"):
+                break
+            _time.sleep(0.05)
+        else:
+            raise AssertionError("stub never wrote its lock")
+        yield proc
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
+
+
+def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(root, tmp_path,
+                                                                             monkeypatch, capsys):
+    """C-5.8a a daemon ending itself at its bound is reported stopped, not failed,
+    and is never sent SIGKILL."""
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 8.0)
+    with _stopping_stub(root, tmp_path, "late") as proc:
+        assert cli.main(["daemon", "stop"]) == 0
+        assert proc.wait(timeout=5) == 1               # its own exit, not -SIGKILL
+    err = capsys.readouterr().err
+    assert "stopped" in err and "SIGKILL" not in err
+
+
+def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_path,
+                                                                    monkeypatch, capsys):
+    """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
+    launchd's ExitTimeOut would, and the stop succeeds."""
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)
+    waits: list[float] = []
+    real_wait = cli._wait_for_exit
+    monkeypatch.setattr(cli, "_wait_for_exit",
+                        lambda pid, info, seconds: waits.append(seconds) or real_wait(pid, info, seconds))
+    with _stopping_stub(root, tmp_path, "deaf") as proc:
+        assert cli.main(["daemon", "stop"]) == 0
+        assert proc.wait(timeout=5) == -signal.SIGKILL
+    assert waits == [cli.DAEMON_STOP_WAIT_S, cli.DAEMON_KILL_WAIT_S]
+    err = capsys.readouterr().err
+    assert "its own stop bound (C-5.8a) did not end it" in err and "sent SIGKILL" in err
+    assert "stopped" in err
+
+
+def test_daemon_stop_uses_configured_waits_before_and_after_escalation(root, monkeypatch, capsys):
+    """C-5.8a, C-5.4: the stop flow uses both configured waits and verifies
+    the recorded identity again before escalation, without host inspection."""
+    info = {"pid": 4242, "boot_id": "test-boot", "proc_start": "test-start"}
+    (root / "daemon.lock").write_text(json.dumps(info))
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 3.25)
+    monkeypatch.setattr(cli, "DAEMON_KILL_WAIT_S", 0.625)
+    events = []
+    exits = iter([False, True])
+
+    def verified(pid, boot_id, proc_start):
+        events.append(("verify", pid, boot_id, proc_start))
+        return True
+
+    def wait_for_exit(pid, recorded, seconds):
+        assert recorded == info
+        events.append(("wait", pid, seconds))
+        return next(exits)
+
+    monkeypatch.setattr(cli, "same_process", verified)
+    # No OS signal or process inspection is performed by this test.
+    monkeypatch.setattr(os, "kill", lambda pid, sig: events.append(("signal", pid, sig)))
+    monkeypatch.setattr(cli, "_wait_for_exit", wait_for_exit)
+
+    assert cli.main(["daemon", "stop"]) == 0
+    assert events == [
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGTERM),
+        ("wait", 4242, cli.DAEMON_STOP_WAIT_S),
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGKILL),
+        ("wait", 4242, cli.DAEMON_KILL_WAIT_S),
+    ]
+    err = capsys.readouterr().err
+    assert "its own stop bound (C-5.8a) did not end it" in err
+    assert "sent SIGKILL" in err and "stopped" in err
+
+
+def test_daemon_stop_never_kills_an_identity_it_can_no_longer_verify(root, monkeypatch, capsys):
+    """C-5.4 the escalation re-checks the identity; unknown means no SIGKILL."""
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 4242, "boot_id": "b", "proc_start": "recorded"}))
+    answers = iter([True])                               # verified once, then unknown
+    monkeypatch.setattr("subfleet.cli.same_process", lambda *_: next(answers, None))
+    sent: list[int] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append(sig))
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 0.3)
+    assert cli.main(["daemon", "stop"]) == 1
+    assert sent == [signal.SIGTERM]
+    assert "can no longer be verified" in capsys.readouterr().err

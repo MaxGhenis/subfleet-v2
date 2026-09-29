@@ -19,6 +19,16 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+#: Short names retired from dispatch, whatever a policy file still lists (C-17.2).
+#: Every surface that takes a model name from a person (`run -m`, `why -m`,
+#: `sessions handoff --to`, `sessions revive --model`, `gate --peer`) remaps these
+#: with a stderr note, so an older `policy.json` that still carries one cannot be
+#: asked to dispatch it. The shipped policy's `retired` map says the same for pins
+#: that arrive by other routes (queued jobs, retries, revives of a recorded model).
+#: Sol went on 2026-09-04; Fable on 2026-09-27 (Max: "opus 5.5 is strictly better
+#: than fable").
+RETIRED_MODELS: dict[str, str] = {"sol": "astra", "fable": "opus"}
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not
@@ -53,6 +63,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "revive_max_batch": 8,
     "auto_revive_desktop_owned": False,
     "mirror_interval_s": 60,         # C-23.28, plan decision 8
+    "mirror_hot_interval_s": 2,      # C-23.28: spread before the app's next load
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,

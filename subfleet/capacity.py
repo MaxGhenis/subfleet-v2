@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
@@ -38,19 +39,48 @@ def _iso(value: datetime) -> str:
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _login_email(text: str) -> str | None:
+    value = json.loads(text)
+    account = value.get("oauthAccount") if isinstance(value, dict) else None
+    email = account.get("emailAddress") if isinstance(account, dict) else None
+    return email.strip().casefold() if isinstance(email, str) and email.strip() else None
+
+
+#: The last login file read: (path, what `stat` said of it, the email it named).
+_desktop_hint: tuple[str, tuple[int, ...], str | None] | None = None
+
+
+def forget_desktop_account() -> None:
+    """Drop the remembered login file; the next read parses it again."""
+    global _desktop_hint
+    _desktop_hint = None
+
+
 def read_desktop_account(path: str | Path | None = None) -> str | None:
     """C-10.3: reread the current Claude desktop login without caching secrets.
 
     An unreadable or incomplete login file is unknown, so callers preserve the
     last recorded desktop flags instead of silently removing protection.
+
+    The file is looked at on every call and parsed only when it has changed:
+    admission asks each pass, the app's file runs to hundreds of kilobytes, and
+    a rewrite of any kind changes its inode, size or one of its timestamps. What
+    is kept between calls is the email alone, which the store already holds.
     """
+    global _desktop_hint
+    target = Path(path) if path is not None else Path.home() / ".claude.json"
     try:
-        value = json.loads((Path(path) if path is not None else Path.home() / ".claude.json").read_text())
-        account = value.get("oauthAccount") if isinstance(value, dict) else None
-        email = account.get("emailAddress") if isinstance(account, dict) else None
-        return email.strip().casefold() if isinstance(email, str) and email.strip() else None
+        found = os.stat(target)
+        seen = (found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns, found.st_ctime_ns)
+        kept = _desktop_hint
+        if kept is not None and kept[:2] == (str(target), seen):
+            return kept[2]
+        result = _login_email(target.read_text())
     except (OSError, UnicodeError, ValueError):
+        _desktop_hint = None
         return None
+    _desktop_hint = (str(target), seen, result)
+    return result
 
 
 def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:

@@ -54,6 +54,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from . import render
 from .client import Client, DaemonError, DaemonUnavailable, state_root
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError
@@ -265,8 +266,8 @@ def render_pending(rows: Sequence[dict[str, Any]]) -> str:
     v1 keys the header off "detached run(s) ... finished while it was not
     running" and closes with the two follow-up commands; the surfaced text is
     the notice row's own `text`, which C-15.1 already fills with the job id,
-    outcome class, rc, deliverable, `-o` path, a summary line, and any
-    uncertainty.
+    the job's state and rc, the deliverable and `-o` path of an accepted job,
+    a summary naming the final attempt's class and rc, and any uncertainty.
     """
     if not rows:
         return ""
@@ -280,13 +281,19 @@ def render_pending(rows: Sequence[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
-def job_summary(job: dict[str, Any]) -> str:
+def job_summary(job: dict[str, Any], root: Path) -> str:
     """A factual line built from the job row when C-15.1's notice row is absent.
 
-    Nothing is inferred: every field is copied from the row the daemon returned.
+    Nothing is inferred: the header is `render.notice_header` over the row the
+    daemon returned, the function the daemon's own notice uses, so the fallback
+    and the notice cannot name one terminal state two ways (incident:
+    2026-09-24, a cancelled job's notice said `ok; rc=0` and this line said
+    `cancelled; rc=130`). `root` is resolved as the daemon resolves its own, so
+    an accepted job's deliverable path is the one the notice would have named,
+    and it is named only when the file is there (a job imported from v1 keeps
+    its deliverable in the v1 run directory).
     """
-    return (f"{job.get('job_id')}: {job.get('state')}; rc={job.get('rc')}; "
-            f"out={job.get('out_path') or '-'}\n"
+    return (render.notice_header(job, Path(root).resolve(), require_file=True) + "\n"
             f"no notice row for this job — subfleet runs show {job.get('job_id')}")
 
 
@@ -354,7 +361,9 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                     # nudge is recoverable and a blocked session is not.
     marked = True
     try:
-        client = Client(root) if client is None else client
+        # C-16.7: a busy daemon is read offline below at once; waiting out busy
+        # answers would only delay the prompt or the session's start.
+        client = Client(root, retry_busy=False) if client is None else client
         rows = _pending(client, session)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows, marked = _offline_pending(root, session), False
@@ -512,7 +521,7 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) 
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows = []
     text = ("\n\n".join(str(row.get("text") or "").strip() for row in rows)
-            if rows else job_summary(job))
+            if rows else job_summary(job, client.root))
     stderr.write(text.rstrip() + "\n")
     if rows:
         # `offered`, not `surfaced`: this transport gets no acknowledgement from

@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Sandbox
+from ..policy import RETIRED_MODELS
 from ..protocol import SubmitArgs
 from . import registry, transcripts
 from .transcripts import TurnState
@@ -255,20 +256,43 @@ def model_for(candidate: Candidate, policy: dict[str, Any],
               override: str | None = None) -> tuple[str | None, str]:
     """C-23.39: revive keeps the session's own tier unless `--model` is given.
 
-    Returns `(pinned model, why)`. A substitution is always recorded, because
-    2026-08-26 (Max): a Fable-grade session on Opus is worse than a parked one.
+    Returns `(pinned model, why)`. A substitution is always recorded: on
+    2026-08-26 Max ruled a Fable-grade session on Opus worse than a parked one,
+    and although Fable itself is retired (2026-09-27, "opus 5.5 is strictly
+    better than fable"), a silent tier change is still not revive's to make.
     """
     if override:
-        return override, f"operator substituted {override} for {candidate.model or 'unknown'}"
+        live = live_model(override, policy)
+        why = f"operator substituted {override} for {candidate.model or 'unknown'}"
+        return live, (why if live == override else f"{why}; {override} is retired, so {live}")
     if not candidate.model:
         return None, "the session records no model; routing picks its own"
-    retired = policy.get("retired", {})
-    if candidate.model in retired:
-        # A session last served by a retired pin revives on the current id of
-        # that tier, never on the retired model.
-        return retired[candidate.model], (f"{candidate.model} is retired; its tier "
-                                          f"is now {retired[candidate.model]}")
+    live = live_model(candidate.model, policy)
+    if live != candidate.model:
+        # A session last served by a retired pin revives on the current model of
+        # that tier, never on the retired one. That holds under an older policy
+        # that still lists the model too (C-17.2): a revive runs unattended and
+        # must not be the route back to it.
+        return live, f"{candidate.model} is retired; its tier is now {live}"
     return candidate.model, "the session's own recorded model"
+
+
+def live_model(name: str, policy: dict[str, Any]) -> str:
+    """The model a revive may pin for `name` (a short name, exact id, or alias).
+
+    The policy's own `retired` map applies first. Its target, or the short name
+    behind an exact id, is then checked against the code's retirements, so an
+    older policy that still maps `claude-fable-5` to `fable`, or that still
+    carries Fable's id, resolves to Opus. Any other name is returned unchanged.
+    """
+    retired = policy.get("retired") or {}
+    short = retired.get(name)
+    if short is None:
+        short = next((key for key, entry in (policy.get("models") or {}).items()
+                      if isinstance(entry, dict) and entry.get("id") == name), name)
+    if short in RETIRED_MODELS:
+        return RETIRED_MODELS[short]
+    return retired.get(name, name)
 
 
 def submit_args(candidate: Candidate, *, model: str | None, request_id: str,
@@ -309,12 +333,16 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
            model: str | None = None, workdir: str | None = None,
            dry_run: bool = False, transcript: str | Path | None = None,
            task: str | None = None, tier: str | None = None,
-           request_id: str | None = None,
+           request_id: str | None = None, minted: bool | None = None,
            now: datetime | None = None) -> Attempted:
     """Admit one session and submit its revive job, or say why not.
 
     `stage_prompt(text) -> path` writes the prompt where the daemon can read it;
     the CLI supplies `cli.stage_prompt` so a revive stages exactly as `run` does.
+    `minted` says the caller made `request_id` up for this call rather than
+    taking it from the operator (C-16.3); the CLI mints one before calling,
+    because the staged prompt's name needs it, so it must say so. Left None,
+    an id is minted here exactly when none was given.
     """
     facts = sessions.state([session_id])
     lane_ids = set(facts.get("lane_sessions") or [])
@@ -340,7 +368,7 @@ def revive(sessions, policy: dict[str, Any], session_id: str, *,
                        request_id=request_id or str(uuid.uuid4()),
                        prompt_path=str(prompt_path), workdir=workdir,
                        task=task, tier=tier)
-    result = sessions.submit(args)
+    result = sessions.submit(args, minted=request_id is None if minted is None else minted)
     job_id = result.get("job_id")
     # Record only accepted submissions; refused requests did not change models.
     sessions.record_revive(

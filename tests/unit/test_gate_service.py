@@ -11,6 +11,7 @@ import pytest
 
 from subfleet import cli
 from subfleet.contracts import Decision
+from subfleet.gate.errors import GateError
 from subfleet.gate.service import GateService, dispatch
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
 from tests.unit.test_gate_admission import core, lane
@@ -125,23 +126,170 @@ def test_continue_cannot_consume_finished_peer_with_wrong_explicit_fingerprint(c
     assert not (core.root / "gates" / started["gate_id"] / "certificate.json").exists()
 
 
-@pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
-def test_fable_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation):
-    """C-23.43: a pinned Fable job's mismatch/unattested output never counts as a verdict."""
+def claude_peer(core):
+    """A Claude lane the scheduler always chooses, so an Opus peer round can run."""
     core.store.put_lane(lane(core.root / "claude-home", "claude"))
-    decision = Decision(("fable",), (), "claude-1", "fable", "test", "test")
+    decision = Decision(("opus",), (), "claude-1", "opus", "test", "test")
     core._pick = lambda *args, **kwargs: decision
+
+
+@pytest.mark.parametrize("attestation", ["mismatch", "unattested"])
+def test_claude_peer_requires_positive_attestation_at_the_service_boundary(core, tmp_path, attestation):
+    """C-23.43: a pinned Claude peer's mismatch/unattested output never counts as a verdict."""
+    claude_peer(core)
     plan = tmp_path / "plan.md"
-    plan.write_text("A Fable peer must actually be attested\n")
-    args = arguments(plan, "--max-rounds", "1")
-    args.peer = "fable"
-    started = dispatch(core, "gate.start", wire(args))
+    plan.write_text("A Claude peer must actually be attested\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, "--max-rounds", "1", peer="opus")))
     finish(core, started, attestation=attestation)
     result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
     assert result["code"] == 4 and attestation in result["message"]
     state = core._gate_service._load(started["gate_id"])
     assert state["rounds"][-1]["verdict"] is None
-    assert state["rounds"][-1]["requested_model"].startswith("claude-fable-")
+    assert state["rounds"][-1]["requested_model"] == "claude-opus-5-5"
+
+
+def test_a_retired_fable_peer_starts_an_opus_gate(core, tmp_path):
+    """C-17.2: `--peer fable` is Fable's successor, Opus (2026-09-27), in state and dispatch."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Reviewed by the successor\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="fable")))
+    state = core._gate_service._load(started["gate_id"])
+    assert state["peer"] == "opus" and state["main_family"] == "codex"
+    assert state["rounds"][-1]["requested_model"] == "claude-opus-5-5"
+    assert state["rounds"][-1]["submit_args"]["pinned_model"] == "opus"
+    finish(core, started)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    certificate = json.loads((core.root / "gates" / started["gate_id"] / "certificate.json").read_text())
+    assert certificate["peer"] == "opus"
+
+
+def test_a_gate_opened_with_a_fable_peer_continues_on_opus(core, tmp_path):
+    """C-17.2, C-23.8: a gate written before Fable's retirement keeps its Fable round as
+    recorded, and its next round dispatches Opus; the agreement certificate names Opus."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("First revision\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="opus")))
+    finish(core, started, verdict="changes_requested")
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 3
+    service = core._gate_service
+    legacy = service._load(started["gate_id"])
+    legacy["peer"] = legacy["rounds"][0]["peer"] = "fable"       # as recorded before 2026-09-27
+    legacy["rounds"][0]["requested_model"] = "claude-fable-5-1"
+    service._save(legacy, "test-legacy-peer")
+    plan.write_text("Second revision\n")
+    resumed = dispatch(core, "gate.continue", wire(continued(started["gate_id"], plan)))
+    state = service._load(started["gate_id"])
+    assert (state["peer"], state["retired_peer"]) == ("opus", "fable")
+    assert [row["peer"] for row in state["rounds"]] == ["fable", "opus"]
+    assert state["rounds"][0]["requested_model"] == "claude-fable-5-1"
+    assert state["rounds"][1]["requested_model"] == "claude-opus-5-5"
+    finish(core, resumed)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    certificate = json.loads((core.root / "gates" / started["gate_id"] / "certificate.json").read_text())
+    assert certificate["peer"] == "opus"
+
+
+def queued_before_the_retirement(core, gate_id):
+    """Rewrite a submitted round as one queued on Fable before 2026-09-27. Its job was
+    pinned `fable`; the daemon, now on the shipped policy, dispatched the successor."""
+    service = core._gate_service
+    state = service._load(gate_id)
+    state["peer"] = state["rounds"][-1]["peer"] = "fable"
+    state["rounds"][-1]["requested_model"] = "claude-fable-5-1"
+    service._save(state, "test-legacy-peer")
+    return service
+
+
+def test_a_round_queued_on_fable_that_ran_on_opus_counts_as_opus(core, tmp_path):
+    """C-17.2, C-23.43: the attempt asked for Opus because `fable` resolved to it at
+    dispatch. The round records the model that reviewed, and the gate agrees on Opus."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Queued before the retirement\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="opus")))
+    service = queued_before_the_retirement(core, started["gate_id"])
+    finish(core, started)
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 0
+    state = service._load(started["gate_id"])
+    record = state["rounds"][-1]
+    assert (record["peer"], record["retired_peer"], record["requested_model"]) == \
+        ("opus", "fable", "claude-opus-5-5")
+    assert (state["peer"], state["retired_peer"]) == ("opus", "fable")
+    certificate = json.loads((core.root / "gates" / started["gate_id"] / "certificate.json").read_text())
+    assert certificate["peer"] == "opus"
+
+
+def test_a_round_queued_on_fable_that_ran_on_another_model_still_blocks(core, tmp_path, monkeypatch):
+    """C-23.43: the retirement accepts only the successor; any other model is not a verdict."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Queued before the retirement\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, "--max-rounds", "1", peer="opus")))
+    service = queued_before_the_retirement(core, started["gate_id"])
+    finish(core, started)
+    real = core.store.get_attempt
+    monkeypatch.setattr(core.store, "get_attempt",     # attempts are immutable in the store
+                        lambda attempt_id: {**real(attempt_id), "model_requested": "claude-sonnet-5"})
+    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert result["code"] == 4 and "requested a different model" in result["message"]
+    state = service._load(started["gate_id"])
+    assert state["rounds"][-1]["peer"] == "fable" and "retired_peer" not in state["rounds"][-1]
+
+
+def test_a_failed_round_preparation_leaves_a_fable_gate_as_it_was(core, tmp_path, monkeypatch):
+    """The peer migration is saved with the prepared round, so a failure before then
+    changes nothing on disk."""
+    from subfleet.gate import service as gate_service
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("First revision\n")
+    started = dispatch(core, "gate.start", wire(arguments(plan, peer="opus")))
+    finish(core, started, verdict="changes_requested")
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 3
+    service = core._gate_service
+    legacy = service._load(started["gate_id"])
+    legacy["peer"] = legacy["rounds"][0]["peer"] = "fable"
+    service._save(legacy, "test-legacy-peer")
+    before = service._load(started["gate_id"])
+    plan.write_text("Second revision\n")
+
+    def broken(*args, **kwargs):
+        raise GateError("simulated failure while preparing the round", 4)
+
+    monkeypatch.setattr(gate_service, "prepare", broken)
+    result = dispatch(core, "gate.continue", wire(continued(started["gate_id"], plan)))
+    assert result["code"] == 4 and "simulated failure" in result["message"]
+    after = service._load(started["gate_id"])
+    assert after["peer"] == "fable" and "retired_peer" not in after
+    assert after["rounds"] == before["rounds"]
+
+
+@pytest.mark.parametrize("peer,account", [("opus", "claude-1"), ("fable", "claude-1")])
+def test_claude_peers_accept_account_routing(peer, account):
+    """docs/gates.md: account routing is a Claude peer's; a retired Fable peer is still Claude."""
+    from subfleet.gate.service import routing
+    args = arguments(Path(__file__), "--peer-account", account, peer=peer)
+    assert routing(args, peer) == (account, ())
+    with pytest.raises(GateError, match="Claude peer"):
+        routing(arguments(Path(__file__), "--peer-account", account, peer="astra"), "astra")
+
+
+def test_main_model_resolves_retired_names_and_ids_to_their_family(core, tmp_path):
+    """docs/gates.md: `--main-model fable` names the Claude family (via its successor), so
+    a Claude peer is refused and a Codex peer accepted; exact ids resolve the same way."""
+    claude_peer(core)
+    plan = tmp_path / "plan.md"
+    plan.write_text("Family check\n")
+    for main in ("fable", "claude-opus-5-5"):
+        refused = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", main, peer="opus")))
+        assert refused["status"] == "error" and "different model families" in refused["message"]
+    unknown = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "nonesuch")))
+    assert unknown["status"] == "error" and unknown["message"] == "unknown --main-model"
+    assert core.store.list_jobs() == []
+    started = dispatch(core, "gate.start", wire(arguments(plan, "--main-model", "fable")))
+    assert core._gate_service._load(started["gate_id"])["main_family"] == "claude"
 
 
 def test_acceptance_artifact_tampering_blocks_without_reusing_export(core, tmp_path):
@@ -361,3 +509,16 @@ def test_poll_observes_completion_of_another_gates_existing_merge_action(core, t
     observed = dispatch(core, "gate.poll", {"gate_id": second["gate_id"]})
     assert observed["code"] == 0 and observed["status"] == "completed"
     assert len(runner.merges) == 1 and len(core.store.query("SELECT * FROM actions")) == 1
+
+
+@pytest.mark.parametrize("retired,successor", [("sol", "astra"), ("fable", "opus")])
+def test_gate_cli_notes_a_retired_peer_and_previews_its_successor(tmp_path, capsys, retired, successor):
+    """C-17.2, C-19.1: a retired `--peer` is accepted, noted on stderr, and the dry run
+    shows the successor that a real round would dispatch."""
+    from subfleet.gate import cli as gate_cli
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview only\n")
+    assert gate_cli.run(arguments(plan, "--dry-run", peer=retired), root=tmp_path) == 0
+    captured = capsys.readouterr()
+    assert f"subfleet gate: {retired} is retired from dispatch; using {successor}" in captured.err
+    assert json.loads(captured.out)["peer"] == successor

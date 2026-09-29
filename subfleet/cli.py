@@ -28,6 +28,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -37,17 +38,20 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, descriptors, ids, policy, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
     Client,
     DaemonError,
     DaemonUnavailable,
+    OutcomeUnknown,
+    ResponseLost,
     same_process,
     state_root,
 )
-from .contracts import JobState, Sandbox, WAIT_POLL_MAX_S, Exit
+from .contracts import (REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox,
+                        WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -58,9 +62,10 @@ EXIT_CODES = {int(code) for code in Exit}
 TERMINAL_STATES = {state.value for state in JobState if state.terminal}
 LIVE_STATES = {state.value for state in JobState if not state.terminal}
 
-# Deprecated but accepted through milestone 8 with a stderr note (C-17.2).
-RETIRED_MODELS = {"sol": "astra"}
+# Retired pins stay accepted with a stderr note and dispatch their successor (C-17.2).
+RETIRED_MODELS = policy.RETIRED_MODELS
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
+# v1's `-t fable` pinned the writing model; Fable is retired, so it lands on opus.
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
 MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "sol")
@@ -448,6 +453,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_pick(args: argparse.Namespace) -> int:
     """Permanent v1 path/email output; routing evidence and authority are v2's."""
+    _retire_model(args, "pick", "--model", "model")
     try:
         data = _client(args).call("pick", {"family": args.family, "model": args.model,
             "exclusions": args.exclude, "min_headroom": args.min_headroom})
@@ -503,10 +509,16 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
     if getattr(args, "overflow", False):
         note(f"{PROG} run: --overflow is deprecated and ignored; the daemon "
              f"walks the chain upward on its own")
-    if args.m in RETIRED_MODELS:
-        replacement = RETIRED_MODELS[args.m]
-        note(f"{PROG} run: -m {args.m} is retired; dispatching {replacement}")
-        args.m = replacement
+    _retire_model(args, "run", "-t" if legacy in LEGACY_MODEL_CLASSES and args.m == legacy else "-m")
+
+
+def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
+    """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor."""
+    value = getattr(args, attr, None)
+    if value in RETIRED_MODELS:
+        replacement = RETIRED_MODELS[value]
+        note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
+        setattr(args, attr, replacement)
 
 
 INBOX_KEEP_S = 7 * 24 * 3600
@@ -665,6 +677,76 @@ def _prepare_submit(args: argparse.Namespace,
     ), None
 
 
+def _asking_again(verb: str, what: str) -> Callable[[ResponseLost], None]:
+    """C-16.3: say on stderr why an idempotent request is about to be sent again."""
+    def report(exc: ResponseLost) -> None:
+        note(f"{PROG} {verb}: no answer from the daemon ({exc}); {what}")
+    return report
+
+
+def _resubmitting(verb: str, request_id: str) -> Callable[[ResponseLost], None]:
+    return _asking_again(verb, f"sending the same submission again under request id "
+                               f"{request_id}, which never creates a second job (C-6.2)")
+
+
+def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
+    """(created, note) for a submit answer, however it was learned (C-16.3).
+
+    `created` is this invocation's view. A request id the CLI minted belongs to
+    this invocation alone, so a job carrying it is this invocation's own, even
+    when only the re-send's `created: false` reports it.
+    """
+    answered = bool(result.get("created", True))
+    if not result.get("requeried"):
+        return answered, "" if answered else " (existing job for this request id)"
+    if result.get("refused"):
+        return True, (" (found by its request id after the re-sent submission was "
+                      f"refused: {result['refused']})")
+    if answered:
+        return True, " (created by the re-sent submission; the first went unanswered)"
+    if minted:
+        return True, " (acknowledged on re-query: the first, unanswered submission created it)"
+    return False, " (acknowledged on re-query: an existing job for this request id)"
+
+
+def _look_command(request_id: str) -> str:
+    """C-16.3: the lookup that finds a job by its request id, whoever its caller is.
+
+    Not `runs --mine`: a revive or handoff records the session it continues as
+    the caller, not the session that ran the command.
+    """
+    return f"{PROG} runs --request-id {shlex.quote(request_id)} --json"
+
+
+def _submit_unknown(verb: str, exc: OutcomeUnknown, request_id: str, *,
+                    supplied: bool, rebuilds: bool = False) -> int:
+    """C-16.3, C-17.3: a submission whose outcome could not be learned is exit 1.
+
+    Never "not submitted": the daemon may have committed it. Stdout carries no
+    job id, because none is known; stderr names the request id and the command
+    that settles the question without risking a second job. `rebuilds` is for a
+    verb whose payload is rebuilt on every run (a handoff's brief comes from a
+    transcript that keeps growing), where the lookup, not a re-run, settles it.
+    """
+    note(f"{PROG} {verb}: outcome unknown: the daemon may have created the job, and no "
+         f"answer says whether it did ({'; then '.join(exc.reasons)})")
+    note(f"  request id: {request_id}")
+    if rebuilds:
+        note(f"  settle it: {_look_command(request_id)}")
+        note(f"  a re-run with --request-id {shlex.quote(request_id)} rebuilds the payload, "
+             f"so it may be refused as a different payload; that refusal names the job "
+             f"(C-6.2) and never creates a second one")
+        return int(Exit.OPERATIONAL)
+    if supplied:
+        note("  settle it: re-run this command; its --request-id never creates a second "
+             "job (C-6.2)")
+    else:
+        note(f"  settle it: re-run this command with --request-id {shlex.quote(request_id)}; one "
+             f"request id never creates a second job (C-6.2)")
+    note(f"  or look: {_look_command(request_id)}")
+    return int(Exit.OPERATIONAL)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if getattr(args, "batch", None):
         return cmd_run_batch(args)
@@ -672,9 +754,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     if error is not None:
         return error
     request_id, root = submit.request_id, _root(args)
+    minted = not args.request_id
     try:
         client = _client(args)
-        result = client.call("submit", _asdict(submit), request_id=request_id)
+        if submit.dry_run:
+            # Explains a placement and creates nothing, so there is nothing to settle.
+            result = client.call("submit", _asdict(submit), request_id=request_id)
+        else:
+            result = client.call_settled("submit", _asdict(submit), request_id=request_id,
+                                         minted=minted,
+                                         on_lost=_resubmitting("run", request_id))
+    except OutcomeUnknown as exc:
+        if args.json:
+            emit({"job_id": None, "request_id": request_id, "outcome": "unknown",
+                  "error": str(exc)})
+        return _submit_unknown("run", exc, request_id, supplied=not minted)
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
@@ -698,11 +792,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     mode, reason = launch_mode(args)
     wait_inline = bool(args.attach) or mode == "sync"
     deliverable, log = _hint_paths(root, job_id, submit.out_path, result)
+    created, acknowledged = _submitted(result, minted=minted)
 
     if args.json:
         emit({
             "job_id": job_id, "run_id": job_id, "request_id": request_id,
-            "created": bool(result.get("created", True)),
+            "created": created, "outcome": "created" if created else "existing",
+            "requeried": bool(result.get("requeried")),
             "state": result.get("state"), "model": result.get("model"),
             "lane": result.get("lane") or result.get("lane_id"),
             "detached": mode == "detached", "wait_inline": wait_inline,
@@ -711,8 +807,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         out(job_id)
         note(f"{PROG} run: dispatched job={job_id} request={request_id}"
-             + ("" if result.get("created", True) else " (existing job for this request id)")
-             + f" ({mode} — {reason})")
+             + acknowledged + f" ({mode} — {reason})")
         note(f"  out: {deliverable}")
         note(f"  log: {log}")
         if wait_inline:
@@ -823,7 +918,10 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     Every entry is validated before anything is submitted. After that the
     entries are independent: one refusal does not stop the rest, because a
-    caller handing off K threads wants the K-1 that can run to run.
+    caller handing off K threads wants the K-1 that can run to run. An entry
+    whose answer is still lost after its re-send (C-16.3) does stop them: its
+    outcome is unknown, the daemon is not answering, and every entry after it
+    is reported "not sent", with the command that settles the whole batch.
     """
     if args.p or args.prompt is not None:
         return fail(Exit.INVALID_INPUT, "run --batch: prompts come from the manifest, not -p or PROMPT_TEXT")
@@ -836,6 +934,11 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     if defaults.get("p") and defaults.get("prompt"):
         return fail(Exit.INVALID_INPUT, "run --batch: defaults may name prompt or prompt_text, not both")
     batch_id = args.request_id or str(uuid.uuid4())
+    if len(f"{batch_id}-{len(entries)}") > REQUEST_ID_MAX:
+        return fail(Exit.INVALID_INPUT,
+                    f"run --batch: entry request ids are {batch_id}-<n>, and {batch_id}-{len(entries)} "
+                    f"would exceed {REQUEST_ID_MAX} characters (C-1.5)",
+                    "pass a shorter --request-id")
     prepared: list[tuple[str, protocol.SubmitArgs]] = []
     for index, entry in enumerate(entries, 1):
         # entry, then the manifest's defaults, then this command line's own flags
@@ -849,9 +952,13 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         options["name"] = options.get("name") or (
             Path(options["p"]).stem if options.get("p")
             else f"{re.sub(r'[^A-Za-z0-9._-]+', '-', label).strip('-') or 'batch'}-{index}")
-        # With --request-id the batch is repeatable: entry n is always <id>-<n>,
-        # so submitting the manifest again after a partial failure adds nothing twice (C-6.2).
-        options["request_id"] = f"{args.request_id}-{index}" if args.request_id else None
+        # Entry n is always <batch id>-<n>, so every batch is repeatable: the
+        # manifest submitted again with --request-id <batch id>, after a partial
+        # failure or an answer that never came, adds nothing twice (C-6.2,
+        # C-16.3). Without --request-id the batch id is fresh, and so are the
+        # entry ids; they used to be unrelated UUIDs, which no re-run could name
+        # (incident: 2026-09-24, see C-17.7).
+        options["request_id"] = f"{batch_id}-{index}"
         options["batch"] = None
         meta = {"id": batch_id, "label": label, "index": index, "size": len(entries)}
         submit, error = _prepare_submit(argparse.Namespace(**options), meta)
@@ -861,26 +968,75 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    minted = not args.request_id
+    # C-17.7: the same manifest under the same batch id sends every entry again,
+    # and an entry the daemon already holds comes back as its job (C-6.2).
+    rerun = (f"{PROG} run --batch {shlex.quote(str(Path(args.batch).expanduser().resolve()))} "
+             f"--request-id {shlex.quote(batch_id)}")
     rows: list[dict[str, Any]] = []
+    notes: dict[int, str] = {}           # how each entry's answer was learned (C-16.3)
     worst = int(Exit.OK)
+    gone: DaemonUnavailable | None = None
+    stopped: tuple[str, int] | None = None   # why nothing more is sent, and its rc
     for name, submit in prepared:
-        row: dict[str, Any] = {"batch": batch_id, "label": label, "index": submit.batch["index"], "name": name,
+        index = submit.batch["index"]
+        row: dict[str, Any] = {"batch": batch_id, "label": label, "index": index, "name": name,
                                "workdir": submit.workdir, "request_id": submit.request_id}
-        try:
-            result = client.call("submit", _asdict(submit), request_id=submit.request_id)
-            job_id = result.get("job_id") or result.get("id") or ""
-            deliverable, log = _hint_paths(root, job_id, submit.out_path, result)
-            row.update(job_id=job_id, created=bool(result.get("created", True)), out=deliverable, log=log, rc=int(Exit.OK))
-        except DaemonUnavailable as exc:
-            if args.json:
-                for left in rows:
-                    emit(left)
-            note(f"{PROG} run --batch: the daemon went away after {sum(1 for r in rows if r.get('job_id'))} of {len(prepared)} submissions")
-            return _daemon_down(exc)
-        except (DaemonError, ProtocolError) as exc:
-            row.update(job_id=None, rc=int(exc.code), error=str(exc), fix=getattr(exc, "fix", None))
-            worst = worst or int(exc.code)
         rows.append(row)
+        if stopped:
+            row.update(job_id=None, outcome="not-sent", rc=stopped[1], error=stopped[0], fix=rerun)
+            continue
+        try:
+            result = client.call_settled("submit", _asdict(submit), request_id=submit.request_id,
+                                         minted=minted,
+                                         on_lost=_resubmitting(f"run --batch: jobs[{index}]",
+                                                               submit.request_id))
+        except OutcomeUnknown as exc:
+            # C-16.3: the daemon may hold this entry. A daemon that answered
+            # neither the submission nor its re-send is not answering, so the
+            # batch sends nothing more; the re-run settles all of it.
+            row.update(job_id=None, outcome="unknown", rc=int(Exit.OPERATIONAL), error=str(exc),
+                       fix=rerun)
+            notes[index] = "; then ".join(exc.reasons)
+            worst = worst or int(Exit.OPERATIONAL)
+            stopped = (f"not sent: jobs[{index}] went unanswered twice, so the batch stopped",
+                       int(Exit.OPERATIONAL))
+            continue
+        except DaemonUnavailable as exc:
+            # Refused at connect: this entry and the rest were never sent.
+            gone = exc
+            row.update(job_id=None, outcome="not-sent", rc=int(Exit.DAEMON_UNAVAILABLE),
+                       error=f"not sent: {exc}", fix=f"{exc.fix}, then {rerun}")
+            stopped = (f"not sent: the daemon went away before jobs[{index}]",
+                       int(Exit.DAEMON_UNAVAILABLE))
+            continue
+        except DaemonError as exc:
+            row.update(job_id=None, outcome="refused", rc=int(exc.code), error=str(exc), fix=exc.fix)
+            worst = worst or int(exc.code)
+            continue
+        except ProtocolError as exc:
+            # An answer this CLI cannot read as a success or a refusal (another
+            # protocol version): whether the entry exists is unknown.
+            row.update(job_id=None, outcome="unknown", rc=int(exc.code), error=str(exc), fix=rerun)
+            worst = worst or int(exc.code)
+            stopped = (f"not sent: jobs[{index}] had an unreadable answer, so the batch stopped",
+                       int(exc.code))
+            continue
+        job_id = result.get("job_id") or result.get("id") or ""
+        if not job_id:
+            row.update(job_id=None, outcome="unknown", rc=int(Exit.OPERATIONAL),
+                       error="the daemon answered without a job id", fix=rerun)
+            worst = worst or int(Exit.OPERATIONAL)
+            stopped = (f"not sent: jobs[{index}] was answered without a job id, so the batch "
+                       f"stopped", int(Exit.OPERATIONAL))
+            continue
+        created, acknowledged = _submitted(result, minted=minted)
+        deliverable, log = _hint_paths(root, job_id, submit.out_path, result)
+        row.update(job_id=job_id, created=created, outcome="created" if created else "existing",
+                   out=deliverable, log=log, rc=int(Exit.OK))
+        if result.get("requeried"):
+            row["requeried"] = True
+        notes[index] = acknowledged
 
     submitted = [row["job_id"] for row in rows if row["job_id"]]
     for row in rows:
@@ -892,16 +1048,33 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         note(f"{PROG} run --batch: {label} · {len(submitted)} of {len(rows)} submitted · batch {batch_id}")
         for row in rows:
             if row["job_id"]:
-                note(f"  [{row['index']}] {row['job_id']}" + ("" if row["created"] else " (existing job for this request id)")
+                note(f"  [{row['index']}] {row['job_id']}" + notes.get(row["index"], "")
                      + f" · {row['workdir']} · out: {row['out']}")
-            else:
+            elif row["outcome"] == "refused":
+                # Only an entry the daemon refused with an error response.
                 note(f"  [{row['index']}] {row['name']} NOT submitted (rc {row['rc']}): {row['error']}"
                      + (f" · fix: {row['fix']}" if row.get("fix") else ""))
+            elif row["outcome"] == "unknown":
+                note(f"  [{row['index']}] {row['name']} outcome unknown (request id "
+                     f"{row['request_id']}): the daemon may have created it "
+                     f"({notes.get(row['index']) or row['error']}) · look: "
+                     f"{_look_command(row['request_id'])}")
+            else:
+                note(f"  [{row['index']}] {row['name']} {row['error']}")
         if submitted:
             note(f"  done → {PROG} wait {' '.join(submitted)}   (blocks; ok under run_in_background)")
             note(f"  status: {PROG} runs --mine")
+    if stopped:
+        unsettled = sum(1 for row in rows if row["outcome"] in ("unknown", "not-sent"))
+        note(f"{PROG} run --batch: stopped with {unsettled} of {len(rows)} entries unsettled; "
+             f"settle them with")
+        note(f"  {rerun}   (with this command's other flags; an entry already created is "
+             f"not created twice, C-6.2)")
+    if gone is not None:
+        note(f"{PROG} run --batch: the daemon went away after {len(submitted)} of {len(prepared)} submissions")
+        return _daemon_down(gone)
     mode, _reason = launch_mode(args)
-    if submitted and (bool(args.attach) or mode == "sync"):
+    if submitted and not stopped and (bool(args.attach) or mode == "sync"):
         waited = wait_jobs(args, submitted, timeout=None, quiet=args.json)
         return worst or waited
     return worst
@@ -953,8 +1126,13 @@ def _wait_summary(job: dict[str, Any]) -> str:
     label = state if state != "FAILED" or not isinstance(rc, int) else f"FAILED rc={rc}"
     seconds = as_number(row["duration_s"])
     duration = "-" if seconds is None else f"{seconds:.0f}s"
-    target = (job.get("out_path") or _artifact_path(job, "deliverable")
-              or job.get("deliverable_path") or "-")
+    # C-15.1, C-8.3: only an accepted job has a result to point at. Any other
+    # job's `-o` path was never written, and its attempt's deliverable is kept
+    # evidence, not output (incident: 2026-09-24, cancelled jobs were pointed
+    # at an `-o` file nothing had exported).
+    target = ((job.get("out_path") or _artifact_path(job, "deliverable")
+               or job.get("deliverable_path") or "-")
+              if row["state"] == JobState.SUCCEEDED.value else "-")
     attempt = job.get("attempt") or {}
     detail = job.get("outcome_detail") or attempt.get("outcome_detail")
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
@@ -1094,15 +1272,21 @@ def cmd_runs(args: argparse.Namespace) -> int:
     offline = False
     try:
         client = _client(args)
+        wanted = getattr(args, "request_id", None)
         result = client.call("list", _asdict(protocol.ListArgs(
-            mine=mine, running=bool(args.running), last=args.last or None)))
+            mine=mine, running=bool(args.running),
+            last=None if wanted else args.last or None, request_id=wanted)))
         rows = rows_of(result.get("jobs") or result.get("rows"))
+        if wanted:
+            # A daemon older than the filter lists every job (C-16.2, C-16.3).
+            rows = [row for row in rows if row.get("request_id") == wanted]
     except DaemonUnavailable:
         offline = True
         store = _offline(args)
         try:
             rows = store.list_jobs(session=mine, running=bool(args.running),
-                                   last=args.last)
+                                   last=0 if getattr(args, "request_id", None) else args.last,
+                                   request_id=getattr(args, "request_id", None))
         except OfflineUnavailable as exc:
             return _daemon_down(exc)
         _note_schema(store)
@@ -1138,6 +1322,19 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
             if wanted is None or artifact.get("attempt_id") == wanted:
                 return artifact.get("path")
     return job.get(f"{role}_path")
+
+
+def _shown_deliverable(job: dict[str, Any]) -> str | None:
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+
+    The recorded artifact, the accepted attempt's first; failing that, the `-o`
+    export, but only of an accepted job. Nothing exported to the `-o` path of
+    a job that was not accepted, so a file there is someone else's or an
+    earlier run's, never this job's output.
+    """
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return _artifact_path(job, "deliverable") or (
+        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1266,7 +1463,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         if args.out:
             worst = max(worst, _cat(
                 "deliverable",
-                _artifact_path(job, "deliverable") or job.get("out_path"),
+                _shown_deliverable(job),
                 header=both))
         if args.err:
             worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
@@ -1278,7 +1475,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # are v2's single-artifact forms.
     emit(job)
     out("\n--- out.md ---")
-    path = _artifact_path(job, "deliverable") or job.get("out_path")
+    path = _shown_deliverable(job)
     if path and Path(path).is_file():
         # v1 printed whatever out.md held, or nothing, and still exited 0; the
         # explicit `--out` form is the one that fails on a missing artifact.
@@ -1360,6 +1557,17 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
 
 # --- kill (C-7.1, C-17.5) -----------------------------------------------------
 
+def _finished_as(client: Client, job_id: str) -> dict[str, Any]:
+    """What `show` says the job became, or nothing when it cannot say (C-7.2, C-16.3)."""
+    try:
+        shown = client.call("show", _asdict(protocol.ShowArgs(job_id=job_id)))
+    except (DaemonUnavailable, DaemonError, ProtocolError):
+        return {}
+    job = shown.get("job") if isinstance(shown.get("job"), dict) else shown
+    return {key: job.get(key) for key in ("state", "rc", "cancel_requested_at")
+            if job.get(key) is not None}
+
+
 def cmd_kill(args: argparse.Namespace) -> int:
     if args.confirm_dead and args.force_release:
         return fail(Exit.INVALID_INPUT,
@@ -1369,17 +1577,58 @@ def cmd_kill(args: argparse.Namespace) -> int:
     for job_id in args.ids:
         try:
             client = _client(args)
-            result = client.call("kill", _asdict(protocol.KillArgs(
+            # C-16.3: a kill whose answer is lost may have committed (C-7.1), so
+            # it is sent once more: `cancel_requested_at` keeps its first value
+            # however often a kill is sent, a finished job answers "already
+            # finished", and a resolution already done answers "not quarantined".
+            result = client.call_settled("kill", _asdict(protocol.KillArgs(
                 job_id=job_id, confirm_dead=bool(args.confirm_dead),
                 force_release=bool(args.force_release),
-                operator_note=args.note)))
+                operator_note=args.note)), on_lost=_asking_again(
+                    "kill", f"sending the kill of {job_id} again, which is safe to repeat "
+                            f"(C-7.1)"))
+            if result.get("requeried") and result.get("status") in ("already finished",
+                                                                    "not quarantined"):
+                # The first, unanswered kill may be what finished it (or
+                # resolved its quarantine): say what the job became.
+                result = {**result, **_finished_as(client, job_id)}
             killed.append(job_id)
             if args.json:
                 emit({"job_id": job_id, **result})
             else:
-                out(f"{job_id} {result.get('status') or result.get('action') or 'cancel requested'}")
+                status = result.get("status") or result.get("action") or "cancel requested"
+                if result.get("state"):
+                    status += (f" ({result['state']}"
+                               + (f", rc {result['rc']}" if result.get("rc") is not None else "") + ")")
+                out(f"{job_id} {status}")
+                if result.get("requeried"):
+                    note("  acknowledged on re-query: the first kill went unanswered and may "
+                         "be the one that took effect")
                 if result.get("detail"):
                     note(f"  {result['detail']}")
+        except OutcomeUnknown as exc:
+            # Not refused and not failed: the cancel may be recorded. Not
+            # waited on either, because nothing says a cancel was requested.
+            worst = max(worst, int(Exit.OPERATIONAL))
+            if args.json:
+                emit({"job_id": job_id, "outcome": "unknown", "error": str(exc)})
+            resolution = ("--confirm-dead" if args.confirm_dead else
+                          "--force-release" if args.force_release else None)
+            if resolution:
+                # A quarantine resolution, not a cancel: plain `kill` would only
+                # answer "already finished" and resolve nothing (C-5.7).
+                again = f"{PROG} kill {shlex.quote(job_id)} {resolution}" + (
+                    f" --note {shlex.quote(args.note)}" if args.note else "")
+                note(f"{PROG} kill: {job_id}: outcome unknown: the {resolution} resolution may "
+                     f"have been requested, and no answer says whether it was "
+                     f"({'; then '.join(exc.reasons)})")
+                note(f"  {PROG} runs show {shlex.quote(job_id)} shows whether the attempt is "
+                     f"still quarantined; running {again} again is safe (C-16.3)")
+            else:
+                note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
+                     f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
+                note(f"  {PROG} runs show {shlex.quote(job_id)} shows cancel_requested_at; running "
+                     f"{PROG} kill {shlex.quote(job_id)} again is safe (C-7.1)")
         except DaemonUnavailable as exc:
             if args.confirm_dead or args.force_release:
                 # Both resolutions release leases and record an event, and only
@@ -1495,8 +1744,15 @@ def cmd_resume(args: argparse.Namespace) -> int:
         caller_session=session_id(),
         caller_pid=caller_pid(),
     )
+    minted = not args.request_id
     try:
-        result = client.call("submit", _asdict(submit), request_id=request_id)
+        result = client.call_settled("submit", _asdict(submit), request_id=request_id,
+                                     minted=minted, on_lost=_resubmitting("resume", request_id))
+    except OutcomeUnknown as exc:
+        if args.json:
+            emit({"job_id": None, "request_id": request_id, "resumed_from": args.id,
+                  "outcome": "unknown", "error": str(exc)})
+        return _submit_unknown("resume", exc, request_id, supplied=not minted)
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
@@ -1506,13 +1762,16 @@ def cmd_resume(args: argparse.Namespace) -> int:
     job_id = result.get("job_id") or ""
     if not job_id:
         return fail(Exit.OPERATIONAL, "resume: the daemon returned no job id")
+    created, acknowledged = _submitted(result, minted=minted)
     if args.json:
         emit({"job_id": job_id, "run_id": job_id, "request_id": request_id,
-              "resumed_from": args.id, "created": bool(result.get("created", True))})
+              "resumed_from": args.id, "created": created,
+              "outcome": "created" if created else "existing",
+              "requeried": bool(result.get("requeried"))})
     else:
         out(job_id)
         note(f"{PROG} resume: {job_id} continues {args.id} on lane "
-             f"{submit.pinned_lane or '-'}")
+             f"{submit.pinned_lane or '-'}" + acknowledged)
     return int(Exit.OK)
 
 
@@ -1619,6 +1878,7 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    _retire_model(args, "why")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
                            allow_desktop=bool(args.allow_desktop))
@@ -1818,14 +2078,50 @@ def cmd_daemon_stop(args: argparse.Namespace) -> int:
     note(f"{PROG} daemon: SIGTERM sent to pid {pid}")
     # Wait on the identity we signalled, not on daemon.lock: a daemon that
     # cleans up removes the lock, and a missing lock is not evidence of an exit.
-    deadline = time.monotonic() + 15.0
+    # C-5.8a: a daemon whose stop cannot drain ends itself STOP_GRACE_S after it
+    # handles the signal, so wait past that before deciding it never will.
+    if _wait_for_exit(pid, info, DAEMON_STOP_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    # Still the process we signalled, so its own bound did not end it: it never
+    # armed (a thread held the GIL through the signal), it could not run, or the
+    # daemon predates C-5.8a. End it as launchd's ExitTimeOut would, after
+    # checking the identity again (C-5.4).
+    alive = same_process(pid, info.get("boot_id"), info.get("proc_start"))
+    if alive is False:
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    if alive is None:
+        return fail(Exit.OPERATIONAL,
+                    f"daemon stop: pid {pid} is still running {DAEMON_STOP_WAIT_S:g}s after "
+                    f"SIGTERM and its identity can no longer be verified (C-5.3); not killing it")
+    try:
+        os.kill(pid, _signal.SIGKILL)
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon stop: SIGKILL to {pid} failed: {exc}")
+    note(f"{PROG} daemon: pid {pid} was still running {DAEMON_STOP_WAIT_S:g}s after SIGTERM; "
+         f"its own stop bound (C-5.8a) did not end it, so sent SIGKILL")
+    if _wait_for_exit(pid, info, DAEMON_KILL_WAIT_S):
+        note(f"{PROG} daemon: stopped")
+        return int(Exit.OK)
+    note(f"{PROG} daemon: pid {pid} has not exited even after SIGKILL")
+    return int(Exit.OPERATIONAL)
+
+
+#: C-5.8a: how long `daemon stop` waits for a daemon to end itself, and then for
+#: the SIGKILL it sends when it has not.
+DAEMON_STOP_WAIT_S = STOP_GRACE_S + STOP_BACKSTOP_S
+DAEMON_KILL_WAIT_S = 5.0
+
+
+def _wait_for_exit(pid: int, info: dict, seconds: float) -> bool:
+    """True once the recorded identity is gone (C-5.3), False after `seconds`."""
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if same_process(pid, info.get("boot_id"), info.get("proc_start")) is False:
-            note(f"{PROG} daemon: stopped")
-            return int(Exit.OK)
+            return True
         time.sleep(0.1)
-    note(f"{PROG} daemon: pid {pid} has not exited after 15s")
-    return int(Exit.OPERATIONAL)
+    return False
 
 
 def cmd_daemon_status(args: argparse.Namespace) -> int:
@@ -1903,6 +2199,13 @@ def _plist(root: Path) -> bytes:
         "StandardErrorPath": str(root / LOG_NAME),
         # Dispatch serves user requests, so use standard service resource limits.
         "ProcessType": "Standard",
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
+        # connection and every pipe to a child holds one. The daemon raises its
+        # own limit too, and this covers a start where it cannot.
+        "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},
+        # C-5.8a: with none set, `launchctl print` reports an exit timeout of
+        # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
+        "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
     }, sort_keys=True)
 
 
@@ -2209,7 +2512,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
     p_run.add_argument("-m", dest="m", choices=MODEL_CHOICES,
-                       help="pin one model; never falls back (sol is retired → astra)")
+                       help="pin one model; never falls back (retired: fable → opus, sol → astra)")
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")
@@ -2266,6 +2569,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--mine", action="store_true",
                         help="only this session's jobs (CLAUDE_CODE_SESSION_ID)")
     p_runs.add_argument("--running", action="store_true", help="only unfinished jobs")
+    p_runs.add_argument("--request-id", dest="request_id", default=None,
+                        help="only the job carrying this request id, whoever submitted it (C-16.3)")
     _add_json(p_runs)
     p_runs.set_defaults(handler=cmd_runs, runs_command=None)
     runs_sub = p_runs.add_subparsers(dest="runs_command")
