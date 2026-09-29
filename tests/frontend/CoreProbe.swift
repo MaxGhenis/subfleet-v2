@@ -252,6 +252,9 @@ struct CoreProbe {
                 ["path": section.path, "header": section.header, "binary": section.binary,
                  "lines": section.lines.map { [$0.kind.rawValue, $0.text, $0.old as Any? ?? NSNull(), $0.new as Any? ?? NSNull()] }]
             })
+        case "diff-notes":
+            // diff-notes <result.json>: what the Changes pane says a diff result cut or hid
+            emit(diffNotes(try JSONDecoder().decode(DiffResult.self, from: readFile(arguments[2]))))
         case "roundtrip":
             // roundtrip <op> <result.json>: decode the result as the op's model, encode it again
             FileHandle.standardOutput.write(try opCodec(arguments[2]).roundTrip(readFile(arguments[3])))
