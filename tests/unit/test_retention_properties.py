@@ -24,7 +24,6 @@ from hypothesis import strategies as st
 from subfleet import retention
 from subfleet import retention_archive as archive
 from subfleet.contracts import Credential, Lane, LaneOwner, Exit
-from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from subfleet.store import Store
 
 
@@ -339,38 +338,6 @@ def test_the_cache_sees_a_live_job_grow_and_a_job_gain_a_worktree(tmp_path):
 # ---------------------------------------------------------------------------
 # policy, resume fence, CLI
 # ---------------------------------------------------------------------------
-
-def write_policy(tmp_path, value):
-    path = tmp_path / "policy.json"
-    path.write_text(json.dumps(value))
-    return path
-
-
-@pytest.mark.parametrize("config,error", [
-    ({"argv": []}, "retention.worktree_archiver.argv"),
-    ({"argv": ["relative/sweep"]}, "retention.worktree_archiver.argv"),
-    ({"argv": ["/bin/sweep"], "per_worktree": ["--only"]}, "retention.worktree_archiver.per_worktree"),
-    ({"argv": ["/bin/sweep"], "timeout_s": 0}, "retention.worktree_archiver.timeout_s"),
-    ({"argv": ["/bin/sweep"], "extra": 1}, "retention.worktree_archiver.extra"),
-    ("sweep", "retention.worktree_archiver"),
-])
-def test_policy_refuses_a_malformed_worktree_archiver(tmp_path, config, error):
-    data = json.loads(DEFAULT_POLICY_PATH.read_bytes())
-    data["retention"] = {**data.get("retention", {}), "worktree_archiver": config}
-    with pytest.raises(PolicyError) as caught:
-        load_policy(write_policy(tmp_path, data))
-    assert caught.value.key == error and caught.value.code == Exit.INVALID_INPUT
-
-
-def test_policy_accepts_the_sweep_and_defaults_to_none(tmp_path):
-    data = json.loads(DEFAULT_POLICY_PATH.read_bytes())
-    assert load_policy(write_policy(tmp_path, data))["retention"].get("worktree_archiver") is None
-    data["retention"] = {**data.get("retention", {}), "worktree_archiver": {
-        "argv": ["/usr/local/bin/uv", "run", "--script", "/x/worktree-archive-sweep", "--apply",
-                 "--only-under", "{worktrees}"]}}
-    loaded = load_policy(write_policy(tmp_path, data))["retention"]["worktree_archiver"]
-    assert loaded["per_worktree"] == ["--only", "{path}"] and loaded["timeout_s"] == 3600.0
-
 
 def test_cli_lists_and_restores_an_archived_job(tmp_path, monkeypatch, capsys):
     """C-17.1: `retention archives` and `retention restore` work offline from the archive."""

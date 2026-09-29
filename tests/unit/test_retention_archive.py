@@ -46,7 +46,11 @@ def build(root: Path, spec: dict, outside: Path) -> None:
     later_modes: list[tuple[Path, int]] = []
 
     def make(directory: Path, node: dict) -> None:
+        seen = set()
         for name, item in node.items():
+            if name.casefold() in seen:           # APFS is case-insensitive: one of them only
+                continue
+            seen.add(name.casefold())
             path = directory / name
             if item[0] == "file":
                 path.write_bytes(item[1])
@@ -159,6 +163,7 @@ def test_j3_deletion_removes_only_unchanged_archived_entries(space, spec, mutati
                 changed[where] = b"late work"
         elif regular:
             target = regular[pick % len(regular)]
+            os.chmod(target, stat.S_IMODE(target.stat().st_mode) | stat.S_IWUSR | stat.S_IRUSR)
             if kind == "modify":
                 target.write_bytes(target.read_bytes() + b"+")
             elif kind == "chmod":

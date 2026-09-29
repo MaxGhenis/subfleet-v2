@@ -116,21 +116,17 @@ def cmd_preview(args: argparse.Namespace) -> int:
         result = retention.maintenance(
             store, root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
             turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
-            turn_keep_s=float(budget["turn_keep_days"]) * 86400, archiver=budget.get("worktree_archiver"),
-            dry_run=True)
-    result["archiver_configured"] = budget.get("worktree_archiver") is not None
+            turn_keep_s=float(budget["turn_keep_days"]) * 86400, min_age_s=retention.MIN_AGE_S, dry_run=True)
     result["note"] = "the conversation service's pins are not consulted offline"
     if args.json:
-        cli.emit({key: result.get(key) for key in ("would_retire", "pools", "errors", "archiver_configured", "note")})
+        cli.emit({key: result.get(key) for key in ("would_retire", "pools", "kept", "errors", "note")})
         return int(Exit.OK)
     for name, pool in result["pools"].items():
         cli.out(f"{name}: {pool['jobs_before']} jobs, {pool['bytes_before']} bytes measured"
                 f" ({pool['unmeasured']} unmeasured); budget {pool['max_jobs']} jobs, {pool['max_bytes']} bytes")
     for row in result.get("would_retire", []):
-        via = f"  worktree {row['worktree']} -> archiver" if row["worktree"] else ""
-        cli.out(f"would retire {row['job_id']} ({row['pool']}, {row['bytes']} bytes){via}")
-    if not result["archiver_configured"]:
-        cli.note("No retention.worktree_archiver: jobs whose worktree still exists would be kept.")
+        cli.out(f"would retire {row['job_id']} ({row['pool']}, {row['bytes']} bytes)")
+    cli.out(f"kept while their worktree exists: {len(result.get('kept') or {})} jobs")
     cli.note(result["note"])
     return int(Exit.OK)
 

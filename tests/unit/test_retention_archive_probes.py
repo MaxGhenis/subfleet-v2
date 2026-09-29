@@ -1,10 +1,11 @@
 """Every finding of retention rounds 1-4 and of design revision 1, as a probe that passes
 only when the defect is absent (docs/desktop/retention-archive.md, section 9).
 
-Worktree-content findings are run three ways: with no archiver, with an archiver that
-refuses, and with a fake archiver that copies the tree aside and removes it. Subfleet
-must never delete a byte of the worktree itself (W1), must leave its Git state exactly
-as it was, and may prune the job only once the path is gone (W2).
+Worktree-content findings: Subfleet must never delete a byte of the worktree itself
+(W1), must leave its Git state exactly as it was, keeps the job while the tree or a
+quarantined copy exists, and prunes it only once the machine's archiver has taken the
+tree (W2). The archiver is simulated as the sweep acts: `git worktree move` to
+`.disk-guard-removing.<name>`, a copy set aside, then `git worktree remove`.
 """
 
 from __future__ import annotations
@@ -23,9 +24,7 @@ import pytest
 from subfleet import retention
 from subfleet import retention_archive as archive
 from subfleet.store import Store
-from tests.unit.test_retention_worktrees import (
-    FAKE_ARCHIVER, add_job, archiver, calls, forbid_worktree_writes, git,
-)
+from tests.unit.test_retention_worktrees import add_job, archive_like_the_sweep, forbid_worktree_writes, git
 
 IDENTITY = ["-c", "user.name=probe", "-c", "user.email=probe@example.com"]
 
@@ -175,36 +174,44 @@ def world(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
-@pytest.mark.parametrize("mode", ["none", "refuse"])
-def test_probe_worktree_content_is_never_touched_by_subfleet(world, tmp_path, monkeypatch, scenario, mode):
-    """W1: whatever the tree holds, Subfleet leaves every byte, the registration and the
-    repository exactly as they were, and keeps the job while the tree exists."""
+def test_probe_worktree_content_is_never_touched_by_subfleet(world, tmp_path, monkeypatch, scenario):
+    """W1, W2: whatever the tree holds, Subfleet leaves every byte, the registration and the
+    repository exactly as they were, and keeps the job while the tree exists, in place or
+    quarantined by the archiver."""
     store, root, repository = world
     worktree = add_job(store, root, repository, "job")
     SCENARIOS[scenario](worktree, repository)
     before = fingerprint(worktree, repository)
     outside = root.parent / "outside" / "sentinel"
     forbid_worktree_writes(monkeypatch, [worktree])
-    config = None if mode == "none" else archiver(tmp_path, root, "refuse")
-    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0, archiver=config)
+    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
     assert result["pruned"] == [] and store.get_job("job") is not None
     assert fingerprint(worktree, repository) == before
+    monkeypatch.undo()
+    quarantine = archive_like_the_sweep(repository, worktree)
+    forbid_worktree_writes(monkeypatch, [quarantine])
+    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
+    assert result["pruned"] == [] and store.get_job("job") is not None
     if outside.exists():
         assert outside.read_text() == "outside the tree"
 
 
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
-def test_probe_a_removing_archiver_is_the_only_remover(world, tmp_path, monkeypatch, scenario):
-    """W2: the job goes only after the archiver removed the tree; Subfleet itself deleted
-    none of it (the fake archiver's copy is byte-identical to the tree before)."""
+def test_probe_the_job_goes_only_after_the_archiver_took_the_tree(world, tmp_path, monkeypatch, scenario):
+    """W2: after the archiver has set the tree aside and removed it, the job's records are
+    retired; Subfleet deleted none of the tree (the archiver's copy is byte-identical)."""
     store, root, repository = world
     worktree = add_job(store, root, repository, "job")
     SCENARIOS[scenario](worktree, repository)
     files_before = fingerprint(worktree, repository)["files"]
-    forbid_worktree_writes(monkeypatch, [worktree])
-    result = retention.maintenance(store, root, max_jobs=0, archiver=archiver(tmp_path, root, "remove"))
-    assert result["pruned"] == ["job"] and not worktree.exists()
-    aside = tmp_path / "aside" / "job"
+    quarantine = archive_like_the_sweep(repository, worktree)
+    aside = tmp_path / "aside"
+    import shutil
+    shutil.copytree(quarantine, aside, symlinks=True)
+    git(repository, "worktree", "remove", "--force", str(quarantine))
+    forbid_worktree_writes(monkeypatch, [worktree, quarantine])
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == ["job"]
     copied = {}
     for path in sorted(aside.rglob("*")):
         if path.is_symlink():
@@ -274,16 +281,20 @@ def test_r1_7_worktree_and_repository_both_gone(world):
     assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]
 
 
-def test_r2s_4_a_slow_archiver_is_not_cut_by_the_pass_deadline(world, tmp_path):
-    """R2s-4: a started retirement runs to the end; the pass deadline does not stop it."""
+def test_r2s_4_worktrees_are_never_walked(world, monkeypatch):
+    """R2s-4 (the largest trees never finish): retention budgets job directories and never
+    walks a worktree, so a huge tree costs a pass nothing."""
     store, root, repository = world
     worktree = add_job(store, root, repository, "job")
-    config = archiver(tmp_path, root, "remove")
-    config["argv"] = [sys.executable, "-c", "import time, runpy, sys; time.sleep(1.5); "
-                      "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')",
-                      *config["argv"][1:]]
-    result = retention.maintenance(store, root, max_jobs=0, archiver=config, deadline=time.monotonic() + 1.0)
-    assert result["pruned"] == ["job"] and not worktree.exists()
+    walked = []
+    original = retention._measure
+
+    def measure(state, job, places, **kwargs):
+        walked.extend(places)
+        return original(state, job, places, **kwargs)
+    monkeypatch.setattr(retention, "_measure", measure)
+    retention.maintenance(store, root, max_jobs=0)
+    assert walked and all(worktree not in [p, *p.parents] for p in walked)
 
 
 def test_r2s_5_r4_5_read_only_and_deep_job_directories(world):
@@ -330,12 +341,12 @@ def test_r4_1_a_writer_inside_a_job_directory_after_archiving_keeps_its_file(wor
 
 
 def test_r4_3_a_stuck_oldest_job_does_not_block_the_queue(world, tmp_path):
-    """R4-3: the oldest job's worktree is refused; newer jobs are still retired."""
+    """R4-3: the oldest job's worktree is still in place; newer jobs are still retired."""
     store, root, repository = world
     add_job(store, root, repository, "stuck", order=0)
     plain_job(store, root, "later", 1)
-    result = retention.maintenance(store, root, max_jobs=0, archiver=archiver(tmp_path, root, "refuse"))
-    assert result["pruned"] == ["later"] and "stuck" in result["deferred"]
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == ["later"] and "stuck" in result["kept"]
 
 
 def test_design_r1_astra_6_rows_survive_as_verified_json(world):

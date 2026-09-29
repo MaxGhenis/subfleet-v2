@@ -7,8 +7,8 @@ beside it. The archive is made durable and read back in full before anything is
 deleted. Deletion then removes only entries that the verified manifest lists
 with an unchanged signature, and removes directories only with `rmdir`, so an
 entry that appeared or changed afterwards survives. Worktrees are never handled
-here: an allocated worktree is retired only by the policy's worktree archiver
-(`docs/desktop/retention-archive.md`).
+here: retention never touches one, and the machine's worktree archiver reclaims
+them (`docs/desktop/retention-archive.md`).
 
 All filesystem access is descriptor-relative and never follows a symlink.
 """

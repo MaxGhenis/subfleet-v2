@@ -5,17 +5,17 @@ Detached jobs and conversation turn jobs are pruned against separate budgets
 count and byte limits hold. A turn job is also kept for `turn_keep_days` after
 it ends, and while the conversation service still needs it; the service answers
 that through `pins`, which is asked again inside each delete transaction, like
-every other pin.
+every other pin. A detached job's record is kept at least a day after it ends.
 
-Retention never deletes, moves or writes a worktree. An allocated worktree is
-retired only by the worktree archiver the policy names
-(`retention.worktree_archiver`), which preserves its local-only work before it
-removes it; a job that owns a worktree is pruned only after the worktree has
-gone, and with no archiver it is kept. Retention keeps Subfleet's own record of
-each pruned job: its directory and rows are archived, verified, and only then
-deleted, and only what the archive holds is deleted
-(`subfleet/retention_archive.py`). Design and invariants:
-`docs/desktop/retention-archive.md`.
+Retention never deletes, moves, writes or runs anything for a worktree. An
+allocated worktree is reclaimed by the machine's worktree archiver, which
+preserves its local-only work first and runs on its own schedule; retention
+prunes a job that owns one only once that worktree is gone for real (no path,
+no quarantined copy, no registration that still points at one). Retention keeps
+Subfleet's own record of each pruned job: its directory and rows are archived,
+verified, and only then deleted, and only what the archive holds is deleted
+(`subfleet/retention_archive.py`). Byte budgets count job directories, the part
+retention can reclaim. Design and invariants: `docs/desktop/retention-archive.md`.
 
 No subprocess, stat or removal ever runs inside a store transaction (C-3.3).
 """
@@ -25,11 +25,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-import signal
 import subprocess
 import threading
 import time
-from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,18 +41,19 @@ from .contracts import (
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
+#: A detached job's record is kept at least this long after it ends (review of rev 2, 5).
+MIN_AGE_S = 24 * 3600
 #: A terminal job's measured size is trusted this long; a live job's this long.
 SIZE_TTL_S = 6 * 3600
-LIVE_SIZE_TTL_S = 600
+LIVE_SIZE_TTL_S = 3600
 #: The share of the pass deadline sizing may use, so selection still gets a turn.
 SIZING_SHARE = 0.5
-#: How long a candidate is passed over after it could not be retired.
+#: How long a candidate is passed over after its directory could not be archived.
 DEFER_BUSY_S = 3600
 DEFER_UNARCHIVABLE_S = 86400
-#: At most this many jobs are retired in one pass (one archiver call covers them all).
+#: At most this many jobs are retired in one pass.
 MAX_SELECTED = 200
-ARCHIVER_OUTPUT_BYTES = 64 * 1024
-ARCHIVER_GRACE_S = 10
+GIT_TIMEOUT_S = 15
 LEASE_PREFIX = "retire:"
 
 
@@ -93,7 +92,7 @@ class RetentionState:
     """What one daemon remembers between passes: sizes, unfinished walks, deferrals.
 
     Nothing here is a safety input. A stale size changes only which job goes
-    first; the archive and the worktree archiver decide what may be deleted."""
+    first; the archive decides what may be deleted."""
     sizes: dict[str, tuple[tuple, int, float]] = dataclasses.field(default_factory=dict)
     walks: dict[str, _Walk] = dataclasses.field(default_factory=dict)
     deferred: dict[str, tuple[float, str]] = dataclasses.field(default_factory=dict)
@@ -129,37 +128,27 @@ def _contains(value: Any, job_id: str) -> bool:
     return False
 
 
-def _inside(path: str | None, root: str) -> bool:
-    if not path:
-        return False
-    path = os.path.normpath(path)
-    return path == root or path.startswith(root.rstrip("/") + "/")
-
-
-def _pins(store: Store, explicit: set[str], *, owned: Mapping[str, str] | None = None,
-          pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0) -> set[str]:
+def _pins(store: Store, explicit: set[str], *, pins: Callable[[], Iterable[str]] | None = None,
+          turn_keep_s: float = 0, min_age_s: float = 0) -> set[str]:
     """Read only database evidence; safe to recheck inside the delete transaction.
 
     `pins` is the conversation service's evidence (C-26.12); it reads the
     conversation store and the service's live runners, never this store's
-    transaction state, so it is as safe to ask inside a transaction. `owned`
-    maps a job to its allocated worktree, resolved outside any transaction: a
-    live job that works inside that tree pins its owner."""
+    transaction state, so it is as safe to ask inside a transaction."""
     protected = set(explicit)
     if pins is not None:
         protected.update(pins())
-    kept_since = (datetime.now(UTC) - timedelta(seconds=turn_keep_s)).isoformat(timespec="milliseconds")
-    live_places = []
-    for row in store.query("SELECT job_id,kind,state,finished_at,workdir,worktree FROM jobs"):
+    now = datetime.now(UTC)
+    kept_since = (now - timedelta(seconds=turn_keep_s)).isoformat(timespec="milliseconds")
+    young_since = (now - timedelta(seconds=min_age_s)).isoformat(timespec="milliseconds")
+    for row in store.query("SELECT job_id,kind,state,finished_at FROM jobs"):
         if row["state"] not in _TERMINAL or row["kind"] == "gate-review":
             protected.add(row["job_id"])
-            if row["state"] not in _TERMINAL:
-                live_places.extend((row["workdir"], row["worktree"]))
         elif row["kind"] == "turn" and turn_keep_s > 0 and not _ended_before(row["finished_at"], kept_since):
             protected.add(row["job_id"])   # C-26.12: kept for days after it ends
-    for owner, root in (owned or {}).items():
-        if any(_inside(place, root) for place in live_places):
-            protected.add(owner)           # a live job works inside this job's tree
+        elif row["kind"] != "turn" and min_age_s > 0 and row["finished_at"] and \
+                not _ended_before(row["finished_at"], young_since):
+            protected.add(row["job_id"])   # C-8.4: a record outlives its job by a day
     queries = (
         "SELECT DISTINCT job_id FROM attempts WHERE state='quarantined' OR state IN ('reserved','starting','running','finalizing')",
         # C-8.4, IR-17: an unread notice pins its job only when some session can
@@ -224,6 +213,83 @@ def _pool(job: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# is an allocated worktree gone?
+# ---------------------------------------------------------------------------
+
+def _named(entry: str, name: str) -> bool:
+    """The tree itself, or a copy an archiver set aside under a suffixed name
+    (disk-guard and worktree-archive-sweep quarantine to `.disk-guard-removing.<name>`)."""
+    return entry == name or entry.endswith("." + name)
+
+
+class _Worktrees:
+    """Answers "is this job's worktree gone for real?" for one pass, read-only.
+
+    Gone means: nothing under the allocated root is the tree or a set-aside copy
+    of it, and the job's repository has no registration whose checkout exists
+    and is that tree under any name. An archiver that quarantines a tree and
+    may rename it back therefore never looks finished while it works. When the
+    repository exists but cannot be read, the answer is "not gone"."""
+
+    def __init__(self, root: Path):
+        self.root = root / "worktrees"
+        try:
+            self.entries = os.listdir(self.root)
+        except FileNotFoundError:
+            self.entries = []
+        self._registrations: dict[str, list[str] | None] = {}
+
+    def present(self, worktree: Path, workdir: str | None) -> str | None:
+        """None when gone; otherwise why the tree still counts as present."""
+        name = worktree.name
+        for entry in self.entries:
+            if _named(entry, name):
+                return f"worktree present: {self.root / entry}"
+        if not workdir or not os.path.isdir(workdir):
+            return None                                     # its repository is gone too
+        checkouts = self._checkouts(workdir)
+        if checkouts is None:
+            return "worktree state unknown: its repository could not be read"
+        for checkout in checkouts:
+            if _named(os.path.basename(checkout.rstrip("/")), name) and os.path.lexists(checkout):
+                return f"worktree present under another name: {checkout}"
+        return None
+
+    def _checkouts(self, workdir: str) -> list[str] | None:
+        if workdir not in self._registrations:
+            self._registrations[workdir] = _registered_checkouts(workdir)
+        return self._registrations[workdir]
+
+
+def _registered_checkouts(workdir: str) -> list[str] | None:
+    """Every linked checkout the repository at `workdir` registers, read from its
+    admin directories (`<common>/worktrees/*/gitdir`); None if unreadable."""
+    try:
+        result = subprocess.run(["git", "-C", workdir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False,
+                                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode:
+        return None
+    admins = Path(result.stdout.strip()) / "worktrees"
+    checkouts = []
+    try:
+        names = os.listdir(admins)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    for name in names:
+        try:
+            gitdir = (admins / name / "gitdir").read_text().strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        checkouts.append(os.path.dirname(gitdir))
+    return checkouts
+
+
+# ---------------------------------------------------------------------------
 # sizes
 # ---------------------------------------------------------------------------
 
@@ -282,112 +348,45 @@ def _measure(state: RetentionState, job: dict[str, Any], places: list[Path], *,
 
 
 # ---------------------------------------------------------------------------
-# the worktree archiver
-# ---------------------------------------------------------------------------
-
-def run_archiver(config: Mapping[str, Any], worktrees: list[Path], worktrees_root: Path, *,
-                 cancel: threading.Event | None = None) -> dict[str, Any]:
-    """Run the policy's worktree archiver once for `worktrees`; report what it said.
-
-    It runs outside every transaction, in its own process group, with no stdin.
-    Its exit status proves nothing: the caller checks each path afterwards.
-    Cancellation (daemon shutdown) or the policy's timeout sends the group
-    SIGTERM, then SIGKILL."""
-    argv = [part.replace("{worktrees}", str(worktrees_root)) for part in config["argv"]]
-    for path in worktrees:
-        argv += [part.replace("{path}", str(path)) for part in config.get("per_worktree", ["--only", "{path}"])]
-    tail: deque[bytes] = deque()
-    size = [0]
-    try:
-        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, start_new_session=True)
-    except OSError as exc:
-        return {"rc": None, "stopped": None, "reason": f"archiver could not start: {exc.strerror or exc}",
-                "output": ""}
-
-    def drain() -> None:
-        for chunk in iter(lambda: process.stdout.read(4096), b""):
-            tail.append(chunk)
-            size[0] += len(chunk)
-            while size[0] > ARCHIVER_OUTPUT_BYTES and len(tail) > 1:
-                size[0] -= len(tail.popleft())
-
-    reader = threading.Thread(target=drain, name="retention-archiver-output", daemon=True)
-    reader.start()
-    ends = time.monotonic() + float(config.get("timeout_s", 3600))
-    stopped = None
-    while process.poll() is None:
-        if cancel is not None and cancel.is_set():
-            stopped = "cancelled"
-        elif time.monotonic() >= ends:
-            stopped = "timeout"
-        if stopped:
-            _stop(process)
-            break
-        try:
-            process.wait(timeout=0.5)
-        except subprocess.TimeoutExpired:
-            pass
-    reader.join(timeout=5)
-    output = b"".join(tail).decode("utf-8", "replace")
-    last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "")
-    return {"rc": process.returncode, "stopped": stopped, "reason": last[-300:],
-            "output": output[-ARCHIVER_OUTPUT_BYTES:]}
-
-
-def _stop(process: subprocess.Popen) -> None:
-    for sig, wait in ((signal.SIGTERM, ARCHIVER_GRACE_S), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            return
-        try:
-            process.wait(timeout=wait)
-            return
-        except subprocess.TimeoutExpired:
-            continue
-
-
-# ---------------------------------------------------------------------------
 # the pass
 # ---------------------------------------------------------------------------
 
 def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTION_MAX_JOBS,
                 max_bytes: int = RETENTION_MAX_BYTES, turn_max_jobs: int = TURN_RETENTION_MAX_JOBS,
                 turn_max_bytes: int = TURN_RETENTION_MAX_BYTES,
-                turn_keep_s: float = TURN_RETENTION_KEEP_DAYS * 86400,
+                turn_keep_s: float = TURN_RETENTION_KEEP_DAYS * 86400, min_age_s: float = 0,
                 pins: Callable[[], Iterable[str]] | None = None, referenced_job_ids: Iterable[str] = (),
-                archiver: Mapping[str, Any] | None = None, state: RetentionState | None = None,
-                cancel: threading.Event | None = None, deadline: float | None = None,
-                dry_run: bool = False) -> dict[str, Any]:
+                state: RetentionState | None = None, cancel: threading.Event | None = None,
+                deadline: float | None = None, dry_run: bool = False) -> dict[str, Any]:
     """Prune oldest unpinned terminal jobs until each pool's limits hold.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
     `turn_max_jobs`/`turn_max_bytes` (C-26.12); a pool over its budget never
-    prunes the other. `archiver` is `retention.worktree_archiver`; without it
-    no job that still has its allocated worktree is pruned. `state` carries
-    sizes, unfinished walks and deferrals from one pass to the next; a pass
-    without one starts afresh. The deadline stops sizing and the start of
-    retirement; cancellation (C-16.4) also stops the archiver and archiving,
-    leaving every unpruned job's files as they were.
+    prunes the other. Bytes are those of job directories. A job whose allocated
+    worktree is not gone for real is kept, with the reason under `kept`; so is
+    a detached job that ended less than `min_age_s` ago (the daemon passes
+    MIN_AGE_S). `state` carries sizes, unfinished walks and deferrals from one
+    pass to the next; a pass without one starts afresh. The deadline stops
+    sizing and the start of retirement; cancellation (C-16.4) also stops
+    archiving, leaving every unpruned job's files as they were.
 
-    The result says what was pruned, protected and deferred (with reasons) and
-    measured; `interrupted` when work remained that the pass did not reach, and
-    `made_progress` when it pruned, measured, or finished anything. `dry_run`
-    only reads (a read-only store works): it neither recovers nor retires, and
-    reports under `would_retire` what a pass would hand to the archiver and prune.
+    The result says what was pruned, protected, kept and deferred (with
+    reasons) and measured; `interrupted` when work remained that the pass did
+    not reach, and `made_progress` when it pruned, measured, or finished
+    anything. `dry_run` only reads (a read-only store works): it neither
+    recovers nor retires, and reports under `would_retire` what a pass would prune.
     """
     state = state if state is not None else RetentionState()
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
-                                "deferred": {}, "measured": 0, "recovered": [], "conflicts": [],
+                                "deferred": {}, "kept": {}, "measured": 0, "recovered": [], "conflicts": [],
                                 "made_progress": False}
     read_before = state.directories_read
     try:
         result = _maintenance(store, Path(state_root).resolve(), state=state,
                               budgets={"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)},
-                              turn_keep_s=turn_keep_s, pins=pins, referenced_job_ids=referenced_job_ids,
-                              archiver=archiver, cancel=cancel, deadline=deadline, progress=progress,
-                              dry_run=dry_run)
+                              turn_keep_s=turn_keep_s, min_age_s=min_age_s, pins=pins,
+                              referenced_job_ids=referenced_job_ids, cancel=cancel, deadline=deadline,
+                              progress=progress, dry_run=dry_run)
     except _Interrupted as exc:
         jobs = store.list_jobs()
         pruned = set(progress["pruned"])
@@ -398,19 +397,18 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     return result
 
 
-def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_job_ids, archiver,
-                 cancel, deadline, progress, dry_run=False):
-    if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
+def _maintenance(store, root, *, state, budgets, turn_keep_s, min_age_s, pins, referenced_job_ids,
+                 cancel, deadline, progress, dry_run):
+    if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0 or min_age_s < 0:
         raise ValueError("retention limits must be nonnegative")
     _checkpoint(cancel, deadline)
     jobs_root = root / "jobs"
-    archive_root = root / "archive"
     if not dry_run:
         _recover(store, root, state, progress, cancel)
     jobs = store.list_jobs()                                   # newest first
     errors = progress["errors"]
-    owned: dict[str, Path] = {}
     explicit = set(referenced_job_ids)
+    worktrees = _Worktrees(root)
     for job in jobs:
         identity = job["job_id"]
         if Path(identity).name != identity or identity in (".", ".."):
@@ -423,35 +421,42 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_j
             errors.append({"job_id": identity, "error": str(exc)})
             explicit.add(identity)
             continue
-        if worktree is not None:
-            owned[identity] = worktree
-    owned_roots = {job_id: str(path) for job_id, path in owned.items()}
+        if worktree is not None and job["state"] in _TERMINAL:
+            reason = worktrees.present(worktree, job.get("workdir"))
+            if reason is not None:
+                progress["kept"][identity] = reason
+                explicit.add(identity)             # retention never touches a worktree (W1, W2)
 
     def pinned() -> set[str]:
-        return _pins(store, explicit, owned=owned_roots, pins=pins, turn_keep_s=turn_keep_s)
+        return _pins(store, explicit, pins=pins, turn_keep_s=turn_keep_s, min_age_s=min_age_s)
 
-    # Sizes, oldest first (the candidates first), within a share of the deadline.
+    # Job-directory sizes: terminal jobs oldest first, then live ones, within a
+    # share of the deadline. Only a terminal job left unmeasured leaves work over.
     sizes: dict[str, int] = {}
     unfinished = False
     sizing_deadline = None if deadline is None else time.monotonic() + max(
         0.0, deadline - time.monotonic()) * SIZING_SHARE
+    order = [job for job in reversed(jobs) if job["state"] in _TERMINAL] + \
+            [job for job in reversed(jobs) if job["state"] not in _TERMINAL]
+    failed = {error["job_id"] for error in errors}
     try:
-        for job in reversed(jobs):
+        for job in order:
             identity = job["job_id"]
-            if identity in explicit:
+            if identity in failed:
                 continue
-            places = [jobs_root / identity] + ([owned[identity]] if identity in owned else [])
             try:
-                sizes[identity], fresh = _measure(state, job, places, cancel=cancel, deadline=sizing_deadline)
+                sizes[identity], fresh = _measure(state, job, [jobs_root / identity], cancel=cancel,
+                                                  deadline=sizing_deadline)
             except OSError as exc:
                 errors.append({"job_id": identity, "error": str(exc)})
+                failed.add(identity)
                 explicit.add(identity)
                 continue
-            progress["measured"] += fresh
+            progress["measured"] += fresh and job["state"] in _TERMINAL
     except _Interrupted as exc:
         if str(exc) == "cancelled":
             raise
-        unfinished = True                       # resumed by the next pass
+        unfinished = any(job["job_id"] not in sizes for job in order if job["state"] in _TERMINAL)
     protected = pinned()
     counts = {name: 0 for name in budgets}
     totals = {name: 0 for name in budgets}
@@ -490,18 +495,16 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_j
         counts[pool] -= 1
         totals[pool] -= sizes.get(identity, 0)
     if dry_run:
-        progress["would_retire"] = [
-            {"job_id": job["job_id"], "pool": _pool(job), "bytes": sizes.get(job["job_id"]),
-             "worktree": str(owned[job["job_id"]]) if job["job_id"] in owned
-             and os.path.lexists(owned[job["job_id"]]) else None} for job in selected]
+        progress["would_retire"] = [{"job_id": job["job_id"], "pool": _pool(job), "bytes": sizes.get(job["job_id"])}
+                                    for job in selected]
         selected = []
     counts = {name: progress["pools"][name]["jobs_before"] for name in budgets}
     totals = {name: progress["pools"][name]["bytes_before"] for name in budgets}
     if selected:
         _checkpoint(cancel, deadline)           # no retirement starts after the deadline
-        _retire(store, root, selected, owned, sizes, state=state, pinned=pinned, archiver=archiver,
-                cancel=cancel, progress=progress, protected=protected, counts=counts, totals=totals,
-                jobs_root=jobs_root, archive_root=archive_root)
+        _retire(store, root, selected, sizes, state=state, pinned=pinned, cancel=cancel, progress=progress,
+                protected=protected, counts=counts, totals=totals, jobs_root=jobs_root,
+                archive_root=root / "archive")
     for name in budgets:
         progress["pools"][name].update(jobs_after=counts[name], bytes_after=totals[name])
     progress["made_progress"] = progress["made_progress"] or bool(progress["measured"])
@@ -512,11 +515,11 @@ def _maintenance(store, root, *, state, budgets, turn_keep_s, pins, referenced_j
     return result
 
 
-def _retire(store, root, selected, owned, sizes, *, state, pinned, archiver, cancel, progress, protected,
-            counts, totals, jobs_root, archive_root) -> None:
+def _retire(store, root, selected, sizes, *, state, pinned, cancel, progress, protected, counts, totals,
+            jobs_root, archive_root) -> None:
     check = _cancel_only(cancel)
-    fenced = []
     for job in selected:
+        check()
         identity = job["job_id"]
         holder = f"retention:{identity}"
         with store.transaction("retention.selected", job_id=identity) as conn:
@@ -527,34 +530,10 @@ def _retire(store, root, selected, owned, sizes, *, state, pinned, archiver, can
             if current and current["holder"] != holder:
                 protected.add(identity)
                 continue
+            # Not a path lease: an archiver that reads Subfleet's leases (disk-guard)
+            # treats every `worktree:/...` lease as a tree in use.
             conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
                          (LEASE_PREFIX + identity, holder, utc_now()))
-        fenced.append(job)
-
-    # Worktrees: only the archiver removes one, and only its absence afterwards counts.
-    present = [job for job in fenced if job["job_id"] in owned and os.path.lexists(owned[job["job_id"]])]
-    if present:
-        if archiver is None:
-            outcome = {"rc": None, "reason": "no worktree archiver configured (retention.worktree_archiver)"}
-            delay = DEFER_UNARCHIVABLE_S
-        else:
-            outcome = run_archiver(archiver, [owned[job["job_id"]] for job in present], root / "worktrees",
-                                   cancel=cancel)
-            delay = DEFER_BUSY_S
-            store.add_event("retention.archiver", data={
-                "rc": outcome.get("rc"), "stopped": outcome.get("stopped"), "reason": outcome.get("reason"),
-                "worktrees": [str(owned[job["job_id"]]) for job in present]})
-        for job in present:
-            identity = job["job_id"]
-            if os.path.lexists(owned[identity]):
-                reason = f"worktree kept (archiver rc {outcome.get('rc')}): {outcome.get('reason')}"
-                _skip(store, state, progress, protected, identity, delay, reason)
-                fenced.remove(job)
-        check()
-
-    for job in fenced:
-        check()
-        identity = job["job_id"]
         pool = _pool(job)
         directory = jobs_root / identity
         try:
@@ -570,12 +549,15 @@ def _retire(store, root, selected, owned, sizes, *, state, pinned, archiver, can
             progress["errors"].append({"job_id": identity, "error": str(exc)})
             _skip(store, state, progress, protected, identity, DEFER_BUSY_S, f"archive failed: {exc}")
             continue
+        except _Interrupted:
+            _release(store, identity)
+            raise
         manifest = archive.load(final)
         committed = False
         with store.transaction("retention.pruned", job_id=identity,
                                data={"bytes": sizes.get(identity, 0), "pool": pool, "archive": str(final)}) as conn:
             lease = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (LEASE_PREFIX + identity,)).fetchone()
-            if identity in pinned() or lease is None or lease["holder"] != f"retention:{identity}":
+            if identity in pinned() or lease is None or lease["holder"] != holder:
                 protected.add(identity)
             elif archive.rows_snapshot(lambda sql, params: conn.execute(sql, params).fetchall(),
                                        identity)["sha256"] != manifest["rows_sha256"]:

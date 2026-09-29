@@ -127,19 +127,18 @@ def test_retention_catch_up_after_progress_is_not_a_failure(state_daemon, monkey
     assert service.timers.status()['retention']['next_due'] == 'due:7205'
     assert service.timers.status()['retention']['last_error_type'] is None
     assert service._last_maintenance == 7200 - 3600 + 5
-    assert seen['state'] is service._retention_state and seen['archiver'] is None
+    assert seen['state'] is service._retention_state
     assert any(event['kind'] == 'retention.progress' for event in service.store.list_events())
     monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: {'interrupted': 'deadline'})
     with pytest.raises(TimeoutError):
         service._retention()
 
 
-def test_retention_hands_the_policy_archiver_to_maintenance(state_daemon, monkeypatch):
-    """C-8.4, C-13.4: the policy's worktree archiver reaches the pass unchanged."""
+def test_retention_keeps_a_record_a_day_and_touches_no_worktree(state_daemon, monkeypatch):
+    """C-8.4: the hourly pass passes the one-day floor and nothing about worktrees."""
     service, _ = state_daemon
-    config = {'argv': ['/x/sweep'], 'per_worktree': ['--only', '{path}'], 'timeout_s': 60.0}
-    service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'worktree_archiver': config}}
     seen = {}
     monkeypatch.setattr(daemon_module, 'maintenance', lambda store, root, **kwargs: seen.update(kwargs) or {})
     service._retention()
-    assert seen['archiver'] == config
+    assert seen['min_age_s'] == 24 * 3600
+    assert 'archiver' not in seen
