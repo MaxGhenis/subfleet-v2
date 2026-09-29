@@ -2569,15 +2569,19 @@ class Daemon:
             else:
                 self._retention_catch_up_s = min(RETENTION_CATCH_UP_MAX_S, 2 * self._retention_catch_up_s)
             delay = self._retention_catch_up_s
-            self.log.info("retention catch-up: retired %d jobs, %d in flight, %d deferred; continuing in %g seconds",
-                          len(result.get("pruned") or ()), len(result.get("in_flight") or ()),
-                          len(result.get("deferred") or {}), delay)
+            self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
+                          "archive), %d in flight, %d deferred; continuing in %g seconds",
+                          len(result.get("pruned") or ()), result.get("freed_bytes") or 0,
+                          result.get("freed_disk_bytes") or 0, result.get("archived_bytes") or 0,
+                          len(result.get("in_flight") or ()), len(result.get("deferred") or {}), delay)
             self.timers.mark("retention", next_due=after(delay))
             self._last_maintenance = time.monotonic() - 3600 + delay
             return
         self._retention_catch_up_s = RETENTION_CATCH_UP_S
         if result.get("pruned"):
-            self.log.info("retention: retired %d jobs", len(result["pruned"]))
+            self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive",
+                          len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
+                          result.get("archived_bytes") or 0)
         self.timers.mark("retention", next_due=after(3600))
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Only a completed pass rearms the ordinary hourly interval.

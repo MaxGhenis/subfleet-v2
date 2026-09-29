@@ -17,8 +17,11 @@ import errno
 import fcntl
 import hashlib
 import os
+import re
 import stat
+import struct
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -268,6 +271,358 @@ def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None =
     finally:
         os.close(out)
     return "copy"
+
+
+# --- what deleting a file frees ----------------------------------------------------
+
+class _AttrList(ctypes.Structure):
+    _fields_ = [("bitmapcount", ctypes.c_ushort), ("reserved", ctypes.c_uint16),
+                ("commonattr", ctypes.c_uint32), ("volattr", ctypes.c_uint32), ("dirattr", ctypes.c_uint32),
+                ("fileattr", ctypes.c_uint32), ("forkattr", ctypes.c_uint32)]
+
+
+_getattrlistat = getattr(_libc, "getattrlistat", None)
+if _getattrlistat is not None:
+    _getattrlistat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.POINTER(_AttrList), ctypes.c_void_p,
+                               ctypes.c_size_t, ctypes.c_ulong]
+    _getattrlistat.restype = ctypes.c_int
+_ATTR_BIT_MAP_COUNT = 5
+_ATTR_CMNEXT_PRIVATESIZE = 0x00000008       # <sys/attr.h>: bytes not shared with any clone (APFS)
+_FSOPT_NOFOLLOW = 0x00000001
+_FSOPT_ATTR_CMN_EXTENDED = 0x00000020
+
+
+def private_bytes(parent_fd: int, name: str, st: os.stat_result) -> int:
+    """Bytes deleting this file would give back: 0 if it has other links; on
+    APFS, its blocks no clone shares (a file cloned into the archive, or a
+    virtualenv cloned from uv's cache, gives back little or nothing); else its
+    allocated blocks."""
+    if st.st_nlink > 1:
+        return 0
+    if _getattrlistat is not None:
+        request = _AttrList(_ATTR_BIT_MAP_COUNT, 0, 0, 0, 0, 0, _ATTR_CMNEXT_PRIVATESIZE)
+        buffer = ctypes.create_string_buffer(32)
+        if _getattrlistat(parent_fd, os.fsencode(name), ctypes.byref(request), buffer, len(buffer),
+                          _FSOPT_NOFOLLOW | _FSOPT_ATTR_CMN_EXTENDED) == 0:
+            length, value = struct.unpack_from("=Iq", buffer, 0)
+            if length >= 12:
+                return max(0, value)
+    return st.st_blocks * 512
+
+
+# --- regenerable output (d635 disk relief) -----------------------------------------------
+#
+# A retired job's virtualenv, node_modules, bytecode and tool caches are
+# deleted with its tree, not archived, when their structure (never their name
+# alone) says a tool wrote them. Only the entries each tool itself writes at
+# the top level of its directory are dropped: live job trees held agents' logs,
+# test reports, scripts, a git bundle and a bare repository inside tagged
+# `.pytest_cache` and `.uv-cache` directories, and a project folder inside a
+# `.venv`, and those are archived like any other file.
+
+#: The CACHEDIR.TAG standard's signature (https://bford.info/cachedir/): the
+#: tool that wrote the tag declares the directory a cache it can make again.
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+BYTECODE = (".pyc", ".pyo")
+VENV_DIRS = (".venv", "venv")
+
+
+@dataclass(frozen=True)
+class Regenerable:
+    """A directory a tool wrote (`regenerable`)."""
+    kind: str
+    #: The tool's own top-level entries, name -> (inode, type letter): only these
+    #: are dropped. None: the whole directory (bytecode).
+    children: dict[str, tuple[int, str]] | None
+    #: Top-level names the tool did not write: archived byte for byte.
+    extra: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _Layout:
+    """What a tool writes at the top level of its directory."""
+    kind: str
+    #: name -> the types it may have ("f" file, "d" directory, "l" link)
+    fixed: dict[str, str]
+    #: names the tool makes up (a version, a cache bucket, a temporary directory)
+    patterns: tuple[tuple[re.Pattern[str], str], ...] = ()
+    #: a directory that is the tool's own by its structure
+    child_dir: Callable[[int, str, os.stat_result], bool] | None = None
+    #: links the tool makes (a package manager's), not starting with "."
+    links: bool = False
+
+
+def _venv_marker(parent_fd: int, name: str, st: os.stat_result) -> bool:
+    """PEP 405: a virtual environment holds a `pyvenv.cfg` naming `home`."""
+    text = _marker(parent_fd, name, st, "pyvenv.cfg")
+    return text is not None and any(
+        "=" in line and line.partition("=")[0].strip() == "home"
+        for line in text.decode("utf-8", "replace").splitlines())
+
+
+def _package_or_scope(parent_fd: int, name: str, st: os.stat_result) -> bool:
+    """A package directory (holding a regular `package.json`), or an `@scope`
+    directory of package directories and links."""
+    fd = open_dir(name, dir_fd=parent_fd, expect=st)
+    try:
+        if not name.startswith("@"):
+            return _regular(fd, "package.json")
+        names = os.listdir(fd)
+        for child in names:
+            cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISLNK(cst.st_mode):
+                continue
+            if not stat.S_ISDIR(cst.st_mode):
+                return False
+            inner = open_dir(child, dir_fd=fd, expect=cst)
+            try:
+                if not _regular(inner, "package.json"):
+                    return False
+            finally:
+                os.close(inner)
+        return bool(names)
+    finally:
+        os.close(fd)
+
+
+_VENV = _Layout("venv", {
+    "pyvenv.cfg": "f", "CACHEDIR.TAG": "f", ".gitignore": "f", ".lock": "f",
+    "bin": "d", "lib": "d", "lib64": "dl", "include": "d", "share": "d", "etc": "d", "man": "d",
+    "Lib": "d", "Scripts": "d", "Include": "d"})
+_NODE_MODULES = _Layout("node_modules", {
+    ".bin": "d", ".pnpm": "d", ".package-lock.json": "f", ".modules.yaml": "f", ".yarn-integrity": "f",
+    ".yarn-state.yml": "f"}, child_dir=_package_or_scope, links=True)
+#: Tool caches, each identified by its CACHEDIR.TAG and then by its layout.
+_CACHES = {
+    ".pytest_cache": _Layout("pytest_cache", {"CACHEDIR.TAG": "f", "README.md": "f", ".gitignore": "f", "v": "d"}),
+    ".ruff_cache": _Layout("ruff_cache", {"CACHEDIR.TAG": "f", ".gitignore": "f"},
+                           ((re.compile(r"\d+\.\d+\.\d+"), "d"),)),
+    ".mypy_cache": _Layout("mypy_cache", {"CACHEDIR.TAG": "f", ".gitignore": "f", "missing_stubs": "f"},
+                           ((re.compile(r"\d+\.\d+"), "d"),)),
+    ".uv-cache": _Layout("uv_cache", {"CACHEDIR.TAG": "f", ".gitignore": "f", ".lock": "f"},
+                         ((re.compile(r"[a-z]+(?:-[a-z]+)*-v\d+"), "d"),
+                          (re.compile(r"\.tmp[0-9A-Za-z]{6}"), "df"))),
+    ".tox": _Layout("tox", {"CACHEDIR.TAG": "f", ".gitignore": "f"}, child_dir=_venv_marker),
+}
+
+
+def regenerable(parent_fd: int, name: str, st: os.stat_result) -> Regenerable | None:
+    """The regenerable output a directory is, identified by its structure,
+    never by its name alone (d635 disk relief), or None:
+
+    - ``venv``: ``.venv`` or ``venv`` holding a regular ``pyvenv.cfg`` with a
+      ``home`` key;
+    - ``node_modules``: ``node_modules`` beside a regular ``package.json``;
+    - ``pycache``: ``__pycache__`` holding only regular ``.pyc``/``.pyo`` files
+      (the whole directory);
+    - a tool cache: ``.pytest_cache``, ``.ruff_cache``, ``.mypy_cache``,
+      ``.uv-cache`` or ``.tox`` holding a regular ``CACHEDIR.TAG`` that starts
+      with the standard's signature.
+
+    Of every kind but bytecode, only the top-level entries the tool writes
+    (its layout: fixed names and types, the names it makes up, and for
+    ``node_modules`` and ``.tox`` directories whose structure says they are
+    packages or environments) are the tool's; anything else is `extra`.
+    `build/`, `dist/`, `target/` and `.cache/` are never regenerable here: work
+    has been found in them. Whether git ignores the directory and tracks
+    nothing in it, and whether it sits in a repository, is `RegenerableWalk`'s
+    to check. Any error answers None: when in doubt, the bytes are archived.
+    """
+    if not stat.S_ISDIR(st.st_mode):
+        return None
+    try:
+        if name == "__pycache__":
+            fd = open_dir(name, dir_fd=parent_fd, expect=st)
+            try:
+                for child in os.listdir(fd):
+                    cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
+                    if not stat.S_ISREG(cst.st_mode) or not child.endswith(BYTECODE):
+                        return None
+            finally:
+                os.close(fd)
+            return Regenerable("pycache", None)
+        if name in VENV_DIRS:
+            return _layout(parent_fd, name, st, _VENV) if _venv_marker(parent_fd, name, st) else None
+        if name == "node_modules":
+            return _layout(parent_fd, name, st, _NODE_MODULES) if _regular(parent_fd, "package.json") else None
+        layout = _CACHES.get(name)
+        if layout is not None:
+            text = _marker(parent_fd, name, st, "CACHEDIR.TAG")
+            if text is not None and text.startswith(CACHEDIR_SIGNATURE):
+                return _layout(parent_fd, name, st, layout)
+    except (OSError, TreeError):
+        return None
+    return None
+
+
+def _layout(parent_fd: int, name: str, st: os.stat_result, layout: _Layout) -> Regenerable | None:
+    fd = open_dir(name, dir_fd=parent_fd, expect=st)
+    children: dict[str, tuple[int, str]] = {}
+    extra: list[str] = []
+    try:
+        for child in _names(fd):
+            cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
+            t = kind(cst.st_mode)
+            if _belongs(layout, fd, child, cst, t):
+                children[child] = (cst.st_ino, t)
+            else:
+                extra.append(child)
+    finally:
+        os.close(fd)
+    return Regenerable(layout.kind, children, tuple(extra)) if children else None
+
+
+def _belongs(layout: _Layout, fd: int, name: str, st: os.stat_result, t: str) -> bool:
+    allowed = layout.fixed.get(name)
+    if allowed is not None:
+        return t in allowed
+    for pattern, types in layout.patterns:
+        if pattern.fullmatch(name):
+            return t in types
+    if t == "d" and layout.child_dir is not None:
+        try:
+            return layout.child_dir(fd, name, st)
+        except (OSError, TreeError):
+            return False
+    return t == "l" and layout.links and not name.startswith(".")
+
+
+class NotRegenerable(Exception):
+    """A regenerable root holds a repository (a `.git`): walk again with it
+    archived."""
+
+    def __init__(self, root: str):
+        super().__init__(root)
+        self.root = root
+
+
+class RegenerableWalk:
+    """Follows one worktree's pre-order `walk` and marks its regenerable output,
+    for the archive and the survey alike (d635 disk relief).
+
+    A directory `regenerable` identifies is used only when `clear(rel)` (git
+    tracks nothing at, in or above it and ignores all of it) and neither it nor
+    a directory between it and the tree's root holds a `.git` (a nested
+    repository answers for its own files). Its tool's entries are then
+    *roots*: each root and everything under it is regenerable. A `.git` met
+    under a root raises `NotRegenerable`; the caller walks again with that root
+    in `denied`, so it is archived. `records` has one record per directory:
+    its path, kind, the roots dropped, the names kept, and the entries, bytes
+    (`st_size` of regular files) and `freed_disk_bytes` (`private_bytes`).
+    """
+
+    def __init__(self, root_fd: int, clear: Callable[[str], bool], denied: set[str] | frozenset[str] = frozenset()):
+        self.root_fd = root_fd
+        self.clear = clear
+        self.denied = denied
+        self.records: list[dict[str, Any]] = []
+        self._containers: dict[str, tuple[Regenerable, dict[str, Any]]] = {}
+        self._root: str | None = None
+        self._record: dict[str, Any] | None = None
+
+    def classify(self, rel: str, st: os.stat_result, parent: int, name: str | None) -> bool:
+        """Whether this entry of the walk is regenerable (listed, not stored)."""
+        if self._root is not None:
+            if rel.startswith(self._root + "/"):
+                if name is not None and name.lower() == ".git":
+                    raise NotRegenerable(self._root)
+                self._count(st, parent, name)
+                return True
+            self._root = self._record = None
+        if not rel or name is None:
+            return False
+        found = self._containers.get(rel.rpartition("/")[0])
+        if found is not None:
+            spec, record = found
+            if spec.children is not None and spec.children.get(name) == (st.st_ino, kind(st.st_mode)) \
+                    and rel not in self.denied:
+                return self._start(rel, record, st, parent, name)
+        if not stat.S_ISDIR(st.st_mode) or rel in self.denied:
+            return False
+        spec = regenerable(parent, name, st)
+        if spec is None or not self.clear(rel) or self._in_repository(rel):
+            return False
+        record: dict[str, Any] = {"p": rel, "kind": spec.kind, "roots": [], "kept": list(spec.extra),
+                                  "entries": 0, "bytes": 0, "freed_disk_bytes": 0}
+        self.records.append(record)
+        if spec.children is None:
+            return self._start(rel, record, st, parent, name)
+        self._containers[rel] = (spec, record)
+        return False
+
+    def summary(self) -> list[dict[str, Any]]:
+        """The records of directories that dropped something; a directory's
+        own entries the walk did not drop (denied, replaced) count as kept."""
+        out = []
+        for record in self.records:
+            if not record["roots"]:
+                continue
+            found = self._containers.get(record["p"])
+            if found is not None and found[0].children is not None:
+                dropped = {r.rpartition("/")[2] for r in record["roots"]}
+                record["kept"] = sorted(set(record["kept"]) | (set(found[0].children) - dropped))
+            out.append(record)
+        return out
+
+    def _start(self, rel: str, record: dict[str, Any], st: os.stat_result, parent: int, name: str) -> bool:
+        record["roots"].append(rel)
+        self._record = record
+        self._count(st, parent, name)
+        self._root = rel if stat.S_ISDIR(st.st_mode) else None
+        if self._root is None:
+            self._record = None
+        return True
+
+    def _count(self, st: os.stat_result, parent: int, name: str | None) -> None:
+        record = self._record
+        assert record is not None
+        record["entries"] += 1
+        if stat.S_ISREG(st.st_mode) and name is not None:
+            record["bytes"] += st.st_size
+            record["freed_disk_bytes"] += private_bytes(parent, name, st)
+
+    def _in_repository(self, rel: str) -> bool:
+        """Whether `rel` or a directory between it and the tree's root holds a
+        `.git` (the root's own is the job's repository). Fails closed."""
+        opened: list[int] = []
+        fd = self.root_fd
+        try:
+            for part in rel.split("/"):
+                fd = open_dir(part, dir_fd=fd)
+                opened.append(fd)
+                if _exists(".git", fd):
+                    return True
+            return False
+        except (OSError, TreeError):
+            return True
+        finally:
+            for x in opened:
+                os.close(x)
+
+
+def _regular(dir_fd: int, name: str) -> bool:
+    try:
+        return stat.S_ISREG(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+    except OSError:
+        return False
+
+
+def _marker(parent_fd: int, directory: str, st: os.stat_result, name: str, limit: int = 65536) -> bytes | None:
+    """The first `limit` bytes of a regular file `name` inside `directory`, or None."""
+    fd = open_dir(directory, dir_fd=parent_fd, expect=st)
+    try:
+        try:
+            handle = os.open(name, O_FILE, dir_fd=fd)
+        except OSError:
+            return None
+        try:
+            if not stat.S_ISREG(os.fstat(handle).st_mode):
+                return None
+            return os.read(handle, limit)
+        finally:
+            os.close(handle)
+    finally:
+        os.close(fd)
 
 
 # --- durability ------------------------------------------------------------------
