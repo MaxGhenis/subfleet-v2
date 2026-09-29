@@ -35,7 +35,9 @@ What it guarantees:
 * **Refuses rather than guesses.** A daemon holding `daemon.lock`, a volume
   without room for the backups, a schema this build would migrate, or a missing
   store is a refusal (exit 7). Anything else that stops a pass which had begun
-  to write still saves the report and names the copy to restore from.
+  to write still saves the report and names the copy to restore from. A report
+  that cannot be saved is printed in full instead, and never replaces the
+  error that stopped the pass or the fix that names the copy.
 
 The default is a dry run that does the whole job but the writing: it computes
 the exact keep and delete sets, the exact bytes the delete frees, the
@@ -230,6 +232,17 @@ class PruneStopped(PruneError):
     """
 
 
+class PruneReportUnsaved(PruneError):
+    """The pass finished, but its report could not be saved.
+
+    Raised only when nothing else went wrong: a pass that failed raises its own
+    error whether or not its report was saved. Either way the report stays
+    attached, and `main` prints one that is not on disk in full, because it
+    names the backups and holds the pre-prune counts a restore is checked
+    against.
+    """
+
+
 # --- the report ---------------------------------------------------------------
 
 @dataclass
@@ -254,6 +267,7 @@ class PruneReport:
     deleted: int = 0
     errors: list[str] = field(default_factory=list)
     path: str | None = None
+    save_error: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -728,7 +742,10 @@ def prune(state_root: str | Path, *, apply: bool = False, confirm: bool = False,
     it opens one, read-only included. Raises `PruneRefused` (exit 7) for a
     precondition, `PruneVerificationError` (exit 1) for a proof that did not
     hold, and `PruneStopped` (exit 1) for anything else that came out of the
-    pass, each with the report attached once there is one to attach.
+    pass, each with the report attached once there is one to attach. A report
+    that cannot be saved never replaces any of those: it is recorded on
+    `report.save_error`, and a pass that otherwise finished raises
+    `PruneReportUnsaved` (exit 1).
     """
     state_root = Path(state_root).expanduser()
     database = state_root / STORE_NAME
@@ -774,14 +791,30 @@ def prune(state_root: str | Path, *, apply: bool = False, confirm: bool = False,
         # got, so it is saved before the error leaves this function.
         report.errors.append(f"{type(error).__name__}: {error}")
         failure = error
-    finally:
-        store.close()
-        _release_daemon_lock(lock)
+    # Closing and unlocking come after the last write, so an error in either is
+    # recorded rather than allowed to replace the pass's outcome or skip its report.
+    for release in (store.close, lambda: _release_daemon_lock(lock)):
+        try:
+            release()
+        except BaseException as error:
+            report.errors.append(f"{type(error).__name__}: {error}")
     report.finished_at = utc_now()
+    unsaved: BaseException | None = None
     if write_report:
-        report.save(state_root)
+        try:
+            report.save(state_root)
+        except BaseException as error:
+            # A full volume is the likeliest reason a save fails, and the
+            # likeliest reason the pass itself failed. The save's error must not
+            # replace the pass's own, or the copy it names to restore from: the
+            # report stays attached, and `main` prints it in full instead.
+            unsaved = error
+            report.save_error = f"{type(error).__name__}: {error}"
+            report.errors.append(f"report not saved: {report.save_error}")
     if failure is None:
-        return report
+        if unsaved is None:
+            return report
+        raise PruneReportUnsaved(*_unsaved(report, state_root), report) from unsaved
     if isinstance(failure, PruneError):
         failure.report = report
         raise failure
@@ -789,6 +822,22 @@ def prune(state_root: str | Path, *, apply: bool = False, confirm: bool = False,
         f"prune decisions: the pass stopped on {type(failure).__name__}: {failure}"
         f" after {report.deleted} rows in {report.batches} committed batches",
         _restore_fix(report.backups.get("copy", {}).get("path")), report) from failure
+
+
+def _unsaved(report: PruneReport, state_root: Path) -> tuple[str, str]:
+    """The message and fix for a pass that finished but could not save its report."""
+    unsaved = f"its report could not be saved: {report.save_error}"
+    if report.dry_run:
+        return (f"prune decisions: the dry run finished, but {unsaved}",
+                f"the dry run deleted nothing; free space in {state_root} or make it writable, "
+                f"or pass --no-report")
+    if not report.deleted:
+        return (f"prune decisions: the pass had nothing to delete, but {unsaved}",
+                "nothing was deleted and no backup was taken")
+    return (f"prune decisions: the pass deleted {report.deleted} rows in {report.batches} "
+            f"committed batches and every proof held, but {unsaved}",
+            f"keep the report printed below: it names both backups and holds the pre-prune "
+            f"counts a restore from {report.backups['copy']['path']} is checked against")
 
 
 def _pass(store: Store, report: PruneReport, *, database: Path, state_root: Path,
@@ -1027,14 +1076,21 @@ def _fail(code: int, message: str, fix: str | None = None,
           report: PruneReport | None = None) -> int:
     """The CLI's refusal shape (`cli.fail`): the message, then the fix (C-17.4).
 
-    A pass that got as far as planning saved a report, and it is the record of
-    the backups and of how far the pass got, so its path goes out beside them.
+    A pass that got as far as planning has a report, and it is the record of
+    the backups, of how far the pass got and of the pre-prune counts a restore
+    is checked against. A saved one is named; one that is not on disk, because
+    saving it failed or `--no-report` asked for none, is printed in full.
     """
     print(f"subfleet: {message}", file=sys.stderr)
     if fix:
         print(f"  fix: {fix}", file=sys.stderr)
     if report is not None and report.path:
         print(f"  report: {report.path}", file=sys.stderr)
+    elif report is not None:
+        why = f"saving it failed: {report.save_error}" if report.save_error else "--no-report"
+        print(f"  report: not saved ({why}); here it is in full:", file=sys.stderr)
+        print(json.dumps(report.as_dict(), indent=1, sort_keys=True, default=str),
+              file=sys.stderr)
     return code
 
 
@@ -1098,10 +1154,18 @@ def _print(report: PruneReport) -> None:
                                         "wal_checkpoint(TRUNCATE) could not truncate the log"
                      + (" and the rebuilt file did not give its pages back to the filesystem"
                         if report.vacuum else "")))
+    rows.extend(("error", error) for error in report.errors)
     for label, value in rows:
         print(f"{label:<16} {value}")
     if report.path:
         print(f"{'report':<16} {report.path}")
+
+
+def _show(report: PruneReport, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        _print(report)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1133,7 +1197,11 @@ def main(argv: list[str] | None = None) -> int:
         report = prune(args.state_root, apply=args.apply, confirm=args.confirm,
                        backup_dir=args.backup_dir, vacuum=args.vacuum, write_report=args.report)
     except PruneError as stop:
-        # Every refusal, failed proof and unhandled stop arrives in one shape.
+        # Every refusal, failed proof, unhandled stop and unsaved report
+        # arrives in one shape. A pass that finished still prints its report
+        # where a finished pass does; only the file is missing.
+        if isinstance(stop, PruneReportUnsaved):
+            _show(stop.report, args.json)
         return _fail(stop.code, str(stop), stop.fix, stop.report)
     except SchemaVersionError as mismatch:
         # C-3.5: the store is newer than this build knows, and the message
@@ -1141,15 +1209,12 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(mismatch.code, f"prune decisions: {mismatch}",
                      "run this pass from the build that wrote the store")
     except (sqlite3.Error, OSError) as error:
-        # Opening the store, or saving the report, outside the pass itself.
+        # Reading the schema or opening the store: everything after that comes
+        # out of `prune` as a `PruneError` carrying its report.
         return _fail(PruneStopped.code, f"prune decisions: {type(error).__name__}: {error}",
-                     f"look in {Path(args.state_root).expanduser()} for a "
-                     f"decisions-prune-report-*.json: a pass that got as far as planning saves "
-                     f"one, and it names the copy to restore from")
-    if args.json:
-        print(json.dumps(report.as_dict(), sort_keys=True))
-    else:
-        _print(report)
+                     "the pass stopped before it planned, so it deleted nothing and has "
+                     "no report; fix what the error names and run it again")
+    _show(report, args.json)
     return 0
 
 

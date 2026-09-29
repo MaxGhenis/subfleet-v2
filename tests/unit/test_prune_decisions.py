@@ -9,22 +9,29 @@ which belong to this one-off pass rather than to the daemon.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import fcntl
+import functools
 import gzip
 import hashlib
+import io
 import json
 import os
+import shutil
 import sqlite3
+import tempfile
 import types
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from subfleet import prune_decisions
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.offline import Offline
-from subfleet.prune_decisions import (PruneRefused, PruneStopped, PruneVerificationError,
-                                      prune)
+from subfleet.prune_decisions import (PruneRefused, PruneReportUnsaved, PruneStopped,
+                                      PruneVerificationError, prune)
 from subfleet.store import SCHEMA_VERSION, SchemaVersionError, Store
 
 TERMINAL = "20260920-100000-terminal"
@@ -183,6 +190,26 @@ class Answering:
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
+
+
+def drifting_readers(monkeypatch) -> None:
+    """A proof that fails after the deletes have committed.
+
+    The second reading of the readers — the one taken after the delete — comes
+    back changed, so `_verify` raises with every batch already committed and
+    the backups taken: the state in which the report matters most.
+    """
+    original = prune_decisions._reader_bytes
+    calls: list[int] = []
+
+    def drifting(conn, jobs):
+        served = original(conn, jobs)
+        calls.append(len(calls))
+        if len(calls) > 1:
+            return {job: dict(value, why="other bytes") for job, value in served.items()}
+        return served
+
+    monkeypatch.setattr(prune_decisions, "_reader_bytes", drifting)
 
 
 def answering(statement: str, answers: list[tuple]):
@@ -573,18 +600,7 @@ def test_a_verification_failure_reports_the_restore_path_and_saves_the_report(se
                                                                              monkeypatch):
     """Brief decision 8: a proof that does not hold exits non-zero and names the copy."""
     store, root = seeded
-    original = prune_decisions._reader_bytes
-    calls: list[int] = []
-
-    def drifting(conn, jobs):
-        """The second reading — the one taken after the delete — comes back changed."""
-        served = original(conn, jobs)
-        calls.append(len(calls))
-        if len(calls) > 1:
-            return {job: dict(value, why="other bytes") for job, value in served.items()}
-        return served
-
-    monkeypatch.setattr(prune_decisions, "_reader_bytes", drifting)
+    drifting_readers(monkeypatch)
     with pytest.raises(PruneVerificationError) as failure:
         prune(root, apply=True, confirm=True, batch_size=2)
     assert failure.value.code == 1
@@ -797,3 +813,348 @@ def test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing(seeded, monke
     assert report.dry_run and report.deleted == 0
     assert report.decisions["total"] == len(decision_ids(root)) - 1     # the plan's instant, not the row after it
     assert rows(root, "decisions", "decision_id")[-1]["evaluated_at"] == "2099-01-01T00:00:00Z"
+
+
+# --- a report that cannot be saved ---------------------------------------------
+#
+# Invariants, for every outcome of the pass and every way saving its report can
+# go: the exit code, the error and the fix are the ones the same pass gives with
+# a working save (a finished pass whose report is lost exits 1, not 0); the
+# report is on disk or printed in full, and is the report a working save writes
+# but for the save's own error; a copy the pass took is on disk and named in any
+# fix; and the store ends the same either way.
+
+NO_SPACE = "OSError: [Errno 28] No space left on device"
+
+
+def unsavable(monkeypatch, make=lambda: OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))):
+    """Publishing the report fails the way a full volume makes it fail."""
+    def publish(path, data):
+        raise make()
+
+    monkeypatch.setattr(prune_decisions, "atomic_publish", publish)
+
+
+def printed_report(err: str) -> dict:
+    """The report `_fail` prints in full when it is not on disk."""
+    _, marker, body = err.partition("; here it is in full:\n")
+    assert marker, err
+    return json.loads(body)
+
+
+def interrupted_at(monkeypatch, batch: int) -> None:
+    """A Ctrl-C as delete batch `batch` begins, the earlier ones committed."""
+    begun = []
+
+    class Interrupted(Store):
+        def transaction(self, kind="state.changed", **kwargs):
+            if kind == prune_decisions.PRUNE_KIND:
+                begun.append(kind)
+                if len(begun) == batch:
+                    raise KeyboardInterrupt
+            return super().transaction(kind, **kwargs)
+
+    monkeypatch.setattr(prune_decisions, "Store", Interrupted)
+
+
+def test_a_report_that_cannot_be_saved_keeps_the_failed_proof_and_its_restore(seeded,
+                                                                            monkeypatch):
+    """Brief decision 8: after committed deletes, a full volume at the report hides neither the error nor the copy."""
+    store, root = seeded
+    drifting_readers(monkeypatch)
+    unsavable(monkeypatch)
+    with pytest.raises(PruneVerificationError) as failure:
+        prune(root, apply=True, confirm=True, batch_size=2)
+    report = failure.value.report
+    assert "a reader returns different bytes" in str(failure.value)
+    assert report.deleted == 5 and report.batches == 3
+    assert report.path is None and report.save_error == NO_SPACE
+    assert report.errors[-1] == f"report not saved: {NO_SPACE}"
+    copy = report.backups["copy"]["path"]
+    assert Path(copy).is_file() and copy in failure.value.fix
+    assert "`state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm`" in failure.value.fix
+    assert not list(root.glob("decisions-prune-report-*"))
+
+
+def test_main_prints_the_failed_proof_its_restore_and_the_whole_unsaved_report(seeded,
+                                                                             monkeypatch,
+                                                                             capsys):
+    """C-17.4: the operator gets the error, the fix naming the copy, and every recovery detail."""
+    store, root = seeded
+    drifting_readers(monkeypatch)
+    unsavable(monkeypatch)
+    assert prune_decisions.main(["--state-root", str(root), "--apply",
+                                 "--i-understand-this-deletes-decisions"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "subfleet: prune decisions: the store is not what the plan promised: "
+        "a reader returns different bytes")
+    head = captured.err.split("\n  report: ")[0]
+    assert f"\n  report: not saved (saving it failed: {NO_SPACE}); here it is in full:\n" \
+        in captured.err
+    report = printed_report(captured.err)
+    assert report["backups"]["copy"]["path"] in head
+    assert Path(report["backups"]["copy"]["path"]).is_file()
+    assert Path(report["backups"]["rows"]["path"]).is_file()
+    assert report["deleted"] == 5 and report["verification"]["ok"] is False
+    # What the restore recipe checks the restored store against.
+    assert report["decisions"]["total"] == 12
+    assert report["fingerprints"]["before"]["events"]["rows"] > 0
+    assert "look in" not in captured.err
+    assert len(decision_ids(root)) == 7
+
+
+def test_a_finished_pass_whose_report_cannot_be_saved_raises_with_the_report(seeded,
+                                                                           monkeypatch):
+    """Brief: the report is part of what a pass delivers, so losing it is not success."""
+    store, root = seeded
+    unsavable(monkeypatch)
+    with pytest.raises(PruneReportUnsaved) as unsaved:
+        prune(root, apply=True, confirm=True, batch_size=2)
+    report = unsaved.value.report
+    assert unsaved.value.code == 1
+    assert isinstance(unsaved.value.__cause__, OSError)
+    assert report.deleted == 5 and report.verification["ok"] is True
+    assert str(unsaved.value) == (
+        "prune decisions: the pass deleted 5 rows in 3 committed batches and every proof "
+        f"held, but its report could not be saved: {NO_SPACE}")
+    assert report.backups["copy"]["path"] in unsaved.value.fix
+
+
+def test_main_prints_a_finished_pass_whose_report_cannot_be_saved(seeded, monkeypatch, capsys):
+    """C-17.4: stdout still carries the report a finished pass prints; stderr says it is not on disk."""
+    store, root = seeded
+    unsavable(monkeypatch)
+    assert prune_decisions.main(["--state-root", str(root), "--apply",
+                                 "--i-understand-this-deletes-decisions", "--json"]) == 1
+    captured = capsys.readouterr()
+    shown = json.loads(captured.out)
+    assert shown["deleted"] == 5 and shown["verification"]["ok"] is True
+    assert printed_report(captured.err) == shown
+    assert "every proof held, but its report could not be saved" in captured.err
+    assert len(decision_ids(root)) == 7
+
+
+def test_a_dry_run_whose_report_cannot_be_saved_still_prints_its_plan(seeded, monkeypatch,
+                                                                      capsys):
+    """Brief decision 4: the dry run writes nothing, and a report it cannot save loses no plan."""
+    store, root = seeded
+    before = snapshot(root)
+    unsavable(monkeypatch, lambda: PermissionError(errno.EACCES, "Permission denied"))
+    assert prune_decisions.main(["--state-root", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert "delete           5 rows over" in captured.out
+    assert "error            report not saved: PermissionError" in captured.out
+    assert ("subfleet: prune decisions: the dry run finished, but its report could not be "
+            "saved: PermissionError: [Errno 13] Permission denied") in captured.err
+    assert "the dry run deleted nothing" in captured.err
+    assert snapshot(root) == before
+
+
+def test_a_stop_mid_delete_keeps_its_error_when_the_report_cannot_be_saved(seeded,
+                                                                         monkeypatch):
+    """Brief decision 8: a Ctrl-C in the delete loop, then another at the save, still names the copy."""
+    store, root = seeded
+    interrupted_at(monkeypatch, batch=2)
+    unsavable(monkeypatch, KeyboardInterrupt)
+    with pytest.raises(PruneStopped) as stopped:
+        prune(root, apply=True, confirm=True, batch_size=2)
+    assert str(stopped.value).startswith("prune decisions: the pass stopped on KeyboardInterrupt")
+    assert str(stopped.value).endswith("after 2 rows in 1 committed batches")
+    assert stopped.value.report.save_error == "KeyboardInterrupt: "
+    assert stopped.value.report.backups["copy"]["path"] in stopped.value.fix
+    assert len(decision_ids(root)) == 10
+
+
+def test_a_failed_pass_under_no_report_prints_its_report(seeded, monkeypatch, capsys):
+    """Brief: --no-report prints the report rather than saving it, a failed pass's included."""
+    store, root = seeded
+    drifting_readers(monkeypatch)
+    assert prune_decisions.main(["--state-root", str(root), "--apply",
+                                 "--i-understand-this-deletes-decisions", "--no-report"]) == 1
+    err = capsys.readouterr().err
+    assert "\n  report: not saved (--no-report); here it is in full:\n" in err
+    report = printed_report(err)
+    assert report["backups"]["copy"]["path"] in err.split("\n  report: ")[0]
+    assert report["errors"] and not any(error.startswith("report not saved")
+                                        for error in report["errors"])
+
+
+@pytest.mark.parametrize("drift", [False, True])
+def test_an_error_closing_the_store_replaces_neither_the_outcome_nor_the_report(
+        seeded, monkeypatch, drift):
+    """C-3.4: closing and unlocking come after the last write, and the lock is released anyway."""
+    store, root = seeded
+    closing = Store.close
+
+    def close_then_fail(self):
+        closing(self)
+        if self is not store:                           # the pass's own, not the fixture's
+            raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(Store, "close", close_then_fail)
+    if drift:
+        drifting_readers(monkeypatch)
+        with pytest.raises(PruneVerificationError) as failure:
+            prune(root, apply=True, confirm=True, batch_size=2)
+        report = failure.value.report
+    else:
+        report = prune(root, apply=True, confirm=True, batch_size=2)
+        assert report.verification["ok"] is True
+    assert report.errors[-1] == "OperationalError: disk I/O error"
+    assert json.loads(Path(report.path).read_text())["errors"] == report.errors
+    handle = os.open(root / "daemon.lock", os.O_RDWR)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(handle)
+
+
+def test_an_error_before_the_plan_says_nothing_was_deleted(seeded, monkeypatch, capsys):
+    """C-17.4: an error opening the store is not pointed at a report that does not exist."""
+    store, root = seeded
+
+    def unopenable(*args, **kwargs):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(prune_decisions, "Store", unopenable)
+    assert prune_decisions.main(["--state-root", str(root), "--apply",
+                                 "--i-understand-this-deletes-decisions"]) == 1
+    err = capsys.readouterr().err
+    assert "subfleet: prune decisions: OperationalError: unable to open database file" in err
+    assert "the pass stopped before it planned, so it deleted nothing and has no report" in err
+    assert len(decision_ids(root)) == 12
+    assert not list(root.glob("decisions-prune-report-*"))
+
+
+# The pass outcomes the property below drives: two that finish, and four that
+# stop at different depths — before any backup, between the two backups, after
+# some batches committed, and after every batch committed.
+FINISHES = ("proved", "dry-run")
+STOPS = ("refused-for-space", "disk-full-at-row-backup", "interrupted", "proof-fails")
+CLOCK = "2026-09-29T12:00:00Z"
+
+
+@pytest.fixture(scope="module")
+def template(tmp_path_factory):
+    """A closed store with rows to delete in three batches of three, copied per example."""
+    root = tmp_path_factory.mktemp("template")
+    with Store(root / "state.sqlite3") as store:
+        for job_id, state in ((TERMINAL, "succeeded"), (MIXED, "failed"), (LIVE, "waiting")):
+            seed_job(store, root, job_id, state=state)
+        for index in range(7):
+            seed_decision(store, TERMINAL, f"waiting {index}")
+        for index in range(3):
+            seed_decision(store, MIXED, f"mixed {index}")
+        for index in range(2):
+            seed_decision(store, LIVE, f"still waiting {index}")
+    for sidecar in ("state.sqlite3-wal", "state.sqlite3-shm"):
+        (root / sidecar).unlink(missing_ok=True)
+    return root
+
+
+def save_failure(kind: str, detail) -> BaseException:
+    if kind == "oserror":
+        return OSError(detail, os.strerror(detail))
+    if kind == "interrupt":
+        return KeyboardInterrupt()
+    return RuntimeError(detail)
+
+
+def run_main(root: Path, outcome: str, save: tuple, as_json: bool,
+             batch: int) -> tuple[int, str, str]:
+    """`main` over `root` with `outcome` and `save` injected, its paths made relative."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(prune_decisions, "utc_now", lambda: CLOCK)
+        free = 1 if outcome == "refused-for-space" else 1 << 50
+        patch.setattr(prune_decisions.shutil, "disk_usage",
+                      lambda path: types.SimpleNamespace(total=1 << 50, used=0, free=free))
+        patch.setattr(prune_decisions, "prune",
+                      functools.partial(prune_decisions.prune, batch_size=3))
+        if outcome == "proof-fails":
+            drifting_readers(patch)
+        elif outcome == "interrupted":
+            interrupted_at(patch, batch)
+        elif outcome == "disk-full-at-row-backup":
+            def full(*args, **kwargs):
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+            patch.setattr(prune_decisions, "_backup_rows", full)
+        if save[0] not in ("saved", "no-report"):
+            unsavable(patch, lambda: save_failure(*save))
+        argv = ["--state-root", str(root)]
+        if outcome != "dry-run":
+            argv += ["--apply", "--i-understand-this-deletes-decisions"]
+        if as_json:
+            argv.append("--json")
+        if save[0] == "no-report":
+            argv.append("--no-report")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = prune_decisions.main(argv)
+    return (code, out.getvalue().replace(str(root), "<root>"),
+            err.getvalue().replace(str(root), "<root>"))
+
+
+@settings(max_examples=30, deadline=None)
+@given(outcome=st.sampled_from(FINISHES + STOPS),
+       save=st.one_of(st.just(("saved", None)), st.just(("no-report", None)),
+                      st.tuples(st.just("oserror"),
+                                st.sampled_from([errno.ENOSPC, errno.EACCES, errno.EROFS,
+                                                 errno.EIO, errno.EDQUOT])),
+                      st.just(("interrupt", None)),
+                      st.tuples(st.just("runtime"), st.text(max_size=12))),
+       as_json=st.booleans(), batch=st.integers(1, 3))
+def test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is(template, outcome, save,
+                                                                     as_json, batch):
+    """Brief decision 8, differential: the same pass with a working save is the oracle."""
+    with tempfile.TemporaryDirectory(prefix="subfleet-prune-") as directory:
+        control, subject = Path(directory).resolve() / "control", Path(directory).resolve() / "s"
+        shutil.copytree(template, control)
+        shutil.copytree(template, subject)
+        c_code, c_out, c_err = run_main(control, outcome, ("saved", None), as_json, batch)
+        s_code, s_out, s_err = run_main(subject, outcome, save, as_json, batch)
+
+        saved, = control.glob("decisions-prune-report-*.json")
+        oracle = json.loads(saved.read_text().replace(str(control), "<root>"))
+        stopped = outcome in STOPS
+        unsaved = save[0] not in ("saved", "no-report")
+        failure = save_failure(*save) if unsaved else None
+        save_error = f"{type(failure).__name__}: {failure}"
+        errors = oracle["errors"] + ([f"report not saved: {save_error}"] if unsaved else [])
+
+        # The exit code, the error and the fix are the pass's own; a pass that
+        # finished and lost only its report says so instead of exiting 0.
+        head = s_err.split("\n  report: ")[0]
+        assert s_code == (1 if unsaved and not stopped else c_code)
+        if stopped or not unsaved:
+            assert head == c_err.split("\n  report: ")[0]
+        else:
+            assert c_err == "" and head.startswith("subfleet: prune decisions: the ")
+            assert f"but its report could not be saved: {save_error}\n  fix: " in head
+        # The report is on disk or printed in full, and is the oracle's but for the save's error.
+        if save[0] == "saved":
+            mine, = subject.glob("decisions-prune-report-*.json")
+            assert json.loads(mine.read_text().replace(str(subject), "<root>")) == oracle
+        else:
+            assert not list(subject.glob("decisions-prune-report-*"))
+            if stopped or unsaved:
+                assert printed_report(s_err) == {**oracle, "errors": errors}
+        # A finished pass prints what it prints with a working save, the report's line aside.
+        if stopped:
+            assert s_out == c_out == ""
+        elif as_json:
+            assert json.loads(s_out) == {**json.loads(c_out), "errors": errors}
+        else:
+            where = ("mode ", "report ", "error ")
+            assert [line for line in s_out.splitlines() if not line.startswith(where)] == \
+                [line for line in c_out.splitlines() if not line.startswith(where)]
+            assert [line for line in s_out.splitlines() if line.startswith("error ")] == \
+                [f"{'error':<16} {error}" for error in errors]
+        # A copy the pass took is on disk, and any fix names it.
+        copy = oracle["backups"].get("copy", {}).get("path")
+        if copy:
+            assert Path(copy.replace("<root>", str(subject))).is_file()
+            assert copy in head or head == ""
+        # And the store ends the same either way.
+        assert rows(subject, "decisions", "decision_id") == rows(control, "decisions", "decision_id")
