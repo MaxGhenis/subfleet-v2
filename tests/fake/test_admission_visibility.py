@@ -121,6 +121,10 @@ def test_c6_11_the_full_fleet_is_named(fleet):
 
 @pytest.mark.parametrize("hold,expected", [
     ({"reason": "lease-held", "leases": ["out:/r.md"]}, "a lease this job needs is held by another job: out:/r.md"),
+    ({"reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]},   # C-26.9
+     "a lease this job needs is kept for an older turn that is waiting for it: worktree:/w"),
+    ({"reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]},
+     "Queued behind: t1 (an older turn waiting for worktree:/w takes it first)"),
     ({"reason": "probe-pending"}, "its lane is being probed"),
     ({"reason": "reserve:fable:unmeasured"}, "no lane admits it (reserve:fable:unmeasured)"),
     ({"reason": "behind-older-job"}, "held behind ?"),                # a hold missing its fields still renders
@@ -130,6 +134,16 @@ def test_c6_11_the_full_fleet_is_named(fleet):
 def test_c6_11_every_hold_renders_as_a_sentence(hold, expected):
     lines = render.why_queue({"job_id": "j", "state": "queued", "hold": hold})
     assert expected in "\n".join(lines)
+
+
+def test_c26_9_a_lease_kept_for_an_older_turn_is_not_called_held():
+    """A queued-only lease has no holder: `why` must not say another job holds it (review of 8f14a50f)."""
+    text = "\n".join(render.why_queue({"job_id": "j", "state": "waiting", "hold": {
+        "reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]}}))
+    assert "held by another job" not in text
+    both = "\n".join(render.why_queue({"job_id": "j", "state": "waiting", "hold": {
+        "reason": "lease-held", "leases": ["out:/r.md"], "queued": ["worktree:/w"], "queued_behind": ["t1"]}}))
+    assert "held by another job: out:/r.md" in both and "Queued behind: t1" in both
 
 
 # --- daemon.log and status (C-6.11) -------------------------------------------------------------

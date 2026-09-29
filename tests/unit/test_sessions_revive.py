@@ -111,6 +111,82 @@ def test_a_session_the_desktop_store_does_not_know_needs_no_opt_in(world, policy
     assert result.candidate.desktop_owned is False
 
 
+@pytest.mark.parametrize("bad", ["symlink", "oversized", "cut-short"])
+def test_an_unreadable_desktop_record_leaves_ownership_unknown_and_revival_refused(
+        world, policy, tmp_path, bad):
+    """C-23.35, plan decision 7 (review of 7da13417, finding 3): a desktop record
+    that cannot be read may be this session's own. The session then reads as
+    possibly owned, not as one the app does not know, and automatic revival is
+    refused as for an owned one; `--revive` still admits it. A FIFO record is
+    covered in a child process by `test_sessions_revive_reads.py`."""
+    _home, store = world
+    cold_session(world, desktop_owned=False)
+    record = fx.index_entry(store, ACCOUNT, ORG, COLD)
+    body = record.read_text()
+    if bad == "symlink":
+        target = tmp_path / "elsewhere.json"
+        target.write_text(body)
+        record.unlink()
+        record.symlink_to(target)
+    elif bad == "oversized":
+        record.write_text(body[:-1] + ', "padding": "' + "a" * (1024 * 1024) + '"}')
+    else:
+        record.write_text(body[: len(body) // 2])     # a write the app has not finished
+    daemon = fx.FakeSessions()
+    result = attempt(daemon, policy, COLD, tmp_path)
+    assert result.admitted is False
+    assert daemon.submits == []
+    assert result.candidate.desktop_owned is None
+    assert "may own this session" in result.reason and str(record) in result.reason
+    assert result.candidate.to_dict()["unreadable_records"] == [str(record)]
+    assert result.fix == revive.OPT_IN_FIX
+    assert attempt(daemon, policy, COLD, tmp_path, opt_in=True).admitted is True
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a directory whatever its mode")
+@pytest.mark.parametrize("how", ["unlistable", "linked-behind-an-unsearchable-directory"])
+def test_a_store_directory_that_cannot_be_listed_leaves_ownership_unknown(world, policy, tmp_path, how):
+    """C-23.35 (review of the round-2 fixes, F4 and its second pass): `Path.glob`
+    skipped a directory it could not list or look into, and the session whose
+    record it held read as not owned. The directory is now reported, and ownership
+    is unknown until it can be read."""
+    _home, store = world
+    cold_session(world)
+    if how == "unlistable":
+        locked = reported = store / ACCOUNT / ORG
+    else:
+        hidden = tmp_path / "elsewhere" / ACCOUNT
+        (store / ACCOUNT).rename(hidden.parent.mkdir() or hidden)
+        (store / ACCOUNT).symlink_to(hidden)
+        locked, reported = hidden.parent, store / ACCOUNT
+    locked.chmod(0)
+    try:
+        daemon = fx.FakeSessions()
+        result = attempt(daemon, policy, COLD, tmp_path)
+        assert result.admitted is False and daemon.submits == []
+        assert result.candidate.desktop_owned is None
+        assert result.candidate.unreadable_records == (str(reported),)
+        assert str(reported) in result.reason
+    finally:
+        locked.chmod(0o700)
+    assert attempt(fx.FakeSessions(), policy, COLD, tmp_path).candidate.desktop_owned is True
+
+
+def test_a_desktop_record_without_a_cwd_still_marks_the_session_owned(world, policy, tmp_path):
+    """C-23.35, plan decision 7: a session present in the desktop store at all is
+    one the app owns. A record naming it without a cwd had read as not owned, and
+    lifted the refusal; the cwd then comes from the transcript."""
+    _home, store = world
+    cold_session(world, desktop_owned=False)
+    fx.index_entry(store, ACCOUNT, ORG, COLD, cwd="")
+    daemon = fx.FakeSessions()
+    result = attempt(daemon, policy, COLD, tmp_path)
+    assert result.admitted is False
+    assert result.candidate.desktop_owned is True
+    assert "the desktop app owns this session" in result.reason
+    assert result.candidate.cwd == transcripts.last_cwd(Path(result.candidate.transcript))
+
+
 # --- the candidate filters (C-23.31, C-23.35) ---------------------------------
 
 def test_revive_never_continues_a_headless_lane_run(world, policy, tmp_path):

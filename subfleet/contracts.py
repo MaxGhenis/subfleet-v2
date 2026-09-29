@@ -19,6 +19,11 @@ JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
 
+# C-23.14: the most characters the credential scrubber matches in one call. A
+# longer text is matched as a head and a tail excerpt within the same bound; a
+# handoff brief is scrubbed whole, so its section caps must fit it (C-23.36).
+SCRUB_MAX_CHARS = 256 * 1024
+
 
 class JobState(str, enum.Enum):  # C-4.1
     QUEUED = "queued"

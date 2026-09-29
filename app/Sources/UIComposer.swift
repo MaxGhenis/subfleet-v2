@@ -116,8 +116,8 @@ struct ComposerView: View {
     @State private var loadedDraftFor: String?
 
     var body: some View {
-        let options = model.state.composerOptions(for: conversation.conversation_id)
         let current = settings ?? conversation.settings
+        let options = model.state.composerOptions(for: conversation.conversation_id, settings: current)
         let timeline = model.state.timelines[conversation.conversation_id]
         let live = timeline?.liveMessageID
         VStack(alignment: .leading, spacing: 6) {
@@ -154,6 +154,7 @@ struct ComposerView: View {
                         next.model = value
                         let entry = options.models.first { $0.value == value }?.model
                         if let effort = next.effort, let efforts = entry?.efforts, !efforts.contains(effort) { next.effort = nil }
+                        if entry?.fast.supported == false { next.fast = false }   // the toggle is disabled there
                         settings = next
                     })) {
                         ForEach(options.models) { choice in Text(choice.label).tag(choice.value) }
@@ -166,7 +167,7 @@ struct ComposerView: View {
                         next.effort = value.isEmpty ? nil : value
                         settings = next
                     })) {
-                        Text("Default effort").tag("")
+                        Text(options.defaultEffort.map { "Default (\($0.capitalized))" } ?? "Default effort").tag("")
                         ForEach(options.efforts, id: \.self) { Text($0.capitalized).tag($0) }
                     }.labelsHidden().frame(maxWidth: 140).help("Reasoning effort")
                     Toggle(isOn: Binding(get: { current.fast }, set: { value in

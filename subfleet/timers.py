@@ -47,6 +47,9 @@ class Timers:
         # desktop session store and an 8.5-minute one was observed on 2026-08-18
         # during app churn; sharing the two-slot cycle pool would let it hold a
         # probe or a keepalive behind it for minutes (C-23.28).
+        # Both mirror timers stay serial. While the full timer owns this
+        # worker, Mirror checkpoints service due flag-only hot passes under
+        # its flock; another worker would just lose that lock and skip.
         self._mirror = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-mirror')
         self._session_mirror = None
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
@@ -218,7 +221,7 @@ class Timers:
         self._mirror_engine().run_once(options_from(self.policy))
 
     def mirror_hot_cycle(self):
-        """One hot sidebar pass (C-23.28): spread new sessions within seconds.
+        """One hot sidebar pass (C-23.28): spread sessions and sync changed flags.
 
         Returns whether it changed anything, which is what decides whether this
         run is worth a `timer.run` event.

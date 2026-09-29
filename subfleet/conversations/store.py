@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
-from ..sessions.transcripts import NotRegularFile, read_regular
+from ..sessions.transcripts import NotRegularFile
+from ..state_files import read_state
 from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
@@ -951,10 +952,14 @@ class ConversationStore:
         return [_decode_message(r) for r in reversed(rows)]
 
     def message_text(self, message: dict) -> str:
-        """The message's text as published (C-24.3), read only as a regular file of
-        at most 1 MiB: a FIFO there had held `conversation.open` and a handoff in
-        open() (review of aa41312)."""
-        text = read_regular(message["text_path"], TEXT_MAX).decode("utf-8")
+        """The text accepted with this message (C-24.3), read through a private,
+        regular, no-follow descriptor and checked against the message digest.
+        Check its original bytes before preserving read_text's newline handling.
+        """
+        text = read_state(message["text_path"], limit=TEXT_MAX, private=True).decode("utf-8")
+        digest = message_digest(message["conversation_id"], text, message["attachments"], message["settings"])
+        if digest != message["digest"]:
+            raise OSError(errno.EIO, "message text does not match its accepted digest", message["text_path"])
         return text.replace("\r\n", "\n").replace("\r", "\n")      # as `read_text` gave it
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,

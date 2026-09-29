@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
 from . import redact
@@ -133,10 +133,13 @@ def _request(request_id: int, method: str, params: dict) -> str:
 
 
 class CodexTurn:
-    def __init__(self, spec: TurnSpec):
+    def __init__(self, spec: TurnSpec, *, frame_recorded: Callable[[str], bool] = lambda tag: False,
+                 image_path: Callable[[str], str] = lambda path: path):
         if spec.permission not in POLICY:
             raise ValueError(f"unknown permission {spec.permission!r}")
         self.spec = spec
+        self._frame_recorded = frame_recorded
+        self._image_path = image_path
         self.phase = "new"
         self.thread_id: str | None = spec.native_session_id
         self.turn_id: str | None = None
@@ -357,6 +360,14 @@ class CodexTurn:
                   "service_tier": (result or {}).get("serviceTier"), "sandbox": (result or {}).get("sandbox"),
                   "approval_policy": (result or {}).get("approvalPolicy"), "native_session_id": thread_id}
         self.phase = "turn"
+        events = [Event("served", served, source.next()), Event("status", {"phase": "sent"}, source.next())]
+        if self._frame_recorded("user-message"):
+            return Step(events=events)
+        try:
+            inputs = self._input()
+        except OSError:
+            return self._end(FAILED, "attachment-missing", source=source.next(),
+                             detail="an image is missing, changed, or not private; add it again")
         approval, sandbox_policy = POLICY[self.spec.permission]
         if network_granted(self.spec.permission, self.spec.network) and sandbox_policy["type"] == "workspaceWrite":
             # d260: a writable turn's shell reaches the network, as a writable Claude
@@ -364,21 +375,21 @@ class CodexTurn:
             sandbox_policy = {**sandbox_policy, "networkAccess": True}
         params: dict[str, Any] = {
             "threadId": thread_id, "clientUserMessageId": self.spec.message_id,
-            "input": self._input(), "model": self.spec.model_id, "cwd": self.spec.cwd,
+            "input": inputs, "model": self.spec.model_id, "cwd": self.spec.cwd,
             "approvalPolicy": approval, "approvalsReviewer": "user", "sandboxPolicy": sandbox_policy,
             "serviceTier": FAST_TIER if self.spec.fast else None,
         }
         if self.spec.effort:
             params["effort"] = self.spec.effort
         return Step(frames=[Frame("user-message", "write", _request(ID_TURN, "turn/start", params))],
-                    events=[Event("served", served, source.next()), Event("status", {"phase": "sent"}, source.next())])
+                    events=events)
 
     def _input(self) -> list[dict]:
         items: list[dict] = []
         if self.spec.text:
             items.append({"type": "text", "text": self.spec.text})
         for image in self.spec.images:
-            items.append({"type": "localImage", "path": image.path})
+            items.append({"type": "localImage", "path": self._image_path(image.path)})
         return items
 
     def _accept(self, turn_id: str, source: "_Sources") -> Step:
@@ -414,7 +425,7 @@ class CodexTurn:
         if method == "hook/completed":
             return self._hook(params.get("run") or {}, source)
         if method == "turn/diff/updated":
-            diff = redact.truncate(redact.scrub(str(params.get("diff") or "")), 20_000)
+            diff = redact.bounded(str(params.get("diff") or ""), 20_000)
             return Step(events=[Event("diff", {"diff": diff}, source.next())])
         if method == "error":
             error = params.get("error") or {}
@@ -566,7 +577,7 @@ class CodexTurn:
             self.pending[rid] = (method, params)
             if method == "item/commandExecution/requestApproval":
                 kind, options = "command", ("allow", "allow-session", "deny", "cancel-turn")
-                summary = {"command": redact.truncate(redact.scrub(str(params.get("command") or "")), redact.INPUT_MAX),
+                summary = {"command": redact.bounded(str(params.get("command") or ""), redact.INPUT_MAX),
                            "cwd": params.get("cwd"), "reason": params.get("reason"),
                            # Every field that changes what is granted is shown (C-27.1).
                            "input_kind": params.get("kind"),

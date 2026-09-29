@@ -165,8 +165,9 @@ def policies(draw) -> dict:
                           max_in_flight_per_lane=draw(st.sampled_from([1, 2, 3])),
                           max_in_flight_unmeasured=1,
                           max_active_attempts_per_parent=draw(st.sampled_from([1, 2, 9])))
-    policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([1, 3])),
-                                                  turn_slots_per_lane=draw(st.sampled_from([1, 2])))
+    # C-26.9: null (the default) is no cap; a whole number caps turns.
+    policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([None, 1, 3])),
+                                                  turn_slots_per_lane=draw(st.sampled_from([None, 1, 2])))
     return policy
 
 
