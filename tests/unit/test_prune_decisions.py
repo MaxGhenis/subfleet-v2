@@ -25,7 +25,7 @@ import types
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 
 from subfleet import prune_decisions
 from subfleet.contracts import Credential, Lane, LaneOwner
@@ -824,10 +824,11 @@ def test_a_dry_run_reads_one_snapshot_while_a_daemon_keeps_writing(seeded, monke
 # Invariants, for every outcome of the pass and every way saving its report can
 # go: the exit code, the error and the fix are the ones the same pass gives with
 # a working save (a finished pass whose report is lost exits 1, not 0); a report
-# that saving failed to write, or of a pass that stopped, is printed in full and
-# is the report a working save writes but for the save's own error; a copy the
-# pass took is on disk and, once rows are deleted, named in any fix (every stop
-# driven here names it); and the store ends the same either way.
+# that is not on disk because saving it failed, or because `--no-report` was
+# passed to a pass that stopped, is printed in full and is the report a working
+# save writes but for the save's own error; a copy the pass took is on disk and,
+# once rows are deleted, named in any fix (every stop driven here names it); and
+# the store ends the same either way.
 
 NO_SPACE = "OSError: [Errno 28] No space left on device"
 
@@ -1025,6 +1026,9 @@ def test_an_error_prints_on_one_line_of_the_human_report(seeded, monkeypatch, ca
     assert (f"{'error':<16} report not saved: RuntimeError: a\\nb\\rc\\x85d\\u2028e f"
             in captured.out.splitlines())
     assert "(saving it failed: RuntimeError: a\\nb\\rc\\x85d\\u2028e f)" in captured.err
+    assert captured.err.splitlines()[0] == (
+        "subfleet: prune decisions: the dry run finished, but its report could not be saved: "
+        "RuntimeError: a\\nb\\rc\\x85d\\u2028e f")
     # The full report keeps the error exactly as raised.
     assert printed_report(captured.err)["errors"] == ["report not saved: RuntimeError: "
                                                       "a\nb\rc\x85d\u2028e f"]
@@ -1124,6 +1128,10 @@ def run_main(root: Path, outcome: str, save: tuple, as_json: bool,
                       st.just(("interrupt", None)),
                       st.tuples(st.just("runtime"), st.text(max_size=12))),
        as_json=st.booleans(), batch=st.integers(1, 3))
+# An error's text that imitates the lines around it, which random text will not draw.
+@example(outcome="proved", save=("runtime", "\n  report: "), as_json=False, batch=1)
+@example(outcome="proof-fails", save=("runtime", "x\n  fix: rm -rf the backups"), as_json=False,
+         batch=1)
 def test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is(template, outcome, save,
                                                                      as_json, batch):
     """Brief decision 8, differential: the same pass with a working save is the oracle."""
@@ -1150,8 +1158,10 @@ def test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is(template,
             assert head == c_err.split("\n  report: ")[0]
         else:
             assert c_err == "" and head.startswith("subfleet: prune decisions: the ")
-            assert f"but its report could not be saved: {save_error}\n  fix: " in head
-        # The report is on disk or printed in full, and is the oracle's but for the save's error.
+            assert (f"but its report could not be saved: {prune_decisions._one_line(save_error)}"
+                    "\n  fix: ") in head
+        # A saved report is the oracle; one not on disk is printed in full when
+        # the save failed or the pass stopped, and is the oracle's but for the save's error.
         if save[0] == "saved":
             mine, = subject.glob("decisions-prune-report-*.json")
             assert json.loads(mine.read_text().replace(str(subject), "<root>")) == oracle

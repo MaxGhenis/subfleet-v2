@@ -3,12 +3,12 @@
 Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
 `add_decision` each time a routing verdict left a job waiting), and nothing
-reads those rows again: `subfleet why` (the daemon's `why` verb) and offline `runs show` each
-serve one row per job, and no foreign key in `store_schema.sql` points at
-`decisions`. #16 stopped the repeats — a wait that reaches the verdict it
-reached last time adds no row (C-6.10) — and this module is the one-off
-operator pass that gives back the space the rows already written take. The dry
-run measures how many of them a store holds.
+reads those rows again: `subfleet why` (the daemon's `why` verb) and offline
+`runs show` each serve one row per job, and no foreign key in
+`store_schema.sql` points at `decisions`. #16 stopped the repeats — a wait
+that reaches the verdict it reached last time adds no row (C-6.10) — and this
+module is the one-off operator pass that gives back the space the rows already
+written take. The dry run measures how many of them a store holds.
 
 What it guarantees:
 
@@ -35,9 +35,9 @@ What it guarantees:
 * **Refuses rather than guesses.** A daemon holding `daemon.lock`, a volume
   without room for the backups, a schema this build would migrate, or a missing
   store is a refusal (exit 7). Anything else that stops a pass which had begun
-  to write still saves the report and names the copy to restore from. A report
-  that cannot be saved is printed in full instead, and never replaces the
-  error that stopped the pass or the fix that names the copy.
+  to write still saves the report and, once rows have been deleted, names the
+  copy to restore from. A report that cannot be saved is printed in full
+  instead, and never replaces the error that stopped the pass or its fix.
 
 The default is a dry run that does the whole job but the writing: it computes
 the exact keep and delete sets, the exact bytes the delete frees, the
@@ -1084,9 +1084,11 @@ def _fail(code: int, message: str, fix: str | None = None,
     A pass that got as far as planning has a report, and it is the record of
     the backups, of how far the pass got and of the pre-prune counts a restore
     is checked against. A saved one is named; one that is not on disk, because
-    saving it failed or `--no-report` asked for none, is printed in full.
+    saving it failed or `--no-report` asked for none, is printed in full. The
+    message is kept to one line, since an error's own text can hold a line
+    break; the fix is a recipe and keeps its lines.
     """
-    print(f"subfleet: {message}", file=sys.stderr)
+    print(f"subfleet: {_one_line(message)}", file=sys.stderr)
     if fix:
         print(f"  fix: {fix}", file=sys.stderr)
     if report is not None and report.path:
