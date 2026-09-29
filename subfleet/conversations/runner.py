@@ -803,16 +803,16 @@ class TurnRunner:
         A replay is ruled out by `replayed_message` alone: an outcome an earlier runner
         recorded, or an ended attempt, with the message in the relay's log is a replay,
         and one without it never had a successful result. So is a withheld message, or
-        one this runner did not write. Every stop has its reason (`stop_reason`) or is
-        the store's, and a close already written follows a stop, a refused frame or an
-        earlier outcome. The provider check guards a Codex process against a store
-        that would grant the claim."""
+        one this runner did not write. Every stop has its reason (`stop_reason`, which a
+        failed relay sets too, `_relay_lost`) or is the store's, and a close already
+        written follows a stop, a refused frame or an earlier outcome. The provider
+        check guards a Codex process against a store that would grant the claim."""
         outcome = self.driver.outcome
         return (self.title.state == OPEN and self.spec.provider == "claude" and not self.replayed_message
                 and outcome is not None and outcome.state == COMPLETE and outcome.ended_by == "provider"
                 and self.stop_reason is None and not getattr(self.driver, "interrupt_requested", False)
-                and not self.relay_failed and self.frame_refused is None
-                and self.commands.empty() and self._title_idle() and self._title_fits())
+                and self.frame_refused is None and self.commands.empty()
+                and self._title_idle() and self._title_fits())
 
     def _title_idle(self) -> bool:
         """The provider is idle, reading stdin, with no turn in flight: its result is in,
