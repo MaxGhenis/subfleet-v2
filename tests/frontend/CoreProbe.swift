@@ -240,15 +240,13 @@ func runFold(_ data: Data) throws -> [String: Any] {
             timeline.requestSteer(messageID: steered)
             results.append("steer_request")
         } else if let passed = step["escape"] {
-            // Esc, passing over the steers the daemon answered too-late for: a list of ids,
-            // each bound to the turn the app sees it in now (as `UIModel.escape` records
-            // it), or an object mapping each id to the turn it was too late for.
-            var unrecallable: [String: String] = [:]
+            // Esc, passing over the steers the daemon answered too-late for just now: a
+            // list of ids, each recorded as `UIModel.escape` records such an answer.
+            var answered = TooLateSteers()
             for id in passed.array?.compactMap(\.string) ?? [] {
-                if let host = tooLateBinding(id, in: timeline) { unrecallable[id] = host }
+                _ = answered.tooLate(id, in: timeline, assistant: "Claude")
             }
-            for (id, host) in passed.object ?? [:] { if let host = host.string { unrecallable[id] = host } }
-            switch escapeAction(timeline: timeline, unrecallable: unrecallable) {
+            switch answered.escape(timeline) {
             case .recall(let id): results.append("escape:recall:" + id)
             case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
             case .none: results.append("escape:none")

@@ -172,9 +172,9 @@ func steerPermits(_ permission: String?, into host: SteerHost) -> Bool {
 /// Whether the composer steers on Return (and queues for later on ⌘Return): a
 /// running turn takes steers and the conversation's permission is not narrower
 /// than the turn's. Messages queued for later do not change it: the steer lane
-/// and the queue are independent, as in Claude Code (DESIGN.md section 8); a
-/// daemon that still steers only the head of its queue answers `not-next`, and
-/// the message stays queued, its status line saying why.
+/// and the queue are independent, as in Claude Code (DESIGN.md section 8). Only a
+/// queued repair message makes the daemon answer `not-next` (C-24.9); the message
+/// stays queued, its status line saying why.
 func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> SteerHost? {
     guard let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities),
           steerPermits(conversation.settings.permission, into: host) else { return nil }
@@ -203,12 +203,13 @@ enum EscapeAction: Equatable {
 }
 
 /// The newest steer the provider has not read and the daemon may still give
-/// back; with none, Stop. `unrecallable` maps each steer the daemon answered
-/// `too-late` for (its frame is written: the next step reads it) to the turn it
-/// was in then (`tooLateBinding`). Esc passes over it only while it is still in
-/// that turn (`stillTooLate`): once it is back in the queue (the turn ended
-/// without reading it) or steered into another turn, Esc may take it back again.
-func escapeAction(timeline: Timeline?, unrecallable: [String: String] = [:]) -> EscapeAction {
+/// back; with none, Stop. `unrecallable` holds each steer the daemon answered
+/// `too-late` for (its frame is written, or it left the queue: the provider may
+/// have it) with what the app saw of it then (`TooLateMark`). Esc passes over it
+/// only while that still holds (`stillTooLate`): once the app sees it back in the
+/// queue (the turn ended without reading it), steered into another turn, or
+/// otherwise moved on, Esc may take it back again.
+func escapeAction(timeline: Timeline?, unrecallable: [String: TooLateMark] = [:]) -> EscapeAction {
     guard let timeline, let live = timeline.liveMessageID else { return .none }
     if let steer = timeline.recallableSteers.last(where: { !stillTooLate($0, in: timeline, unrecallable: unrecallable) }) {
         return .recall(messageID: steer)
@@ -222,32 +223,50 @@ func tooLateBinding(_ messageID: String, in timeline: Timeline) -> String? {
     timeline.turn(messageID)?.steeredInto ?? timeline.liveMessageID
 }
 
-/// Whether a steer the daemon answered `too-late` for is still in the turn it
-/// was in then: steering (or not yet seen to have left the queue for it) and
-/// bound to the same turn. An entry for which this is false is stale: drop it.
-func stillTooLate(_ messageID: String, in timeline: Timeline, unrecallable: [String: String]) -> Bool {
-    guard let host = unrecallable[messageID], let turn = timeline.turn(messageID),
-          tooLateBinding(messageID, in: timeline) == host else { return false }
-    switch turn.messageState {
-    case .steering: return true
-    case .queued: return turn.steerRequested && !turn.missedSteer     // its steer's receipt is not folded yet
-    case nil: return turn.state == "sending"
-    default: return false
+/// What the app saw of a steer when the daemon answered `too-late` for it: the
+/// turn it was in (`tooLateBinding`) and how the app showed the message.
+struct TooLateMark: Equatable {
+    var host: String
+    var state: String
+    var stateReason: String?
+    var steerRequested: Bool
+    var missed: Bool
+
+    init?(_ messageID: String, in timeline: Timeline) {
+        guard let turn = timeline.turn(messageID), let host = tooLateBinding(messageID, in: timeline) else {
+            return nil
+        }
+        self.host = host
+        state = turn.state
+        stateReason = turn.stateReason
+        steerRequested = turn.steerRequested
+        missed = turn.missedSteer
     }
 }
 
-/// Esc's memory of the daemon's `too-late` answers (C-24.9), kept across
-/// conversations by `UIModel.escape`: each steer it passes over, with the turn
-/// it was too late for. An entry lasts only while that steer is still in that
-/// turn (`stillTooLate`); once it leaves it, Esc may take it back again.
-struct TooLateSteers: Equatable {
-    private(set) var turns: [String: String] = [:]
+/// Whether a steer the daemon answered `too-late` for is still where it was then:
+/// bound to the same turn and either steering in it (its frame is written) or
+/// shown just as it was (the daemon has it somewhere the app has not seen yet:
+/// its steer's receipt, or its own turn, not folded yet). An entry for which
+/// this is false is stale: drop it.
+func stillTooLate(_ messageID: String, in timeline: Timeline, unrecallable: [String: TooLateMark]) -> Bool {
+    guard let mark = unrecallable[messageID], let now = TooLateMark(messageID, in: timeline),
+          now.host == mark.host else { return false }
+    return timeline.turn(messageID)?.messageState == .steering || now == mark
+}
 
-    /// Drop the entries for `timeline`'s steers that left the turn they were too
-    /// late for; another conversation's entries stay.
+/// Esc's memory of the daemon's `too-late` answers (C-24.9), kept across
+/// conversations by `UIModel.escape`: each steer it passes over, with what the
+/// app saw of it then. An entry lasts only while that steer is still there
+/// (`stillTooLate`); once it moves on, Esc may take it back again.
+struct TooLateSteers: Equatable {
+    private(set) var marks: [String: TooLateMark] = [:]
+
+    /// Drop the entries for `timeline`'s steers that moved on since the daemon
+    /// answered `too-late`; another conversation's entries stay.
     mutating func prune(_ timeline: Timeline) {
-        let current = turns
-        turns = current.filter { id, _ in
+        let current = marks
+        marks = current.filter { id, _ in
             timeline.turn(id) == nil || stillTooLate(id, in: timeline, unrecallable: current)
         }
     }
@@ -255,16 +274,22 @@ struct TooLateSteers: Equatable {
     /// What Esc does now: the newest steer it may take back, else Stop.
     mutating func escape(_ timeline: Timeline?) -> EscapeAction {
         if let timeline { prune(timeline) }
-        return escapeAction(timeline: timeline, unrecallable: turns)
+        return escapeAction(timeline: timeline, unrecallable: marks)
     }
 
-    /// The daemon answered `too-late` for `messageID` (its frame is written: the
-    /// turn's next step reads it). Returns the words for what the next Esc does.
+    /// The daemon answered `too-late` for `messageID` (the provider may have it:
+    /// the turn's next step reads it). Returns the words for what the next Esc does.
     mutating func tooLate(_ messageID: String, in timeline: Timeline, assistant: String) -> String {
-        if let host = tooLateBinding(messageID, in: timeline) { turns[messageID] = host }
+        if let mark = TooLateMark(messageID, in: timeline) { marks[messageID] = mark }
         let told = "\(assistant) already has it; it joins at the next step."
-        switch escapeAction(timeline: timeline, unrecallable: turns) {
-        case .recall: return told + " Press Esc again to take back the message before it."
+        switch escapeAction(timeline: timeline, unrecallable: marks) {
+        case .recall(let next):
+            let order = timeline.recallableSteers
+            guard let at = order.firstIndex(of: next), let late = order.firstIndex(of: messageID) else {
+                return told + " Press Esc again to take back another unread message."
+            }
+            return told + (at < late ? " Press Esc again to take back the message before it."
+                                     : " Press Esc again to take back the newer message.")
         case .stop: return told + " Press Esc again to stop the turn."
         case .none: return told                         // no turn runs now: Esc does nothing
         }
@@ -1005,12 +1030,19 @@ final class ConversationEngine {
                 // it: the daemon's fix is `turn.interrupt` (op_message_cancel). A
                 // message steered meanwhile is in another message's turn, and the
                 // daemon points an interrupt of it at that turn: never interrupt
-                // without knowing (a failed read is thrown, not guessed past).
+                // without knowing (a failed read is thrown, not guessed past), and
+                // interrupt only a message read as its own turn's. One queued again
+                // or settled has no turn to stop, and one queued could be steered by
+                // another client before an interrupt arrived.
                 let now = try status([messageID]).first
-                if now?.messageState == .steering || now?.messageState == .steered {
+                switch now?.messageState {
+                case .steering, .steered:
                     throw ConversationEngineError.steerTooLate(messageID)
+                case .waiting, .starting, .running, .approvalNeeded:
+                    return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+                default:
+                    return now
                 }
-                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
             }
         case .cancelSteer(let messageID):
             do {
