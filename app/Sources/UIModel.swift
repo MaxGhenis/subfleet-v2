@@ -551,8 +551,11 @@ final class UIModel: ObservableObject {
     /// a mismatch that reading leaves as it was is not read again.
     private func refreshApprovalsIfStale() {
         guard let engine, let id = state.focusedConversationID, let timeline = state.timelines[id],
-              let count = state.pendingApprovals[id], count < timeline.pendingApprovalItems.count else { return }
-        let seen = [count, timeline.pendingApprovalItems.count]
+              let count = state.pendingApprovals[id] else { return }
+        let shown = timeline.pendingApprovalItems.count
+        // Agreeing again ends the mismatch, so a later one with the same counts is read too.
+        guard count < shown else { staleRead[id] = nil; return }
+        let seen = [count, shown]
         guard staleRead[id] != seen else { return }
         staleRead[id] = seen
         Task {
