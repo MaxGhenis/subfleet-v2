@@ -2900,8 +2900,9 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_cli.add_handoff_flags(p_handoff)
     _add_json(p_handoff)
     p_handoff.set_defaults(handler=cmd_handoff)
-    from . import operations
+    from . import operations, retention_cli
     operations.add_verbs(sub)
+    retention_cli.add_verbs(sub)
     return parser
 
 

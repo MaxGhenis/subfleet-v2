@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
@@ -375,6 +376,31 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             if key in whole and item != int(item):
                 fail(f"{section}.{key}", "must be a whole number")
         value[section] = settings
+    # C-8.4, C-13.4: the only thing that may remove an allocated worktree is the
+    # archiver named here, run once a pass with every worktree retention would
+    # retire; absent or null, retention keeps those worktrees and their jobs.
+    archiver = value["retention"].get("worktree_archiver")
+    if archiver is not None:
+        if not isinstance(archiver, dict):
+            fail("retention.worktree_archiver", "must be an object with argv, or null")
+        unknown = set(archiver) - {"argv", "per_worktree", "timeout_s"}
+        if unknown:
+            fail(f"retention.worktree_archiver.{sorted(unknown)[0]}", "is not a setting (argv, per_worktree, timeout_s)")
+        argv = archiver.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(part, str) and part for part in argv):
+            fail("retention.worktree_archiver.argv", "must be a non-empty list of non-empty strings")
+        if not os.path.isabs(argv[0]):
+            fail("retention.worktree_archiver.argv", "must start with an absolute path")
+        per_worktree = archiver.get("per_worktree", ["--only", "{path}"])
+        if (not isinstance(per_worktree, list) or not all(isinstance(part, str) for part in per_worktree)
+                or not any("{path}" in part for part in per_worktree)):
+            fail("retention.worktree_archiver.per_worktree", "must be a list of strings naming {path}")
+        timeout = archiver.get("timeout_s", 3600)
+        if (not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout)
+                or timeout <= 0):
+            fail("retention.worktree_archiver.timeout_s", "must be a positive finite number")
+        value["retention"]["worktree_archiver"] = {"argv": list(argv), "per_worktree": list(per_worktree),
+                                                   "timeout_s": float(timeout)}
     # C-24.7, C-26.5, C-26.9: the stop escalation keeps its order (SIGINT, then
     # closing stdin, then containment), because each step is only worth taking
     # while the previous one had its chance to end the turn.

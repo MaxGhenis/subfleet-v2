@@ -147,7 +147,7 @@ def add_terminal(store, root, identity, *, state="succeeded", kind="dispatch"):
 
 
 def test_retention_preserves_active_unread_quarantine_salvage_gate(tmp_path, monkeypatch):
-    """C-8.4, C-3.3: retention pins required evidence and removes files outside tx."""
+    """C-8.4, C-3.3: retention pins required evidence, and archives and deletes files outside tx."""
     with Store(tmp_path / "state.sqlite3") as store:
         store.put_lane(lane())
         for identity in ["old", "notice", "quarantine", "salvage", "gate", "active"]:
@@ -158,17 +158,20 @@ def test_retention_preserves_active_unread_quarantine_salvage_gate(tmp_path, mon
         store.add_artifact("salvage/a1", "salvage", "refs/subfleet-salvage/work-a1", "digest", 0)
         store.add_action(action_id="gate-action", kind="gate-merge", op_key="one", subject="gate", request_json=json.dumps({"evidence": "gate"}))
         import subfleet.retention as retention
-        original = retention.shutil.rmtree
-        def remove(path):
-            assert not store.connection.in_transaction
-            original(path)
-        monkeypatch.setattr(retention.shutil, "rmtree", remove)
+        for name in ("archive", "delete_archived"):
+            original = getattr(retention.archive, name)
+            def outside_tx(*args, _original=original, **kwargs):
+                assert not store.connection.in_transaction
+                return _original(*args, **kwargs)
+            monkeypatch.setattr(retention.archive, name, outside_tx)
         result = maintenance(store, tmp_path, max_jobs=0, max_bytes=0)
-        assert result["pruned"] == ["old"]
-        assert set(result["protected"]) == {"notice", "quarantine", "salvage", "gate", "active"}
+        # Salvage no longer pins (design rev 2, section 7): its ref is never touched.
+        assert result["pruned"] == ["old", "salvage"]
+        assert set(result["protected"]) == {"notice", "quarantine", "gate", "active"}
         assert store.get_job("old") is None
         assert not (tmp_path / "jobs" / "old").exists()
-        assert store.list_events("old")[-1]["kind"] == "retention.pruned"
+        assert (tmp_path / "archive" / "old" / "manifest.json").is_file()
+        assert "retention.pruned" in [event["kind"] for event in store.list_events("old")]
 
 
 def test_retention_count_and_byte_caps_keep_newest(tmp_path):

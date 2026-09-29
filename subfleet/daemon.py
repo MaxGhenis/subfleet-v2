@@ -49,7 +49,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import RETENTION_DEFAULTS, PolicyError, load_policy, policy_hash, resolve_model, turn_cap
-from .retention import maintenance
+from .retention import LEASE_PREFIX as RETIRE_LEASE_PREFIX, RetentionState, maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
@@ -437,6 +437,8 @@ class Daemon:
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
         self._last_maintenance = time.monotonic()
+        # C-8.4: sizes, unfinished walks and deferrals carried between passes.
+        self._retention_state = RetentionState()
         # Every connection not yet closed, for shutdown; `_reading`, those whose
         # reader still runs, is what `MAX_CONNECTIONS` counts (C-16.1).
         self._connections: set[socket.socket] = set()
@@ -1751,6 +1753,12 @@ class Daemon:
                                    fix="wait for or explicitly abandon the existing gate round")
         if job.get("parent_job_id"):
             parent = self._job(job["parent_job_id"])
+            # C-8.4: a job retention is archiving loses its directory once its rows
+            # go. Checked in the transaction that inserts the child, so a child
+            # that read its parent's files mid-archive is never created.
+            if self.store.one("SELECT 1 FROM leases WHERE lease_key=?", (RETIRE_LEASE_PREFIX + parent["job_id"],)):
+                raise AdapterError(f"{parent['job_id']} is being archived by retention",
+                                   fix="retry in a minute; `subfleet retention archives` lists archived jobs")
             if parent["cancel_requested_at"] and not job.get("independent"):
                 raise AdapterError("parent is cancelled", fix="submit an independent job")
             count = self.store.one("SELECT count(*) AS n FROM jobs WHERE parent_job_id=?", (parent["job_id"],))["n"]
@@ -2504,14 +2512,30 @@ class Daemon:
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17).
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        state = getattr(self, "_retention_state", None)
+        if state is None:
+            state = self._retention_state = RetentionState()
+        # C-8.4, C-13.4: an allocated worktree is retired only by the policy's
+        # worktree archiver; retention itself never deletes one.
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
+                             archiver=budget.get("worktree_archiver"), state=state,
                              cancel=self.timers.cancel, deadline=time.monotonic() + 60)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                return
+            if result.get("made_progress"):
+                # Work remains and this pass moved it on (sizes measured, jobs
+                # pruned): catch up in 5 seconds rather than failing (C-8.4).
+                self.store.add_event("retention.progress", data={
+                    key: result.get(key) for key in ("pruned", "measured", "deferred", "pools", "conflicts")})
+                self.log.info("retention catch-up: pruned %d jobs, measured %d; continuing in 5 seconds",
+                              len(result.get("pruned", [])), result.get("measured", 0))
+                self.timers.mark("retention", next_due=after(5))
+                self._last_maintenance = time.monotonic() - 3600 + 5
                 return
             raise TimeoutError("retention deadline reached")
         with self.store.transaction("service-notice.retention") as tx:
