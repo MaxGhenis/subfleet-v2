@@ -28,8 +28,10 @@ The marker cannot see every process. `ps -E` reads `KERN_PROCARGS2`, and XNU's `
 
 ## The change
 
-The design was reviewed before it was built (an Opus 5.5 lane, `20260929-101509-qar-design-review`, 17 findings). This section describes the change as built, with those findings folded in. The kernel facts it rests on were read in XNU's source (`apple-oss-distributions/xnu`, 2026-09-29):
+The design was reviewed before it was built (an Opus 5.5 lane, `20260929-101509-qar-design-review`, 17 findings). The PR was then reviewed twice by Astra through `subfleet gate pr` (6 findings on 9d7d4f5b, 5 on 4c742703; see "Reviews" below). This section describes the change as built, with all of those folded in. The kernel facts it rests on were read in XNU's source (`apple-oss-distributions/xnu`, 2026-09-29):
 - `bsd/kern/kern_fork.c`'s pid allocation loop skips any pid that is held by a process (a zombie included), by a process group, or by a session.
+- `kern_proc.c`'s `proc_iterate`, which `ps` uses, lists the pids under `proc_list_lock` and fills each row after unlocking, so one `ps` table is not a single instant.
+- `kern_sysctl.c`'s `sysctl_procargsx` omits the environment of a code-signing-restricted process unless SIP is off or the caller holds an entitlement.
 - `kern_exit.c` reparents an exiting process's children to initproc (launchd).
 - `mach_process.c` reparents a `ptrace` target to its tracer.
 - `setpgid` in `kern_prot.c` takes only the caller or a descendant, in the caller's session.
@@ -40,26 +42,31 @@ A process is **owned** when a process table shows it live and at least one of th
 - It is the recorded guardian, alive (C-5.3) and leading the recorded group.
 - It is an owned process, shown with its recorded identity.
 - Its parent in the table is owned, it is not being traced (`ps` marks a traced process `X`), and it started no earlier than that parent.
-- It is a member of a process group an owned process leads.
+- It is a member of a process group an owned process leads, and it started no earlier than that leader.
+
+Because `ps` fills rows one at a time, a row can name a pid or group whose holder changed before a later row was read. So in a table whose read began in wall-clock second W, no process that started at or after W is owned through a parent link or group membership, and none vouches for another. Such a process can only be in the table under a pid that changed hands mid-read, or is too new to tell apart from one. The running record owns it on the next table. The kill protocol, which must decide now, waits for the second to turn (at most 1.1 s) and reads again whenever its first table passed over such a process. What remains is a pid that changes hands twice within one read.
 
 A group lies in one session, and only the session's own forks can join it. The guardian calls `setsid`, so its session, and every session one of its descendants creates, holds only the attempt's processes. A stranger that a job's debugger attached to is listed under its tracer, but it is marked `X`, so it is never owned through that link.
 
-The daemon keeps each running attempt's owned record in memory, together with the groups owned processes led. It prunes a dead process, or an ended group, only with a table whose read began after the last table that added to the record ended. It writes the record to the attempt's evidence at most every 30 s (`OWNED_PERSIST_S`). The kill protocol and a quarantine write it whole, at once. Writing every gain would cost too much: measured 2026-09-29, 34 running attempts gained an owned process 433 times a minute, and each write is a transaction, an `events` row and a waiter wake. No owned set held more than 18 processes.
+The daemon keeps each running attempt's owned record in memory, together with the groups owned processes led. It prunes a dead process, and a group that another process's pid proves ended or that two tables in a row find vacant, only with a table whose read began after the last table that added to the record ended. A group whose recorded leader lives is kept even when it is empty, since the leader can remake it. It writes the record to the attempt's evidence at most every 30 s (`OWNED_PERSIST_S`). The kill protocol and a quarantine write it whole, at once. Writing every gain would cost too much: measured 2026-09-29, 34 running attempts gained an owned process 433 times a minute, and each write is a transaction, an `events` row and a waiter wake. No owned set held more than 18 processes.
 
 The kill protocol records the owned set from a fresh table before it signals anything. It then SIGTERMs:
 - the recorded group;
 - every group an owned process leads;
-- singly, every owned process in none of those groups.
+- singly, every owned process in none of those groups, which includes the recorded group's members once the guardian is gone, because the recorded group's signal needs its leader.
 
-Before it SIGKILLs those groups, it proves the set again. After the census it SIGKILLs owned survivors one by one. Every signal re-checks the identity of its target (C-5.4). A process that left the tree and every owned group before any table recorded it is still never signalled; it quarantines the attempt, as before. The `nested-setsid` fixture makes exactly that case: its intermediate process now `os._exit`s the instant after its fork.
+When no table can be read, every recorded process is offered its group's signal and is signalled singly where that is refused. Before it SIGKILLs those groups, it proves the set again. After the census it SIGKILLs owned survivors one by one. Every signal re-checks the identity of its target (C-5.4). A process that left the tree and every owned group before any table recorded it is still never signalled; it quarantines the attempt, as before. The `nested-setsid` fixture makes exactly that case: its intermediate process now `os._exit`s the instant after its fork.
 
 ### The census counts what the attempt recorded (C-5.5)
 
-Recorded identities join the walk (when live with their recorded start), and the groups they lead join the group source. Recorded groups keep counting after their leader has gone, unless another process holds the group's id and leads it.
+Recorded identities join the walk (when live with their recorded start), and the groups they lead join the group source. Each recorded group is one of three things (`procs.group_state`):
+- **Ended**: another process, with another start, holds the group's id. XNU allocated that pid only after the recorded group ended, so this is proof, whatever group that process is in now.
+- **Live**: some process is in the group (a zombie included), or its recorded leader lives, and so can remake the group with `setpgid(0, 0)`. Its members count.
+- **Vacant**: neither. One table is not proof, because a leader that forks and exits mid-read can leave a member no row shows. A group is taken as ended only when a later table, read after the first ended, finds it vacant too.
 
 The walk no longer starts at a pid it cannot vouch for. It starts at the guardian only while the table shows it with its recorded start, and never at a receipt's child pid. After a receipt both have exited, and their pids could belong to strangers.
 
-A census reports each recorded group it finds no process in (zombies count as members). Such a group can never be the attempt's again.
+An ended group can never be the attempt's again.
 
 What no census can find: a process that left the attempt's tree before any table recorded it, belongs to no recorded group, and whose environment `ps -E` does not show. Finalization (C-5.9) has always released past such a process, and the recheck releases on the same census.
 
@@ -74,13 +81,15 @@ The census roots:
 - the owned processes and groups;
 - every identity any census of this quarantine has found live.
 
-Groups a census has seen end are left out. An attempt from another boot session has nothing left alive, so for it only the marker is looked for.
+Groups proven ended are left out. An attempt from another boot session has nothing left alive, so for it only the marker is looked for.
+
+The sweep takes its reads before the lock that an operator's `--confirm-dead` also takes. So under the lock it compares the attempt's evidence with the row it read when the sweep began. If another census has written since (it found something, perhaps a process born after the sweep's reads), the sweep defers that attempt to its next pass.
 
 A release runs `--confirm-dead`'s steps: first a turn's end snapshot or a writable job's salvage, then `quarantine.auto_resolved`, which releases the leases and ends the attempt `lost` or `interrupted`. The job's state, rc and notice are untouched. A salvage that fails keeps the quarantine.
 
 A failing recheck backs off, doubling to one hour. It is logged by type on the 1st, 2nd, 4th and later powers of two. On the third failure in a row it is written into the evidence (`recheck_error`) and sent once to the operator as a service notice naming `--force-release`.
 
-A live quarantine's evidence only grows (`recorded`, `groups_ended`), and it is written on the row as read inside the writing transaction. So no census, however old its table, drops what a newer census wrote, and no operator's hand edit is lost.
+A live quarantine's evidence only grows (`recorded`, `groups_ended`, with `groups_ending` holding a vacant group's first sighting), and it is written on the row as read inside the writing transaction. So no census, however old its table, drops what a newer census wrote, and no operator's hand edit is lost. A census that could not verify (a `ps` failed) still records the identities its other sources established, and any group ends that reuse proves. It neither starts nor finishes a vacancy's second look, and it leaves the displayed census alone.
 
 An operator's resolution and the sweep share one lock. A late operator request is recorded, with its note (`quarantine.request_after_release`).
 
@@ -98,7 +107,7 @@ So the conversation stayed blocked for good, even after an operator resolved the
 1. **Lease safety and liveness** (`tests/fake/test_quarantine_recheck_state.py`, a Hypothesis property over random process tables, checked against an independent oracle). A quarantined attempt's leases are released **exactly** when all of these hold:
    - no recorded identity is live with its recorded start;
    - no process carries the attempt's marker;
-   - the recorded group has no live member, unless it has ended or another process leads it;
+   - the recorded group has no live member, unless it has ended (another process holds its id, or it was vacant twice running);
    - every read worked.
 
    In particular, a lease is never released while any recorded identity is alive. A pid reused under another start counts as gone.
@@ -107,7 +116,7 @@ So the conversation stayed blocked for good, even after an operator resolved the
    - It returns exactly what a slow reference fixpoint of C-5.6's rules returns.
    - While the guardian's chain is intact, it owns every process the guardian's tree forked.
 
-   What these tests prove is that the code matches the rules over any table. That the rules are sound on macOS rests on the kernel facts read above.
+   The model also draws the table's read-start time, and the reference applies the same cutoff. What these tests prove is that the code matches the rules over any table. That the rules are sound on macOS rests on the kernel facts read above. The torn-read cases (a stale row under a reused group id, in the same second or not; a group left vacant by a leader that forked and exited mid-read) have example tests, because the model's tables are atomic.
 3. **Differential.** A census from a sweep's shared reads equals a census from its own reads of the same table (Hypothesis).
 4. **One resolution.** An operator's `--confirm-dead` racing the sweep resolves the attempt once. Resolution changes neither the job's state, its rc, nor its notice.
 5. **Bounded cost.**
@@ -119,6 +128,26 @@ So the conversation stayed blocked for good, even after an operator resolved the
    - A kill ends it with the attempt, and the attempt is not quarantined.
    - Outliving its provider, it holds a quarantine that auto-resolves once it exits.
    - A recorded identity alone holds a quarantine; the same pid under another start does not.
+
+## Reviews
+
+- **Design review** (Opus 5.5, before implementation; `~/reviews/quarantine-autoresolve-2026-09-29/design-review-opus.md`). It raised 17 findings, two of them blockers: a blind census released without an operator, and evidence that could drop live identities. All 17 were addressed or scoped out below.
+- **Astra, round 1** (on 9d7d4f5b). Six findings, all fixed in 4c742703:
+  - group ownership from a torn read;
+  - the sweep deciding on reads older than an operator's newer census;
+  - an unverifiable census discarding what it found;
+  - a group marked ended while its leader could remake it;
+  - reuse not persisted;
+  - no SIGTERM for non-leaders when `ps` failed.
+- **Astra, round 2** (on 4c742703). Five findings, all fixed in fdd10d92:
+  - a stranger passing the start order in the same second;
+  - the running record dropping a living leader's group;
+  - one torn table ending a group;
+  - reuse missed once the stranger left the group;
+  - the recorded group counted as covered after its guardian died.
+
+  Fixing the first of these briefly broke the kill of a just-forked tool process, which the real-process test caught. The kill's re-read closed that.
+- **Round 3.** It could not get an Astra lane: every Codex lane was out of weekly capacity until 2026-10-03. So it ran as an Opus 5.5 review instead (`subfleet run --task review --tier standard`), as Max's rules provide.
 
 ## Not in this change
 
