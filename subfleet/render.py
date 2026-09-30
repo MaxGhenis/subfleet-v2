@@ -208,7 +208,8 @@ _PIN_REFUSALS = {
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
-    "credential-latched": "{lane}'s last probe found its credential {probe_status}",
+    "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
+                          "or a re-enrolment ends",
     "no-lanes": "no lane of the model's provider is enrolled",
 }
 
@@ -245,7 +246,9 @@ def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> st
     session that submitted it, which the session hooks surface (C-15.2)."""
     lane = stuck.get("lane_id") or "its lane"
     return (f"{job_id}: waiting; its pinned lane {lane} can never admit it: {pin_refusals(stuck)}.\n"
-            f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then `subfleet kill {job_id}`. "
+            f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then `subfleet kill {job_id}`; "
+            f"or make {lane} usable again (re-enable or re-enrol it, release its hold, or stop using the desktop "
+            f"login in Claude Code, as the reason says). "
             f"Meanwhile {pin_ends(fail_at)}, and it holds no other job back (C-11.8).")
 
 

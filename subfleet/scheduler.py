@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import desktop_excluded, fresh_provider, identity_blocked
+from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
@@ -612,27 +612,31 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 #: The job's own exclusions, a turn's config directory and a v1 owner never
 #: change on their own; the desktop login while Claude Code uses it, a disabled
 #: lane and a credential that proved to hold another account (C-10.6) change
-#: only when a person acts, and so does a credential whose last probe found it
-#: revoked (`credential-latched`, a slot block). A slot, a reading, the floor and
-#: the reserve are capacity, which comes back by itself. A closure is a hold only
-#: when it ends more than `admission.pin_hold_far_s` out; before that it is a wait.
+#: only when a person acts, and so does a credential its last probe found revoked
+#: or missing (`credential-latched` on a lane `capacity.credential_gone` holds of;
+#: an expired token is healed by the timers, C-23.47, so it is not standing). A slot, a reading, the
+#: floor and the reserve are capacity, which comes back by itself. A closure is a
+#: hold only when it ends more than `admission.pin_hold_far_s` out; before that
+#: it is a wait.
 STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch")
 
 #: C-6.12: what evaluating a route may raise; the job's, never the caller's.
 _ROUTE_RAISES = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 
 
-def standing_refusals(reasons: Iterable[str], slot_block: Any, closures: Iterable[Mapping[str, Any]],
-                      now: datetime, far_s: float) -> list[str]:
+def standing_refusals(reasons: Iterable[str], detail: Mapping[str, Any], lane: Mapping[str, Any] | None,
+                      closures: Iterable[Mapping[str, Any]], now: datetime, far_s: float) -> list[str]:
     """C-11.8: which of one lane's refusals no wait for capacity ends.
 
-    `reasons` and `slot_block` are what `judge_lane` found for the lane, and
-    `closures` the rows it read: a `closed:<scope>:<until>` reason counts when
-    the closure it names ends more than `far_s` seconds after `now`."""
+    `reasons` and `detail` are what `judge_lane` found for the lane (a rejection
+    row carries both), `lane` its row, and `closures` the rows it read: a
+    `closed:<scope>:<until>` reason counts when the closure it names ends more
+    than `far_s` seconds after `now`, and a latched credential when only a person
+    brings it back (`capacity.credential_gone` of the row; with no row, never)."""
     rows = {f"closed:{row['scope']}:{row['until_at']}": row for row in closures}
     found = [reason for reason in reasons if reason in STANDING_REFUSALS or reason in rows
              and (_time(rows[reason]["until_at"]) - now).total_seconds() > far_s]
-    if slot_block == "credential-latched":
+    if detail.get("slot_block") == "credential-latched" and lane is not None and credential_gone(lane):
         found.append("credential-latched")
     return found
 
@@ -663,7 +667,7 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
                     if row.get("lane_id") == lane["lane_id"]]
         reasons, detail = judge_lane(setup, setup["chain"][0], lane, (), closures, in_flight=0,
                                      unavailable=view.get("unavailable_lanes") or {})
-        found = standing_refusals(reasons, detail.get("slot_block"), closures, setup["now"],
+        found = standing_refusals(reasons, detail, lane, closures, setup["now"],
                                   admission_settings(policy)["pin_hold_far_s"])
     except _ROUTE_RAISES:
         return None
@@ -713,7 +717,7 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
                 for lane in lanes:
                     reasons, detail = judge_lane(setup, short, lane, (), closures.get(lane["lane_id"], ()),
                                                  in_flight=0, unavailable=view.get("unavailable_lanes") or {})
-                    standing = standing_refusals(reasons, detail.get("slot_block"), closures.get(lane["lane_id"], ()),
+                    standing = standing_refusals(reasons, detail, lane, closures.get(lane["lane_id"], ()),
                                                  setup["now"], far)
                     if not standing:
                         refusals = None
@@ -730,7 +734,7 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
 
 
 def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str, Any] | None,
-                     job: Any) -> list[str] | None:
+                     job: Any, lanes: Iterable[Any] = ()) -> list[str] | None:
     """C-11.8, C-6.9: the standing refusals that keep every lane a decision walked
     from its job, or None when some lane could take the job once capacity comes
     back (or one was chosen).
@@ -738,13 +742,16 @@ def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str
     Every lane of every model walked must be refused for a standing reason
     (`standing_refusals`). A model with no lane to walk is `unknown` for a pinned
     job (its pin names no lane) and `no-lanes` otherwise (no lane of that
-    provider is enrolled). A job so refused holds no other job back (C-6.9)."""
+    provider is enrolled). A job so refused holds no other job back (C-6.9).
+    `lanes` are the rows a latched credential is judged on (`capacity.credential_gone`):
+    a decision carries no lane's credential, and with no row a latch is never standing."""
     value = _row(decision) if decision is not None else {}
     evaluations = value.get("evaluations") or ()
     if not evaluations or value.get("chosen_lane"):
         return None
     far = admission_settings(policy)["pin_hold_far_s"]
     pinned = bool(_row(job).get("pinned_lane"))
+    rows_by_id = {row["lane_id"]: row for row in (_row(item) for item in lanes)}
     found: list[str] = []
     try:
         for evaluation in evaluations:
@@ -756,8 +763,9 @@ def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str
                 continue
             now = _time(evaluation["evaluated_at"])
             for row in rows:
-                standing = standing_refusals(row.get("reasons") or [row.get("reason")], row.get("slot_block"),
-                                             evaluation.get("closures") or (), now, far)
+                standing = standing_refusals(row.get("reasons") or [row.get("reason")], row,
+                                             rows_by_id.get(row.get("lane_id")), evaluation.get("closures") or (),
+                                             now, far)
                 if not standing:
                     return None
                 found.extend(standing)

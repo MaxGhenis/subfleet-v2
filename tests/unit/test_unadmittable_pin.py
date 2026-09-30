@@ -35,7 +35,7 @@ from datetime import timedelta
 from hypothesis import HealthCheck, assume, event, given, settings, strategies as st
 
 from subfleet import scheduler
-from subfleet.capacity import _time
+from subfleet.capacity import _time, credential_gone, credential_latched
 from subfleet.policy import admission_settings
 from tests.admission_model import run_pass
 from tests.routing_strategies import (BASE_POLICY, LANE_IDS, NOW, SCOPES, policies, route_jobs, stamp, stores,
@@ -55,6 +55,18 @@ def pin_stores(draw) -> dict:
     """A store with closures near, at and past the horizon, as well as the usual ones."""
     store = draw(stores())
     lane_ids = [row["lane_id"] for row in store["lanes"]]
+    # What the last probe found of each lane's credential, and its latch as a view marks
+    # it (`Timers.enrich_view`): revoked or missing is a person's to fix; an expired
+    # token the timers heal (C-23.47).
+    for lane in store["lanes"]:
+        lane["probe_status"] = draw(st.sampled_from([None] * 6 + ["ok", "revoked", "auth-revoked", "no-auth",
+                                                                 "expired-token", "expired-token"]))
+        if draw(st.integers(0, 9)) == 0:
+            lane["revoked_epoch"] = 1
+        if credential_latched(lane):
+            store["unavailable"][lane["lane_id"]] = "credential-latched"
+        elif store["unavailable"].get(lane["lane_id"]) == "credential-latched":
+            del store["unavailable"][lane["lane_id"]]
     for n in range(draw(st.integers(0, 3))):
         seconds = draw(st.sampled_from([FAR - 1, FAR, FAR + 1, FAR + 3600, 30 * 86400,
                                         (_time("2099-12-31T00:00:00Z") - NOW).total_seconds()]))
@@ -91,9 +103,9 @@ def best(store: dict, policy: dict) -> dict:
 
     Every lane measured idle by one fresh complete usage read of its account
     (so no floor, and no reserved window: all of it is slack), nothing in flight,
-    no probe holding a lane, and every closure that ends within the horizon ended.
-    What is left is what a person must change: the lane rows, far closures, and
-    latched credentials."""
+    no probe holding a lane, every closure that ends within the horizon ended, and
+    every expired token healed. What is left is what a person must change: the
+    lane rows, far closures, and credentials revoked or missing."""
     far = admission_settings(policy)["pin_hold_far_s"]
     better = copy.deepcopy(store)
     better["readings"] = [{"reading_id": n + 1, "lane_id": row["lane_id"], "scope": "account", "window": "seven_day",
@@ -101,8 +113,9 @@ def best(store: dict, policy: dict) -> dict:
                            "source": "oauth-usage", "observed_at": stamp(NOW), "attempt_id": None}
                           for n, row in enumerate(store["lanes"])]
     better["attempts"] = []
+    gone = {row["lane_id"] for row in store["lanes"] if credential_gone(row)}
     better["unavailable"] = {lane: holder for lane, holder in store["unavailable"].items()
-                             if holder == "credential-latched"}
+                             if holder == "credential-latched" and lane in gone}
     better["overridden"] = set()
     better["closures"] = [row for row in store["closures"]
                           if row["released_at"] or (_time(row["until_at"]) - NOW).total_seconds() > far]
@@ -163,7 +176,7 @@ def test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job(data):
     except RAISES:
         assume(False)
     assume(decision.chosen_lane is None)
-    for_good = scheduler.refused_for_good(policy, decision, job)
+    for_good = scheduler.refused_for_good(policy, decision, job, view_of(store, NOW)["lanes"])
     assert (for_good is not None) == (admissible(policy, store, job) is False), (for_good, decision.reason)
 
 
@@ -297,6 +310,7 @@ def lane_row(lane_id: str, **changes) -> dict:
 
 
 def one_lane(lane: dict, *, closures=(), latched=False, in_use=True) -> dict:
+    """A view of one lane; `latched` marks its credential as a view does (`credential_latched`)."""
     return view_of({"lanes": [lane], "readings": [], "closures": list(closures), "jobs": [], "attempts": [],
                     "unavailable": {lane["lane_id"]: "credential-latched"} if latched else {},
                     "overridden": set(), "desktop_in_use": in_use}, NOW)
@@ -324,7 +338,9 @@ def test_c11_8_each_standing_refusal_is_named():
     assert reasons(one_lane(lane_row("claude-9", enabled=0))) == ["disabled"]
     assert reasons(one_lane(lane_row("claude-9", owner="v1"))) == ["owner-v1"]
     assert reasons(one_lane(lane_row("claude-9", identity_status="mismatch"))) == ["identity-mismatch"]
-    assert reasons(one_lane(lane_row("claude-9"), latched=True)) == ["credential-latched"]
+    for status in ("revoked", "auth-revoked", "no-auth"):
+        assert reasons(one_lane(lane_row("claude-9", probe_status=status), latched=True)) == ["credential-latched"]
+    assert reasons(one_lane(lane_row("claude-9", revoked_epoch=3), latched=True)) == ["credential-latched"]
     assert reasons(one_lane(lane_row("claude-9")), pinned(exclusions=("claude-9",))) == ["excluded"]
     assert reasons(one_lane(lane_row("claude-9")), pinned("claude-99")) == ["unknown"]
     held = closure(10 ** 9)
@@ -340,6 +356,8 @@ def test_c11_8_what_a_wait_ends_is_not_standing():
     assert reasons(one_lane(lane_row("claude-9"), closures=[closure(3 * 86400, "claude-opus-5-5",
                                                                      "provider-limit")])) is None
     assert reasons(one_lane(lane_row("claude-9", desktop=1), in_use=False)) is None          # not in use: a candidate
+    # An expired token latches the slot, but the timers' heal turn renews it (C-23.47).
+    assert reasons(one_lane(lane_row("claude-9", probe_status="expired-token"), latched=True)) is None
     assert reasons(one_lane(lane_row("claude-9", desktop=1)), pinned(allow_desktop=1)) is None
     assert reasons(one_lane(lane_row("claude-9")), pinned(pinned_lane=None)) is None          # no pin, nothing to say
     # A closure for a model the job does not run is not its lane's refusal.

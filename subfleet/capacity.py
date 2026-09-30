@@ -434,6 +434,14 @@ def credential_latched(lane: Mapping[str, Any]) -> bool:
         "revoked", "auth-revoked", "expired-token", "no-auth")
 
 
+def credential_gone(lane: Mapping[str, Any]) -> bool:
+    """C-11.8: a latched credential only a person brings back, by logging in again or
+    re-enrolling (a new credential epoch): revoked, or no login at all. An expired
+    token latches the lane's slot too (`credential_latched`), but the timers' heal
+    turn renews it by itself (C-23.47), so it is not this."""
+    return lane.get("revoked_epoch") is not None or lane.get("probe_status") in ("revoked", "auth-revoked", "no-auth")
+
+
 def identity_blocked(lane: Mapping[str, Any]) -> bool:
     """C-10.6: a lane whose own credential proved to hold a different account is
     not a candidate until an operator re-enrols it. Nothing else about the lane —

@@ -26,9 +26,9 @@ from hypothesis import HealthCheck, event, given, settings, strategies as st
 from subfleet import daemon as daemon_module
 from subfleet import scheduler
 from subfleet.adapters import registry
-from subfleet.capacity import _time
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading,
-                                ReadingLabel)
+from subfleet.capacity import _time, credential_gone
+from subfleet.contracts import (PIN_NOTICE_AFTER_S, ClockSource, Closure, ClosureReason, Credential, Lane,
+                                LaneOwner, Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
 from subfleet.policy import admission_settings
 from tests.caps import capped
@@ -71,6 +71,15 @@ def service_notices(service, session="caller-session") -> list[dict]:
 def events(service, job_id: str, kind: str) -> list[dict]:
     return [{**row, "data": json.loads(row["data_json"])} for row in service.store.query(
         "SELECT * FROM events WHERE job_id=? AND kind=? ORDER BY event_id", (job_id, kind))]
+
+
+def settle(service, job_id: str) -> None:
+    """Let the job's episode outlast `PIN_NOTICE_AFTER_S` (no test here waits on a real
+    clock) and look again: the pass that sends its one notice."""
+    episode = service._pin_episodes[job_id]
+    service._pin_episodes[job_id] = {**episode,
+                                     "since": daemon_module._later(episode["since"], -(PIN_NOTICE_AFTER_S + 1))}
+    service._admit()
 
 
 def expire(service, job_id: str) -> None:
@@ -127,16 +136,24 @@ def test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3(fleet, reason):
     grace = admission_settings(service.policy)["pin_grace_s"]
     assert abs((_time(hold["fail_at"]) - _time(hold["since"])).total_seconds() - grace) <= 1
 
-    # One notice, to the session that submitted it, naming the lane, the reason and the fix.
+    recorded = events(service, stuck, "job.pin_unadmittable")
+    assert len(recorded) == 1 and recorded[0]["data"]["reasons"] == [label]
+
+    # Not a word until the state has lasted `PIN_NOTICE_AFTER_S`; then one notice, to the
+    # session that submitted it, naming the job, the lane, the reason and the fix.
+    assert service_notices(service) == []
+    settle(service, stuck)
     notices = service_notices(service)
     assert len(notices) == 1
     text = notices[0]["text"]
     assert text.startswith(f"{stuck}: waiting; its pinned lane {hold['lane_id']} can never admit it: ")
     assert "resubmit it unpinned, or pinned to another lane" in text and f"subfleet kill {stuck}" in text
+    assert f"make {hold['lane_id']} usable again" in text
     assert f"fails with rc 3 at {hold['fail_at']}" in text
-    recorded = events(service, stuck, "job.pin_unadmittable")
-    assert len(recorded) == 1 and recorded[0]["data"]["service_notice_id"] == notices[0]["notice_id"]
-    assert recorded[0]["data"]["reasons"] == [label]
+    noticed = events(service, stuck, "job.pin_noticed")
+    assert len(noticed) == 1 and noticed[0]["data"]["service_notice_id"] == notices[0]["notice_id"]
+    pending = service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"]
+    assert [row["job_id"] for row in pending] == [stuck]            # C-15.2: it names its job
 
     # More passes: still held, still one notice, still one episode.
     for _ in range(3):
@@ -149,7 +166,8 @@ def test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3(fleet, reason):
     assert f"Held: its pinned lane {hold['lane_id']} can never admit it" in why
     assert "it holds no other job back" in why and "Fix: resubmit it unpinned" in why
 
-    # The grace passes with the lane still so: failed, rc 3, with the terminal notice.
+    # The grace passes with the lane still so: failed, rc 3, with the terminal notice,
+    # which supersedes the one nobody was shown yet.
     expire(service, stuck)
     service._admit()
     job = service.store.get_job(stuck)
@@ -157,7 +175,8 @@ def test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3(fleet, reason):
     terminal = service.store.query("SELECT * FROM notices WHERE job_id=?", (stuck,))
     assert len(terminal) == 1 and f"{stuck}: failed; rc=3;" in terminal[0]["text"]
     assert f"no lane: its pinned lane {hold['lane_id']} could never admit it" in terminal[0]["text"]
-    assert len(service_notices(service)) == 1                   # no second service notice
+    assert service_notices(service) == [] and len(events(service, stuck, "job.pin_notice_withdrawn")) == 1
+    assert len(events(service, stuck, "job.pin_noticed")) == 1          # never a second
     assert len(events(service, stuck, "job.pin_refused")) == 1
     why = service.dispatch("why", {"job_id": stuck})
     assert why["refused"].startswith(f"no lane: its pinned lane {hold['lane_id']} could never admit it")
@@ -204,6 +223,7 @@ def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
         service.store.update_lane("claude-9", desktop=1)
         service._admit()
         assert service._holds[stuck]["reason"] == "pin-unadmittable"
+        settle(service, stuck)                                      # each episode long enough to tell
         service.store.update_lane("claude-9", desktop=0)
         service.store.add_closure(Closure("claude-9", "account", after(600), ClosureReason.PROVIDER_LIMIT,
                                           ClockSource.REPORTED, "fixture"))   # a wait, not a hold
@@ -211,10 +231,43 @@ def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
         assert service._holds[stuck]["reason"] != "pin-unadmittable"
         with service.store.transaction("fixture.release") as tx:
             tx.execute("UPDATE closures SET released_at=? WHERE lane_id='claude-9'", (utcnow(),))
-    assert len(service_notices(service)) == 1
-    started = events(service, stuck, "job.pin_unadmittable")
-    assert len(started) == 3 and [row["data"]["service_notice_id"] is not None for row in started] == [True, False, False]
+    assert len(service_notices(service)) == 1 and len(events(service, stuck, "job.pin_noticed")) == 1
+    assert len(events(service, stuck, "job.pin_unadmittable")) == 3
     assert len(events(service, stuck, "job.pin_admittable")) == 3
+
+
+def test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything(fleet):
+    """A re-enrolment between its two commits, a registry read that failed once: the job is
+    held for the pass, and nobody is told the lane never will."""
+    service, harness = fleet
+    stuck = submit(service, harness)
+    service.store.update_lane("claude-7", enabled=0)
+    service.store.update_lane("claude-9", enabled=0)
+    service._admit()
+    assert service._holds[stuck]["reason"] == "pin-unadmittable"
+    service.store.update_lane("claude-9", enabled=1)
+    service._admit()
+    assert service_notices(service) == [] and not events(service, stuck, "job.pin_noticed")
+    assert [a["lane_id"] for a in service.store.list_attempts(stuck)] == ["claude-9"]
+
+
+def test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails(fleet):
+    """C-15.3: a hook that printed the notice marks it `surfaced` (a service notice too,
+    by its negated id); only one nobody was shown is withdrawn at the failure."""
+    service, harness = fleet
+    stuck = submit(service, harness)
+    service.store.update_lane("claude-9", enabled=0)
+    service._admit()
+    settle(service, stuck)
+    shown = service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"]
+    service.dispatch("notice.mark", {"session_id": "caller-session", "notice_ids": [shown[0]["notice_id"]],
+                                     "state": "surfaced", "transport": "hook:UserPromptSubmit"})
+    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+    assert service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"] == []
+    expire(service, stuck)
+    service._admit()
+    assert service.store.get_job(stuck)["rc"] == 3
+    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
 
 
 def test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice(routing_state):  # noqa: F811
@@ -223,6 +276,7 @@ def test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice(routing_stat
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
     service._admit()
+    settle(service, stuck)
     fail_at = service._holds[stuck]["fail_at"]
     root = service.root
     service.close()
@@ -231,8 +285,10 @@ def test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice(routing_stat
         assert again._pin_episodes[stuck] == {**again._pin_episodes[stuck], "open": True, "fail_at": fail_at,
                                               "noticed": True}
         again._admit()
+        settle(again, stuck)
         assert again._holds[stuck]["fail_at"] == fail_at
         assert len(service_notices(again)) == 1 and len(events(again, stuck, "job.pin_unadmittable")) == 1
+        assert len(events(again, stuck, "job.pin_noticed")) == 1
         expire(again, stuck)
         again._admit()
         assert again.store.get_job(stuck)["rc"] == 3
@@ -260,6 +316,7 @@ def test_c11_8_with_a_null_grace_it_waits_and_is_told_so(fleet):
     service.store.update_lane("claude-9", enabled=0)
     for _ in range(3):
         service._admit()
+    settle(service, stuck)
     assert service.store.get_job(stuck)["state"] == "waiting" and service._holds[stuck]["fail_at"] is None
     assert "it waits until that changes" in service_notices(service)[0]["text"]
     assert "it waits until that changes" in service.dispatch("why", {"job_id": stuck})["text"]
@@ -310,6 +367,7 @@ def test_c11_8_a_turn_is_held_and_nothing_more(fleet):
     holds = {}
     service._stuck_pin(job, stuck_pin, holds)
     assert holds[stuck]["reason"] == "pin-unadmittable" and holds[stuck]["fail_at"] is None
+    service._pin_episodes[stuck] = {**service._pin_episodes[stuck], "since": "2000-01-01T00:00:00Z"}
     service._stuck_pin(job, stuck_pin, holds)
     assert service.store.get_job(stuck)["state"] == "waiting" and service_notices(service) == []
 
@@ -363,8 +421,10 @@ def oracle(service, policy: dict) -> callable:
                          "utilization": 0.0, "resets_at": after(3 * 86400), "label": "provider",
                          "source": "oauth-usage", "observed_at": view["now"], "attempt_id": None}
                         for n, lane in enumerate(view["lanes"])]
+    gone = {lane["lane_id"] for lane in view["lanes"] if credential_gone(lane)}     # an expired token heals
     best.update(in_flight={}, in_flight_turns={}, attempts=[], reserved_probes=0,
-                unavailable_lanes={k: v for k, v in view["unavailable_lanes"].items() if v == "credential-latched"},
+                unavailable_lanes={k: v for k, v in view["unavailable_lanes"].items()
+                                   if v == "credential-latched" and k in gone},
                 closures=[row for row in view["closures"] if (_time(row["until_at"]) - now).total_seconds() > far])
     free = copy.deepcopy(policy)
     free["caps"].update(max_active_attempts=None, max_in_flight_per_lane=None, max_in_flight_unmeasured=None,
@@ -379,7 +439,7 @@ def oracle(service, policy: dict) -> callable:
 
 
 STATES = st.sampled_from(["open", "open", "open", "desktop", "disabled", "owner-v1", "identity-mismatch",
-                          "credential-latched", "held-far", "closed-near", "full"])
+                          "credential-latched", "expired-token", "held-far", "closed-near", "full"])
 
 
 @settings(max_examples=120, deadline=None, derandomize=True,
@@ -400,7 +460,9 @@ def test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit(tm
         for lane_id in lanes:
             claude(service, lane_id)
             state = draw(STATES, label=f"{lane_id} state")
-            if state in ("desktop", "disabled", "owner-v1", "identity-mismatch", "credential-latched"):
+            if state == "expired-token":
+                service.timers.metadata[lane_id] = {"probe_status": "expired-token"}
+            elif state in ("desktop", "disabled", "owner-v1", "identity-mismatch", "credential-latched"):
                 make = {"desktop": dict(desktop=1), "disabled": dict(enabled=0), "owner-v1": dict(owner="v1"),
                         "identity-mismatch": dict(identity_status="mismatch")}.get(state)
                 if make:
@@ -428,8 +490,9 @@ def test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit(tm
         rows = {job_id: service.store.get_job(job_id) for job_id in jobs}
         service._admit()
         holds = service._holds
-        named = [(job_id, hold.get("behind") or hold.get("kept_for")) for job_id, hold in holds.items()
-                 if hold.get("behind") or hold.get("kept_for")]
+        named = [(job_id, older) for job_id, hold in holds.items()
+                 for older in [hold.get("behind"), hold.get("kept_for"), *(hold.get("queued_behind") or ())]
+                 if older]
         unadmittable = [job_id for job_id in jobs if admissible(rows[job_id]) is False]
         event(f"unadmittable jobs: {min(len(unadmittable), 2)}{'+' if len(unadmittable) >= 2 else ''}")
         event(f"holds naming another job: {min(len(named), 2)}{'+' if len(named) >= 2 else ''}")
@@ -438,3 +501,24 @@ def test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit(tm
         for job_id in unadmittable:
             if rows[job_id]["pinned_lane"]:
                 assert holds[job_id]["reason"] == "pin-unadmittable", (job_id, holds[job_id])
+
+
+def test_c15_3_a_service_notice_a_hook_printed_is_not_printed_again(fleet):
+    """C-15.3: `notice.mark` takes a service notice by its negated id, as `notice.ack`
+    does. Before 2026-09-30 it updated only `notices`, so a ping a hook surfaced stayed
+    `pending` and was surfaced again at every prompt."""
+    service, harness = fleet
+    service.dispatch("ping", {"session_id": "someone", "text": "hello"})
+    [row] = service.dispatch("notice.pending", {"session_id": "someone"})["notices"]
+    assert row["notice_id"] < 0 and row["job_id"] is None                  # a ping names no job
+    service.dispatch("notice.mark", {"session_id": "someone", "notice_ids": [row["notice_id"]],
+                                     "state": "surfaced", "transport": "hook:SessionStart"})
+    assert service.dispatch("notice.pending", {"session_id": "someone"})["notices"] == []
+    [stored] = service_notices(service, "someone")
+    assert (stored["state"], stored["transport"]) == ("surfaced", "hook:SessionStart") and stored["offered_at"]
+    # Another session's mark changes nothing.
+    service.dispatch("ping", {"session_id": "someone", "text": "again"})
+    [row] = service.dispatch("notice.pending", {"session_id": "someone"})["notices"]
+    service.dispatch("notice.mark", {"session_id": "someone-else", "notice_ids": [row["notice_id"]],
+                                     "state": "surfaced", "transport": "hook:SessionStart"})
+    assert len(service.dispatch("notice.pending", {"session_id": "someone"})["notices"]) == 1

@@ -136,7 +136,7 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         at_limit = limit is not None and live_now >= limit
         if not decision.chosen_lane or at_limit:
             kept = waiters.get(tier, [])
-            if decision.chosen_lane or not scheduler.refused_for_good(policy, decision, job):
+            if decision.chosen_lane or not scheduler.refused_for_good(policy, decision, job, view["lanes"]):
                 waiters.setdefault(tier, []).append((job["job_id"], models, demand))
             hold = (scheduler.dominant_rejection(decision) if not decision.chosen_lane
                     else "fleet-full" if saturated[pool] else "slot-kept")
