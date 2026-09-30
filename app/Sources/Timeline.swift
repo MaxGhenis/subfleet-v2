@@ -203,8 +203,10 @@ struct TurnTimeline: Equatable {
             // A daemon from before 2026-09-29 left a bound message's reason empty.
             return "Waiting; the daemon has not said why"
         }
-        if reason.contains("external-writer") {
-            // C-26.3, D-17: another Claude process holds the session.
+        // C-26.3, D-17: another Claude process holds the session. Matched by kind,
+        // never anywhere in the text: a lease reason quotes a conversation's title,
+        // and one titled "fix the external-writer wait" is a conversation writing.
+        if reason.hasPrefix("external-writer") || reason == "readmit:external-writer" {
             return "Waiting: open in the Claude app or a terminal; close it there to continue here"
         }
         if reason == "dispatching" { return "Sending to the daemon" }

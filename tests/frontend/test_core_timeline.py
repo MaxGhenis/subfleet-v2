@@ -514,3 +514,40 @@ def test_c24_4_c29_11_a_waiting_message_reads_its_reason_and_capacity_only_when_
         {"message_id": mid, "conversation_id": cid, "seq": 1, "origin": "person", "state": "waiting",
          "state_reason": lease}]}])
     assert result["turns"][mid]["status_text"] == words[0]
+
+
+def test_c24_4_a_title_that_names_a_reason_s_kind_is_read_as_a_title(core_probe, tmp_path, harness):
+    """Review of 5e9f2fbd (P2-1): a lease reason quotes the title of the conversation
+    whose turn holds the folder, so the app reads a reason's kind from its start and
+    never from anywhere in its text. A conversation titled "fix the external-writer
+    wait" is a conversation writing there, not a Claude process holding the session;
+    the external-writer words stay for the two reasons that are one. Each lease
+    reason is made by the service's own code (`waits.hold_reason` with
+    `_describe_lease`), as the daemon writes it."""
+    from subfleet import folders
+    from subfleet.conversations import waits
+    titles = ["fix the external-writer wait", "external-writer", "readmit:external-writer",
+              "external-writer: pid 73376", "capacity: no Claude lane has room for it yet"]
+    rows: dict[str, dict] = {}
+    harness.daemon.store.one = lambda sql, params=(): (           # the job store's two rows a lease names
+        rows.get(params[0]) if "FROM leases" in sql else rows.get(("job", params[0])))
+    leases = []
+    for n, title in enumerate(titles):
+        holder = harness.create(title=title)["conversation_id"]
+        job = f"20260929-12000{n}-turn"
+        key = folders.turn_key(str(harness.workspace), job, writable=True)
+        rows[key] = {"holder": job}
+        rows[("job", job)] = {"job_id": job, "kind": "turn", "name": f"turn-{holder}"}
+        leases.append(waits.hold_reason({"reason": "lease-held", "leases": [key]},
+                                        describe=harness.service._describe_lease, who=harness.service._who))
+    assert leases == [f"lease: conversation “{title}” is writing in this folder" for title in titles]
+    reasons = [*leases, "external-writer: pid 73376", "readmit:external-writer", "readmit:provider-init-failed"]
+    words = run_probe(core_probe, "waiting-words", write_json(tmp_path / "reasons.json", reasons))
+    external = "Waiting: open in the Claude app or a terminal; close it there to continue here"
+    assert words == [
+        *(f"Waiting: conversation “{title}” is writing in this folder" for title in titles),
+        external,
+        external,
+        "Waiting to be sent again (provider-init-failed)",
+    ]
+    assert not any(w.startswith("Waiting for capacity") for w in words)
