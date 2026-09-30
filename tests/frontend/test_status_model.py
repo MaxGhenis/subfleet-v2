@@ -191,3 +191,14 @@ def test_c18_2_frontend_reads_a_snapshot_from_a_daemon_without_jobs(probe, tmp_p
     result = project(probe, tmp_path, payload)
     assert result["has_jobs_section"] is False and result["job_groups"] == [] and result["recent_jobs"] == []
     assert result["codex"][0]["percentage"] == 25
+
+
+def test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable(probe, tmp_path):
+    """C-5.7a, C-18.1 the probe fields are additions the Swift model decodes past, and a held lane reads unavailable."""
+    result = display(probe, tmp_path, [lane("codex", probe_state="quarantined", probe_holder="probe:q1"),
+                                       lane("claude", probe_state="reserved", probe_holder="probe:q2")])
+    for provider in ("codex", "claude"):
+        row = result[provider][0]
+        assert row["status"] == "Unavailable" and row["tone"] == "neutral"
+        assert "Not dispatchable" in row["detail"]
+        assert row["percentage"] == 25 and row["weekly_percentage"] == 60

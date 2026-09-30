@@ -48,6 +48,10 @@ def dispatchable(lane: Mapping[str, Any]) -> bool:
             or lane.get("canonical") is False or lane.get("duplicate_of")
             or lane.get("provider") == "claude" and lane.get("desktop")):
         return False
+    if lane.get("probe_state") is not None:
+        # C-5.7a, C-18.1: a probe holds this lane's slot, and admission places
+        # nothing here until its lease is released, however fresh the readings.
+        return False
     if "dispatchable" in lane:
         return bool(lane["dispatchable"])
     return (lane_verdict(lane) in {"ok", "ready", "provider", "stale-provider", "admission-observed"}
@@ -142,7 +146,9 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
         verdict, windows = lane_verdict(lane), _windows(lane)
         common = {"lane_id": lane["lane_id"], "verdict": verdict,
                   "enabled": bool(lane.get("enabled", True)), "owner": lane.get("owner", "v2"),
-                  "dispatchable": dispatchable(lane)}
+                  "dispatchable": dispatchable(lane),
+                  # C-18.1: the probe holding this lane's slot, if one does.
+                  "probe_state": lane.get("probe_state"), "probe_holder": lane.get("probe_holder")}
         if lane.get("identity_status") is not None:
             common["identity_status"] = lane["identity_status"]
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")
@@ -197,9 +203,16 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
             "jobs": _jobs(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
-                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits}},
+                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits,
+                       "probe_held": _probe_held(codex)}},
             "claude": {"accounts": claude, "lanes": {"enrolled": sum(row["enrolled"] for row in claude),
-                        "dispatchable_now": sum(row["dispatchable"] for row in claude)}}}
+                        "dispatchable_now": sum(row["dispatchable"] for row in claude),
+                        "probe_held": _probe_held(claude)}}}
+
+
+def _probe_held(rows: list[dict[str, Any]]) -> int:
+    """C-18.1: how many of a section's lanes a probe holds."""
+    return sum(row["probe_state"] is not None for row in rows)
 
 
 def write_status(root: str | Path, snapshot: Mapping[str, Any], *,
