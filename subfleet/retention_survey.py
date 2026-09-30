@@ -158,6 +158,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
                                    hosted=ret.nested_hosts(jobs, root))
         journals = rarch.journals(root)
+        live_trees = [job.get("worktree") for job in jobs] + [
+            j.get("worktree") for j in journals.values() if isinstance(j, dict)]
         salvage = defaultdict(list)
         for row in store.query("SELECT r.artifact_id,r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage'"):
@@ -185,7 +187,15 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             info["bytes"] = jobdir["bytes"]
             info["manifest_bytes"] = jobdir["manifest_bytes"]
         if worktree is not None and info["worktree_exists"] and not info.get("pin"):
-            _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache, remote_less)
+            seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
+            _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache, remote_less, seen)
+        elif worktree is not None and not info.get("pin") and job.get("workdir"):
+            # As `Retirement.begin` for a tree that is gone: its source
+            # directory inside another job's tree, which is not there (N4).
+            host = rarch.host_absent(root, Path(os.path.realpath(job["workdir"])), worktree,
+                                     lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees))
+            if host is not None and not os.path.isdir(job["workdir"]):
+                info["issue"] = f"nested-host: {host[1]}"
         if worktree is not None and info["worktree_exists"] and sizes:
             wt = _walk_sizes(worktree, info.pop("_omit", None))
             info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
@@ -335,7 +345,7 @@ def _source_common(job: dict[str, Any]) -> Path | None:
 
 
 def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: list[str],
-               cache: dict[Any, Any], remote_less: int | None = None) -> None:
+               cache: dict[Any, Any], remote_less: int | None = None, seen: int | None = None) -> None:
     """The per-job checks of `Retirement.begin`, read-only, and what the
     retirement's bundle would carry (`bundle_estimate`, N1): a repository with
     no network remote whose bundle would carry more than `remote_less` bytes of
@@ -349,9 +359,9 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             # As `Retirement._not_without_host`: registered inside another
             # job's tree, which is not there (N4).
             where = rgit.gitfile_admin(worktree)[0]
-            allocated = Path(os.path.realpath(root / "worktrees"))
-            if where is not None and allocated in where.parents and worktree not in where.parents:
-                info["issue"] = f"nested-host: {where}"
+            host = rarch.host_absent(root, where, worktree, lambda h: True)
+            if host is not None:
+                info["issue"] = f"nested-host: {host[1]}"
         info["git"] = why
         common = _source_common(job)
         if common is None:
@@ -404,12 +414,13 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                 cache[hkey] = None
                 info["bundle_estimate_error"] = str(exc)[:200]
         info["bundle_estimate"] = cache[hkey]
-        if not remotes and remote_less is not None:
-            if cache[hkey] is None:
+        if remote_less is not None and not rgit.holds_anything(common, remotes):
+            size = max(cache[hkey], seen or 0) if cache[hkey] is not None else None
+            if size is None:
                 info.setdefault("issue", "remote-less-history: size unknown")
-            elif cache[hkey] > remote_less:
-                info.setdefault("issue", f"remote-less-history: {cache[hkey]} bytes of history with no network "
-                                         f"remote, over {remote_less}")
+            elif size > remote_less:
+                info.setdefault("issue", f"remote-less-history: {size} bytes of history no network remote "
+                                         f"holds, over {remote_less}")
         if reg is not None and scratch is None and head:
             omit, _ = rgit.omission_map(common, [head, job.get("workdir_head")], held, timeout=120)
             info["_omit"] = omit

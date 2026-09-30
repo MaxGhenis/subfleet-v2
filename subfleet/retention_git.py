@@ -275,6 +275,16 @@ def network_remotes(common: Path, cancel: threading.Event | None = None) -> dict
     return remotes
 
 
+def holds_anything(common: Path, remotes: dict[str, str], cancel: threading.Event | None = None) -> bool:
+    """Whether any remote-tracking ref of `remotes` exists: a remote added but
+    never fetched holds nothing, and a bundle against it is the whole history."""
+    if not remotes:
+        return False
+    out = run(["for-each-ref", "--count=1", "--format=%(refname)",
+               *[f"refs/remotes/{name}/" for name in sorted(remotes)]], git_dir=common, cancel=cancel).stdout
+    return bool(out.strip())
+
+
 def held_arguments(remotes: dict[str, str]) -> list[str]:
     return [f"--glob=refs/remotes/{name}/*" for name in sorted(remotes)]
 
