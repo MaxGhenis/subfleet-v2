@@ -2417,8 +2417,11 @@ def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     sys.stdout.write(report["diff"])
     if args.dry_run:
+        drift = report.get("drift") or {}
+        events = ", ".join(f"{event}: {drift[event]}" if event in drift else event
+                           for event in report["changed_events"])
         note(f"{PROG} daemon install --hooks --dry-run: would write "
-             f"{report['path']} ({', '.join(report['changed_events'])})")
+             f"{report['path']} ({events})")
         return int(Exit.OK)
     written = hooks.apply()
     if not written.get("written"):

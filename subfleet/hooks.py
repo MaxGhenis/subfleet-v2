@@ -782,6 +782,60 @@ def _strip_ours(groups: list[Any], event: str, command: str) -> list[Any]:
     return kept
 
 
+def _holds_ours(group: Any, event: str, command: str) -> bool:
+    return (isinstance(group, dict) and isinstance(group.get("hooks"), list)
+            and any(_is_ours(hook, event, command) for hook in group["hooks"]))
+
+
+def _place_ours(groups: list[Any], event: str, command: str,
+                group: dict[str, Any]) -> list[Any]:
+    """`groups` with v2's entries for `event` replaced by one `group` (C-23.25).
+
+    The one entry goes where v2's first entry was, or last when there was none,
+    and every other entry keeps its place. So a list that already holds exactly
+    one `group`, at any position, comes back equal to itself: the harness runs
+    all matching hooks in parallel (`docs/reference/claude-hooks.md` §1), so
+    where ours sits changes nothing, and moving it to the end fought whichever
+    tool appended its own entry after ours (2026-09-28: a `mask-credentials.py`
+    entry appended after ours made `doctor` FAIL on order alone).
+    """
+    kept: list[Any] = []
+    at: int | None = None
+    for existing in groups:
+        if at is None and _holds_ours(existing, event, command):
+            at = len(kept)
+        kept.extend(_strip_ours([existing], event, command))
+    kept.insert(len(kept) if at is None else at, group)
+    return kept
+
+
+def _drift(groups: list[Any], event: str, command: str) -> str:
+    """Why an event's list is not what `--hooks` writes: the entry is `missing`,
+    `duplicated`, or there once and `differs` from what would be written."""
+    ours = sum(_is_ours(hook, event, command)
+               for group in groups if isinstance(group, dict)
+               and isinstance(group.get("hooks"), list)
+               for hook in group["hooks"])
+    return "missing" if not ours else "duplicated" if ours > 1 else "differs"
+
+
+def _same(a: Any, b: Any) -> bool:
+    """JSON value equality. Python's `==` holds `True == 1`, but a file that
+    says `"asyncRewake": 1` does not say what `--hooks` writes; JSON has one
+    number type, so `600` and `600.0` are the same value."""
+    if a is b:
+        return True
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[key], b[key]) for key in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(map(_same, a, b))
+    return type(a) is type(b) and a == b
+
+
 def load_settings(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -798,6 +852,11 @@ def plan(path: Path | None = None, *, command: str | None = None,
     Nothing is written here. `daemon install --hooks` prints this diff first and
     `--dry-run` prints it instead of writing (the lane's own rule, and the one
     that keeps `~/.claude/settings.json` out of accidental rewrites).
+
+    An event changes only when v2's entry is missing, duplicated, or differs
+    from what would be written; its position among other tools' entries is
+    never drift (`_place_ours`, C-23.25). `drift` says which, per event. An
+    event that does not change keeps the file's own value, key order included.
     """
     path = settings_path() if path is None else path
     try:
@@ -808,18 +867,21 @@ def plan(path: Path | None = None, *, command: str | None = None,
     hooks = dict(hooks) if isinstance(hooks, dict) else {}
     proposed_hooks: dict[str, Any] = {key: value for key, value in hooks.items()}
     changed: list[str] = []
+    drift: dict[str, str] = {}
     resolved = command or hook_command()
     for event, group in desired_groups(command, timeout).items():
         existing = hooks.get(event) if isinstance(hooks.get(event), list) else []
-        stripped = _strip_ours(list(existing), event, resolved)
-        updated = stripped if remove else [*stripped, group]
-        if updated != list(existing):
-            changed.append(event)
-        if updated or event in hooks:
-            proposed_hooks[event] = updated
+        updated = (_strip_ours(list(existing), event, resolved) if remove
+                   else _place_ours(list(existing), event, resolved, group))
+        if _same(updated, existing):
+            continue
+        changed.append(event)
+        if not remove:
+            drift[event] = _drift(existing, event, resolved)
+        proposed_hooks[event] = updated
     proposed = {**current, "hooks": proposed_hooks}
     return {
-        "ok": True, "path": str(path), "changed_events": changed,
+        "ok": True, "path": str(path), "changed_events": changed, "drift": drift,
         "current": current, "proposed": proposed,
         "diff": _diff(current, proposed, str(path)),
         "v1_entries": v1_entries(current),
@@ -891,4 +953,5 @@ def installed(path: Path | None = None, *, command: str | None = None,
     return {"ok": True, "path": report["path"],
             "matches": not report["changed_events"],
             "missing_events": report["changed_events"],
+            "drift": report["drift"],
             "v1_entries": report["v1_entries"]}

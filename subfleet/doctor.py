@@ -113,7 +113,8 @@ def check_compat_table() -> dict[str, Any]:
 
 
 def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
-    """`~/.claude/settings.json` matches what `daemon install --hooks` writes."""
+    """`~/.claude/settings.json` holds each entry `daemon install --hooks` writes,
+    once and as written, at any position among other tools' entries (C-23.25)."""
     from . import hooks
     report = hooks.installed(settings)
     path = report.get("path")
@@ -128,8 +129,11 @@ def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
         return row("hook entries in ~/.claude/settings.json", PASS,
                    f"{path}: all native v2 hook entries are present{v1_note}",
                    "`subfleet daemon install --hooks --dry-run` prints the diff")
+    drift = report.get("drift") or {}
+    events = ", ".join(f"{event} ({drift[event]})" if event in drift else event
+                       for event in report["missing_events"])
     return row("hook entries in ~/.claude/settings.json", FAIL,
-               f"{path}: {', '.join(report['missing_events'])} would change{v1_note}",
+               f"{path}: {events} would change{v1_note}",
                "`subfleet daemon install --hooks --dry-run`, then "
                "`subfleet daemon install --hooks`")
 
