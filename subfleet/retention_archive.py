@@ -8,10 +8,11 @@ back, and deletes only entries whose signature is still the archived one:
   as an APFS clone (a copy on other volumes) — uncommitted, untracked and
   ignored files alike — except a tracked file whose raw bytes are a blob a
   network remote's refs reach in a repository that is not scratch, and
-  regenerable output (what a virtualenv's creator, a package manager, Python's
-  bytecode compiler or a tool cache writes, identified by its structure, in a
-  directory git ignores entirely: `retention_fs.RegenerableWalk`), which is
-  deleted with the tree, not archived;
+  regenerable output (in a directory whose structure says a virtualenv's
+  creator, a package manager, Python's bytecode compiler or a tool cache
+  wrote it and which git ignores entirely, the files a rule proves the tool
+  makes again: `retention_fs.RegenerableWalk`), which is deleted with the
+  tree, not archived;
 - the worktree's admin directory, byte for byte, and every object it names,
   with the job's salvage commits and baseline, as one synthetic anchor commit,
   the only head of a bundle of every commit no network remote holds;
