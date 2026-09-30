@@ -439,7 +439,7 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
                       fmt: str | None, hash_budget: int, denied: set[str]) -> dict[str, Any]:
     out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
                            "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
-                           "omission_exact": True, "error": None, "manifest_bytes": 0}
+                           "omission_exact": True, "regenerable_exact": True, "error": None, "manifest_bytes": 0}
     try:
         fd = rfs.open_dir(path)
     except FileNotFoundError:
@@ -450,7 +450,30 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
     regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
     try:
         for rel, st, parent, name in rfs.walk(fd):
-            if regen is not None and regen.classify(rel, st, parent, name):
+            verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+            if isinstance(verdict, rfs.Verify):
+                # As the archive: a file a RECORD lists goes only if it hashes
+                # as the RECORD says; past the hash budget its size is taken
+                # for a match (an upper bound: `regenerable_exact` False).
+                expected, verdict = verdict.sha256, False
+                if out["hashed_bytes"] + st.st_size <= hash_budget:
+                    try:
+                        handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                        try:
+                            digest, _ = rfs.read_hashes(handle, st.st_size, None)
+                        finally:
+                            os.close(handle)
+                        out["hashed_bytes"] += st.st_size
+                        verdict = digest == expected
+                    except (OSError, rfs.TreeError):
+                        verdict = False
+                else:
+                    out["regenerable_exact"], verdict = False, True
+                if verdict:
+                    assert regen is not None and name is not None
+                    regen.confirm(rel, st, parent, name)
+                    out["manifest_bytes"] += len(',"sha256":""') + 64
+            if verdict:
                 out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
                 if stat.S_ISREG(st.st_mode):
                     out["bytes"] += st.st_size

@@ -1035,7 +1035,17 @@ class _Builder:
                 entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
                 t = entry["sig"]["t"]
                 totals["entries"] += 1
-                if regen is not None and regen.classify(rel, st, parent, name):
+                verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+                if isinstance(verdict, rfs.Verify):
+                    # A file an installed distribution's RECORD lists: dropped
+                    # only if its bytes are the ones the RECORD names (N3).
+                    digest = self._digest(entry, st, parent, name)
+                    verdict = digest == verdict.sha256
+                    if verdict:
+                        assert regen is not None and name is not None
+                        regen.confirm(rel, st, parent, name)
+                        entry["sha256"] = digest
+                if verdict:
                     entry["regen"] = True
                     totals["regenerable_entries"] += 1
                     if t == "l":
@@ -1059,7 +1069,41 @@ class _Builder:
             raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
         finally:
             os.close(fd)
-        return entries, (regen.summary() if regen is not None else [])
+        if regen is None:
+            return entries, []
+        # A directory under a tool's entry whose every entry was dropped goes too.
+        emptied = regen.finish()
+        for entry in entries:
+            if entry["p"] in emptied:
+                entry["regen"] = True
+                totals["regenerable_entries"] += 1
+        return entries, regen.summary()
+
+    def _digest(self, entry: dict[str, Any], st: os.stat_result, parent: int, name: str | None) -> str:
+        """The sha256 of the file as the walk saw it (recorded in the progress
+        log, so a later slice does not read it again)."""
+        key = rfs.sig_key(st)
+        cached = self.progress.get(key, {}).get("sha256")
+        if cached:
+            return cached
+        self._tick()
+        try:
+            fd = os.open(name, rfs.O_FILE, dir_fd=parent)
+        except PermissionError as exc:
+            raise rfs.TreeError("unreadable", f"{entry['p']}: {exc.strerror}") from None
+        except FileNotFoundError:
+            raise rfs.TreeError("changed", f"{entry['p']} vanished") from None
+        try:
+            before = os.fstat(fd)
+            if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):
+                raise rfs.TreeError("changed", f"{entry['p']} was replaced")
+            digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
+            if not rfs.same_content_signature(before, os.fstat(fd)):
+                raise rfs.TreeError("changed", f"{entry['p']} changed while it was read")
+        finally:
+            os.close(fd)
+        self._note({"k": key, "sha256": digest})
+        return digest
 
     def _nested_gitfile(self, parent: int, name: str, rel: str, admin: str | None) -> None:
         """A linked worktree inside the job's tree keeps its admin directory in
