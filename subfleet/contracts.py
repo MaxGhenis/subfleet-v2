@@ -265,10 +265,10 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
-# d635, final review of e50716e8 (N1): a job whose source repository has no
-# network remote bundles the whole history HEAD, its baseline and its salvage
-# commits reach; above this many bytes (git's measure on disk) the job is kept
-# instead. 0 keeps every such job with any history.
+# d635, final review of e50716e8 (N1): a job whose baseline no network remote
+# holds bundles the shared history no remote holds as well as its own; above
+# this many bytes (git's measure on disk) the job is kept instead. 0 keeps
+# every such job with any such history.
 RETENTION_REMOTE_LESS_HISTORY_BYTES = 64 * 1024 ** 2
 
 # Codex window durations in minutes (C-9.7).

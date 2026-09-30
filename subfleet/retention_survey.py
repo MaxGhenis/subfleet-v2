@@ -343,10 +343,9 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                live: Any = None) -> None:
     """The per-job checks of `Retirement.begin`, read-only, for a tree that is
     there or gone, and what the retirement's bundle would carry
-    (`bundle_estimate`, N1): a repository no network remote holds any of the
-    job's history in, whose bundle would carry more than `remote_less` bytes
-    (or `seen`, the size an earlier attempt's bundle had), keeps its job
-    (`remote-less-history`). `live(tree)` says whether a job whose tree that
+    (`bundle_estimate`, N1): a job whose baseline no network remote holds, and
+    whose bundle would carry more than `remote_less` bytes (or `seen`, the
+    size an earlier attempt's bundle had), is kept (`remote-less-history`). `live(tree)` says whether a job whose tree that
     is still has rows or a journal (`rarch.host_absent`)."""
     live = live or (lambda host: True)
     head = None
@@ -418,7 +417,7 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                 cache[hkey] = None
                 info["bundle_estimate_error"] = str(exc)[:200]
         info["bundle_estimate"] = cache[hkey]
-        if remote_less is not None and not (remotes and rgit.holds_history(common, remotes, heads)):
+        if remote_less is not None and not rgit.baseline_held(common, job.get("workdir_head"), held):
             size = max(cache[hkey], seen or 0) if cache[hkey] is not None else None
             if size is None:
                 info.setdefault("issue", "remote-less-history: size unknown")

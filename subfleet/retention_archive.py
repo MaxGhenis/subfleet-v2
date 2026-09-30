@@ -314,7 +314,8 @@ class Retirement:
                 raise Defer("salvage not archivable", DEFER_PERMANENT_S, str(ref))
             salvage.append({"artifact_id": row["artifact_id"], "ref": ref, "commit": commit})
         if common is not None:
-            self._remote_less_history(common, reg, [job.get("workdir_head"), *[s["commit"] for s in salvage]],
+            self._remote_less_history(common, reg, job.get("workdir_head"),
+                                      [job.get("workdir_head"), *[s["commit"] for s in salvage]],
                                       int(cache.get("history_bytes") or 0))
         device = os.lstat(self.work).st_dev
         for path in (worktree, job_dir):
@@ -334,33 +335,33 @@ class Retirement:
         }
         self.save()
 
-    def _remote_less_history(self, common: Path, reg: rgit.Registration | None, heads: list[str | None],
-                             seen: int = 0) -> None:
-        """Keep a job whose source repository has no network remote (or none
-        whose remote-tracking refs reach any of the job's history: a remote
-        added but never fetched, or fetched only for `gh-pages`) when its
-        bundle would carry more than `remote_less_history_bytes` of history:
-        nothing holds any of it elsewhere, so the bundle is every object HEAD,
-        the baseline and the salvage commits reach, paid again by each job
-        (about 460 MB per `~/chief-of-staff` job; final review of e50716e8,
-        N1). `seen` is a bundle an earlier attempt measured. Once one job of a
-        repository is over the limit in a pass, its others are kept on that
-        measure. Smaller ones proceed. A measure that fails keeps the job too."""
+    def _remote_less_history(self, common: Path, reg: rgit.Registration | None, baseline: str | None,
+                             heads: list[str | None], seen: int = 0) -> None:
+        """Keep a job whose baseline no network remote holds (the repository
+        has none, or its remote-tracking refs do not reach the commit the job
+        started from) when its bundle would carry more than
+        `remote_less_history_bytes`: the bundle then carries the shared
+        history too, every object HEAD, the baseline and the salvage commits
+        reach that the remotes do not, paid again by each job (about 460 MB per
+        `~/chief-of-staff` job; final review of e50716e8, N1). It is measured
+        as the bundle is made, against the held refs. `seen` is a bundle an
+        earlier attempt measured. Once one job of a repository is over the
+        limit in a pass, its others are kept on that measure. Smaller ones
+        proceed. A measure that fails keeps the job too."""
         limit = self.ctx.remote_less_history_bytes
         if limit is None:
             return
         try:
-            remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
+            held = rgit.held_arguments(rgit.network_remotes(common, cancel=self.ctx.cancel))
+            if rgit.baseline_held(common, baseline, held, cancel=self.ctx.cancel):
+                return
             if reg is not None:
                 heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
-            if remotes and rgit.holds_history(common, remotes, heads, timeout=self.ctx.git_timeout_s,
-                                              cancel=self.ctx.cancel):
-                return
             size = self.ctx.history_over.get(str(common))
             if size is None:
                 key = (str(common), tuple(sorted({h for h in heads if h})))
                 if key not in self.ctx.history:
-                    self.ctx.history[key] = rgit.history_bytes(common, key[1], [], timeout=self.ctx.git_timeout_s,
+                    self.ctx.history[key] = rgit.history_bytes(common, key[1], held, timeout=self.ctx.git_timeout_s,
                                                                cancel=self.ctx.cancel)
                 size = self.ctx.history[key]
                 if size > limit:
@@ -1373,8 +1374,8 @@ class _Builder:
                                cancel=self.ctx.cancel)
             limit = self.ctx.remote_less_history_bytes
             size = temporary.stat().st_size
-            if limit is not None and size > limit and not (remotes and rgit.holds_history(
-                    common, remotes, [anchor], timeout=self.ctx.git_timeout_s, cancel=self.ctx.cancel)):
+            if limit is not None and size > limit and not rgit.baseline_held(common, j.get("baseline"), held,
+                                                                              cancel=self.ctx.cancel):
                 # git's measure before the bundle said less; the bundle decides,
                 # and the next attempt's check remembers it (N1).
                 temporary.unlink()

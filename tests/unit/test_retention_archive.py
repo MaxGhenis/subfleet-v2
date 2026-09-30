@@ -1884,6 +1884,39 @@ def test_a_remote_that_holds_only_unrelated_history_counts_as_none(world):
     assert result["deferred"]["job-pages"].startswith("remote-less-history: "), result
 
 
+def test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline(world):
+    """Confirmation review: a remote fetched once, long ago, reaches an old
+    commit but not the one the job started from; the bundle then carries all
+    the history since, again for every job, so the limit applies. A job whose
+    baseline the remote holds carries only its own work and retires, however
+    large that is."""
+    w = world
+    for n in range(3):                                      # unpushed history since the last fetch
+        (w.repo / f"since-{n}.bin").write_bytes(os.urandom(60_000))
+        git(w.repo, "add", ".")
+        git(w.repo, "commit", "--quiet", "-m", f"since {n}")
+    w.job("job-stale")
+    result = run(w, remote_less_history_bytes=100_000)
+    assert result["deferred"]["job-stale"].startswith("remote-less-history: "), result
+    w.push()                                                # now the baseline is held
+    wt = w.job("job-own-work")
+    (wt / "big.bin").write_bytes(os.urandom(300_000))       # the job's own large work
+    git(wt, "add", "big.bin")
+    git(wt, "commit", "--quiet", "-m", "own work")
+    second = run(w, remote_less_history_bytes=100_000, state=retention.RetentionState())
+    assert sorted(second["pruned"]) == ["job-own-work", "job-stale"], second["deferred"]     # both baselines held now
+
+
+def test_this_machine_by_any_of_its_names():
+    import socket
+    name = socket.gethostname()
+    for host in ("localhost", "127.0.0.1", "127.1", "[::1]:22", "me@localhost", "0", "nas.local", name,
+                 name.lower().removesuffix(".local") + ".local", "build.localhost"):
+        assert rfs.this_machine(host), host
+    for host in ("github.com", "git@github.com", "10.0.0.5", "files.pythonhosted.org"):
+        assert not rfs.this_machine(host), host
+
+
 def test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does(world):
     """Review of the revision-4 build: for a job whose tree is gone, the survey
     runs the pass's checks too (here the history limit)."""

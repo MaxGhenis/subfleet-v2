@@ -279,27 +279,16 @@ def network_remotes(common: Path, cancel: threading.Event | None = None) -> dict
     return remotes
 
 
-def holds_history(common: Path, remotes: dict[str, str], heads: Iterable[str | None], *,
-                  timeout: float = 600, cancel: threading.Event | None = None) -> bool:
-    """Whether the remote-tracking refs of `remotes` reach any commit of the
-    heads' history (`merge-base` of a head and every tip finds one). A remote
-    added but never fetched, or fetched only for an unrelated branch
-    (`gh-pages`), holds none of it, and a bundle against it is the whole
-    history (review of the revision-4 build)."""
-    if not remotes:
+def baseline_held(common: Path, baseline: str | None, held: list[str], *,
+                  cancel: threading.Event | None = None) -> bool:
+    """Whether a network remote's refs reach the commit a job started from.
+    Then its bundle carries only what the job itself added; otherwise it
+    carries the shared history too, paid again by every job of the
+    repository (no network remote, a remote never fetched or fetched only
+    for `gh-pages`, or refs from long ago: review of the revision-4 build)."""
+    if not baseline or not held or not classify(common, [baseline], cancel=cancel)["commit"]:
         return False
-    tips = sorted(set(run(["for-each-ref", "--format=%(objectname)",
-                           *[f"refs/remotes/{name}/" for name in sorted(remotes)]], git_dir=common, timeout=timeout,
-                          cancel=cancel).stdout.decode().split()))
-    commits = sorted(classify(common, [h for h in heads if h], timeout=timeout, cancel=cancel)["commit"])
-    if not tips or not commits:
-        return False
-    for i in range(0, len(tips), 256):
-        for commit in commits:
-            if run(["merge-base", commit, *tips[i:i + 256]], git_dir=common, ok=(0, 1), timeout=timeout,
-                   cancel=cancel).returncode == 0:
-                return True
-    return False
+    return held_commit(common, baseline, held, cancel=cancel)
 
 
 def held_arguments(remotes: dict[str, str]) -> list[str]:
