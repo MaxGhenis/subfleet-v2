@@ -23,6 +23,7 @@ import json
 import os
 import posixpath
 import re
+import socket
 import stat
 import struct
 from collections.abc import Callable, Iterator
@@ -352,13 +353,15 @@ _RECORD_SHA256 = re.compile(r"sha256=([A-Za-z0-9_-]{43})=?")
 #: PEP 610: an install from a URL on another machine (an index needs none).
 _NETWORK_URL = re.compile(r"(?:https?|git\+https?|git\+ssh|ssh|git|hg\+https?|svn\+https?|bzr\+https?)://([^/]+)/",
                           re.IGNORECASE)
-_LOOPBACK_V4 = re.compile(r"127(?:\.\d{1,3}){3}")
+_LOOPBACK_V4 = re.compile(r"127(?:\.\d{1,3}){1,3}")
 
 
 def this_machine(host: str) -> bool:
-    """Whether a URL's host (`user@host:port` allowed) names this machine: a
-    loopback address, `localhost`, or a `.local` or `.localhost` name. A
-    server there is no copy elsewhere (review of the revision-4 build)."""
+    """Whether a URL's host (`user@host:port` allowed) may be this machine: a
+    loopback address (`127.1` too), `localhost`, this machine's own name, or a
+    `.localhost` or `.local` name (`.local` is any host on the local network,
+    taken as this one: when in doubt, it is no copy elsewhere; review of the
+    revision-4 build)."""
     host = host.rpartition("@")[2]
     if host.startswith("["):
         host = host[1:].partition("]")[0]
@@ -367,8 +370,15 @@ def this_machine(host: str) -> bool:
     host = host.lower().rstrip(".")
     if host.startswith("::ffff:"):
         host = host[len("::ffff:"):]
-    return (host in ("", "localhost", "0.0.0.0", "::", "::1", "0:0:0:0:0:0:0:1")
+    return (host in ("", "0", "localhost", "0.0.0.0", "::", "::1", "0:0:0:0:0:0:0:1") or host in _own_names()
             or host.endswith((".localhost", ".local")) or _LOOPBACK_V4.fullmatch(host) is not None)
+
+
+def _own_names() -> set[str]:
+    """This machine's own host names, with and without `.local`."""
+    name = socket.gethostname().lower().rstrip(".")
+    short = name[:-len(".local")] if name.endswith(".local") else name
+    return {name, short, f"{short}.local"} - {""}
 
 
 @dataclass(frozen=True)
