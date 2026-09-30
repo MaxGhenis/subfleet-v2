@@ -257,6 +257,16 @@ def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
     assert reason in ("borrows objects (alternates)", "shallow clone")
 
 
+def test_a_remote_on_this_machine_is_no_network_remote():
+    """Review of the revision-4 build: a clone reached over ssh or http on this
+    machine holds nothing elsewhere."""
+    for url in ("ssh://localhost/tmp/x.git", "me@localhost:repo.git", "http://127.0.0.1:8080/x.git",
+                "ssh://[::1]/x.git", "git@mac.local:x.git", "https://build.localhost/x.git"):
+        assert not rgit.network_url(url), url
+    for url in ("https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@host.example.com/r.git"):
+        assert rgit.network_url(url), url
+
+
 def test_network_url_classification():
     assert rgit.network_url("https://github.com/a/b.git")
     assert rgit.network_url("git@github.com:a/b.git")
@@ -1852,6 +1862,40 @@ def test_a_remote_that_holds_nothing_counts_as_none(world):
     w.job("job-unfetched")
     result = run(w, remote_less_history_bytes=100_000)
     assert result["pruned"] == [] and result["deferred"]["job-unfetched"].startswith("remote-less-history: "), result
+
+
+def test_a_remote_that_holds_only_unrelated_history_counts_as_none(world):
+    """Review of the revision-4 build: a remote fetched only for an unrelated
+    branch (`gh-pages`) holds none of the job's history."""
+    w = world
+    _remote_less(w)
+    server = w.base / "pages.git"
+    git(w.base, "init", "--quiet", "--bare", str(server))
+    pages = w.base / "pages"
+    git(w.base, "init", "--quiet", str(pages))
+    (pages / "index.html").write_text("<p>docs</p>\n")
+    git(pages, "add", ".")
+    git(pages, "commit", "--quiet", "-m", "pages")
+    git(pages, "push", "--quiet", str(server), "HEAD:refs/heads/gh-pages")
+    git(w.repo, "remote", "add", "origin", "https://git.example.invalid/project.git")
+    git(w.repo, "fetch", "--quiet", str(server), "+refs/heads/gh-pages:refs/remotes/origin/gh-pages")
+    w.job("job-pages")
+    result = run(w, remote_less_history_bytes=100_000)
+    assert result["deferred"]["job-pages"].startswith("remote-less-history: "), result
+
+
+def test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does(world):
+    """Review of the revision-4 build: for a job whose tree is gone, the survey
+    runs the pass's checks too (here the history limit)."""
+    from subfleet.retention_survey import survey
+    w = world
+    _remote_less(w)
+    wt = w.job("job-gone")
+    shutil.rmtree(wt)
+    (w.root / "policy.json").write_text(json.dumps({"retention": {"remote_less_history_bytes": 100_000}}))
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["kept"]["jobs_by_reason"] == {"remote-less-history": 1}, report["kept"]
+    assert run(w, remote_less_history_bytes=100_000)["deferred"]["job-gone"].startswith("remote-less-history")
 
 
 def test_a_repositorys_history_is_measured_once_a_pass(world, monkeypatch):

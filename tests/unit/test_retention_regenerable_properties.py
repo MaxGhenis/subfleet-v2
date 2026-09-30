@@ -359,6 +359,12 @@ def _venv_drops(venv: Path, f: Path, vouched: dict) -> bool:
         others = [q for q in f.parent.rglob("*") if q != f and not _real_dir(q)]
         return all(_regular(q) and str(q.relative_to(venv)) in vouched
                    and vouched[str(q.relative_to(venv))][0] == _sha256(q) for q in others)
+    dist = next((q for q in f.parents if q.name.endswith(".dist-info")), None)
+    if dist is not None and str((dist / "RECORD").relative_to(venv)) in vouched:
+        others = [q for q in dist.rglob("*") if q.name != "RECORD" and not _real_dir(q)]
+        if not all(_regular(q) and str(q.relative_to(venv)) in vouched
+                   and vouched[str(q.relative_to(venv))][0] == _sha256(q) for q in others):
+            return False                               # a dist-info goes whole or not at all
     if hit:
         return hit[0] == _sha256(f) and hit[1] in ("", str(f.stat().st_size))
     return f.parent.name == "__pycache__" and _bytecode(f)
@@ -367,13 +373,6 @@ def _venv_drops(venv: Path, f: Path, vouched: dict) -> bool:
 def _bytecode(f: Path) -> bool:
     return (f.suffix in (".pyc", ".pyo") and f.read_bytes()[2:4] == b"\r\n" and len(f.read_bytes()) >= 4
             and _regular(f.parent.parent / (f.name.split(".")[0] + ".py")))
-
-
-def _installed_at(nm: Path) -> int | None:
-    times = [min(m.stat().st_mtime_ns, m.stat().st_ctime_ns) for m in
-             (nm / n for n in (".package-lock.json", ".modules.yaml", ".yarn-integrity", ".yarn-state.yml"))
-             if _regular(m)]
-    return min(times) if times else None
 
 
 def oracle(wt: Path) -> set[str]:
@@ -414,7 +413,6 @@ def oracle(wt: Path) -> set[str]:
     for kind, p in active:
         container = p.parent
         vouched = _vouched(container if kind == "venv" else p) if kind in ("venv", ".tox") else {}
-        at = _installed_at(container) if kind == "node" else None
         entries = [p] + (sorted(p.rglob("*")) if _real_dir(p) else [])
         walked.extend(q for q in entries if _real_dir(q))
         for f in entries:
@@ -424,9 +422,6 @@ def oracle(wt: Path) -> set[str]:
             if kind in ("venv", ".tox"):
                 env = container if kind == "venv" else p
                 drop = _venv_drops(env, f, vouched)
-            elif kind == "node":
-                st_ = f.stat()
-                drop = at is not None and len(inner) > 1 and st_.st_mtime_ns <= at and st_.st_ctime_ns <= at
             elif kind == ".pytest_cache":
                 drop = "/".join(inner) in ("v/cache/nodeids", "v/cache/lastfailed", "v/cache/stepwise")
             elif kind == ".ruff_cache":

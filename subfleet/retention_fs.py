@@ -324,8 +324,6 @@ def private_bytes(parent_fd: int, name: str, st: os.stat_result) -> int:
 #
 # - a file an installed distribution's RECORD lists, whose sha256 matches;
 # - bytecode with a magic number, beside its source;
-# - a file inside an installed npm, pnpm or yarn package that was neither
-#   written nor changed after the package manager's install marker;
 # - a tool cache's own files, by the names the tool gives them.
 #
 # Only a tool's own top-level entries are looked into: live job trees held
@@ -341,9 +339,6 @@ def private_bytes(parent_fd: int, name: str, st: os.stat_result) -> int:
 CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
 BYTECODE = (".pyc", ".pyo")
 VENV_DIRS = (".venv", "venv")
-#: The files a package manager writes at the top of `node_modules` when an
-#: install ends (npm, pnpm, yarn 1, yarn 2+).
-NODE_MARKERS = (".package-lock.json", ".modules.yaml", ".yarn-integrity", ".yarn-state.yml")
 #: pytest's own cache files (`cacheprovider`: `cache/lastfailed`, `cache/nodeids`,
 #: `cache/stepwise` under `v/`).
 PYTEST_OWN = frozenset({"v/cache/lastfailed", "v/cache/nodeids", "v/cache/stepwise"})
@@ -355,8 +350,25 @@ _DIGITS = re.compile(r"[0-9]+")
 RECORD_SELF = "RECORD"
 _RECORD_SHA256 = re.compile(r"sha256=([A-Za-z0-9_-]{43})=?")
 #: PEP 610: an install from a URL on another machine (an index needs none).
-_NETWORK_URL = re.compile(r"(?:https?|git\+https?|git\+ssh|ssh|git|hg\+https?|svn\+https?|bzr\+https?)://[^/]+/",
+_NETWORK_URL = re.compile(r"(?:https?|git\+https?|git\+ssh|ssh|git|hg\+https?|svn\+https?|bzr\+https?)://([^/]+)/",
                           re.IGNORECASE)
+_LOOPBACK_V4 = re.compile(r"127(?:\.\d{1,3}){3}")
+
+
+def this_machine(host: str) -> bool:
+    """Whether a URL's host (`user@host:port` allowed) names this machine: a
+    loopback address, `localhost`, or a `.local` or `.localhost` name. A
+    server there is no copy elsewhere (review of the revision-4 build)."""
+    host = host.rpartition("@")[2]
+    if host.startswith("["):
+        host = host[1:].partition("]")[0]
+    elif host.count(":") == 1:
+        host = host.partition(":")[0]
+    host = host.lower().rstrip(".")
+    if host.startswith("::ffff:"):
+        host = host[len("::ffff:"):]
+    return (host in ("", "localhost", "0.0.0.0", "::", "::1", "0:0:0:0:0:0:0:1")
+            or host.endswith((".localhost", ".local")) or _LOOPBACK_V4.fullmatch(host) is not None)
 
 
 @dataclass(frozen=True)
@@ -688,7 +700,8 @@ def _from_an_index(dist_fd: int) -> bool:
         url = json.loads(data).get("url") if data is not None else None
     except (ValueError, AttributeError):
         return False
-    return isinstance(url, str) and _NETWORK_URL.match(url) is not None
+    match = _NETWORK_URL.match(url) if isinstance(url, str) else None
+    return match is not None and not this_machine(match.group(1))
 
 
 def _present(dir_fd: int, name: str) -> bool | None:
@@ -700,21 +713,6 @@ def _present(dir_fd: int, name: str) -> bool | None:
     except OSError:
         return None
     return True
-
-
-def node_installed_at(node_modules_fd: int) -> int | None:
-    """When the package manager last finished an install into this
-    `node_modules` (ns): the earliest mtime or ctime of the markers it writes
-    at the end (`NODE_MARKERS`); None without one."""
-    times = []
-    for name in NODE_MARKERS:
-        try:
-            st = os.stat(name, dir_fd=node_modules_fd, follow_symlinks=False)
-        except OSError:
-            continue
-        if stat.S_ISREG(st.st_mode):
-            times.append(min(st.st_mtime_ns, st.st_ctime_ns))
-    return min(times) if times else None
 
 
 class NotRegenerable(Exception):
@@ -734,8 +732,6 @@ class _Rule:
     base: str
     #: installed_files() of a venv or a tox environment
     installed: dict[str, tuple[str, int | None]] | None = None
-    #: node_installed_at() of a node_modules
-    installed_at: int | None = None
 
 
 class RegenerableWalk:
@@ -754,9 +750,9 @@ class RegenerableWalk:
       answers `Verify`; the caller reads the file and calls `confirm`), and
       bytecode (`bytecode`);
     - ``__pycache__``: bytecode;
-    - ``node_modules``: a regular file inside a package, neither modified nor
-      changed (mtime, ctime) after the install marker (`node_installed_at`);
-      none without a marker;
+    - ``node_modules``: none (no package manager keeps a hash of each file it
+      unpacks, and a time-based rule drops an edit made before a later
+      install: review of the revision-4 build);
     - ``.pytest_cache``: `PYTEST_OWN`; ``.ruff_cache``: files named by digits
       in a version directory; ``.mypy_cache``: `MYPY_OWN` files in a version
       directory; ``.uv-cache``: none.
@@ -782,6 +778,8 @@ class RegenerableWalk:
         self._record: dict[str, Any] | None = None
         #: [path, is a directory, dropped, record] for every entry under a root
         self._seen: list[list[Any]] = []
+        #: dist-info directory -> whether it is the installer's whole (`_whole`)
+        self._wholes: dict[str, bool] = {}
         self._finished: set[str] | None = None
 
     def classify(self, rel: str, st: os.stat_result, parent: int, name: str | None) -> bool | Verify:
@@ -861,13 +859,13 @@ class RegenerableWalk:
         return [record for record in self.records if record["roots"]]
 
     def _rule_for(self, kind_: str, rel: str, parent: int, name: str, st: os.stat_result) -> _Rule:
-        if kind_ not in ("venv", "node_modules"):
+        if kind_ != "venv":
             return _Rule(kind_, rel)
         fd = open_dir(name, dir_fd=parent, expect=st)
         try:
             if kind_ == "venv":
                 return _Rule(kind_, rel, installed=installed_files(fd))
-            return _Rule(kind_, rel, installed_at=node_installed_at(fd))
+            return _Rule(kind_, rel)
         finally:
             os.close(fd)
 
@@ -905,17 +903,17 @@ class RegenerableWalk:
         if rule.kind == "venv":
             installed = rule.installed or {}
             vouched = installed.get(inner)
-            if vouched is not None and vouched[0] == RECORD_SELF:
-                verdict = record_complete(parent, installed, inner)
+            info = self._dist_info(rule, parts)
+            if info is not None and not self._whole(rule, info):
+                verdict = False                      # a dist-info goes whole or not at all
+            elif vouched is not None and vouched[0] == RECORD_SELF:
+                verdict = True                       # `_whole` checked every other file of its dist-info
             elif vouched is not None and vouched[1] in (None, st.st_size):
                 return Verify(vouched[0])
             else:
                 verdict = len(parts) > 1 and parts[-2] == "__pycache__" and bytecode(parent, name, st)
         elif rule.kind == "pycache":
             verdict = bool(inner) and "/" not in inner and bytecode(parent, name, st)
-        elif rule.kind == "node_modules":
-            at = rule.installed_at
-            verdict = (at is not None and len(parts) > 1 and st.st_mtime_ns <= at and st.st_ctime_ns <= at)
         elif rule.kind == "pytest_cache":
             verdict = inner in PYTEST_OWN
         elif rule.kind == "ruff_cache":
@@ -926,6 +924,33 @@ class RegenerableWalk:
             item[2] = True
             self._drop(record, st, parent, name)
         return bool(verdict)
+
+    def _dist_info(self, rule: _Rule, parts: list[str]) -> str | None:
+        """The venv-relative `*.dist-info` directory a path is inside, when the
+        RECORD there vouches (`installed_files` marks it), or None."""
+        for n in range(1, len(parts)):
+            if parts[n - 1].endswith(".dist-info"):
+                prefix = "/".join(parts[:n])
+                return prefix if (rule.installed or {}).get(f"{prefix}/RECORD", ("",))[0] == RECORD_SELF else None
+        return None
+
+    def _whole(self, rule: _Rule, info: str) -> bool:
+        """Whether every file of a dist-info but its RECORD is listed there and
+        hashes as listed (`record_complete`), once per walk. A dist-info is
+        dropped whole or not at all: restored, one with some of its files
+        gone reads as a broken distribution (review of the revision-4 build)."""
+        key = f"{rule.base}/{info}"
+        if key not in self._wholes:
+            try:
+                fd = _open_path(self.root_fd, key)
+            except (OSError, TreeError):
+                self._wholes[key] = False
+            else:
+                try:
+                    self._wholes[key] = record_complete(fd, rule.installed or {}, f"{info}/RECORD")
+                finally:
+                    os.close(fd)
+        return self._wholes[key]
 
     def _drop(self, record: dict[str, Any], st: os.stat_result, parent: int, name: str) -> None:
         record["entries"] += 1
