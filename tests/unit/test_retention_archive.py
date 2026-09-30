@@ -1273,6 +1273,58 @@ def test_nested_repository_is_archived_byte_for_byte(world):
     assert git(nested, "rev-parse", "HEAD") == commit
 
 
+def _reduce_to_remnant(admin: Path, *, extra: str | None = None) -> bytes:
+    """What a temporary directory's cleaner leaves: every file gone but the
+    index, the directories kept (live: the four `mstat6-g*` jobs)."""
+    index = (admin / "index").read_bytes()
+    for path in sorted(admin.rglob("*"), key=lambda p: -len(p.parts)):
+        if path.is_file() and path.name != "index":
+            path.unlink()
+        elif path.is_dir() and path != admin / "logs":
+            path.rmdir()
+    if extra:
+        (admin / extra).write_text("0" * 40 + "\n")
+    return index
+
+
+def test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept(world):
+    """N5 (final review of e50716e8): an admin directory holding only `index`
+    and `logs/` (no `gitdir`, `commondir` or `HEAD`) is no registration. The
+    tree and the remnant's bytes are archived, and the remnant is removed with
+    the tree, instead of the job being deferred every day for ever."""
+    w = world
+    wt = w.job("job-remnant")
+    (wt / "notes.txt").write_text("work only this tree holds\n")
+    admin = w.admin("job-remnant")
+    index = _reduce_to_remnant(admin)
+    assert sorted(os.listdir(admin)) == ["index", "logs"]
+    assert rgit.registration(wt) == (None, "admin-remnant")
+    before = snapshot(wt)
+    result = run(w)
+    assert result["pruned"] == ["job-remnant"], result["deferred"]
+    manifest = json.loads((w.root / "archive" / "job-remnant" / "manifest.json").read_text())
+    assert manifest["git"]["admin_remnant"] is True and manifest["git"]["admin"] == str(admin)
+    assert {e["p"] for e in manifest["trees"]["admin"]["entries"]} == {"", "index", "logs"}
+    assert not admin.exists() and not wt.exists()
+    rarch.restore(w.root, "job-remnant", to=w.base / "back")
+    assert snapshot(w.base / "back" / "worktree") == before
+    assert (w.base / "back" / "admin" / "index").read_bytes() == index
+
+
+def test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job(world):
+    """Only the remnant is taken for no registration; an admin directory that
+    lost its backlink but still names something (here ORIG_HEAD) keeps its
+    job, as before."""
+    w = world
+    wt = w.job("job-half")
+    _reduce_to_remnant(w.admin("job-half"), extra="ORIG_HEAD")
+    reg, why = rgit.registration(wt)
+    assert reg is None and why.startswith("admin-unreadable")
+    result = run(w)
+    assert result["pruned"] == [] and result["deferred"]["job-half"].startswith("registration"), result
+    assert wt.is_dir() and (w.admin("job-half") / "ORIG_HEAD").exists()
+
+
 def test_job_without_worktree_is_archived_with_its_rows(world):
     w = world
     w.job("ro", worktree=False, files={"stdout": b"deliverable", "a1/last.md": b"answer"})

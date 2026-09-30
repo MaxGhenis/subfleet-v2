@@ -230,8 +230,10 @@ class Retirement:
 
     @property
     def registration(self) -> rgit.Registration | None:
+        """The job's registration; None without one, and for a remnant
+        (`rgit.is_remnant`), whose bytes are archived but which git cannot use."""
         j = self.journal or {}
-        if not j.get("admin"):
+        if not j.get("admin") or j.get("admin_remnant"):
             return None
         return rgit.Registration(Path(j["admin"]), Path(j["common"]), b"")
 
@@ -250,11 +252,17 @@ class Retirement:
         worktree = owned_worktree(job, self.root)
         job_dir = self.root / "jobs" / self.job_id
         reg = None
+        remnant = None
         common = None
         if worktree is not None:
             if os.path.lexists(worktree):
                 reg, why = rgit.registration(worktree)
-                if reg is None and why not in ("no-gitfile", "admin-missing"):
+                if why == "admin-remnant":
+                    # Only an index and logs/ are left of the registration:
+                    # there is none, and its bytes go into the archive with the
+                    # tree instead of keeping the job for ever (N5).
+                    remnant = rgit.gitfile_admin(worktree)[0]
+                elif reg is None and why not in ("no-gitfile", "admin-missing"):
                     raise Defer("registration", DEFER_PERMANENT_S, why or "")
             elif job.get("workdir"):
                 reg = rgit.find_registration(Path(job["workdir"]), worktree, cancel=self.ctx.cancel)
@@ -294,7 +302,8 @@ class Retirement:
             "schema": SCHEMA, "job_id": self.job_id, "state": "selected", "pool": pool,
             "worktree": str(worktree) if worktree else None, "job_dir": str(job_dir),
             "workdir": job.get("workdir"), "baseline": job.get("workdir_head"),
-            "admin": str(reg.admin) if reg else None, "common": str(common) if common else None,
+            "admin": str(reg.admin) if reg else (str(remnant) if remnant else None),
+            "admin_remnant": remnant is not None, "common": str(common) if common else None,
             "object_format": fmt, "lock": None, "moved": {"worktree": False, "job": False},
             "salvage": salvage, "archive": None, "started_at": _now(),
             "attempts": int(cache.get("attempts", 0)) + 1, "failures": int(cache.get("failures", 0)),
@@ -830,6 +839,8 @@ class _Builder:
         omit: dict[str, dict[str, int]] = {}
         ignored: rgit.Ignored | None = None
         git_info: dict[str, Any] = {"common": j.get("common"), "object_format": fmt, "admin": j.get("admin")}
+        if j.get("admin_remnant"):
+            git_info["admin_remnant"] = True       # archived as bytes; git cannot read it (N5)
         if reg is not None and j["moved"]["worktree"]:
             remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
             scratch = rgit.scratch_reason(common, self.state_root, remotes, cancel=self.ctx.cancel)

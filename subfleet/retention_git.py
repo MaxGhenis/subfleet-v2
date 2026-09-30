@@ -119,29 +119,63 @@ def _resolve(base: Path, text: str) -> Path:
     return Path(os.path.realpath(path if path.is_absolute() else base / path))
 
 
+def gitfile_admin(tree: Path) -> tuple[Path | None, bytes, str | None]:
+    """(the admin directory the tree's gitfile names, the gitfile, None), or
+    (None, b"", why) when the tree has no gitfile naming one."""
+    try:
+        gitfile = rfs.read_regular(tree / ".git", limit=65536)
+    except FileNotFoundError:
+        return None, b"", "no-gitfile"
+    except (IsADirectoryError, OSError) as exc:
+        return None, b"", f"gitfile-unreadable: {exc}"
+    text = gitfile.decode("utf-8", "surrogateescape").strip()
+    if not text.startswith("gitdir:"):
+        return None, b"", "gitfile-malformed"
+    return _resolve(tree, text[len("gitdir:"):].strip()), gitfile, None
+
+
+#: What is left of an admin directory whose files a temporary directory's
+#: cleaner deleted while it kept the directories: name -> type.
+REMNANT = {"index": "f", "logs": "d"}
+
+
+def is_remnant(admin: Path) -> bool:
+    """Whether `admin` is what is left of a registration, not a registration:
+    directly under a `worktrees` directory, a real directory holding nothing
+    but an `index` file and a `logs` directory (no `gitdir`, `commondir` or
+    `HEAD`, so git can neither use it nor say whose it was). Live: the four
+    `mstat6-g*` jobs, whose source clones in /tmp lost every file but those
+    (final review of e50716e8, N5)."""
+    try:
+        if not stat.S_ISDIR(os.lstat(admin).st_mode) or admin.parent.name != "worktrees":
+            return False
+        for name in os.listdir(admin):
+            if REMNANT.get(name) != rfs.kind(os.lstat(admin / name).st_mode):
+                return False
+    except OSError:
+        return False
+    return True
+
+
 def registration(tree: Path) -> tuple[Registration | None, str | None]:
     """(registration, None), or (None, why) when the tree has none we may use.
 
     The tree's ``.git`` must be a gitdir file naming an admin directory directly
     under ``<common>/worktrees/``, whose ``gitdir`` backlink names this tree:
-    we never act on someone else's registration (design 5.2 step 2).
+    we never act on someone else's registration (design 5.2 step 2). An admin
+    directory that is only a remnant (`is_remnant`) answers ``admin-remnant``.
     """
-    try:
-        gitfile = rfs.read_regular(tree / ".git", limit=65536)
-    except FileNotFoundError:
-        return None, "no-gitfile"
-    except (IsADirectoryError, OSError) as exc:
-        return None, f"gitfile-unreadable: {exc}"
-    text = gitfile.decode("utf-8", "surrogateescape").strip()
-    if not text.startswith("gitdir:"):
-        return None, "gitfile-malformed"
-    admin = _resolve(tree, text[len("gitdir:"):].strip())
+    admin, gitfile, why = gitfile_admin(tree)
+    if admin is None:
+        return None, why
     if not admin.is_dir():
         return None, "admin-missing"
     try:
         backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
         commondir = rfs.read_regular(admin / "commondir", limit=65536).decode("utf-8", "surrogateescape").strip()
     except OSError as exc:
+        if isinstance(exc, FileNotFoundError) and is_remnant(admin):
+            return None, "admin-remnant"
         return None, f"admin-unreadable: {exc}"
     if _resolve(admin, backlink) != Path(os.path.realpath(tree / ".git")):
         return None, "registration-mismatch"

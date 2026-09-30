@@ -270,7 +270,7 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                cache: dict[str, tuple[dict[str, str], str | None, str | None]]) -> None:
     reg, why = rgit.registration(worktree)
     if reg is None:
-        if why not in ("no-gitfile", "admin-missing"):
+        if why not in ("no-gitfile", "admin-missing", "admin-remnant"):
             info["issue"] = f"registration: {why}"
         info["git"] = why
         if salvage_refs and not info.get("issue"):
