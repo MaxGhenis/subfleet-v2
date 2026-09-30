@@ -78,10 +78,19 @@ The re-review (`r4-evidence/rereview-opus.md`, APPROVE WITH NOTES) then brought:
 | Note | Before | Now |
 |---|---|---|
 | 1: the `node_modules` rule by time dropped an edit made before a later install | Dropped a package file no newer than the install marker | `node_modules` is archived whole (section 7) |
-| 2: a server on this machine counted as another machine | Any URL host | `localhost`, loopback addresses and `.local` / `.localhost` names are this machine, for a distribution's `direct_url.json` and for a git remote (section 6's omission too) |
+| 2: a server on this machine counted as another machine | Any URL host | `localhost`, loopback addresses, this machine's own name and `.local` / `.localhost` names count as this machine, for a distribution's `direct_url.json` and for a git remote (section 6's omission too) |
 | 3: the survey skipped a pass's checks for a job whose tree is gone | Host check only | The same checks as the pass (registration by its backlink, salvage, the history limit) |
-| 4: a remote holding only unrelated history turned the limit off | Any remote-tracking ref | A remote counts only if its refs reach the job's history |
+| 4: a remote holding only unrelated history turned the limit off | Any remote-tracking ref | The limit applies whenever no network remote holds the job's baseline (after the confirmation review, which found refs from long ago still turning it off) |
 | a partial `dist-info` after restore | Its verified files dropped one by one | A `dist-info` goes whole or not at all |
+
+The confirmation review (`r4-evidence/confirm-opus.md`, APPROVE WITH NOTES)
+found no new loss path. Its notes: the limit now keys on whether a network
+remote holds the job's baseline and measures what the bundle carries (above);
+`this_machine` also takes this machine's own name, `127.1` and `0`; an index
+or `--find-links` URL on this machine cannot be told from PyPI in a
+dist-info (measured, section 15); restoring then running `uv sync` can
+reinstall a distribution over a patch restored into it (section 13); held
+refs are matched by name prefix (section 15).
 
 Finding 5 (a remnant's `index` and `logs/` name objects that are not
 anchored) is left as it is: the remnant's repository has lost its `HEAD` and
@@ -176,19 +185,22 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
      tree, and a host tree that is there but lacks the registration has
      nothing to wait for: both go on. Section 10 pins the host so that this
      does not happen in the ordinary course.
-   - With no network remote, or none whose remote-tracking refs reach any of
-     the job's history (a remote added but never fetched, or fetched only for
-     an unrelated `gh-pages`: `merge-base` of each head and the tips finds
-     nothing), the bundle is the whole history HEAD, the
-     baseline and the salvage commits reach, paid again by every job. Its
-     size is measured first (`rev-list --objects --disk-usage`; once a
-     repository is over the limit in a pass, its other jobs are kept on that
-     measure); above `retention.remote_less_history_bytes`
+   - When no network remote holds the commit the job started from (its
+     baseline: the repository has no network remote, or one never fetched,
+     fetched only for an unrelated `gh-pages`, or last fetched before the
+     baseline was made), the bundle carries the shared history no remote
+     holds as well as the job's own commits, paid again by every job. Its
+     size is measured first, as the bundle is made, against the held refs
+     (`rev-list --objects --disk-usage`; once a repository is over the limit
+     in a pass, its other jobs are kept on that measure); above
+     `retention.remote_less_history_bytes`
      (default 64 MiB; 0 keeps every such job with history) the job is kept for
      a day, `remote-less-history <size>`, before anything moves. A bundle that
      comes out over the limit although the measure said less (it also carries
      the anchor and a pack's own overhead) is dropped, the job put back, and
-     its size kept in the idle journal for the next check.
+     its size kept in the idle journal for the next check. A job whose
+     baseline a network remote holds carries only its own work, however
+     large, and is not limited.
 3. **Lock** the registration with `locked` (text `subfleet retention: <job>`),
    so no `git worktree prune` or `git gc` drops it while the tree is away. A
    lock someone else wrote defers the job.
@@ -269,8 +281,10 @@ these hold:
   root, no path component named like `scratch` or `tmp`, its own complete
   object store (no alternates, not shallow, not a partial clone), and at least
   one remote whose URL names another machine (`https://`, `ssh://`,
-  `user@host:`, not `localhost`, a loopback address or a `.local` name); a
-  local-path remote is another repository retention does not control;
+  `user@host:`; not `localhost`, a loopback address, this machine's own name,
+  or a `.local` name, which is this machine or another on the local network
+  and taken as this one); a local-path remote is another repository retention
+  does not control;
 - its raw bytes (read now, no filters, no stat cache) hash to the blob at the
   same path in a commit that those remotes' `refs/remotes/*` reach: HEAD or
   the job's baseline when they are pushed, else the held commits at the
@@ -538,6 +552,12 @@ until they expire.
    re-registers the worktree (without retention's lock), with its HEAD, index
    and reflogs.
 
+A patch to an installed package comes back without its distribution's
+`dist-info` when that `dist-info` verified whole: `uv sync` then reinstalls
+the package over the restored patch. Copy a patched file aside, or restore
+with `--to DIR`, before letting the project's tools rebuild the environment;
+the archive keeps the bytes either way.
+
 Without Subfleet: `manifest.json` lists every entry; `files/<name>` holds each
 stored file; `git fetch <archive>/commits.bundle '+refs/*:refs/restored/*'` in
 any clone of the project brings back every commit (a bundle whose repository
@@ -618,9 +638,18 @@ descriptors, and deliberately adversarial same-user tricks):
   review of e50716e8, N3): until revision 3 it was dropped with them and this
   section wrongly called that accepted by d635; section 7 now archives
   everything no rule proves regenerable, and all of `node_modules`.
-- Not tested: a distribution uv installs from a package index on this machine
-  reached as a file (a `file://` index). If uv marks it no differently from a remote index, its
-  RECORD vouches for files whose only source is that local index.
+- A distribution uv installs from an index or a `--find-links` URL served on
+  this machine (a wheel built from a patched checkout in /tmp, served by
+  `python -m http.server`) cannot be told from one installed from PyPI:
+  measured 2026-09-30 with uv 0.11, such an install writes neither
+  `uv_cache.json` nor `direct_url.json`. Its RECORD vouches, and once /tmp is
+  cleaned the patched files exist nowhere else. Closing it needs a signal
+  outside the dist-info (for `uv sync` installs, a `uv.lock` whose registry
+  is on this machine); a `file://` index was not tested and is likely alike.
+- Held refs are the network remote's `refs/remotes/<name>/` by name, so refs a
+  person fetched there from a local path, or those of a local remote named
+  `<name>/<something>`, count as held on the network for omission and for
+  the history limit.
 - A remote-tracking ref whose commit the remote itself later dropped (a
   force-push, then the server's gc): omission counted such a commit as held.
   The source repository keeps its objects while it exists.
@@ -635,8 +664,8 @@ descriptors, and deliberately adversarial same-user tricks):
   blocks of the files it keeps (they would otherwise have been freed), plus
   `added_bytes`; `retention archives` lists both, and removing one is `rm -r
   <state>/archive/<job>` plus its `refs/subfleet-archive/<job>/*`.
-- A job from a repository with no network remote whose history is over the
-  limit is kept, as before retention by archive, until the base bundle of
+- A job whose baseline no network remote holds, with history over the
+  limit, is kept, as before retention by archive, until the base bundle of
   section 17 exists or the limit is raised.
 
 ## 16. Tests
@@ -678,6 +707,7 @@ finding:
 
 | Review of the revision-4 build | `test_installed_files_are_dropped_only_as_their_record_says` (a local `--find-links` install, a pip install), the property test's `findlinks` and `pip` cases, `test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that`, `test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went`, `test_a_host_that_is_there_without_the_registration_holds_nothing_up`, `test_a_remote_that_holds_nothing_counts_as_none`, `test_a_repositorys_history_is_measured_once_a_pass`, `test_the_survey_remembers_a_bundle_that_came_out_over_the_limit` |
 | The re-review | `test_nothing_under_node_modules_is_dropped`, `test_a_dist_info_goes_whole_or_not_at_all`, `test_an_install_from_a_server_on_this_machine_vouches_for_nothing`, `test_a_remote_on_this_machine_is_no_network_remote`, `test_a_remote_that_holds_only_unrelated_history_counts_as_none`, `test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does` |
+| The confirmation review | `test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline`, `test_this_machine_by_any_of_its_names` |
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each
