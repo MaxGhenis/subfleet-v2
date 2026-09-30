@@ -152,3 +152,26 @@ findings are folded in; "Changes since revision 1" lists them.
   `desktop_login` and the contract text.
 - The auth-dead lens found three problems. The classifier reads prose, so the two guards were added. The incident was
   37 jobs, not 45. And nothing said where a retried job came from, so `why` and the notice now do.
+
+## Changes from the code review (PR #92)
+
+Each fix has a test that fails without it.
+
+- **Round 1.**
+  - A held job now stays a waiter, so an oldest job that cannot take a later job's lane no longer lets it pass
+    the jobs between.
+  - A hold found on a lane keeps naming that lane.
+  - Every terminal notice names an earlier auth-dead attempt.
+  - A lane and its re-enrolled successor count as one lane for the second auth-dead guard.
+  - A bound of 0 reads `desktop-reserve:off`.
+  - `status.json` marks the desktop lane by identity.
+  - `@desktop` matches only the marked lane.
+- **Round 2** (`tests/fake/test_hold_review_round2.py`).
+  - A job whose wait is not for capacity (approval, uncertain, workspace) holds no one.
+  - A job waiting for a lease keeps its lease set as a waiter, so the lease's holder is never held behind it.
+  - A clocked hold keeps naming the rival its last look found.
+  - The reservation's re-check builds no view under the store lock.
+  - A turn is judged with its affinity lane.
+  - Family counts are built once per view: with a parent cap set, a pass fell from about 600 ms to 3 ms, with 40
+    jobs waiting over 500 finished.
+  - `pick` keeps the last desktop hint while `~/.claude.json` cannot be read.

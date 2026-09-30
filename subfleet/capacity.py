@@ -420,10 +420,11 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
     stands. `desktop_account` is the bare hint, for callers that have only it.
     `desktop_in_use` is whether Claude Code is using that login now
     (`sessions.registry.desktop_login_in_use`): it is put on the desktop lane as
-    `desktop_in_use`, and a desktop lane without it is judged in use, as every
-    desktop lane was before 2026-09-27. C-6.3's check inside a reservation marks
-    the lane rows it reads with this, so it sees each lane as the view the
-    decision was made on did."""
+    `desktop_in_use` for `status.json` to report. Since 2026-09-30 it
+    refuses nothing (C-10.3: the reserve does); from 2026-09-27 a desktop lane
+    judged in use was refused. C-6.3's check inside a reservation marks the lane
+    rows it reads with this, so it sees each lane as the view the decision was
+    made on did."""
     if lane["provider"] == "claude":
         if desktop is not None:
             if desktop.decisive:

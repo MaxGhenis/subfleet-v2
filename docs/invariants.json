@@ -1383,12 +1383,12 @@
   "v1_location": "`subfleet/delegate.py:568-584`, `subfleet/capacity.py:1315-1322`",
   "class": "routing-policy",
   "disposition": "replace",
-  "replacement": "The desktop-login lane is filtered out of the candidate set while Claude Code uses that login (C-10.3's registry signal) unless the job carries `--allow-desktop`; otherwise it is a candidate ranked after every other lane.",
+  "replacement": "The desktop-login lane is a candidate for every job whether or not Claude Code uses that login, ranked after every other lane and the chain's last resort (C-11.2's walk goes past a model it alone serves), behind a reserve for interactive sessions (`admission.desktop_reserve`, `admission.desktop_max_in_flight`); `--no-desktop` keeps a job off it.",
   "contract_clause": "C-10.3",
   "acceptance_owner": "unit",
-  "v2_module": "subfleet/policy.py",
-  "test_name": "test_desktop_login_lane_is_never_a_candidate_without_allow_desktop",
-  "notes": "verdict change: the 2026-09-04 standing order says the handicap was not enough; C-10.3 excludes the lane outright, so v1's ranking term has no v2 counterpart. See C-11.6. 2026-09-27, Max: excluding it \"makes sense if we're using sf thru the cc app but not if thru the sf app\"; C-10.3 now refuses the lane only while Claude Code uses the login, and otherwise ranks it last, as v1 did."
+  "v2_module": "subfleet/scheduler.py",
+  "test_name": "test_c10_3_c11_3_the_desktop_lane_still_sorts_after_every_other_candidate",
+  "notes": "verdict change: the 2026-09-04 standing order says the handicap was not enough; C-10.3 excludes the lane outright, so v1's ranking term has no v2 counterpart. See C-11.6. 2026-09-27, Max: excluding it \"makes sense if we're using sf thru the cc app but not if thru the sf app\"; C-10.3 now refuses the lane only while Claude Code uses the login, and otherwise ranks it last, as v1 did. 2026-09-30, Max: \"why wouldnt we allow using the active acct?\"; C-10.3 now makes the lane a candidate whatever Claude Code is doing, last in every comparator and across the chain, behind a reserve, so v1's ranking term is the mechanism again (docs/decisions/2026-09-30-desktop-reserve-and-fair-holds.md)."
  },
  {
   "id": 108,

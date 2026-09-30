@@ -1105,7 +1105,9 @@ class Daemon:
         cached_at, cached = self._desktop_cache
         profile = (cached if cached is not _UNSET and
                    time.monotonic() - cached_at <= self.policy['caps']['reading_ttl_s'] else None)
-        return capacity.desktop_identity(profile, cached_label=capacity.read_desktop_account(),
+        hint = capacity.read_desktop_account()
+        # C-10.3: `pick` and `operations` judge by the hint the admission pass kept, too.
+        return capacity.desktop_identity(profile, cached_label=hint or self._last_desktop_hint,
                                          last_label=last.get('label'))
 
     def _desktop_identity(self) -> capacity.DesktopIdentity:
@@ -3545,37 +3547,64 @@ class Daemon:
         # job that could never run on the desktop lane held a newer one that would
         # have run there.
         marked: list[list[dict]] = []
-        usable: dict[tuple, Any] = {}
+        # Memos keyed by a view keep the view itself beside the answer, so an id that a
+        # freed view's address reuses never returns another view's answer (review).
+        usable: dict[tuple, tuple[Any, Any]] = {}
+        families: dict[int, tuple[Any, dict[str, int]]] = {}
+        affinities: dict[str, str | None] = {}
         parent_cap = policy_cap(self.policy["caps"], "max_active_attempts_per_parent")
 
         def demand_key(demand: dict) -> tuple:
             return (demand["job_id"], demand.get("pinned_lane"), demand.get("pinned_model"),
-                    tuple(demand.get("exclusions") or ()))
+                    tuple(demand.get("exclusions") or ()), demand.get("affinity_lane"))
 
         def usable_of(demand: dict, view: dict | None = None):
             """The job's pairs on the pass's roster, or on `view`'s lanes: the waiter's pairs are
             judged on the same lanes the newer job's lane was found on, or a re-enrolment
             between the two (a pin that follows its credential) would compare two rosters."""
             key = (id(view), *demand_key(demand))
-            if key not in usable:
+            entry = usable.get(key)
+            if entry is None or entry[0] is not view:
                 if view is not None:
                     lanes = view["lanes"]
                 else:
                     if not marked:
                         marked.append([capacity.mark_desktop(dict(row), desktop=desktop_account) for row in roster])
                     lanes = marked[0]
-                usable[key] = scheduler.usable_pairs(self.policy, lanes, demand)
-            return usable[key]
+                entry = usable[key] = (view, scheduler.usable_pairs(self.policy, lanes, demand))
+            return entry[1]
 
-        def family_full(demand: dict) -> bool:
+        def family_counts(view: dict) -> dict[str, int]:
+            """Attempts in flight under each ancestor on `view`, counted once per view (C-6.4)."""
+            entry = families.get(id(view))
+            if entry is None or entry[0] is not view:
+                parents = {row["job_id"]: row.get("parent_job_id") for row in view.get("jobs", ())}
+                counts: dict[str, int] = {}
+                for attempt in view.get("attempts", ()):
+                    if attempt.get("state") not in scheduler.ACTIVE_ATTEMPTS:
+                        continue
+                    seen: set[str] = set()
+                    parent = parents.get(attempt.get("job_id"))
+                    while parent and parent not in seen:
+                        seen.add(parent)
+                        counts[parent] = counts.get(parent, 0) + 1
+                        parent = parents.get(parent)
+                entry = families[id(view)] = (view, counts)
+            return entry[1]
+
+        def family_full(demand: dict, view: dict | None = None) -> bool:
             """A rival refused room by its own family's parent cap cannot be placed on
-            any lane, so it holds no job of another family back (C-6.4)."""
+            any lane, so it holds no job of another family back (C-6.4). Judged on
+            `view` when one is given (inside a reservation, the job's own basis: no
+            view is built under the store lock), else on the shared view."""
             if parent_cap is None or not demand.get("parent_job_id"):
                 return False
             try:
-                return bool(scheduler._parent_blocks(self.policy, self._hold_view(desktop_account), demand))
+                counts = family_counts(view if view is not None else self._hold_view(desktop_account))
             except ROUTE_ERRORS:
                 return False
+            return any(counts.get(parent, 0) >= parent_cap
+                       for parent in (demand["parent_job_id"], *self._ancestors(demand["job_id"], ancestry)))
 
         def target_of(demand: dict) -> tuple[str, str] | None:
             """The (lane, model) this job would take now, on the shared view, or None."""
@@ -3590,15 +3619,23 @@ class Daemon:
                 targets[key] = (decision.chosen_lane, decision.chosen_model) if decision.chosen_lane else None
             return targets[key]
 
+        def affinity_of(job: dict) -> str | None:
+            """C-26.2: a turn's affinity lane, from its manifest, as `_pick` will judge it."""
+            if job["job_id"] not in affinities:
+                turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
+                affinities[job["job_id"]] = turn.get("affinity_lane") if isinstance(turn, dict) else None
+            return affinities[job["job_id"]]
+
         def older_blocker(rivals: list, demand: dict, target: tuple[str, str] | None = None, *,
-                          view: dict | None = None, due: bool = True,
+                          view: dict | None = None, due: bool = True, prefer: str | None = None,
                           mine_family: frozenset = frozenset()) -> tuple[str | None, list]:
             """C-6.9: the rival this job is held behind, or None, and the rivals the
             answer rested on a lane for (checked again on the job's own decisions:
             before its admission probe, and inside its reservation). `target` is the
             (lane, model) the job's own decision took; without it the shared view's.
-            An evaluation that raises leaves the job held as before, and never ends
-            the pass or settles the job (C-6.12)."""
+            `prefer` is the rival a look found last time, kept while the job is not
+            due. An evaluation that raises leaves the job held as before, and never
+            ends the pass or settles the job (C-6.12)."""
             if not rivals:
                 return None, []
             if scope == "family":
@@ -3607,7 +3644,7 @@ class Daemon:
                 kin = next((rival for rival in rivals if mine_family & self._ancestors(rival[0], ancestry)), None)
                 if kin is not None:
                     return kin[0], []              # same family: its count is shared wherever either runs
-            live = [rival for rival in rivals if not family_full(rival[4])]
+            live = [rival for rival in rivals if not family_full(rival[4], view)]
             if not live:
                 return None, []
             mine = usable_of(demand)
@@ -3616,7 +3653,9 @@ class Daemon:
                 return contained[0], []            # it could take whatever this job would: held, as before
             if target is None:
                 if not due:
-                    return live[0][0], []          # not looked at this pass: held in its place, as before
+                    # Not looked at this pass: held in its place, behind the rival its last look found.
+                    kept = next((rival for rival in live if rival[0] == prefer), live[0])
+                    return kept[0], []
                 try:
                     found = target_of(demand)
                     view = self._hold_view(desktop_account)
@@ -3746,6 +3785,8 @@ class Daemon:
                 given = json.loads(given) if isinstance(given, str) else given
                 return {**demand_job, "exclusions": tuple(given) + tuple(extra_exclusions)}
             demand = with_exclusions(job if let_go else retry or job)
+            if job["kind"] == "turn" and (affinity := affinity_of(job)):
+                demand = {**demand, "affinity_lane": affinity}          # C-26.2, as `_pick` will judge it
             # C-6.9: held only behind a rival that could run where this job would
             # (`older_blocker`); `rivals` are those whose answer rested on the lane
             # this job would take, checked again on its own decision in the
@@ -3758,8 +3799,11 @@ class Daemon:
                 if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE:
                     behind = rivals[0][0]
                 else:
+                    looked = (self._capacity_waits.get(job["job_id"]) or {}).get("hold") or {}
                     behind, rivals = older_blocker(rivals, demand, mine_family=mine_family,
-                                                   due=not (job["next_check_at"] and job["next_check_at"] > utcnow()))
+                                                   due=not (job["next_check_at"] and job["next_check_at"] > utcnow()),
+                                                   prefer=looked.get("behind") if looked.get("reason") == "behind-older-job"
+                                                   else None)
             if saturated.get(pool) or behind:
                 earlier = (self._capacity_waits.get(job["job_id"]) or {}).get("hold") or {}
                 clocked = bool(job["next_check_at"] and job["next_check_at"] > utcnow())
@@ -3771,11 +3815,18 @@ class Daemon:
                     holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                             {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
                                             {"reason": "behind-older-job", "behind": behind, "tier": tier})
-                if behind and not saturated.get(pool):
+                if behind and not saturated.get(pool) and job["wait_reason"] not in NOT_ADMISSIONS_TO_PLACE:
                     # C-6.9: still a waiter, so a later job it could run where is held behind it too:
                     # with the rule of 2026-09-30 an oldest job that cannot take a later one's lane
-                    # no longer holds it for the jobs between (code review of this change).
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
+                    # no longer holds it for the jobs between (code review of this change). A wait
+                    # that is not for capacity (approval, uncertain, workspace) holds nobody, and a
+                    # job waiting on a lease keeps what it waits for, so its holder is never held
+                    # behind it (second review round).
+                    waiting_for = (frozenset(earlier.get("leases") or ()) if earlier.get("reason") == "lease-held"
+                                   else frozenset())
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for, demand))
+                    if waiting_for:
+                        queue_for([*waiting_for, *(earlier.get("queued") or ())], job["job_id"])
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
