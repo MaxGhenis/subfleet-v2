@@ -328,9 +328,12 @@ def mark_probe_leases(view: dict[str, Any], leases: Iterable[Any],
     (C-5.7a), however long that takes. Every probe lease counts toward the
     fleet's `max_active_attempts` (`reserved_probes`). Each lane a probe holds
     carries `probe_holder` and `probe_state`, the state of that holder's newest
-    record (`record(holder)`), or `uncertain` when no record names it. A lane
-    already unavailable for another reason keeps that reason, whichever of the
-    two is laid first.
+    record (`record(holder)`), or `uncertain` when no record names it: a
+    timer's usage read writes none, and a timer's turn writes its first only
+    after it took the lease. A turn's newest record reads `completed` from the
+    moment it is written until the timer releases the lease. A lane already
+    unavailable for another reason keeps that reason, whichever of the two is
+    laid first.
     """
     rows = [_row(item) for item in leases]
     held: dict[str, str] = {}

@@ -251,19 +251,29 @@ class Timers:
         self.fence_probes(snapshot)
         return write_status(self.root, snapshot, now=self.now())
 
+    def probe_rows(self):
+        """C-18.1: the probe leases and each holder's newest record, as `snapshot`
+        reads them inside the transaction its rows are read in."""
+        leases = self.store.query(capacity.PROBE_LEASES)
+        return {'leases': leases, 'records': {row['holder']: self.probe_record(row['holder'])
+                                              if self.probe_record is not None else None for row in leases}}
+
     def fence_probes(self, view):
         """C-18.1: lay the probe leases admission honours over a view `enrich_view` judged.
 
-        `snapshot` reads rows, not leases, so a lane whose slot a probe holds (a
-        quarantined probe's for hours, C-5.7a) read as dispatchable in
-        status.json while admission refused it. The leases are laid as
-        `Daemon._capacity_view` lays them before `enrich_view`. They can only add
-        a lane to `unavailable_lanes` and probes to `reserved_probes`, and
-        `enrich_view` finds a lane dispatchable only while it is outside the one
-        and the fleet is below its cap with the other, so clearing the verdict of
-        each lane they reach is `enrich_view` judging again.
+        A lane whose slot a probe holds (a quarantined probe's for hours, C-5.7a)
+        otherwise reads as dispatchable in status.json while admission refuses
+        it. The leases are those `snapshot` read with the view's rows, so one
+        committed state decides the verdict (a view without them reads them
+        now), and are laid as `Daemon._capacity_view` lays them before
+        `enrich_view`. They can only add a lane to `unavailable_lanes` and
+        probes to `reserved_probes`, and `enrich_view` finds a lane dispatchable
+        only while it is outside the one and the fleet is below its cap with the
+        other, so clearing the verdict of each lane they reach is `enrich_view`
+        judging again.
         """
-        capacity.mark_probe_leases(view, self.store.query(capacity.PROBE_LEASES), self.probe_record)
+        rows = view.pop('probe_rows', None) or self.probe_rows()
+        capacity.mark_probe_leases(view, rows['leases'], rows['records'].get)
         full = self.fleet_full(view)
         for row in view['lanes']:
             if full or row['lane_id'] in view['unavailable_lanes']:
@@ -518,7 +528,12 @@ class Timers:
     def snapshot(self):
         with self.store.transaction('timer.snapshot'):
             view = capacity.from_store(self.store, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120))
-        return self.enrich_view(view)
+            # C-18.1: read with the rows; laid only for status.json, after
+            # the reset-credit policy and the alerts judged the view (`publish_status`).
+            probes = self.probe_rows()
+        view = self.enrich_view(view)
+        view['probe_rows'] = probes
+        return view
 
     def enrich_view(self, view):
         # Re-enrolment creates a new lane id. The previous binding stays in the
