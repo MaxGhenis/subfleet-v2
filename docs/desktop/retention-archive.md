@@ -29,8 +29,7 @@ back:
     (section 6);
   - regenerable output: a file a rule proves the project's own tools make
     again (an installed distribution's file whose sha256 its RECORD names,
-    bytecode beside its source, a package file no newer than its package
-    manager's install marker, a tool cache's own files), in a directory whose
+    bytecode beside its source, a tool cache's own files), in a directory whose
     structure says a tool wrote it and which git tracks nothing in and
     ignores entirely (section 7). Everything else there is archived.
 - **Git.** The worktree's admin directory (`<repo>/.git/worktrees/<id>`) byte
@@ -73,6 +72,16 @@ REQUEST CHANGES), and these followed:
 | 4: an over-limit repository was measured again for each of its jobs | Measured per job and heads | Once a pass per repository once over |
 | 6: the survey diverged from a pass | No idle journal size, no host check for a tree that is gone | Both, through the same host check |
 | 7: the `nested-host` pin did not say what it waited for | `nested-host` | `nested-host: <jobs>` |
+
+The re-review (`r4-evidence/rereview-opus.md`, APPROVE WITH NOTES) then brought:
+
+| Note | Before | Now |
+|---|---|---|
+| 1: the `node_modules` rule by time dropped an edit made before a later install | Dropped a package file no newer than the install marker | `node_modules` is archived whole (section 7) |
+| 2: a server on this machine counted as another machine | Any URL host | `localhost`, loopback addresses and `.local` / `.localhost` names are this machine, for a distribution's `direct_url.json` and for a git remote (section 6's omission too) |
+| 3: the survey skipped a pass's checks for a job whose tree is gone | Host check only | The same checks as the pass (registration by its backlink, salvage, the history limit) |
+| 4: a remote holding only unrelated history turned the limit off | Any remote-tracking ref | A remote counts only if its refs reach the job's history |
+| a partial `dist-info` after restore | Its verified files dropped one by one | A `dist-info` goes whole or not at all |
 
 Finding 5 (a remnant's `index` and `logs/` name objects that are not
 anchored) is left as it is: the remnant's repository has lost its `HEAD` and
@@ -167,8 +176,10 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
      tree, and a host tree that is there but lacks the registration has
      nothing to wait for: both go on. Section 10 pins the host so that this
      does not happen in the ordinary course.
-   - With no network remote, or none with a remote-tracking ref (a remote
-     added but never fetched), the bundle is the whole history HEAD, the
+   - With no network remote, or none whose remote-tracking refs reach any of
+     the job's history (a remote added but never fetched, or fetched only for
+     an unrelated `gh-pages`: `merge-base` of each head and the tips finds
+     nothing), the bundle is the whole history HEAD, the
      baseline and the salvage commits reach, paid again by every job. Its
      size is measured first (`rev-list --objects --disk-usage`; once a
      repository is over the limit in a pass, its other jobs are kept on that
@@ -258,8 +269,8 @@ these hold:
   root, no path component named like `scratch` or `tmp`, its own complete
   object store (no alternates, not shallow, not a partial clone), and at least
   one remote whose URL names another machine (`https://`, `ssh://`,
-  `user@host:`); a local-path remote is another repository retention does not
-  control;
+  `user@host:`, not `localhost`, a loopback address or a `.local` name); a
+  local-path remote is another repository retention does not control;
 - its raw bytes (read now, no filters, no stat cache) hash to the blob at the
   same path in a commit that those remotes' `refs/remotes/*` reach: HEAD or
   the job's baseline when they are pushed, else the held commits at the
@@ -319,9 +330,9 @@ path for the archive and the survey):
 
   | Kind | A file is dropped only if |
   |---|---|
-  | virtualenv, and each `.tox` environment | an installed distribution's `*.dist-info/RECORD` lists it (paths relative to `site-packages`, `../../../bin/<script>` included) with a sha256 its bytes match, and a size, if listed, equal to its own. The archive reads the file to check (`Verify`, recorded in the manifest with the sha256). Only a distribution uv installed from a package index or a network URL vouches: its `INSTALLER` is `uv`, it has no `uv_cache.json` (uv writes one for a local source: a path, a directory, a local `--find-links` wheel; none of 3,415 live index installs has one, all 74 live editable installs do) and no `direct_url.json` naming a local URL (PEP 610). One from a local source, whose source may be the only copy (a wheel built from a patched checkout in /tmp and installed with `--find-links`), vouches for nothing; nor does one pip installed, since pip marks a local `--find-links` no differently from an index. A path two distributions list differently is left out. A `RECORD`, listed without a hash as the wheel format requires, goes only when every other file of its `dist-info` directory verifies, so a restore never leaves a distribution half there (pip and uv read a `dist-info` holding only a RECORD as broken). Or it is bytecode, as below |
+  | virtualenv, and each `.tox` environment | an installed distribution's `*.dist-info/RECORD` lists it (paths relative to `site-packages`, `../../../bin/<script>` included) with a sha256 its bytes match, and a size, if listed, equal to its own. The archive reads the file to check (`Verify`, recorded in the manifest with the sha256). Only a distribution uv installed from a package index or a network URL vouches: its `INSTALLER` is `uv`, it has no `uv_cache.json` (uv writes one for a local source: a path, a directory, a local `--find-links` wheel; none of 3,415 live index installs has one, all 74 live editable installs do) and no `direct_url.json` naming a local URL (PEP 610) or a server on this machine (`localhost`, a loopback address, a `.local` or `.localhost` name). One from a local source, whose source may be the only copy (a wheel built from a patched checkout in /tmp and installed with `--find-links`), vouches for nothing; nor does one pip installed, since pip marks a local `--find-links` no differently from an index. A path two distributions list differently is left out. A `dist-info` directory goes whole or not at all: its files (the `RECORD` too, listed without a hash as the wheel format requires) go only when every file of it but the `RECORD` is listed there and verifies, so a restore never leaves a distribution half there (pip and uv read a partial `dist-info` as a broken distribution). Or it is bytecode, as below |
   | `__pycache__` (anywhere a directory by that name is, and inside a virtualenv) | it is a `.pyc` or `.pyo` whose first four bytes are a magic number (two bytes, then CR LF) and whose source, `<module>.py`, is a regular file beside the `__pycache__` folder (pytest's rewritten `<module>.cpython-314-pytest-9.1.1.pyc` included) |
-  | `node_modules` | it is a regular file inside one of the tool's entries (a package, a scope, `.bin`, `.pnpm`), and neither its mtime nor its ctime is later than the package manager's install marker (`.package-lock.json`, `.modules.yaml`, `.yarn-integrity`, `.yarn-state.yml`, the earliest of their mtimes and ctimes). Without a marker, nothing there is dropped |
+  | `node_modules` | never (below) |
   | `.pytest_cache` | it is `v/cache/nodeids`, `v/cache/lastfailed` or `v/cache/stepwise` |
   | `.ruff_cache` | it is directly in a version directory and named by digits |
   | `.mypy_cache` | it is under a version directory and ends in `.data.json`, `.meta.json`, `.data.ff` or `.meta.ff`, or is `@plugins_snapshot.json` |
@@ -334,16 +345,18 @@ path for the archive and the survey):
   interpreter links, activation scripts, `_virtualenv.py`) is archived: it is
   a few kilobytes, and restored it is a virtualenv `uv sync` fills again.
 
-  The `node_modules` rule is structural, not a proof by content: npm, pnpm
-  and yarn verify a package tarball's integrity, but keep no hash of each
-  file they unpack, and the tarballs are not kept. What it proves: nothing
-  written or changed after the last install finished is dropped, since an
-  edit, a new file, a rename, a `chmod`, and even an edit whose mtime was put
-  back all move the ctime, which no process can set. What it does not prove:
-  a file created inside an installed package before a later install that left
-  that package in place would be dropped. It errs toward archiving (no marker,
-  nothing dropped; the earliest marker counts), and no live job tree holds a
-  `node_modules` (2026-09-30).
+  `node_modules` is archived whole: no rule by structure proves a file there
+  regenerable. npm, pnpm and yarn verify a package tarball's integrity but
+  keep no hash of each file they unpack, and the tarballs are not kept. The
+  structural rule first built here, which dropped a file inside a package
+  when neither its mtime nor its ctime was later than the package manager's
+  install marker (`.package-lock.json`, `.modules.yaml`, `.yarn-integrity`,
+  `.yarn-state.yml`), was shown to drop an agent's edit to an installed
+  package once a later `npm install` rewrote the marker and left that package
+  in place (review of the revision-4 build), a loss outside the d635 ruling.
+  No live job tree holds a `node_modules` (2026-09-30), so archiving it costs
+  no relief today; a proof by content (each file against the package
+  manager's cached copy) would be the way to drop any of it.
 - **Git tracks nothing in the directory and ignores everything in it**: no
   path of one `ls-files --cached --others --exclude-standard` over the
   quarantined tree (tracked paths, untracked files no rule ignores, a nested
@@ -597,22 +610,16 @@ descriptors, and deliberately adversarial same-user tricks):
   tool cache's own file names (`.pytest_cache/v/cache/nodeids`, a numbered
   file in a `.ruff_cache` version directory, `*.data.json` in a
   `.mypy_cache` version directory); data named `<module>.cpython-*.pyc`
-  starting with two bytes and CR LF beside a `<module>.py`; a package
-  manager's install marker touched to a later time by hand.
+  starting with two bytes and CR LF beside a `<module>.py`.
 
 **Not accepted by the ruling**, stated as they stand for Max's decision:
 
 - *Work placed inside a tool's own entries is no longer in this list* (final
   review of e50716e8, N3): until revision 3 it was dropped with them and this
   section wrongly called that accepted by d635; section 7 now archives
-  everything no rule proves regenerable. What remains of the class is the
-  `node_modules` rule's limit: a file created inside an installed package
-  before a later install that left that package in place is dropped, since
-  its mtime and ctime are then before the install marker (section 7). No live
-  job tree holds a `node_modules` (2026-09-30); without a marker nothing there
-  is dropped.
+  everything no rule proves regenerable, and all of `node_modules`.
 - Not tested: a distribution uv installs from a package index on this machine
-  (a `file://` index). If uv marks it no differently from a remote index, its
+  reached as a file (a `file://` index). If uv marks it no differently from a remote index, its
   RECORD vouches for files whose only source is that local index.
 - A remote-tracking ref whose commit the remote itself later dropped (a
   force-push, then the server's gc): omission counted such a commit as held.
@@ -670,6 +677,7 @@ finding:
 | N9, below the operator's apps | `test_every_child_retention_starts_is_clamped`, `test_the_clamp_follows_its_setting[4]`, `test_a_clamped_git_runs`, `test_the_threads_disk_io_is_lowered_and_put_back`, `test_the_archive_and_the_deletion_run_throttled` |
 
 | Review of the revision-4 build | `test_installed_files_are_dropped_only_as_their_record_says` (a local `--find-links` install, a pip install), the property test's `findlinks` and `pip` cases, `test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that`, `test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went`, `test_a_host_that_is_there_without_the_registration_holds_nothing_up`, `test_a_remote_that_holds_nothing_counts_as_none`, `test_a_repositorys_history_is_measured_once_a_pass`, `test_the_survey_remembers_a_bundle_that_came_out_over_the_limit` |
+| The re-review | `test_nothing_under_node_modules_is_dropped`, `test_a_dist_info_goes_whole_or_not_at_all`, `test_an_install_from_a_server_on_this_machine_vouches_for_nothing`, `test_a_remote_on_this_machine_is_no_network_remote`, `test_a_remote_that_holds_only_unrelated_history_counts_as_none`, `test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does` |
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each
