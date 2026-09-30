@@ -128,16 +128,22 @@ def _throughput(paths: list[Path], budget_bytes: int = 256 << 20) -> float | Non
     return read / elapsed if read and elapsed > 0 else None
 
 
-def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throughput: bool = True,
-           batch: int = ret.BATCH, budgets: dict[str, tuple[int, int]] | None = None) -> dict[str, Any]:
-    root = Path(root).resolve()
-    started = time.monotonic()
+def _budget(root: Path) -> dict[str, Any]:
+    """The `retention` policy section the daemon would use (defaults filled in)."""
     policy: dict[str, Any] = {}
     try:
         policy = json.loads((root / "policy.json").read_text()).get("retention") or {}
     except (OSError, ValueError):
         pass
-    budget = {**RETENTION_DEFAULTS, **policy}
+    return {**RETENTION_DEFAULTS, **policy}
+
+
+def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throughput: bool = True,
+           batch: int = ret.BATCH, budgets: dict[str, tuple[int, int]] | None = None) -> dict[str, Any]:
+    root = Path(root).resolve()
+    started = time.monotonic()
+    budget = _budget(root)
+    remote_less = int(budget["remote_less_history_bytes"])
     budgets = budgets or {"detached": (int(budget["jobs"]), int(budget["bytes"])),
                           "turn": (int(budget["turn_jobs"]), int(budget["turn_bytes"]))}
     turn_keep_s = float(budget["turn_keep_days"]) * 86400
@@ -179,7 +185,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             info["bytes"] = jobdir["bytes"]
             info["manifest_bytes"] = jobdir["manifest_bytes"]
         if worktree is not None and info["worktree_exists"] and not info.get("pin"):
-            _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache)
+            _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache, remote_less)
         if worktree is not None and info["worktree_exists"] and sizes:
             wt = _walk_sizes(worktree, info.pop("_omit", None))
             info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
@@ -329,9 +335,11 @@ def _source_common(job: dict[str, Any]) -> Path | None:
 
 
 def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: list[str],
-               cache: dict[Any, Any]) -> None:
+               cache: dict[Any, Any], remote_less: int | None = None) -> None:
     """The per-job checks of `Retirement.begin`, read-only, and what the
-    retirement's bundle would carry (`bundle_estimate`, N1)."""
+    retirement's bundle would carry (`bundle_estimate`, N1): a repository with
+    no network remote whose bundle would carry more than `remote_less` bytes of
+    history keeps its job (`remote-less-history`)."""
     reg, why = rgit.registration(worktree)
     head = None
     if reg is None:
@@ -396,6 +404,12 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                 cache[hkey] = None
                 info["bundle_estimate_error"] = str(exc)[:200]
         info["bundle_estimate"] = cache[hkey]
+        if not remotes and remote_less is not None:
+            if cache[hkey] is None:
+                info.setdefault("issue", "remote-less-history: size unknown")
+            elif cache[hkey] > remote_less:
+                info.setdefault("issue", f"remote-less-history: {cache[hkey]} bytes of history with no network "
+                                         f"remote, over {remote_less}")
         if reg is not None and scratch is None and head:
             omit, _ = rgit.omission_map(common, [head, job.get("workdir_head")], held, timeout=120)
             info["_omit"] = omit
@@ -492,6 +506,7 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     hours on the live tree). `progress(job_report)` is called after each job."""
     root = Path(root).resolve()
     started = time.monotonic()
+    remote_less = int(_budget(root)["remote_less_history_bytes"])
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
@@ -524,7 +539,7 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     for job, worktree in picked:
         t0 = time.monotonic()
         info: dict[str, Any] = {"job_id": job["job_id"], "created_at": job["created_at"], "worktree": str(worktree)}
-        _preflight(info, job, worktree, root, salvage.get(job["job_id"], []), cache)
+        _preflight(info, job, worktree, root, salvage.get(job["job_id"], []), cache, remote_less)
         omit = info.pop("_omit", None)
         ignored = fmt = None
         reg, _ = rgit.registration(worktree)
