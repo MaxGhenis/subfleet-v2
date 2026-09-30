@@ -407,6 +407,57 @@ def test_the_cold_sweep_can_hand_off_instead_of_reviving(monkeypatch):
     assert "job-1" in out and "handed off to astra" in out
 
 
+@pytest.mark.parametrize("argv", [
+    ["handoff", ALICE, "--to", "fable"],
+    ["sessions", "handoff", ALICE, "--to", "fable"],
+    ["sessions", "continue", "--scope", "cold", "--handoff", "--to", "fable"],
+])
+def test_a_retired_handoff_target_dispatches_its_successor(monkeypatch, argv):
+    """C-17.2: `--to fable` is accepted and hands off to Opus (Fable retired 2026-09-27),
+    saying so where the operator reads rather than only in the daemon's log."""
+    from subfleet.sessions import handoff as handoff_module
+    from subfleet.sessions import revive as revive_module
+    models: list[str] = []
+
+    def fake_handoff(sessions, policy, *, session_id, model, **kwargs):
+        models.append(model)
+        brief = handoff_module.Brief(text="", original="", session_id=session_id or ALICE,
+                                     transcript="/t.jsonl", workdir="/repo",
+                                     source_cwd="/repo", redactions=0)
+        return handoff_module.Dispatched(brief=brief, job_id="job-1")
+
+    # A daemon with the conversation fence (C-26.13) and no lane or conversation sessions.
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: fx.FakeSessions())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates",
+                        lambda *a, **k: [revive_module.Candidate(session_id=ALICE, cwd="/repo")])
+    monkeypatch.setattr(handoff_module, "handoff", fake_handoff)
+    code, out, err = run(argv, monkeypatch)
+    assert code == int(Exit.OK), err
+    assert models == ["opus"]
+    assert "--to fable is retired; using opus" in err and err.count("is retired") == 1
+
+
+def test_a_retired_revive_model_is_its_successor(monkeypatch):
+    """C-17.2, C-23.39: `revive --model fable` is an operator substitution onto Opus."""
+    from subfleet.sessions import revive as revive_module
+    seen = {}
+
+    def fake_revive(*args, **kwargs):
+        seen.update(kwargs)
+        return revive_module.Attempted(session_id=ALICE, admitted=True, job_id="job-2",
+                                       model=kwargs.get("model"), reason="operator substituted")
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: {})
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "revive", fake_revive)
+    code, out, err = run(["sessions", "revive", ALICE, "--revive", "--model", "fable"], monkeypatch)
+    assert code == int(Exit.OK), err
+    assert seen["model"] == "opus"
+    assert "--model fable is retired; using opus" in err
+
+
 def test_handoff_on_the_wrong_scope_is_invalid_input(monkeypatch):
     """A live session is nudged, not handed off; saying so beats guessing."""
     code, out, err = run(["sessions", "continue", "--scope", "interrupted",

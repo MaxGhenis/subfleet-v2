@@ -37,22 +37,22 @@
       "astra"
     ],
     "authored-prose": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ],
     "strategy": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ],
     "adjudication": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ]
   },
   "fallback": "upward-only",
@@ -64,12 +64,6 @@
     "codex_workspace_write": true
   },
   "models": {
-    "fable": {
-      "provider": "claude",
-      "id": "claude-fable-5-1",
-      "priority": 4,
-      "scope": "fable"
-    },
     "opus": {
       "provider": "claude",
       "id": "claude-opus-5-5",
@@ -97,7 +91,9 @@
   },
   "retired": {
     "sol": "astra",
-    "claude-fable-5": "fable"
+    "fable": "opus",
+    "claude-fable-5": "opus",
+    "claude-fable-5-1": "opus"
   },
   "desktop_login": "never",
   "caps": {
@@ -170,9 +166,7 @@
     "after_result_s": 135
   },
   "reserve": {
-    "models": [
-      "fable"
-    ],
+    "models": [],
     "cap_ratio": 2.0,
     "min_slack": 0.05,
     "usage_spacing_s": 3

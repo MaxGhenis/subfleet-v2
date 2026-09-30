@@ -208,14 +208,14 @@ def test_why_renders_exclusion_from_real_policy_decision():
     policy = load_policy(DEFAULT_POLICY_PATH)
     lanes = [{"lane_id": f"claude-{number}", "provider": "claude", "owner": "v2"}
              for number in (1, 2)]
-    decision = asdict(pick(policy, lanes, pinned_model="fable",
+    decision = asdict(pick(policy, lanes, pinned_model="opus",
                            exclusions=("claude-1",), policy_digest="recorded-policy"))
     # Match the JSON socket representation consumed by the CLI.
     decision = json.loads(json.dumps(decision))
     assert decision["chosen_lane"] == "claude-2"
     rendered = cli._format_decision(decision)
     assert "claude-1: excluded" in rendered
-    assert "chosen: fable on claude-2" in rendered
+    assert "chosen: opus on claude-2" in rendered
     assert "policy: recorded-policy" in rendered
 
 
@@ -471,12 +471,25 @@ def test_unmeasured_reserve_evidence_remains_visible_in_job_metadata(daemon, cap
 
 # --- deprecations (C-17.2) ----------------------------------------------------
 
-def test_retired_sol_is_remapped_to_astra_with_a_note(daemon, root, capsys, workdir):
-    """C-17.2 `-m sol` is accepted, remapped to astra, and noted on stderr."""
+@pytest.mark.parametrize("retired,successor", [("sol", "astra"), ("fable", "opus")])
+def test_retired_models_are_remapped_with_a_note(daemon, root, capsys, workdir, retired, successor):
+    """C-17.2 `-m sol` and `-m fable` are accepted, remapped to their successors
+    (astra; opus since 2026-09-27), and noted on stderr."""
     server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
-    assert run_cli(["run", "-m", "sol", "-C", str(workdir), "hi"]) == 0
-    assert server.args("submit")["pinned_model"] == "astra"
-    assert "retired" in capsys.readouterr().err
+    assert run_cli(["run", "-m", retired, "-C", str(workdir), "hi"]) == 0
+    assert server.args("submit")["pinned_model"] == successor
+    assert f"-m {retired} is retired; using {successor}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("retired,successor", [("sol", "astra"), ("fable", "opus")])
+def test_why_explains_the_successor_of_a_retired_pin(daemon, capsys, retired, successor):
+    """C-17.2, C-11.5: `why -m` asks about the model `run -m` would dispatch."""
+    server = daemon({"why": lambda request: {"decision": {
+        "chain": [successor], "evaluations": [], "chosen_lane": None, "chosen_model": None,
+        "reason": "", "policy_hash": "p"}}})
+    run_cli(["why", "--task", "research", "--tier", "standard", "-m", retired])
+    assert server.args("why")["pinned_model"] == successor
+    assert f"why: -m {retired} is retired; using {successor}" in capsys.readouterr().err
 
 
 def test_legacy_task_classes_are_accepted_with_a_note(daemon, root, capsys, workdir):
@@ -487,8 +500,9 @@ def test_legacy_task_classes_are_accepted_with_a_note(daemon, root, capsys, work
     assert args["task"] == "review" and args["tier"] == "standard"
     assert "-t review is deprecated" in capsys.readouterr().err
     assert run_cli(["run", "-t", "fable", "-C", str(workdir), "hi"]) == 0
-    assert server.args("submit")["pinned_model"] == "fable"
-    capsys.readouterr()
+    assert server.args("submit")["pinned_model"] == "opus"     # Fable is retired (C-17.2)
+    err = capsys.readouterr().err
+    assert "-t fable is deprecated" in err and "-t fable is retired; using opus" in err
 
 
 def test_overflow_is_accepted_and_ignored(daemon, root, capsys, workdir):

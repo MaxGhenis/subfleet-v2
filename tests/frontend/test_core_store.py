@@ -144,7 +144,8 @@ def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_pat
         {"models": harness.call("models.list", provider="codex"), "provider": "codex"},
     ])
     options = unobserved["composer"][claude["conversation_id"]]
-    assert [m["label"] for m in options["models"]] == ["Fable", "Opus", "Sonnet", "Haiku"]
+    # The shipped policy retired Fable (2026-09-27), and `models.list` offers what the policy routes.
+    assert [m["label"] for m in options["models"]] == ["Opus", "Sonnet", "Haiku"]
     assert options["selected"] is None and options["efforts_observed"] is False
     assert options["default_effort"] is None                   # no catalog yet: no default is shown
     assert options["fast_note"] == "Bills usage credits"

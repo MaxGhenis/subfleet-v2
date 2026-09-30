@@ -213,8 +213,14 @@ class E2E:
         path.write_text(json.dumps(policy, indent=2) + "\n")
 
     def enable_reserve(self, *, probe_interval_s=1):
-        """C-11.7 on, with a fast probe cycle so the usage sensor reads within a test."""
+        """C-11.7 on, reserving Fable as the shipped policy did until its retirement on
+        2026-09-27 (`tests/fable_reserve.py`), with a fast probe cycle so the usage
+        sensor reads within a test."""
+        from tests.fable_reserve import fable_reserve_data
+        reserved = fable_reserve_data()
+
         def change(policy):
+            policy.update(models=reserved["models"], retired=reserved["retired"])
             policy["reserve"] = {**policy.get("reserve", {}), "models": ["fable"], "usage_spacing_s": 0}
             policy.setdefault("timers", {})["probe_interval_s"] = probe_interval_s
         self.policy_update(change)

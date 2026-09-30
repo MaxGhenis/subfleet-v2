@@ -20,6 +20,7 @@ from hypothesis.errors import InvalidArgument
 
 from subfleet import capacity
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.fable_reserve import load_fable_reserve_policy
 
 #: The early evaluation's clock: not a whole second, as the wall clock seldom is.
 NOW = datetime(2026, 9, 26, 12, 0, 0, 400000, tzinfo=timezone.utc)
@@ -31,7 +32,13 @@ SCOPES = ("account", "claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5", "
 ACTIVE = ("reserved", "starting", "running", "finalizing")
 ENDED = ("succeeded", "failed", "cancelled", "interrupted", "lost", "quarantined")
 CANONICAL = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
-BASE_POLICY = load_policy(DEFAULT_POLICY_PATH)
+#: The shipped policy retires Fable and reserves no model (2026-09-27); the reserve rule
+#: (C-11.7) keeps its cases against the shipped policy with Fable still reserved.
+#: `policies` draws either, and a job may pin `fable` under both: a retired pin under
+#: the first, the reserved model under the second.
+SHIPPED_POLICY = load_policy(DEFAULT_POLICY_PATH)
+RESERVE_POLICY = load_fable_reserve_policy()
+BASE_POLICY = SHIPPED_POLICY
 
 
 def stamp(at: datetime, shape: str = "canonical") -> str:
@@ -142,7 +149,8 @@ def route_jobs(draw, store: dict) -> dict:
         job["pinned_model"] = draw(st.sampled_from(["opus", "fable", "haiku", "astra", "terra"]))
     if how in ("lane", "lane-and-model"):
         lanes = store["lanes"]
-        provider = BASE_POLICY["models"][job["pinned_model"]]["provider"] if job["pinned_model"] else None
+        # The reserve policy lists every model a job may pin, Fable included.
+        provider = RESERVE_POLICY["models"][job["pinned_model"]]["provider"] if job["pinned_model"] else None
         matching = [row for row in lanes if row["provider"] == provider] or lanes
         pick = draw(st.sampled_from(matching if draw(st.integers(0, 5)) else lanes))
         job["pinned_lane"] = draw(st.sampled_from([pick["lane_id"], pick["account_key"].partition(":")[2],
@@ -161,7 +169,7 @@ def route_jobs(draw, store: dict) -> dict:
 
 @st.composite
 def policies(draw) -> dict:
-    policy = copy.deepcopy(BASE_POLICY)
+    policy = copy.deepcopy(draw(st.sampled_from([SHIPPED_POLICY, RESERVE_POLICY])))
     if draw(st.booleans()):
         policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     # C-6.4: null (the default since 2026-09-27) is no cap; a whole number caps.
