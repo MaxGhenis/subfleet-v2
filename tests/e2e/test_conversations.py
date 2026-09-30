@@ -367,6 +367,53 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
     assert len([r for r in conv.stdin_rows() if r.get("type") == "control_response"]) == 1
 
 
+def test_a_person_request_whose_chain_cannot_be_read_fails_closed_and_may_be_asked_again(conv_with, tmp_path):
+    """C-25.6, C-17.3: the daemon's peer check runs a `ps` that hangs (the real
+    one behind a wrapper, 0.5 s per try, 3 s in all). A person's approval.get and
+    approval.respond from a terminal fail with exit 1 `person-check-failed` naming
+    the cause, not the bare "operation failed" of an unexpected exception: no
+    nonce is shown, the approval stays pending and nothing reaches the provider.
+    Once `ps` answers, the same answer goes through."""
+    hang = tmp_path / "ps-hangs"
+    wrapper = tmp_path / "ps"
+    wrapper.write_text(f"#!/bin/sh\nif [ -e '{hang}' ]; then exec /bin/sleep 600; fi\nexec /bin/ps \"$@\"\n")
+    wrapper.chmod(0o755)
+    conv = conv_with(env={"SUBFLEET_E2E_PS": str(wrapper), "SUBFLEET_E2E_PS_TIMEOUT_S": "0.5",
+                          "SUBFLEET_E2E_CHAIN_BUDGET_S": "3"})
+    cid = conv.create()
+    mid = conv.submit(cid, "run something [fake:approval]")
+    conv.until_state(mid, "approval-needed")
+    approval = pending_approval(conv, cid)
+    shown = conv.as_person("approval.get", approval_id=approval["approval_id"])
+    assert shown["ok"], shown
+    answer = dict(approval_id=approval["approval_id"], decision="allow", nonce=shown["result"]["nonce"],
+                  request_sha256=shown["result"]["request_sha256"])
+
+    hang.touch()
+    cause = ("the caller's process chain could not be read: `ps -axo pid=,ppid=,tty=` "
+             "did not answer within 0.5 s, twice")
+    for op, args, what in (("approval.respond", answer, "answering an approval"),
+                           ("approval.get", {"approval_id": approval["approval_id"]}, "reading an approval")):
+        failed = conv.as_person(op, **args)
+        assert failed["ok"] is False, failed
+        assert failed["error"] == {"code": 1, "message": f"person-check-failed: {what} is a person's decision, "
+                                                         f"and {cause}", "fix": "nothing was done; try again"}
+        assert "nonce" not in json.dumps(failed)
+    assert conv.call("approval.list", conversation_id=cid)["approvals"][0]["state"] == "pending"
+    assert conv.message(mid)["state"] == "approval-needed"
+    assert not [r for r in conv.stdin_rows() if r.get("type") == "control_response"]
+    log = (conv.e2e.root / "daemon.log").read_text()
+    assert "person check for answering an approval could not run" in log
+    assert "person check for reading an approval could not run" in log
+    assert "TimeoutExpired" not in log and "conversation op approval" not in log
+
+    hang.unlink()
+    person = conv.as_person("approval.respond", **answer)
+    assert person["ok"], person
+    assert conv.until_state(mid, "complete", "failed")["state"] == "complete"
+    assert len([r for r in conv.stdin_rows() if r.get("type") == "control_response"]) == 1
+
+
 def test_a_denied_question_and_an_answered_question(conv):
     """C-27.2: deny carries the person's message; AskUserQuestion is answered with the
     chosen answers added to the request's own input."""

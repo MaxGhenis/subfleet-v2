@@ -51,6 +51,13 @@ if Path(sys.argv[0]).name == "subfleetd":
     # guard reads a quiet machine here (tests/conftest.py's QUIET_MACHINE).
     import subfleet.machine
     subfleet.machine.read = lambda: {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0}
+    if os.environ.get("SUBFLEET_E2E_PS"):
+        # C-25.6: the peer check's `ps`, a wrapper that runs the real one unless
+        # a test makes it hang; its clocks shortened so a test need not wait 10 s.
+        from subfleet.conversations import peers
+        peers.PS = os.environ["SUBFLEET_E2E_PS"]
+        peers.PS_TIMEOUT_S = float(os.environ.get("SUBFLEET_E2E_PS_TIMEOUT_S", peers.PS_TIMEOUT_S))
+        peers.CHAIN_BUDGET_S = float(os.environ.get("SUBFLEET_E2E_CHAIN_BUDGET_S", peers.CHAIN_BUDGET_S))
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)
