@@ -70,7 +70,8 @@ spec = st.fixed_dictionaries({
     "extra": st.sampled_from(["none", "bytecode", "text", "subdir"]),
     "package_json": st.sampled_from([True, True, False]),
     # work inside the tool's own entries (N3)
-    "inside": st.sampled_from(["clean", "clean", "patched", "unlisted", "local", "orphan", "late"]),
+    "inside": st.sampled_from(["clean", "clean", "patched", "unlisted", "local", "findlinks", "pip", "orphan",
+                               "late"]),
     "data": st.binary(min_size=0, max_size=2000),
 })
 
@@ -93,6 +94,7 @@ EXPLICIT = [
      ".pytest_cache": case(inside="unlisted"), ".tox": case(inside="local")},
     {"venv": case(inside="unlisted"), "web/node_modules": case(inside="local"), ".ruff_cache": case(inside="late"),
      ".mypy_cache": case(inside="patched"), "__pycache__": case(inside="patched")},
+    {".venv": case(inside="findlinks"), "venv": case(inside="pip")},
     {".venv": case(tracked=True), ".uv-cache": case(marker="link"), "node_modules": case(package_json=False),
      "__pycache__": case(extra="text"), ".tox": case(ignored="no")},
 ]
@@ -113,9 +115,11 @@ def _install(venv: Path, data: bytes, inside: str) -> None:
     sp = venv / "lib" / "python3.14" / "site-packages"
     info = "pkg-1.0.dist-info"
     files = {"pkg/__init__.py": b"x = 1\n", "pkg/core.py": data, f"{info}/METADATA": b"Name: pkg\n",
-             f"{info}/WHEEL": b"Wheel-Version: 1.0\n"}
+             f"{info}/WHEEL": b"Wheel-Version: 1.0\n", f"{info}/INSTALLER": b"pip\n" if inside == "pip" else b"uv\n"}
     if inside == "local":
         files[f"{info}/direct_url.json"] = json.dumps({"url": "file:///somewhere/pkg", "dir_info": {}}).encode()
+    elif inside == "findlinks":                      # uv's mark of a local source, without direct_url.json
+        files[f"{info}/uv_cache.json"] = b'{"timestamp": 1}\n'
     rows = []
     for rel, content in files.items():
         _write(sp / rel, content)
@@ -335,6 +339,10 @@ def _vouched(venv: Path) -> dict[str, tuple[str, str]]:
         direct = record.parent / "direct_url.json"
         if direct.exists() and not json.loads(direct.read_text()).get("url", "").startswith(("https://", "http://")):
             continue
+        installer = record.parent / "INSTALLER"
+        if not _regular(installer) or installer.read_text().strip() != "uv" or \
+                os.path.lexists(record.parent / "uv_cache.json"):
+            continue                                # only uv's installs from an index vouch
         base = record.parent.parent.relative_to(venv)
         out[str(record.relative_to(venv))] = ("RECORD", "")
         for row in csv.reader(record.read_text().splitlines()):

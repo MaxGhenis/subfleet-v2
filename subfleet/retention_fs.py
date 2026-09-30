@@ -555,9 +555,10 @@ def installed_files(venv_fd: int, limit: int = 64 << 20) -> dict[str, tuple[str,
     (sha256 hex, size or None): the rows of each `*.dist-info/RECORD` in the
     environment's `site-packages` that carry a sha256 (paths are relative to
     `site-packages`, `../../../bin/tool` included; none may leave the
-    environment). A distribution installed from a local path (PEP 610's
-    `direct_url.json` naming no network URL: an editable install, a local
-    wheel or directory) vouches for nothing: its source may be the only copy.
+    environment). Only a distribution uv installed from an index or a network URL
+    vouches (`_from_an_index`); one from a local source (an editable install,
+    a local wheel or directory, a local `--find-links`), or one pip
+    installed, vouches for nothing: its source may be the only copy.
     A path two distributions list with different hashes is left out. Errors
     leave a distribution out: when in doubt, the bytes are archived."""
     found: dict[str, tuple[str, int | None] | None] = {}
@@ -575,7 +576,7 @@ def installed_files(venv_fd: int, limit: int = 64 << 20) -> dict[str, tuple[str,
                 except (OSError, TreeError):
                     continue
                 try:
-                    if not _from_the_network(fd):
+                    if not _from_an_index(fd):
                         continue
                     record = _small(fd, "RECORD", limit)
                 finally:
@@ -661,21 +662,44 @@ def _site_packages(venv_fd: int) -> list[str]:
     return out
 
 
-def _from_the_network(dist_fd: int) -> bool:
-    """Whether a distribution came from an index (no `direct_url.json`) or a
-    URL on another machine (PEP 610)."""
-    try:
-        os.stat("direct_url.json", dir_fd=dist_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return True
-    except OSError:
+def _from_an_index(dist_fd: int) -> bool:
+    """Whether uv installed a distribution from a package index or a URL on
+    another machine, so that `uv sync` fetches the same files again:
+
+    - `INSTALLER` names uv. pip marks only a direct URL install
+      (`direct_url.json`), so a pip install from a local `--find-links`
+      directory looks like one from an index; pip's installs vouch for
+      nothing (final review of e50716e8, N3 follow-up: a wheel built from a
+      patched source in /tmp, installed with `--find-links`, then /tmp cleaned);
+    - no `uv_cache.json`, which uv writes for a local source (a path, a
+      directory, a local `--find-links` wheel; measured 2026-09-30) and
+      never for an index install (none of 3,415 live ones has it);
+    - no `direct_url.json` (PEP 610), or one naming a URL on another machine.
+    """
+    if (_small(dist_fd, "INSTALLER", 4096) or b"").strip() != b"uv":
         return False
+    if _present(dist_fd, "uv_cache.json") is not False:
+        return False
+    direct = _present(dist_fd, "direct_url.json")
+    if direct is not True:
+        return direct is False
     data = _small(dist_fd, "direct_url.json", 1 << 20)
     try:
         url = json.loads(data).get("url") if data is not None else None
     except (ValueError, AttributeError):
         return False
     return isinstance(url, str) and _NETWORK_URL.match(url) is not None
+
+
+def _present(dir_fd: int, name: str) -> bool | None:
+    """Whether `name` exists in the directory (None: it could not be told)."""
+    try:
+        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return None
+    return True
 
 
 def node_installed_at(node_modules_fd: int) -> int | None:
