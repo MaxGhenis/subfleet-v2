@@ -305,7 +305,8 @@ def test_c29_6_one_row_per_scope_and_window_the_newer_reading_wins():
 
 
 def test_c29_6_claude_earliest_reset_is_the_soonest_future_account_reset_admission_could_use():
-    """D-27, C-29.6 (IR-34): desktop, disabled and v1 lanes, past resets and model scopes do not count."""
+    """D-27, C-29.6 (IR-34): disabled and v1 lanes, past resets and model scopes do not count; the desktop
+    login's lane does since 2026-09-30, a lane whatever Claude Code is doing (C-10.3)."""
     def claude_lane(lane_id, **extra):
         return lane("claude", lane_id=lane_id, account_key=f"claude:{lane_id}@example.org", **extra)
 
@@ -318,7 +319,9 @@ def test_c29_6_claude_earliest_reset_is_the_soonest_future_account_reset_admissi
             at("claude-2", "seven_day", "2026-09-05T12:30:00Z", scope=FABLE),
             *(at(name, "five_hour", "2026-09-05T12:10:00Z") for name in ("claude-desk", "claude-off", "claude-v1"))]
     result = build_status(build_view(lanes, rows, now=NOW, desktop_account="claude-desk@example.org"))
-    assert result["claude"]["earliest_reset"] == "2026-09-05T16:00:00Z"
+    assert result["claude"]["earliest_reset"] == "2026-09-05T12:10:00Z"
+    without = build_status(build_view([row for row in lanes if row["lane_id"] != "claude-desk"], rows, now=NOW))
+    assert without["claude"]["earliest_reset"] == "2026-09-05T16:00:00Z"
     assert build_status(build_view([claude_lane("claude-1")], now=NOW))["claude"]["earliest_reset"] is None
 
 

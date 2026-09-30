@@ -1207,6 +1207,13 @@ def test_c11_2_a_mismatched_lane_is_dropped_only_within_one_provider(incident):
     assert service.store.get_job(job_id)["state"] == "failed" and not service.store.list_attempts(job_id)
 
 
+def _desktop_reserve_reached(service, lane_id):
+    """C-10.3: a five-hour reading at 0.8, above the desktop reserve's 0.7 ceiling and below C-11.3's floor."""
+    from subfleet.contracts import Reading, ReadingLabel
+    service.store.add_reading(Reading(lane_id, "account", "five_hour", .8, after(3600), ReadingLabel.PROVIDER,
+                                      "fixture", utcnow()))
+
+
 def _transient_on(service, job_id, lane_id, model_id):
     service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id=lane_id,
                               model_requested=model_id, state="failed", outcome_class="transient")
@@ -1214,8 +1221,9 @@ def _transient_on(service, job_id, lane_id, model_id):
 
 @pytest.mark.parametrize("refusal", ["closed", "desktop", "excluded"])
 def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate(fleet, refusal):
-    """C-4.5 "same lane after 60 s, once, then next candidate": a closure, the desktop login, or the
-    job's own exclusion is not ended by a slot, so the job routes as submitted onto the open lane."""
+    """C-4.5 "same lane after 60 s, once, then next candidate": a closure, the desktop login's reserve (a
+    five-hour reading above its ceiling, C-10.3), or the job's own exclusion is not ended by a slot, so the
+    job routes as submitted onto the open lane."""
     service, harness = fleet
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
@@ -1227,6 +1235,7 @@ def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_nex
                                           ClockSource.REPORTED, "fixture"))
     elif refusal == "desktop":
         service.store.update_lane("claude-a", desktop=1)
+        _desktop_reserve_reached(service, "claude-a")
     service._admit()
     assert service.store.list_attempts(job_id)[-1]["lane_id"] == "claude-b"
 
@@ -1365,6 +1374,7 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     fable = service.policy["models"]["fable"]["id"]
     _transient_on(service, job_id, "claude-a", fable)                  # the pair: fable, not the chain's opus
     service.store.update_lane("claude-a", desktop=1)
+    _desktop_reserve_reached(service, "claude-a")                      # C-10.3: refused by the desktop reserve
     service._admit()
     assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed"]
     assert service._retry_verdicts[job_id][1] is False

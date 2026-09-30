@@ -60,9 +60,13 @@ def test_minimal_pick_filters_and_pins():
     closures = [{"lane_id": "codex-5", "scope": "gpt-6-astra", "until_at": "2026-09-05T13:00:00Z"}]
     decision = pick(policy, lanes, pinned_model="astra", exclusions=["codex-4"], closures=closures, now=NOW)
     assert decision.chosen_lane == "codex-6"
-    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner-v1", "desktop", "excluded", "closed:gpt-6-astra:2026-09-05T13:00:00Z"]
-    assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", now=NOW).chosen_lane is None
+    # C-10.3 (2026-09-30): the desktop lane is a candidate, the last resort, so codex-6 is chosen over it.
+    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner-v1", "excluded", "closed:gpt-6-astra:2026-09-05T13:00:00Z"]
+    assert decision.evaluations[0]["candidates"] == ["codex-6", "codex-3"]
+    assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", now=NOW).chosen_lane == "codex-3"
     assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", allow_desktop=True, now=NOW).chosen_lane == "codex-3"
+    assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", exclusions=["@desktop"],
+                now=NOW).chosen_lane is None
     with pytest.raises(ValueError, match="different providers"):
         pick(policy, lanes, pinned_model="opus", pinned_lane="codex-6", now=NOW)
 

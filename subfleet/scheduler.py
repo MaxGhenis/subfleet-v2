@@ -13,11 +13,12 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import desktop_excluded, fresh_provider, identity_blocked
+from .capacity import desktop_reserve_readings, fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
-                        HEADROOM_FLOOR, Decision, Exit)
-from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
-                     resolve_model, turn_cap)
+                        DESKTOP_EVIDENCE_TTL_S, DESKTOP_EXCLUSION, DESKTOP_RESERVE_REPROBE_S, HEADROOM_FLOOR,
+                        Decision, Exit)
+from .policy import (DESKTOP_RESERVE_WINDOWS, MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap,
+                     lane_slot_cap, resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -501,6 +502,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                 identity = attempt["lane_id"]
                 in_flight[identity] = in_flight.get(identity, 0) + 1
     capacity_blocks = _parent_blocks(policy, view, job)
+    settings = admission_settings(policy)
     # C-6.4: each fleet cap is none unless the policy sets one.
     fleet_cap = turn_cap(conversation_caps, "max_active_turns") if is_turn else cap(caps, "max_active_attempts")
     if fleet_cap is not None and sum(in_flight.values()) + (0 if is_turn else view.get("reserved_probes", 0)) >= fleet_cap:
@@ -509,7 +511,10 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
             "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
-            "lane_spread": admission_settings(policy)["lane_spread"]}
+            "lane_spread": settings["lane_spread"],
+            # C-10.3: what the desktop login keeps for interactive sessions.
+            "desktop_reserve": settings["desktop_reserve"] or {},
+            "desktop_max_in_flight": settings["desktop_max_in_flight"]}
 
 
 def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
@@ -517,6 +522,132 @@ def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
     model, pin, selected = setup["policy"]["models"][short], setup["pin"], setup["selected"]
     return [lane for lane in setup["lanes"] if lane["provider"] == model["provider"]
             and (not pin or selected and lane["lane_id"] == selected["lane_id"])]
+
+
+def job_refusals(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any]) -> list[str]:
+    """C-11.2, C-26.2, C-10.3: the reasons `judge_lane` refuses a lane for this job's
+    own facts alone, which no reading, closure or count on the lane changes: the
+    job's exclusions (`--no-desktop`, `-x @desktop`, names whichever lane is the
+    desktop login now) and, for a turn, a home lane's other config directory."""
+    job, model = setup["job"], setup["policy"]["models"][short]
+    reasons = []
+    if ((_identities(lane) - {DESKTOP_EXCLUSION}) & setup["excluded"]
+            or (lane.get("desktop") and DESKTOP_EXCLUSION in setup["excluded"])):
+        reasons.append("excluded")
+    if (job.get("kind") == "turn" and model["provider"] == "claude"
+            and lane.get("credential_kind") == "home"):
+        # C-26.2: a home lane has its own config directory; the
+        # conversation's transcript is not there.
+        reasons.append("config-dir")
+    return reasons
+
+
+_PREPARE_ERRORS = (RouteError, PolicyError, ValueError, KeyError, TypeError)
+#: C-6.11, C-10.3: reasons that say a lane lacks room, not that it refuses the job:
+#: a slot (`no-slot`) and the desktop login's bound on detached attempts.
+ROOM_REASONS = frozenset({"no-slot", "desktop-reserve:in-flight"})
+
+
+def usable_pairs(policy: Mapping[str, Any], lanes: Iterable[Any], job: Any) -> tuple[frozenset[tuple[str, str]], bool] | None:
+    """C-6.9: the (model, lane) pairs of the job's chain its own facts allow, and
+    whether it carries an unmeasured-reserve authorization (C-11.7a).
+
+    The chain is `prepare`'s (a pin truncates it to one model) and the lanes are
+    `model_lanes` (the model's provider, the pin) less `job_refusals` (the
+    exclusions, `@desktop`, a turn's config directory). Every other reason
+    `judge_lane` gives is a fact of the lane, the model and the pool, the same for
+    any job of that pool that would run that model there. `lanes` are marked as a
+    view marks them (`capacity.mark_desktop`). None when the job cannot be
+    prepared: it is then taken to compete everywhere, as before 2026-09-30."""
+    try:
+        setup = prepare(policy, {"lanes": list(lanes)}, job)
+    except _PREPARE_ERRORS:
+        return None
+    pairs = frozenset((short, lane["lane_id"]) for short in setup["chain"]
+                      for lane in model_lanes(setup, short) if not job_refusals(setup, short, lane))
+    return pairs, bool(setup["authorization_reason"])
+
+
+def pairs_contained(newer: tuple[frozenset[tuple[str, str]], bool] | None,
+                    older: tuple[frozenset[tuple[str, str]], bool] | None) -> bool:
+    """C-6.9: whether the older job could take every (model, lane) the newer job's
+    own facts allow, so it could take whatever the newer job would: the newer one
+    is held without asking which lane that is, as before 2026-09-30. Unknown on
+    either side is contained; an authorization the older job lacks is not (it
+    lets the newer pass a reserve refusal the older cannot)."""
+    if newer is None or older is None:
+        return True
+    return newer[0] <= older[0] and (not newer[1] or older[1])
+
+
+def could_take(older: tuple[frozenset[tuple[str, str]], bool] | None, target: tuple[str, str], *,
+               newer_authorized: bool = False) -> bool:
+    """C-6.9: whether the older job could run the model on the lane the newer job
+    would take. The newer job's decision shows that lane admits that model now, and
+    every reason but the jobs' own facts is the same for both, so this is a question
+    of the older job's own facts (`usable_pairs`), and of one fact of the newer job's:
+    an unmeasured-reserve authorization (C-11.7a) the older lacks, which may be what
+    admits the newer there, so the older is not taken to be able to run there too
+    (review of this change: the authorized job is the one whose probe measures the lane)."""
+    if older is None:
+        return True
+    return tuple(target) in older[0] and (not newer_authorized or older[1])
+
+
+def desktop_reserve(setup: Mapping[str, Any], model_id: str, readings: Iterable[Mapping[str, Any]], *,
+                    in_flight: int) -> tuple[list[str], dict[str, Any]]:
+    """C-10.3: why the desktop login's lane refuses detached work now, what it read,
+    and whether placing work there first needs fresh evidence.
+
+    For each window the policy reserves, the counted readings are the account's
+    and the job's model's (`capacity.desktop_reserve_readings`: the latest
+    `provider` reading of each, fresh or not, until the window resets). The lane is
+    refused `desktop-reserve:<window>` while one of them is at or above
+    `1 - admission.desktop_reserve[window]` and was observed within
+    `DESKTOP_RESERVE_REPROBE_S`; and `desktop-reserve:in-flight` while
+    `admission.desktop_max_in_flight` detached attempts run there. Otherwise it is a
+    candidate, and `requires_probe` says a reserved window has no account reading
+    younger than `reading_ttl_s`: the lane's readings come only from attempts and
+    probes on it, and Claude Code's own use of the login between them shows in
+    none, so the job's C-11.4 probe takes a fresh one first (`probe_required`)."""
+    reserve, bound = setup["desktop_reserve"], setup["desktop_max_in_flight"]
+    now = setup["now"]
+    # Fresh evidence is young by the shipped TTL whatever the policy's says (review of this change).
+    ttl = min(setup["caps"]["reading_ttl_s"], DESKTOP_EVIDENCE_TTL_S)
+    counted = desktop_reserve_readings(readings, now=now, reading_ttl_s=ttl, scopes=("account", model_id))
+    reasons: list[str] = []
+    windows: dict[str, Any] = {}
+    unproven = False
+    for window in DESKTOP_RESERVE_WINDOWS:
+        keep = reserve.get(window)
+        if keep is None:
+            continue
+        ceiling = round(1 - keep, 6)
+        refused = False
+        for scope in ("account", model_id):
+            row = counted.get((scope, window))
+            if row is None:
+                continue
+            age = (now - _time(row["observed_at"])).total_seconds()
+            windows[window if scope == "account" else f"{window}:{scope}"] = {
+                "utilization": row["utilization"], "ceiling": ceiling, "observed_at": row["observed_at"],
+                "resets_at": row.get("resets_at")}
+            over = row["utilization"] >= ceiling
+            refused = refused or (over and age <= DESKTOP_RESERVE_REPROBE_S)
+            # Past the hour a reading at the ceiling no longer refuses alone; it asks for a probe.
+            unproven = unproven or (over and age > DESKTOP_RESERVE_REPROBE_S)
+        if refused:
+            reasons.append(f"desktop-reserve:{window}")
+            continue
+        account = counted.get(("account", window))
+        if account is None or (now - _time(account["observed_at"])).total_seconds() > ttl:
+            unproven = True
+    if bound == 0:
+        reasons.append("desktop-reserve:off")          # no detached work at all: standing, not room
+    elif bound is not None and in_flight >= bound:
+        reasons.append("desktop-reserve:in-flight")
+    return reasons, {"in_flight": in_flight, "max_in_flight": bound, "windows": windows,
+                     "requires_probe": unproven and not reasons}
 
 
 def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
@@ -554,16 +685,7 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     if lane.get("desktop"):
         # C-10.3, C-11.3: a desktop lane that is a candidate sorts after every other.
         detail["desktop"] = True
-    if _identities(lane) & setup["excluded"]:
-        reasons.append("excluded")
-    if desktop_excluded(lane) and not job.get("allow_desktop"):
-        # C-10.3: only while Claude Code is using the desktop login (or that is unknown).
-        reasons.append("desktop")
-    if (job.get("kind") == "turn" and model["provider"] == "claude"
-            and lane.get("credential_kind") == "home"):
-        # C-26.2: a home lane has its own config directory; the
-        # conversation's transcript is not there.
-        reasons.append("config-dir")
+    reasons.extend(job_refusals(setup, short, lane))
     if lane.get("owner") != "v2":
         reasons.append("owner-v1")
     if not lane.get("enabled", True):
@@ -584,6 +706,13 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
         reasons.append("no-slot")
     if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
         reasons.append("below-floor")
+    if lane.get("desktop") and not setup["is_turn"]:
+        # C-10.3: the desktop login is a candidate whether or not Claude Code is
+        # using it, and keeps a reserve for interactive sessions. A turn is that
+        # use itself (attended, C-26.9) and is never refused by the reserve.
+        kept, found = desktop_reserve(setup, model["id"], readings, in_flight=in_flight)
+        detail["desktop_reserve"] = found
+        reasons.extend(kept)
     # C-11.7: a model that is not reserved may only spend a lane's slack above
     # what the reserved model could still use of the shared weekly window.
     for reserved in (policy.get("reserve") or {}).get("models", ()):
@@ -641,11 +770,17 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
 
 
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],
-                 details: Mapping[str, Mapping[str, Any]]) -> str:
-    """C-11.5: what one model of the chain came to, in words (`candidates` ranked)."""
-    if candidates:
-        return f"{short}: chose {candidates[0]}; {details[candidates[0]]['status']}"
+                 details: Mapping[str, Mapping[str, Any]], *, chosen: bool = True) -> str:
+    """C-11.5: what one model of the chain came to, in words (`candidates` ranked).
+
+    `chosen` false: its only candidates are the desktop login's lane, which the
+    walk keeps for its last resort (C-10.3), so it went on up the chain."""
     suffix = "; promoted" if index + 1 < len(setup["chain"]) else ""
+    if candidates and not chosen:
+        return f"{short}: only the desktop login ({candidates[0]}), kept for last{suffix}"
+    if candidates:
+        last = "; the desktop login, no other lane of the chain" if details[candidates[0]].get("desktop") else ""
+        return f"{short}: chose {candidates[0]}; {details[candidates[0]]['status']}{last}"
     reason = f"{short}: no candidate lanes after exclusions{suffix}"
     if setup["pin"] and setup["selected"] is None:
         reason += f"; pinned lane {setup['pin']!r} is unknown"
@@ -666,7 +801,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
 
     `prepare` settles the chain, the pin and the capacity blocks; each lane of
     each model is judged alone (`judge_lane`) and the candidates ranked by
-    `rank_key`, so a lane can be judged again without the rest (C-6.3)."""
+    `rank_key`, so a lane can be judged again without the rest (C-6.3).
+
+    C-10.3 (2026-09-30): the desktop login's lane is the chain's last resort. The
+    walk goes past a model whose only candidate it is; only when no model of the
+    chain has another candidate does the first model that has it take it."""
     setup = prepare(policy, view, job)
     job, now, pin, selected = setup["job"], setup["now"], setup["pin"], setup["selected"]
     readings = [_row(item) for item in view.get("readings", ())]
@@ -704,9 +843,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                 candidates.append(identity)
                 details[identity] = detail
         candidates.sort(key=lambda identity: rank_key(setup, short, identity, details[identity]))
-        if candidates:
+        # `rank_key` sorts the desktop lane last, so the first is another lane if one is a candidate.
+        first = bool(candidates) and not details[candidates[0]].get("desktop")
+        if first:
             chosen_lane, chosen_model = candidates[0], short
-        reason = model_reason(setup, index, short, candidates, details)
+        reason = model_reason(setup, index, short, candidates, details, chosen=first)
         evaluations.append({"model": short, "model_id": model["id"], "provider": model["provider"],
                             "candidates": candidates, "candidate_details": details,
                             "rejections": rejections, "rejected": rejections,
@@ -716,8 +857,17 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
-        if candidates:
+        if first:
             break
+    if chosen_lane is None:
+        # C-10.3: nothing but the desktop login anywhere in the chain; the first model
+        # that has it takes it, and the walk is what a walk that allowed it had made.
+        last = next((index for index, row in enumerate(evaluations) if row["candidates"]), None)
+        if last is not None:
+            evaluations = evaluations[:last + 1]
+            row = evaluations[last]
+            chosen_lane, chosen_model = row["candidates"][0], row["model"]
+            row["reason"] = model_reason(setup, last, chosen_model, row["candidates"], row["candidate_details"])
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
                     chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now), digest)
@@ -826,6 +976,10 @@ def probe_required(decision: Decision, job: Any) -> bool:
     evaluation = next(row for row in decision.evaluations if row["model"] == decision.chosen_model)
     if (evaluation["candidate_details"][decision.chosen_lane].get("reserve") or {}).get("requires_probe"):
         return True
+    if (evaluation["candidate_details"][decision.chosen_lane].get("desktop_reserve") or {}).get("requires_probe"):
+        # C-10.3: detached work lands on the desktop login only on a fresh reading of
+        # each window it reserves; the probe's `rate_limit_event` is that reading.
+        return True
     if not (job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"):
         return False
     return not evaluation["candidate_details"][decision.chosen_lane]["measured"]
@@ -877,7 +1031,7 @@ def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
         rejections = []
         for row in evaluation.get("rejections", ()):
             reasons = list(row.get("reasons") or [row.get("reason")])
-            standing = [reason for reason in reasons if reason != "no-slot"]
+            standing = [reason for reason in reasons if reason not in ROOM_REASONS]
             rejections.append((str(row.get("lane_id")), tuple(standing or reasons)))
         rejections.sort()
         candidates = sorted(row if isinstance(row, str) else str(row.get("lane_id"))
@@ -905,17 +1059,21 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
               for block in evaluation.get("capacity_blocks", ())]
     counts: dict[str, int] = {}
     room_only = False
+    slot = False
     for evaluation in value.get("evaluations", ()):
         for row in evaluation.get("rejections", ()):
             reasons = [str(reason) for reason in (row.get("reasons") or [row.get("reason") or "unknown"])]
-            standing = [reason for reason in reasons if reason != "no-slot"]
+            standing = [reason for reason in reasons if reason not in ROOM_REASONS]
             if not standing:
                 room_only = True
+                slot = slot or "no-slot" in reasons
                 continue
             # A closure's reason carries its own expiry; the label groups them.
             label = ":".join(standing[0].split(":")[:2]) if standing[0].startswith("closed:") else standing[0]
             counts[label] = counts.get(label, 0) + 1
     if room_only:
+        if not slot:
+            return "desktop-reserve:in-flight"          # C-10.3: only the desktop login's bound
         if "fleet" in blocks:
             return "fleet-full"
         return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"

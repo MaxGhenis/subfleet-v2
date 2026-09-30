@@ -520,9 +520,13 @@ quotes another run's Codex log.
 > blind ones. — `subfleet/delegate.py:568-584`, `subfleet/capacity.py:1315-1322`, standing order
 > re-stated 2026-09-04, routing-policy
 
-**Replacement.** C-10.3 removes the desktop lane from the candidate set outright; it is
-dispatchable only when the job carries `--allow-desktop`. Ranking is not the mechanism any more,
-so v1's ordering term has no counterpart. Plan amendment 14 records that "strictly last" already
+**Replacement.** Since 2026-09-30 (Max: "why wouldnt we allow using the active acct?") C-10.3
+makes the desktop lane a candidate for every job, whether or not Claude Code uses the login, and
+the chain's last resort: it sorts after every other candidate (C-11.3) and C-11.2's walk goes past
+a model it alone serves, behind a reserve for interactive sessions; `--no-desktop` keeps a job off
+it. Ranking last is the mechanism again, as in v1, now with the reserve. Until then C-10.3 removed
+the lane from the candidate set (without `--allow-desktop`, and from 2026-09-27 only while Claude
+Code used the login). Plan amendment 14 records that "strictly last" already
 overstated v1 — `delegate.py:576` sorts `not fable_stranded` ahead of `active` — and the ledger's
 own rationale says the 10-point handicap was not enough. C-11.6's golden case is the check.
 

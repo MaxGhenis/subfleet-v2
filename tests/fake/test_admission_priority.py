@@ -218,11 +218,13 @@ def test_c4_5_c17_3_a_job_limited_on_every_lane_still_fails_with_rc_4(state_daem
     assert job["state"] == "failed" and job["finished_at"]
 
 
-def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon, tmp_path, monkeypatch):
-    """The review of the uncap plan: the check inside the reservation reused the early
-    view's answer, so a job evaluated while the desktop login was idle was reserved on
-    it after Claude Code had become active. The answer is read again, off the lock,
-    before each reservation try, and a change judges the desktop lane again."""
+def test_c10_3_c6_3_claude_code_becoming_active_changes_nothing_at_the_reservation(state_daemon, tmp_path,
+                                                                                    monkeypatch):
+    """C-10.3 (2026-09-30, Max: "why wouldnt we allow using the active acct?"). Until then a job evaluated
+    while the desktop login was idle was refused it at the reservation once Claude Code became active
+    (the review of the uncap plan). The answer is still read again before each reservation try, and a
+    change still judges the desktop lane again, but being used by Claude Code refuses nothing now: the
+    job is placed there, and the change is on record."""
     from subfleet.adapters.registry import register
     from subfleet.contracts import Credential, Lane, LaneOwner
 
@@ -231,6 +233,10 @@ def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon,
     monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     daemon.store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                                Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    from subfleet.contracts import Reading, ReadingLabel
+    for window in ("five_hour", "seven_day"):                 # C-10.3: fresh, so no probe is needed first
+        daemon.store.add_reading(Reading("claude-4", "account", window, .2, daemon_module.after(3600),
+                                         ReadingLabel.PROVIDER, "fixture", daemon_module.utcnow()))
     idle = {"status": "idle", "statusUpdatedAt": time.time() * 1000 - 40 * 60_000}
     _registry(tmp_path, monkeypatch, **idle)
     first = submit(daemon, harness, "idle-desktop", pinned_model="opus")
@@ -246,22 +252,15 @@ def test_c10_3_c6_3_the_reservation_sees_claude_code_become_active(state_daemon,
     monkeypatch.setattr(daemon, "_pick", then_active)
     second = submit(daemon, harness, "then-active", pinned_model="opus")
     daemon._admit()
-    assert daemon.store.list_attempts(second) == []
-    assert daemon._holds[second]["reason"] == "desktop"
-    monkeypatch.setattr(daemon, "_pick", pick)
-    _registry(tmp_path, monkeypatch, **idle)
-    with daemon.store.transaction("test.clock", job_id=second) as tx:  # its recheck is due (C-6.10)
-        tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=?", ("2000-01-01T00:00:00Z", second))
-    daemon._admit()                                               # and idle again: placed
     assert [row["lane_id"] for row in daemon.store.list_attempts(second)] == ["claude-4"]
+    assert [row["in_use"] for row in _uses(daemon)][-1] is True
 
 
-def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(state_daemon, tmp_path,
-                                                                            monkeypatch):
-    """Review of PR #72: the admission-probe reservation read the early evaluation's
-    desktop answer, so a `hard` job's probe could run a model turn on the desktop
-    login that Claude Code began using after the evaluation. The answer is read
-    again, off the lock, just before the probe's transaction."""
+def test_c10_3_c11_4_a_probe_starts_on_the_desktop_login_whether_or_not_claude_code_uses_it(state_daemon, tmp_path,
+                                                                                          monkeypatch):
+    """C-10.3 (2026-09-30): the admission-probe reservation no longer refuses the desktop login when Claude
+    Code began using it after the evaluation (the review of PR #72 made it refuse then). The reserve was
+    judged in the decision the probe is for, and a `hard` job is probed and placed there."""
     from subfleet.adapters.registry import register
     from subfleet.contracts import Credential, Lane, LaneOwner
 
@@ -283,9 +282,9 @@ def test_c10_3_c11_4_a_probe_never_starts_on_a_desktop_login_that_became_busy(st
     monkeypatch.setattr(daemon, "_route", then_active)
     job = submit(daemon, harness, "hard", pinned_model="opus", tier="hard")
     daemon._admit()
-    assert probes == [] and daemon.store.list_attempts(job) == []
-    assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key='lane:claude-4:slot:0'")
-    # The answer the probe was refused by is on record (review of PR #72, round 2).
+    assert probes == ["claude-4"]
+    assert [row["lane_id"] for row in daemon.store.list_attempts(job)] == ["claude-4"]
+    # The answer is still on record beside the probe (review of PR #72, round 2).
     assert [row["in_use"] for row in _uses(daemon)] == [False, True]
 
 

@@ -41,9 +41,11 @@ def exit_receipts(record):
     (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": .1, "child_pid": 900002}))
 
 
-@pytest.mark.parametrize("change", [{"owner": "v1"}, {"enabled": False}, {"desktop": True}])
+@pytest.mark.parametrize("change", [{"owner": "v1"}, {"enabled": False}])
 def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state, monkeypatch, change):
-    """C-10.3, C-11.2: rollback or an operator change wins before the probe lease."""
+    """C-11.2: rollback or an operator change wins before the probe lease. (Becoming the desktop
+    login refused the probe here until 2026-09-30; C-10.3 makes that lane a candidate, behind a reserve
+    the decision the probe is for has judged.)"""
     service, harness = routing_state
     job_id = submitted(service, harness)
     original_pick = service._pick

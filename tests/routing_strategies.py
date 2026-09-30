@@ -73,7 +73,9 @@ def lane_rows(draw, lane_id: str) -> dict:
 
 @st.composite
 def reading_rows(draw, lane_id: str, reading_id: int, around: datetime) -> dict:
-    observed = around + timedelta(seconds=draw(st.sampled_from([-600, -130, -121, -119, -118, -60, -3, 0, 2, 40])))
+    # C-10.3: -7200 is a reading far past its freshness that the desktop reserve still counts in its window.
+    observed = around + timedelta(seconds=draw(st.sampled_from([-7200, -600, -130, -121, -119, -118, -60, -3, 0, 2,
+                                                                40])))
     resets = draw(st.sampled_from([None, -10, 1, 3, 3600, 3 * 86400]))
     return {"reading_id": reading_id, "lane_id": lane_id, "scope": draw(st.sampled_from(SCOPES)),
             "window": draw(st.sampled_from(["seven_day", "seven_day", "five_hour", "admission"])),
@@ -149,8 +151,8 @@ def route_jobs(draw, store: dict) -> dict:
                                                    "nobody@example.invalid"]))
         if how == "lane" and draw(st.booleans()):
             job["task"], job["tier"] = "research", "standard"
-    job["exclusions"] = tuple(draw(st.lists(st.sampled_from(list(ACCOUNTS[:1]) + ["claude-2", "codex-1"]),
-                                            max_size=1, unique=True)))
+    job["exclusions"] = tuple(draw(st.lists(st.sampled_from(list(ACCOUNTS[:1]) + ["claude-2", "codex-1", "@desktop"]),
+                                            max_size=2, unique=True)))
     job["allow_desktop"] = int(draw(st.booleans()))
     if kind == "turn" and draw(st.booleans()):
         job["affinity_lane"] = draw(st.sampled_from([row["lane_id"] for row in store["lanes"]]))
@@ -171,6 +173,11 @@ def policies(draw) -> dict:
                           max_active_attempts_per_parent=draw(st.sampled_from([None, None, 1, 2, 9])))
     # C-11.3: the load band's width; null is no bands.
     policy.setdefault("admission", {})["lane_spread"] = draw(st.sampled_from([None, 1, 2, 2, 3]))
+    # C-10.3: the desktop login's reserve and in-flight bound (defaults 0.3 each and 2).
+    policy["admission"]["desktop_reserve"] = draw(st.sampled_from([
+        {"five_hour": 0.3, "seven_day": 0.3}, {"five_hour": 0.3, "seven_day": 0.3}, None,
+        {"five_hour": 0.5, "seven_day": None}, {"five_hour": 0.0, "seven_day": 0.15}]))
+    policy["admission"]["desktop_max_in_flight"] = draw(st.sampled_from([2, 2, None, 0, 1]))
     # C-26.9: null (the default) is no cap; a whole number caps turns.
     policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([None, 1, 3])),
                                                   turn_slots_per_lane=draw(st.sampled_from([None, 1, 2])))

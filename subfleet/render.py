@@ -174,7 +174,7 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
-    "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
+    "behind-older-job": "held behind {behind}, an older {tier} job that is waiting{where} (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
@@ -241,6 +241,11 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                      # C-6.9: the lane and model this job would take are ones the older job could.
+                      # Only a hold made on a lane says the older job could run there; the others
+                      # say it competes (code review of this change).
+                      "where": (f" and could run on {hold['lane']}, where this one would" if hold.get("lane")
+                                else " ahead of it that competes with it"),
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
@@ -260,6 +265,14 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     if recheck:
         lines.append(f"Rechecks: same verdict {recheck['rechecks'] + 1} times since {recheck['since']}, "
                      f"last {recheck['checked_at']}")
+    earlier = standing.get("attempts") or ()
+    if earlier:
+        # C-4.5, C-23.44: a job that moved on from a lane says which and why; an
+        # auth-dead lane was disabled and is enrolled again by `subfleet lanes enroll`.
+        lines.append("Earlier attempts: " + ", ".join(
+            f"a{row['seq']} {row.get('outcome_class') or row.get('state')} on {row['lane_id']}"
+            + (" (that lane is disabled; subfleet lanes enroll)" if row.get("outcome_class") == "auth-dead" else "")
+            for row in earlier))
     if standing.get("next_check_at"):
         lines.append(f"Next check: {standing['next_check_at']}")
     if standing.get("decision_source") == "evaluated-now":

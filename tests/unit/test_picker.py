@@ -56,7 +56,8 @@ def test_codex_uses_weekly_reset_order_and_preserves_input(policy):
 
 @pytest.mark.parametrize("changes,reason", [
     ({"owner": "v1"}, "owner-v1"), ({"enabled": False}, "disabled"),
-    ({"desktop": True}, "desktop"), ({"identity_status": "mismatch"}, "identity-mismatch"),
+    # C-10.3: a pick is outside supervision, so it keeps off the desktop login (`@desktop`).
+    ({"desktop": True}, "excluded"), ({"identity_status": "mismatch"}, "identity-mismatch"),
     ({"home": None}, "missing-home"), ({"home": "relative"}, "missing-home"),
 ])
 def test_picker_preserves_lane_guards(policy, changes, reason):

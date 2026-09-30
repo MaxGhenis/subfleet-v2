@@ -64,6 +64,8 @@ from .store import Store
 _UNSET = object()
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
+#: The attempt states that have ended (a quarantined one has not: it waits for an operator).
+TERMINAL_ATTEMPTS = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
@@ -110,13 +112,17 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job", "route-moved", "machine-busy"})
+                            "probe-pending", "behind-older-job", "route-moved", "machine-busy",
+                            "desktop-reserve:in-flight"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
 #: C-10.3: a reservation treats an in-use answer older than this as use (its
 #: registry read began that long ago; the reservation refreshed it just before).
 DESKTOP_IN_USE_MAX_AGE_S = 10
+#: C-6.9: how long one capacity view serves admission's question of which lane a
+#: held job would take (`Daemon._hold_view`).
+HOLD_VIEW_TTL_S = 2
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -136,6 +142,15 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+
+
+class _HeldBehind(Exception):
+    """C-6.9: an older waiting job could run where this job's decision would, found
+    before the job's admission probe; the job is held behind it, on a clock."""
+
+    def __init__(self, behind: str, lane: str):
+        super().__init__(behind)
+        self.behind, self.lane = behind, lane
 
 
 class _RouteMoved(Exception):
@@ -528,6 +543,7 @@ class Daemon:
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
                              deliver=self._timer_notice)
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
+        self.timers.desktop_identity = lambda: self._last_desktop  # C-10.3: and the lane admission marks
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -562,6 +578,12 @@ class Daemon:
         # C-6.9, C-10.3: the last registry read (`_registry_read`): the instant it
         # began, and the rows and desktop answer it found; reused for a moment.
         self._registry: tuple[float, dict | None] = (0.0, None)
+        self._hold_view_cache: tuple[float, Any, Any, dict] | None = None     # C-6.9, `_hold_view`
+        self._hold_targets: tuple[dict | None, dict] = (None, {})             # C-6.9, per shared view
+        self._last_desktop_hint: str | None = None                          # C-10.3, `_desktop_identity`
+        self._last_desktop: capacity.DesktopIdentity | None = None          # C-10.3, the last one judged by
+        self._hold_checks: dict[str, Callable[[Any, Any], str | None]] = {}  # C-6.9, `_prepare_route`
+        self._notice_final: dict[str, str] = {}                             # C-23.44, `_notice`
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass:
         # C-26.9's turn pass and the detached pass each replace their own, and
@@ -1083,7 +1105,9 @@ class Daemon:
         cached_at, cached = self._desktop_cache
         profile = (cached if cached is not _UNSET and
                    time.monotonic() - cached_at <= self.policy['caps']['reading_ttl_s'] else None)
-        return capacity.desktop_identity(profile, cached_label=capacity.read_desktop_account(),
+        hint = capacity.read_desktop_account()
+        # C-10.3: `pick` and `operations` judge by the hint the admission pass kept, too.
+        return capacity.desktop_identity(profile, cached_label=hint or self._last_desktop_hint,
                                          last_label=last.get('label'))
 
     def _desktop_identity(self) -> capacity.DesktopIdentity:
@@ -1102,8 +1126,15 @@ class Daemon:
         last = capacity.last_desktop_identity(self.store.query(
             "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 8",
             (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
+        # C-10.3 (2026-09-30): the reserve rides on the mark, so a pass whose hint
+        # cannot be read (the file being rewritten, a sign-out) keeps the last one it
+        # had, never the recorded flag (claude-1's, from the import, on the live store).
+        if hint:
+            self._last_desktop_hint = hint
+        last_label = last.get("label") or (None if hint else self._last_desktop_hint)
         desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
-                                            cached_label=hint, last_label=last.get("label"))
+                                            cached_label=hint, last_label=last_label)
+        self._last_desktop = desktop                             # replaced whole: the timer thread reads it
         if desktop.verified and (last.get("identity") != desktop.identity
                                  or last.get("label") != desktop.label):
             self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
@@ -1189,19 +1220,7 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        rows = self._capacity_rows()
-        # The instant the view is built at: it keeps closures and labels readings
-        # on it, and gives `evaluate` its whole second (C-6.3's clock check).
-        instant = datetime.now(timezone.utc)
-        view = self._capacity_view(desktop, rows, now=instant)
-        context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
-        # At the view's clock, as `enrich_view` decided them: two clocks could put
-        # an override's end between them, its readings relabelled stale there and
-        # not held out here (review of 4f4edcd).
-        overrides = {lane["lane_id"]: found for lane in view["lanes"]
-                     if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
-                                                                         context=context))}
-        view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
+        rows, instant, view, overrides = self._route_view(desktop)
         route_job = {**job, "exclusions": tuple(exclusions) + extra_exclusions, "policy_hash": self.policy_digest}
         decision = scheduler.evaluate(policy, view, route_job)
         if basis is not None:
@@ -1211,6 +1230,44 @@ class Daemon:
                          desktop_in_use=view.get("desktop_in_use"), instant=instant, overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
                                                      for lane_id, found in overrides.items()})
         return decision
+
+    def _route_view(self, desktop, desktop_in_use: Any = _UNSET) -> tuple[dict, datetime, dict, dict]:
+        """C-6.3, C-23.17: the rows, clock, view and reset-credit overrides a route is
+        evaluated on: one snapshot off the lock (C-3.7), the view built after it,
+        and the readings of every lane a confirmed override covers held out."""
+        rows = self._capacity_rows()
+        # The instant the view is built at: it keeps closures and labels readings
+        # on it, and gives `evaluate` its whole second (C-6.3's clock check).
+        instant = datetime.now(timezone.utc)
+        view = self._capacity_view(desktop, rows, now=instant, desktop_in_use=desktop_in_use)
+        context = rows["timers"]["overrides"]          # read once, in the view's snapshot (C-3.7)
+        # At the view's clock, as `enrich_view` decided them: two clocks could put
+        # an override's end between them, its readings relabelled stale there and
+        # not held out here (review of 4f4edcd).
+        overrides = {lane["lane_id"]: found for lane in view["lanes"]
+                     if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
+                                                                         context=context))}
+        view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
+        return rows, instant, view, overrides
+
+    def _hold_view(self, desktop) -> dict:
+        """C-6.9: the view a held job's lane is judged on, shared for `HOLD_VIEW_TTL_S`.
+
+        Only where an older waiter's own facts allow less than a newer job's does
+        admission ask which lane the newer job would take (`older_blocker`); a view
+        costs about 50 ms on the live store (`_pin_roster`), and a pass runs every
+        tick, so the view is reused, never mutated. A stale answer costs at most a
+        delay: the job's own decision is checked again inside its reservation."""
+        cached = self._hold_view_cache
+        now = time.monotonic()
+        if (cached is not None and cached[1] is self.policy and cached[2] == desktop
+                and now - cached[0] < HOLD_VIEW_TTL_S):
+            return cached[3]
+        # The last registry answer, never a new read: the turn pass asks too, and the
+        # answer refuses nothing since 2026-09-30 (C-10.3).
+        view = self._route_view(desktop, desktop_in_use=self._desktop_answer())[2]
+        self._hold_view_cache = (now, self.policy, desktop, view)      # replaced whole: both passes read it
+        return view
 
     def _route(self, job: dict, **options):
         """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
@@ -1271,7 +1328,9 @@ class Daemon:
         if decision.chosen_lane:
             return True
         rejections = [row for evaluation in decision.evaluations for row in evaluation["rejections"]]
-        return len(rejections) == 1 and set(rejections[0]["reasons"]) == {"no-slot"} \
+        # C-10.3: the desktop login's bound on detached attempts is room too.
+        return len(rejections) == 1 and bool(rejections[0]["reasons"]) \
+            and set(rejections[0]["reasons"]) <= scheduler.ROOM_REASONS \
             and rejections[0].get("slot_block") != "credential-latched"
 
     def _earlier_transients(self, conn, job_id: str, attempt: dict) -> int:
@@ -2225,6 +2284,11 @@ class Daemon:
                     "wait_reason": job["wait_reason"], "next_check_at": job["next_check_at"],
                     "hold": hold, "recheck": recheck, "decision_source": source,
                     "decided_at": row["evaluated_at"] if row else None}
+        if pending:
+            # C-4.5: the attempts a waiting job has had, so a retry says where it moved on from.
+            standing["attempts"] = [{"seq": a["seq"], "lane_id": a["lane_id"], "state": a["state"],
+                                     "outcome_class": a["outcome_class"]}
+                                    for a in self.store.list_attempts(job["job_id"]) if a["state"] in TERMINAL_ATTEMPTS]
         queue = render.why_queue(standing)
         # C-6.12: a refusal comes first; a decision recorded before it is the last walk it had.
         lines = [*queue, *([f"Refused at admission: {refused}"] if refused else [])]
@@ -2244,7 +2308,7 @@ class Daemon:
         idle = None if since is None else round(time.monotonic() - since)
         return {"pending": state["pending"], "placed_at": state["placed_at"], "idle_for_s": idle,
                 "idle_since": state["idle_since_at"], "reasons": dict(state["reasons"]),
-                "open_lanes": capacity.open_lanes(view, self.policy["caps"]),
+                "open_lanes": capacity.open_lanes(view, self.policy["caps"], admission_settings(self.policy)),
                 # C-6.3, since the daemon started: reservation checks that kept the
                 # early decision's lane (`reused`) or chose again from the lanes
                 # that changed (`rechosen`); evaluations made again, off the lock,
@@ -2562,6 +2626,16 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
+        # C-23.44: a lane an attempt of this job found auth-dead was disabled and the job
+        # moved on from it; its caller hears of it here, whatever the end (a cancel while
+        # the retry waited included). `_notice_final` names the attempt `summary` already
+        # names (`_finalize` sets it; the signature stays the one callers and tests patch).
+        final = self._notice_final.pop(job["job_id"], None)
+        dead = tx.execute("SELECT seq,lane_id FROM attempts WHERE job_id=? AND attempt_id IS NOT ? "
+                          "AND outcome_class='auth-dead' ORDER BY seq", (job["job_id"], final)).fetchall()
+        if dead:
+            summary += "\nearlier: " + ", ".join(f"a{seq} auth-dead on {lane}" for seq, lane in dead) \
+                + " (disabled; subfleet lanes enroll)"
         text = render.notice_header(dict(row), self.root) + "\n" + summary
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
@@ -3164,6 +3238,10 @@ class Daemon:
     def _prepare_route(self, job: dict, decision_job: dict, exclusions: tuple[str, ...]):
         # The admission worker serializes probes; a distinct durable holder and
         # a gated guardian prevent a restart from launching a duplicate probe.
+        # C-6.9: the pass may leave a check for this job in `_hold_checks`, which
+        # names an older job that could run where a decision would; asked before a
+        # probe is reserved, it raises `_HeldBehind` instead.
+        held = self._hold_checks.get(job["job_id"])
         approved = set()
         for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
             desktop = self._desktop_identity()
@@ -3178,10 +3256,12 @@ class Daemon:
                 # reserves on; the job is not evaluated a second time before it.
                 self._early_routes[job["job_id"]] = (decision, basis)
                 return approved, desktop
-            # C-10.3: refreshed off the lock, and read inside it as `_route_rows`
-            # reads it, so a probe never runs a turn on the desktop login that
-            # Claude Code began using after the evaluation (review of PR #72).
-            # Before the directory exists, so a store error here leaves none behind.
+            if held is not None and (behind := held(decision, basis.get("view"))):
+                raise _HeldBehind(behind, decision.chosen_lane)
+            # C-10.3: refreshed off the lock, so a change of whether Claude Code is
+            # using the desktop login is on record beside the probe. It refuses
+            # nothing since 2026-09-30; the reserve does. Before the directory
+            # exists, so a store error here leaves none behind.
             self._desktop_in_use()
             self._record_desktop_use()
             token = os.urandom(12).hex()
@@ -3205,15 +3285,9 @@ class Daemon:
                     row = self.store.one("SELECT * FROM lanes WHERE lane_id=?", (decision.chosen_lane,))
                     if row and capacity.credential_latched(self.timers.merge_lane(dict(row))):
                         return None, desktop
-                    is_desktop = lane.desktop
-                    if lane.provider == "claude" and desktop.decisive:
-                        is_desktop = desktop.owns(dataclasses.asdict(lane))
-                    # C-10.3: refused only while Claude Code uses the desktop login,
-                    # as the decision it probes for was judged (`basis`).
-                    in_use = self._desktop_answer()
-                    if (is_desktop and (basis.get("desktop_in_use") if in_use is None else in_use) is not False
-                            and not decision_job.get("allow_desktop")):
-                        return None, desktop
+                    # C-10.3: the desktop login is a lane whether or not Claude Code
+                    # is using it (2026-09-30). Its reserve was judged in the decision
+                    # this probe is for, and a probe takes no attempt's place in it.
                     if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
                         return None, desktop
                     self._save_probe(record)
@@ -3367,7 +3441,8 @@ class Daemon:
                 return
             state["checked_at"] = now
             try:
-                lanes = capacity.open_lanes(self._capacity_view(self._desktop_identity()), self.policy["caps"])
+                lanes = capacity.open_lanes(self._capacity_view(self._desktop_identity()), self.policy["caps"],
+                                             admission_settings(self.policy))
             except Exception as exc:                      # the line matters more than its lane count
                 lanes = None
                 self.log.debug("admission: open lanes unreadable: %s", type(exc).__name__)
@@ -3463,6 +3538,137 @@ class Daemon:
                 if not key.startswith("lane:"):
                     lease_queue.setdefault(key, job_id)
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
+        # C-6.9 (2026-09-30): an older waiter holds a newer job back only where it
+        # could run: the (model, lane) the newer job would take must be one the
+        # older job's own facts allow (`scheduler.could_take`). Each job's pairs, on
+        # the roster marked as a view marks it (the desktop login's lane), once per
+        # job per pass; the newer job's lane, when the pairs differ, from one
+        # evaluation on a view shared for `HOLD_VIEW_TTL_S`. On 2026-09-30 an older
+        # job that could never run on the desktop lane held a newer one that would
+        # have run there.
+        marked: list[list[dict]] = []
+        # Memos keyed by a view keep the view itself beside the answer, so an id that a
+        # freed view's address reuses never returns another view's answer (review).
+        usable: dict[tuple, tuple[Any, Any]] = {}
+        families: dict[int, tuple[Any, dict[str, int]]] = {}
+        affinities: dict[str, str | None] = {}
+        parent_cap = policy_cap(self.policy["caps"], "max_active_attempts_per_parent")
+
+        def demand_key(demand: dict) -> tuple:
+            return (demand["job_id"], demand.get("pinned_lane"), demand.get("pinned_model"),
+                    tuple(demand.get("exclusions") or ()), demand.get("affinity_lane"))
+
+        def usable_of(demand: dict, view: dict | None = None):
+            """The job's pairs on the pass's roster, or on `view`'s lanes: the waiter's pairs are
+            judged on the same lanes the newer job's lane was found on, or a re-enrolment
+            between the two (a pin that follows its credential) would compare two rosters."""
+            key = (id(view), *demand_key(demand))
+            entry = usable.get(key)
+            if entry is None or entry[0] is not view:
+                if view is not None:
+                    lanes = view["lanes"]
+                else:
+                    if not marked:
+                        marked.append([capacity.mark_desktop(dict(row), desktop=desktop_account) for row in roster])
+                    lanes = marked[0]
+                entry = usable[key] = (view, scheduler.usable_pairs(self.policy, lanes, demand))
+            return entry[1]
+
+        def family_counts(view: dict) -> dict[str, int]:
+            """Attempts in flight under each ancestor on `view`, counted once per view (C-6.4)."""
+            entry = families.get(id(view))
+            if entry is None or entry[0] is not view:
+                parents = {row["job_id"]: row.get("parent_job_id") for row in view.get("jobs", ())}
+                counts: dict[str, int] = {}
+                for attempt in view.get("attempts", ()):
+                    if attempt.get("state") not in scheduler.ACTIVE_ATTEMPTS:
+                        continue
+                    seen: set[str] = set()
+                    parent = parents.get(attempt.get("job_id"))
+                    while parent and parent not in seen:
+                        seen.add(parent)
+                        counts[parent] = counts.get(parent, 0) + 1
+                        parent = parents.get(parent)
+                entry = families[id(view)] = (view, counts)
+            return entry[1]
+
+        def family_full(demand: dict, view: dict | None = None) -> bool:
+            """A rival refused room by its own family's parent cap cannot be placed on
+            any lane, so it holds no job of another family back (C-6.4). Judged on
+            `view` when one is given (inside a reservation, the job's own basis: no
+            view is built under the store lock), else on the shared view."""
+            if parent_cap is None or not demand.get("parent_job_id"):
+                return False
+            try:
+                counts = family_counts(view if view is not None else self._hold_view(desktop_account))
+            except ROUTE_ERRORS:
+                return False
+            return any(counts.get(parent, 0) >= parent_cap
+                       for parent in (demand["parent_job_id"], *self._ancestors(demand["job_id"], ancestry)))
+
+        def target_of(demand: dict) -> tuple[str, str] | None:
+            """The (lane, model) this job would take now, on the shared view, or None."""
+            view = self._hold_view(desktop_account)
+            seen, targets = self._hold_targets
+            if seen is not view:                  # one evaluation per job per shared view, not per 50 ms pass
+                targets = {}
+                self._hold_targets = (view, targets)      # replaced whole: both passes read it
+            key = demand_key(demand)
+            if key not in targets:
+                decision = scheduler.evaluate(self.policy, view, {**demand, "policy_hash": self.policy_digest})
+                targets[key] = (decision.chosen_lane, decision.chosen_model) if decision.chosen_lane else None
+            return targets[key]
+
+        def affinity_of(job: dict) -> str | None:
+            """C-26.2: a turn's affinity lane, from its manifest, as `_pick` will judge it."""
+            if job["job_id"] not in affinities:
+                turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
+                affinities[job["job_id"]] = turn.get("affinity_lane") if isinstance(turn, dict) else None
+            return affinities[job["job_id"]]
+
+        def older_blocker(rivals: list, demand: dict, target: tuple[str, str] | None = None, *,
+                          view: dict | None = None, due: bool = True, prefer: str | None = None,
+                          mine_family: frozenset = frozenset()) -> tuple[str | None, list]:
+            """C-6.9: the rival this job is held behind, or None, and the rivals the
+            answer rested on a lane for (checked again on the job's own decisions:
+            before its admission probe, and inside its reservation). `target` is the
+            (lane, model) the job's own decision took; without it the shared view's.
+            `prefer` is the rival a look found last time, kept while the job is not
+            due. An evaluation that raises leaves the job held as before, and never
+            ends the pass or settles the job (C-6.12)."""
+            if not rivals:
+                return None, []
+            if scope == "family":
+                return rivals[0][0], []            # the family's count is scarce, not a lane's
+            if parent_cap is not None and mine_family:
+                kin = next((rival for rival in rivals if mine_family & self._ancestors(rival[0], ancestry)), None)
+                if kin is not None:
+                    return kin[0], []              # same family: its count is shared wherever either runs
+            live = [rival for rival in rivals if not family_full(rival[4], view)]
+            if not live:
+                return None, []
+            mine = usable_of(demand)
+            contained = next((rival for rival in live if scheduler.pairs_contained(mine, usable_of(rival[4]))), None)
+            if contained is not None:
+                return contained[0], []            # it could take whatever this job would: held, as before
+            if target is None:
+                if not due:
+                    # Not looked at this pass: held in its place, behind the rival its last look found.
+                    kept = next((rival for rival in live if rival[0] == prefer), live[0])
+                    return kept[0], []
+                try:
+                    found = target_of(demand)
+                    view = self._hold_view(desktop_account)
+                except ROUTE_ERRORS:
+                    return live[0][0], []
+                if found is None:
+                    return live[0][0], []          # no lane for this job now: it waits in its place
+                target = found
+            pair = (target[1], target[0])
+            authorized = bool(mine and mine[1])
+            blocker = next((rival for rival in live if scheduler.could_take(usable_of(rival[4], view), pair,
+                                                                            newer_authorized=authorized)), None)
+            return (blocker[0], []) if blocker is not None else (None, live)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
         # holds back only its own kind. Neither pool has a cap unless the policy
         # sets one (`conversations.max_active_turns`, `caps.max_active_attempts`):
@@ -3559,23 +3765,68 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
-            def ahead(models, lanes):
-                """The oldest waiter this job may not pass (C-6.9), or None. Never one
-                waiting for a lease this job holds: that waiter moves only once this
-                job has run, so holding this job behind it holds both until
-                `max_wall_s` (review of PR #72: a retrying resume and a newer one
-                of the same native session, the newer ordered first by class)."""
+            def rivals_of(models, lanes):
+                """The older waiters this job may not pass for a model and a pin they
+                share (C-6.9), oldest first. Never one waiting for a lease this job
+                holds: that waiter moves only once this job has run, so holding this
+                job behind it holds both until `max_wall_s` (review of PR #72: a
+                retrying resume and a newer one of the same native session, the
+                newer ordered first by class)."""
                 if scope is None:
-                    return None
-                return next((waiter[0] for waiter in waiters.get(tier, ())
-                             if scheduler.competes(models, waiter[1], lanes, waiter[2])
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
-                             and blocks(waiter)), None)
-            behind = ahead(models, lanes)
+                    return []
+                return [waiter for waiter in waiters.get(tier, ())
+                        if scheduler.competes(models, waiter[1], lanes, waiter[2])
+                        and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
+                        and blocks(waiter)]
+
+            def with_exclusions(demand_job: dict) -> dict:
+                """The job as its route is evaluated: its exclusions and its retry's (C-4.5)."""
+                given = demand_job.get("exclusions") or ()
+                given = json.loads(given) if isinstance(given, str) else given
+                return {**demand_job, "exclusions": tuple(given) + tuple(extra_exclusions)}
+            demand = with_exclusions(job if let_go else retry or job)
+            if job["kind"] == "turn" and (affinity := affinity_of(job)):
+                demand = {**demand, "affinity_lane": affinity}          # C-26.2, as `_pick` will judge it
+            # C-6.9: held only behind a rival that could run where this job would
+            # (`older_blocker`); `rivals` are those whose answer rested on the lane
+            # this job would take, checked again on its own decision in the
+            # reservation. A job a person's or a retry's wait holds is held in place.
+            rivals = rivals_of(models, lanes)
+            mine_family = (self._ancestors(job, ancestry) if parent_cap is not None and job.get("parent_job_id")
+                           else frozenset())
+            behind = None
+            if rivals and not saturated.get(pool):
+                if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE:
+                    behind = rivals[0][0]
+                else:
+                    looked = (self._capacity_waits.get(job["job_id"]) or {}).get("hold") or {}
+                    behind, rivals = older_blocker(rivals, demand, mine_family=mine_family,
+                                                   due=not (job["next_check_at"] and job["next_check_at"] > utcnow()),
+                                                   prefer=looked.get("behind") if looked.get("reason") == "behind-older-job"
+                                                   else None)
             if saturated.get(pool) or behind:
-                holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
-                                        {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                earlier = (self._capacity_waits.get(job["job_id"]) or {}).get("hold") or {}
+                clocked = bool(job["next_check_at"] and job["next_check_at"] > utcnow())
+                if (behind and not saturated.get(pool) and job["wait_reason"] not in NOT_ADMISSIONS_TO_PLACE
+                        and clocked and earlier.get("reason") == "behind-older-job" and earlier.get("behind") == behind):
+                    # C-6.11: the last look's finding in full (its `lane`), until the job is due again.
+                    holds[job["job_id"]] = {**earlier, "next_check_at": job["next_check_at"]}
+                else:
+                    holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
+                                            {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
+                                            {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                if behind and not saturated.get(pool) and job["wait_reason"] not in NOT_ADMISSIONS_TO_PLACE:
+                    # C-6.9: still a waiter, so a later job it could run where is held behind it too:
+                    # with the rule of 2026-09-30 an oldest job that cannot take a later one's lane
+                    # no longer holds it for the jobs between (code review of this change). A wait
+                    # that is not for capacity (approval, uncertain, workspace) holds nobody, and a
+                    # job waiting on a lease keeps what it waits for, so its holder is never held
+                    # behind it (second review round).
+                    waiting_for = (frozenset(earlier.get("leases") or ()) if earlier.get("reason") == "lease-held"
+                                   else frozenset())
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for, demand))
+                    if waiting_for:
+                        queue_for([*waiting_for, *(earlier.get("queued") or ())], job["job_id"])
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -3593,7 +3844,7 @@ class Daemon:
                 if job["wait_reason"] == "capacity":
                     waiting_for = (frozenset(known["hold"].get("leases") or ())
                                    if known and known["hold"].get("reason") == "lease-held" else frozenset())
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for, demand))
                 if known and known["hold"].get("reason") == "lease-held":
                     queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
                               job["job_id"])
@@ -3648,13 +3899,15 @@ class Daemon:
                     decision_job = retry
                     models = scheduler.demand_models(self.policy, retry)
                     lanes = scheduler.demand_lanes(roster, retry, self.policy)
+                    demand = with_exclusions(retry)
                 else:
                     # C-4.5 "then next candidate": the pair's lane refuses it for
                     # something a slot will not end, so the job routes as submitted,
                     # and as submitted it keeps C-6.9's place behind older jobs.
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = ahead(models, lanes)
+                    demand = with_exclusions(job)
+                    behind, rivals = older_blocker(rivals_of(models, lanes), demand, mine_family=mine_family)
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
@@ -3667,18 +3920,39 @@ class Daemon:
                                        "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                                        (next_check, job["job_id"]))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                        waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                         continue
+            def held_before_probe(decision, view) -> str | None:
+                """C-6.9: the rival that could run where this decision would, checked
+                before its admission probe reserves the lane (a probe's `slot:0` would
+                keep the rival from it, and the probe would be spent for nothing)."""
+                return (older_blocker(rivals, demand, (decision.chosen_lane, decision.chosen_model), view=view,
+                                      mine_family=mine_family)[0] if rivals and decision.chosen_lane else None)
+            self._hold_checks[job["job_id"]] = held_before_probe
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
+            except _HeldBehind as late:
+                hold = {"reason": "behind-older-job", "behind": late.behind, "tier": tier, "lane": late.lane}
+                rechecks = self._capacity_wait(job["job_id"], f"behind:{late.behind}:{late.lane}", hold)
+                next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                with self.store.transaction("job.held_behind", job_id=job["job_id"]) as tx:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                               "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                               (next_check, job["job_id"]))
+                holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
+                continue
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
                 self._unroutable(job, exc, holds)
                 continue
+            finally:
+                self._hold_checks.pop(job["job_id"], None)
             early = self._early_routes.pop(job["job_id"], None)
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
                 current = self._job(job["job_id"])
                 clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
@@ -3734,7 +4008,9 @@ class Daemon:
             for tries in range(1, ROUTE_TRIES + 1):
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry. A
-                # change it places by is recorded (review of PR #72).
+                # change it places by is recorded (review of PR #72). The answer
+                # refuses nothing since 2026-09-30 (the desktop reserve does); it
+                # is one of the desktop lane's facts, so a flip judges it again.
                 self._desktop_in_use()
                 self._record_desktop_use()
                 try:
@@ -3763,6 +4039,24 @@ class Daemon:
                                                                                 decision.chosen_model)
                         decision = standing
                         self._count_route(**{"reused" if same else "rechosen": 1}, rejudged=judged)
+                        if rivals and decision.chosen_lane:
+                            # C-6.9: the lane this job now takes may be one a rival
+                            # could run on that the early look did not see (a lane
+                            # opened since the shared view): held behind it here,
+                            # on a clock like every hold made after a look (C-6.10).
+                            late, _ = older_blocker(rivals, demand, (decision.chosen_lane, decision.chosen_model),
+                                                    view=basis.get("view"), mine_family=mine_family)
+                            if late:
+                                hold = {"reason": "behind-older-job", "behind": late, "tier": tier,
+                                        "lane": decision.chosen_lane}
+                                rechecks = self._capacity_wait(job["job_id"], f"behind:{late}:{decision.chosen_lane}", hold)
+                                next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                                tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                           "WHERE job_id=?", (next_check, job["job_id"]))
+                                holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
+                                status = "held"
+                                break
                         if extra_exclusions:
                             job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
@@ -3779,7 +4073,7 @@ class Daemon:
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
                         if not decision.chosen_lane or at_limit:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
                             # 2026-09-20 three such jobs were each re-evaluated every
@@ -3811,7 +4105,7 @@ class Daemon:
                             # The chosen identity changed after its probe; a later pass
                             # probes the new pair (`_prepare_route`). C-6.10: on a clock,
                             # or a lane whose state keeps moving is probed every tick.
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                             hold = {"reason": "probe-pending"}
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
@@ -3874,7 +4168,7 @@ class Daemon:
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
                         if contested or queued:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested)))
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested), demand))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
                             hold = {"reason": "lease-held", "leases": contested,
@@ -3938,7 +4232,7 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
                 continue
@@ -5060,9 +5354,29 @@ class Daemon:
                 ok = not lost and outcome.cls == OutcomeClass.OK
                 cancel = cancel and not ok
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
+            # C-4.5, C-23.44: an auth-dead attempt is the lane's, not the job's. Its
+            # lane is disabled below, in this transaction, so a job that may run
+            # elsewhere is retried there as a limited one is; a lane pin, or
+            # `max_attempts`, ends it with rc 5 (incident: 2026-09-30, claude-5's
+            # organisation disabled Claude Code access and all 37 jobs placed on it
+            # before the first finish failed rc 5 one after another). Two guards keep
+            # a misread from spreading (design review, 2026-09-30): a run that exited 0
+            # authenticated, so its auth-dead is the text's, not the credential's
+            # (C-9.2, #84); and a job already auth-dead on another lane ends there,
+            # since two credentials failing one job points at the job.
+            dead_elsewhere = False
+            if outcome.cls == OutcomeClass.AUTH_DEAD:
+                # A lane and its re-enrolled successor are one lane here, as for retries (C-11.2).
+                roster = self._pin_roster()
+                here = scheduler.current_lane_id(roster, a["lane_id"])
+                dead_elsewhere = any(scheduler.current_lane_id(roster, lane_id) != here for (lane_id,) in tx.execute(
+                    "SELECT lane_id FROM attempts WHERE job_id=? AND attempt_id<>? AND outcome_class='auth-dead'",
+                    (job["job_id"], a["attempt_id"])))
+            moves_on = (outcome.cls == OutcomeClass.LIMITED
+                        or (outcome.cls == OutcomeClass.AUTH_DEAD and rc != 0 and not dead_elsewhere))
             retry = (not cancel and a["seq"] < job["max_attempts"] and
                      ((lost and job["sandbox"] == "read-only") or
-                      (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
+                      (moves_on and not job["pinned_lane"]) or
                       (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
@@ -5108,6 +5422,7 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
+                self._notice_final[job["job_id"]] = a["attempt_id"]
                 self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])

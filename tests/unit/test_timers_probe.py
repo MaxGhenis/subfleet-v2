@@ -556,14 +556,32 @@ def test_a_lane_that_raises_never_leaves_another_lanes_hold(rig, monkeypatch):
     assert store.list_leases() == [] and not timer.active_holders
 
 
-@pytest.mark.parametrize("in_use,dispatchable", [(None, False), (True, False), (False, True)])
-def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, dispatchable):
+@pytest.mark.parametrize("in_use", [None, True, False])
+@pytest.mark.parametrize("bound,dispatchable", [(None, True), (0, False)])
+def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, bound, dispatchable):
     """C-10.3, C-18.2: `status.json` is built from the timers' snapshot; it judges the
-    desktop login's lane with the daemon's in-use signal (review of PR #72's plan: it
-    read the lane excluded while admission placed work there). No signal is use."""
+    desktop login's lane as admission does (review of PR #72's plan: it read the lane
+    excluded while admission placed work there): by its reserve since 2026-09-30, and not
+    by whether Claude Code is using the login."""
     timer, store, _, _, _ = rig
     store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                         Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    timer.policy["admission"] = {**(timer.policy.get("admission") or {}), "desktop_max_in_flight": bound}
     timer.desktop_in_use = None if in_use is None else (lambda: in_use)
     row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
     assert row["dispatchable"] is dispatchable
+
+
+def test_c10_3_published_capacity_marks_the_lane_admission_marks(rig):
+    """C-10.3: the recorded flag sits on claude-1 (the live store's, from the import) while the identity
+    admission judged by names claude-9; status.json applies the reserve to claude-9."""
+    from subfleet import capacity
+    timer, store, _, _, _ = rig
+    for lane_id, email, flag in (("claude-1", "a@example.invalid", True), ("claude-9", "desk@example.invalid", False)):
+        store.put_lane(Lane(lane_id, "claude", f"claude:{email}", Credential("claude", lane_id, "keychain-token"),
+                            None, LaneOwner.V2, flag, label=email))
+    timer.policy["admission"] = {**(timer.policy.get("admission") or {}), "desktop_max_in_flight": 0}
+    timer.desktop_identity = lambda: capacity.desktop_identity(None, cached_label="desk@example.invalid")
+    rows = {lane["lane_id"]: lane for lane in timer.snapshot()["lanes"]}
+    assert rows["claude-9"]["desktop"] and not rows["claude-9"]["dispatchable"]
+    assert not rows["claude-1"]["desktop"]

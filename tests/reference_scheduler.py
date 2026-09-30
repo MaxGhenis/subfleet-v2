@@ -4,7 +4,8 @@ against (`tests/unit/test_scheduler_split.py`); nothing else uses it.
 
 It changes only where the contract does, and then in its own words, never by
 calling the code under test: null caps (C-26.9, then C-6.4 on 2026-09-27), the
-load band and the desktop lane's place (C-11.3, C-10.3), each written here again
+load band and the desktop lane's place (C-11.3, C-10.3), and the desktop login as
+a lane with a reserve and `@desktop` (C-10.3, 2026-09-30), each written here again
 so the differential test compares two implementations."""
 
 from __future__ import annotations
@@ -50,6 +51,80 @@ def reference_parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], 
             if parent in counts:
                 counts[parent] += 1
     return [f"parent:{parent}" for parent in sorted(counts) if counts[parent] >= int(limit)]
+
+
+def reference_desktop_reserve(policy: Mapping[str, Any], readings: list[dict[str, Any]], identity: str,
+                              model_id: str, now: datetime, ttl: float, in_flight: int,
+                              detail: dict[str, Any]) -> list[str]:
+    """C-10.3: detached work on the desktop login keeps `admission.desktop_reserve` of each
+    account window (default 0.3 each) and runs at most `admission.desktop_max_in_flight`
+    (default 2) at once. Each window reads the account's and the job's model's newest
+    `provider` or `stale-provider` reading on this lane, observed by now, counted until
+    its `resets_at`, or while fresh when it has none; one at or above the ceiling refuses
+    for an hour after it was taken. A candidate needs a probe first unless each reserved
+    window has an account reading younger than the TTL."""
+    ttl = min(ttl, 120)                     # fresh evidence is young by the shipped TTL, whatever the policy says
+    admission = policy.get("admission") or {}
+    reserve = {"five_hour": 0.3, "seven_day": 0.3}
+    if "desktop_reserve" in admission:
+        reserve = None if admission["desktop_reserve"] is None else {**reserve, **admission["desktop_reserve"]}
+    bound = admission.get("desktop_max_in_flight", 2)
+
+    def newest(scope: str, window: str):
+        best = None
+        for row in readings:
+            if (row["lane_id"] != identity or row.get("scope") != scope or row.get("window") != window
+                    or row.get("label") not in ("provider", "stale-provider")):
+                continue
+            value = row.get("utilization")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
+                continue
+            observed = _time(row["observed_at"])
+            if observed > now:
+                continue
+            if row.get("resets_at"):
+                if _time(row["resets_at"]) <= now:
+                    continue
+            elif (now - observed).total_seconds() > ttl:
+                continue
+            key = (observed, int(row.get("reading_id") or 0))
+            if best is None or key > best[0]:
+                best = (key, row)
+        return None if best is None else best[1]
+    windows: dict[str, Any] = {}
+    reasons = []
+    needs_fresh = False
+    for window in ("five_hour", "seven_day"):
+        keep = None if reserve is None else reserve.get(window)
+        if keep is None:
+            continue
+        ceiling = round(1 - keep, 6)
+        hit = False
+        for scope in ("account", model_id):
+            row = newest(scope, window)
+            if row is None:
+                continue
+            windows[window if scope == "account" else f"{window}:{scope}"] = {
+                "utilization": row["utilization"], "ceiling": ceiling,
+                "observed_at": row["observed_at"], "resets_at": row.get("resets_at")}
+            age = (now - _time(row["observed_at"])).total_seconds()
+            if row["utilization"] >= ceiling and age <= 3600:
+                hit = True
+            elif row["utilization"] >= ceiling:
+                needs_fresh = True          # past the hour it asks for a probe instead
+        if hit:
+            reasons.append(f"desktop-reserve:{window}")
+            continue
+        account = newest("account", window)
+        if account is None or (now - _time(account["observed_at"])).total_seconds() > ttl:
+            needs_fresh = True
+    if bound == 0:
+        reasons.append("desktop-reserve:off")
+    elif bound is not None and in_flight >= bound:
+        reasons.append("desktop-reserve:in-flight")
+    detail["desktop_reserve"] = {"in_flight": in_flight, "max_in_flight": bound, "windows": windows,
+                                 "requires_probe": needs_fresh and not reasons}
+    return reasons
 
 
 def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
@@ -160,13 +235,10 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                     and _future_closure(row, now)})
             if lane.get("desktop"):
                 detail["desktop"] = True
-            if _identities(lane) & excluded:
+            # C-10.3 (2026-09-30): whether Claude Code uses the desktop login refuses
+            # nothing; `@desktop` in a job's exclusions keeps it off that lane.
+            if (_identities(lane) - {"@desktop"}) & excluded or (lane.get("desktop") and "@desktop" in excluded):
                 reasons.append("excluded")
-            # C-10.3: the desktop login's lane is refused while Claude Code uses it,
-            # and while nobody said whether it does.
-            in_use = lane.get("desktop_in_use")
-            if lane.get("desktop") and in_use is not False and not job.get("allow_desktop"):
-                reasons.append("desktop")
             if (job.get("kind") == "turn" and model["provider"] == "claude"
                     and lane.get("credential_kind") == "home"):
                 # C-26.2: a home lane has its own config directory; the
@@ -203,6 +275,9 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                 reasons.append("no-slot")
             if any(row["utilization"] >= 1 - floor for row in measured_readings):
                 reasons.append("below-floor")
+            if lane.get("desktop") and not is_turn:
+                reasons.extend(reference_desktop_reserve(policy, readings, identity, model["id"], now,
+                                                         caps["reading_ttl_s"], in_flight.get(identity, 0), detail))
             # C-11.7: a model that is not reserved may only spend a lane's slack above
             # what the reserved model could still use of the shared weekly window.
             for reserved in (policy.get("reserve") or {}).get("models", ()):
@@ -255,11 +330,16 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             return (band, not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)
-        if candidates:
-            chosen_lane, chosen_model = candidates[0], short
+        # C-10.3 (2026-09-30): the desktop login's lane is the whole chain's last
+        # resort. A model with no other candidate is passed over for the next one.
+        others = [identity for identity in candidates if not details[identity].get("desktop")]
+        suffix = "; promoted" if index + 1 < len(chain) else ""
+        if others:
+            chosen_lane, chosen_model = others[0], short
             reason = f"{short}: chose {chosen_lane}; {details[chosen_lane]['status']}"
+        elif candidates:
+            reason = f"{short}: only the desktop login ({candidates[0]}), kept for last{suffix}"
         else:
-            suffix = "; promoted" if index + 1 < len(chain) else ""
             reason = f"{short}: no candidate lanes after exclusions{suffix}"
             if pin and selected is None:
                 reason += f"; pinned lane {pin!r} is unknown"
@@ -273,8 +353,18 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
         messages.append(reason)
-        if candidates:
+        if others:
             break
+    if chosen_lane is None:
+        # Only the desktop login anywhere: the first model that has it takes it.
+        for index, row in enumerate(evaluations):
+            if row["candidates"]:
+                chosen_lane, chosen_model = row["candidates"][0], row["model"]
+                row["reason"] = (f"{row['model']}: chose {chosen_lane}; "
+                                 f"{row['candidate_details'][chosen_lane]['status']}"
+                                 "; the desktop login, no other lane of the chain")
+                evaluations, messages = evaluations[:index + 1], [*messages[:index], row["reason"]]
+                break
     if chosen_lane is None:
         messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")

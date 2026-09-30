@@ -244,47 +244,57 @@ def test_raising_a_cap_never_removes_a_candidate(case, key):
 
 @SETTINGS
 @given(passes())
-def test_the_desktop_lane_is_out_while_in_use_and_last_otherwise(case):
+def test_the_desktop_lane_is_the_chains_last_resort_whatever_claude_code_does(case):
+    """C-10.3 (2026-09-30): whether Claude Code uses the desktop login changes no decision, and the
+    desktop lane is chosen only when no other lane of any model of the job's chain is a candidate:
+    the same job with the desktop lanes gone from the view has no lane."""
     policy, store, jobs = case
-    for in_use in (None, True, False):
-        view = view_of({**store, "desktop_in_use": in_use}, NOW)
-        desktop = {lane["lane_id"] for lane in view["lanes"] if lane.get("desktop")}
-        for job in jobs:
+    for job in jobs:
+        decisions = []
+        for in_use in (None, True, False):
+            view = view_of({**store, "desktop_in_use": in_use}, NOW)
             try:
-                decision = scheduler.evaluate(policy, view, job)
+                decisions.append(scheduler.evaluate(policy, view, job))
             except (ValueError, KeyError, TypeError, AttributeError, IndexError):
-                continue
-            if decision.chosen_lane not in desktop:
-                continue
-            event(f"desktop lane chosen, in use {in_use}")
-            if in_use is not False:
-                assert job.get("allow_desktop")            # None is judged in use
-            evaluation = decision.evaluations[-1]
-            assert set(evaluation["candidates"]) <= desktop  # no other candidate for that model
+                decisions.append(None)
+        assert decisions[0] == decisions[1] == decisions[2]
+        decision = decisions[0]
+        view = view_of(store, NOW)
+        desktop = {lane["lane_id"] for lane in view["lanes"] if lane.get("desktop")}
+        if decision is None or decision.chosen_lane not in desktop:
+            continue
+        event("desktop lane chosen")
+        others = {**view, "lanes": [lane for lane in view["lanes"] if lane["lane_id"] not in desktop]}
+        assert scheduler.evaluate(policy, others, job).chosen_lane is None
 
 
-def test_the_desktop_lane_takes_only_what_no_other_lane_can():
+def test_the_desktop_lane_takes_only_what_no_other_lane_of_the_chain_can():
+    """C-10.3: claude-1 open takes the job, busy desktop login or not; claude-1 closed, the desktop lane
+    does, busy or not; and a chain that can promote to an open Codex lane promotes rather than use it."""
     policy = quiet(load_policy(DEFAULT_POLICY_PATH))
     policy["reserve"] = {**policy.get("reserve", {}), "models": []}        # C-11.7 is not the point here
     lanes = [{"lane_id": "claude-1", "provider": "claude", "account_key": "claude:a@example.invalid", "owner": "v2",
               "enabled": True, "desktop": False},
              {"lane_id": "claude-4", "provider": "claude", "account_key": "claude:d@example.invalid", "owner": "v2",
               "enabled": True, "desktop": True}]
-    job = {"job_id": "j", "kind": "dispatch", "task": "review", "tier": "standard", "sandbox": "read-only",
+    job = {"job_id": "j", "kind": "dispatch", "pinned_model": "opus", "sandbox": "read-only",
            "exclusions": (), "allow_desktop": 0}
     from subfleet import capacity
-    free = capacity.build_view(lanes, now=NOW, desktop_in_use=False)
-    busy = capacity.build_view(lanes, now=NOW, desktop_in_use=True)
-    assert scheduler.evaluate(policy, free, job).chosen_lane == "claude-1"
     closed = {"closure_id": 1, "lane_id": "claude-1", "scope": "account", "until_at": "2026-09-27T00:00:00Z",
               "released_at": None}
-    free_closed = capacity.build_view(lanes, closures=[closed], now=NOW, desktop_in_use=False)
-    busy_closed = capacity.build_view(lanes, closures=[closed], now=NOW, desktop_in_use=True)
-    assert scheduler.evaluate(policy, free_closed, job).chosen_lane == "claude-4"
-    assert scheduler.evaluate(policy, busy_closed, job).chosen_lane is None
-    assert scheduler.evaluate(policy, busy, job).chosen_lane == "claude-1"
-    unknown = capacity.build_view(lanes, closures=[closed], now=NOW)          # no signal: in use
-    assert scheduler.evaluate(policy, unknown, job).chosen_lane is None
+    for in_use in (False, True, None):
+        assert scheduler.evaluate(policy, capacity.build_view(lanes, now=NOW, desktop_in_use=in_use),
+                                  job).chosen_lane == "claude-1"
+        decision = scheduler.evaluate(policy, capacity.build_view(lanes, closures=[closed], now=NOW,
+                                                                  desktop_in_use=in_use), job)
+        assert decision.chosen_lane == "claude-4"
+        assert decision.reason.endswith("the desktop login, no other lane of the chain")
+    codex = {"lane_id": "codex-1", "provider": "codex", "account_key": "codex:c", "owner": "v2", "enabled": True,
+             "desktop": False}
+    review = {**job, "pinned_model": None, "task": "review", "tier": "standard"}
+    promoted = scheduler.evaluate(policy, capacity.build_view([*lanes, codex], closures=[closed], now=NOW), review)
+    assert (promoted.chosen_lane, promoted.chosen_model) == ("codex-1", policy["chains"]["review"][3])
+    assert promoted.evaluations[0]["reason"] == "opus: only the desktop login (claude-4), kept for last; promoted"
 
 
 # --- 6. load bands ---------------------------------------------------------------------------
