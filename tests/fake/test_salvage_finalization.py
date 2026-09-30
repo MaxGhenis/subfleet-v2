@@ -24,7 +24,10 @@ from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemo
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
-from tests.unit.test_salvage_unindexable import ROOT, committed_repository, fake_add, on_a_branch_whose_name_is_not_utf8
+from tests.unit.test_salvage_unindexable import (
+    CORRUPT_INDEX, ROOT, committed_repository, fake_add, git_crashes_seeding_from, git_version,
+    on_a_branch_whose_name_is_not_utf8,
+)
 
 #: What git's `error()` prints for a file it cannot read whose name is not UTF-8
 #: (Linux allows such names; APFS refuses them, so `add -A` is faked for these).
@@ -599,6 +602,29 @@ def test_c13_1_a_baseline_that_cannot_be_held_is_a_workspace_failure(state_daemo
         assert (job["state"], job["rc"]) == ("failed", 1)
         assert "workspace preparation failed: SalvageError: git update-ref failed" in job_notices(daemon, job_id)[0]
     assert (workdir / "new-by-a1.txt").read_text() == "a1 work\n"
+
+
+def test_c13_1_an_index_git_crashes_reading_is_salvaged_and_admits_on_the_first_try(state_daemon):
+    """Review of ceacf18b, P3-1, in the daemon: the checkout's index is one git 2.55 is killed
+    by SIGSEGV reading. Salvage was recorded with no ref after `SALVAGE_TRIES` tries, and
+    admission failed a writable job after eight deferrals. Now the snapshot reads the
+    baseline without the seed: salvage writes its ref on the first try, and the next
+    writable job on that checkout is admitted from the same tree."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    if not git_crashes_seeding_from(workdir, git(workdir, "rev-parse", "HEAD")):
+        pytest.skip(f"{git_version()} is not killed reading the review's corrupt index "
+                    "(tests/unit/test_salvage_unindexable.py covers the fallback on any git)")
+    (workdir / ".git" / "index").write_bytes(CORRUPT_INDEX)
+    daemon._finalize(attempt)
+    receipt = json.loads((adir / "salvage.json").read_text())
+    assert receipt["error"] is None and attempt["attempt_id"] not in daemon._salvage_failures
+    ref = receipt["result"]["ref"]
+    assert git(workdir, "show", f"{ref}:tracked.txt") == "provider progress"
+    assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
+    job2, attempt2, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
+    assert attempt2["state"] == "reserved" and attempt2["baseline_tree"] == receipt["result"]["tree"]
+    assert (workdir / ".git" / "index").read_bytes() == CORRUPT_INDEX
 
 
 # --- the causes in the live daemon.log (2026-09-28) ------------------------------------

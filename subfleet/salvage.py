@@ -263,7 +263,18 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     bits, so the two reads give the same tree. When the real index cannot
     seed it (there is none yet, it has unmerged entries, git cannot read the
     copy or clear its bits), the baseline is read into an empty index as
-    before.
+    before, in a temporary directory of its own.
+
+    Any failure of a seeding step means "no seed", whatever it was: the
+    empty-index read gives the same tree, and the seed only saves time. A
+    transient one included, which a snapshot's own failure is not: git 2.55
+    is killed by SIGSEGV reading an index whose entries are garbage (`DIRC`,
+    version 2, then junk), and that crash, transient as any git killed by a
+    signal is (`_failure`), failed every try of the snapshot the same way,
+    salvage's and admission's alike, the copy's `index.lock` left beside it
+    for the fallback to trip on (review of ceacf18b, P3-1). A seeding step
+    that timed out under load costs its cap once more, before the fallback's
+    own cap.
 
     Trusting stat data is git's own model (``git status`` does the same): a
     file rewritten with the same size, mtime and inode is read as unchanged,
@@ -276,15 +287,35 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
-        seeded = (_seed_index(workdir, index, timeout_s=timeout_s)
-                  and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
-                           optional=True, timeout_s=timeout_s) is not None
-                  and _clear_skip_bits(workdir, env, timeout_s=timeout_s))
-        if not seeded:
-            index.unlink(missing_ok=True)
-            _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
-        skipped = _add_all(workdir, env, timeout_s=timeout_s)
-        return _git(workdir, "write-tree", env=env, timeout_s=timeout_s), skipped
+        if _seeded(workdir, index, env, baseline_commit, timeout_s=timeout_s):
+            return _record(workdir, env, timeout_s=timeout_s)
+    # A fresh directory: whatever a failed seeding step left (the copy, a
+    # crashed git's `index.lock`) is gone with the first.
+    with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
+        return _record(workdir, env, timeout_s=timeout_s)
+
+
+def _seeded(workdir: str | Path, index: Path, env: dict[str, str], baseline_commit: str, *,
+            timeout_s: float | None = None) -> bool:
+    """Whether `index` now holds `baseline_commit` seeded from the real index, its
+    skip bits cleared (`snapshot_tree`); False when any step did not, failures
+    and git killed by a signal included."""
+    try:
+        return bool(_seed_index(workdir, index, timeout_s=timeout_s)
+                    and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
+                             optional=True, timeout_s=timeout_s) is not None
+                    and _clear_skip_bits(workdir, env, timeout_s=timeout_s))
+    except SalvageError:
+        return False
+
+
+def _record(workdir: str | Path, env: dict[str, str], *,
+            timeout_s: float | None = None) -> tuple[str, tuple[str, ...]]:
+    """`add -A` over the baseline in `env`'s temporary index, then its tree (`snapshot_tree`)."""
+    skipped = _add_all(workdir, env, timeout_s=timeout_s)
+    return _git(workdir, "write-tree", env=env, timeout_s=timeout_s), skipped
 
 
 def _add_all(workdir: str | Path, env: dict[str, str], *,

@@ -463,6 +463,88 @@ def test_only_gits_own_error_and_fatal_lines_are_read_for_a_transient_failure(li
     assert salvage_module._transient_git("\n".join(lines[:where] + [own] + lines[where:]) + "\n")
 
 
+# --- a seed git cannot read (review of ceacf18b, P3-1) ---------------------------------
+
+#: The review's corrupt index: a valid `DIRC` signature and version 2, then entries that
+#: are garbage. git 2.55 is killed by SIGSEGV reading it (`read-tree -m` and `status`).
+CORRUPT_INDEX = b"DIRC\x00\x00\x00\x02garbage" * 3
+
+
+def git_crashes_seeding_from(repository, head) -> bool:
+    """Whether this machine's git is killed by a signal reading `CORRUPT_INDEX` as the
+    snapshot's seed (`read-tree -m` into a copy of it), in a directory of its own."""
+    with tempfile.TemporaryDirectory(dir=repository / ".git") as temporary:
+        index = Path(temporary) / "index"
+        index.write_bytes(CORRUPT_INDEX)
+        probe = subprocess.run(["git", "-C", str(repository), "read-tree", "-m", head], capture_output=True,
+                               env={**os.environ, "GIT_INDEX_FILE": str(index)})
+    return probe.returncode < 0
+
+
+def git_version() -> str:
+    return subprocess.run(["git", "--version"], capture_output=True, text=True).stdout.strip()
+
+
+def test_an_index_git_crashes_reading_seeds_nothing_and_the_snapshot_reads_the_baseline_afresh(repository):
+    """Review of ceacf18b, P3-1: git was killed by SIGSEGV seeding the snapshot from a copy
+    of this index, and that crash, transient as a git killed by a signal is, failed the
+    snapshot on every try: salvage was recorded with no ref after three, and admission
+    failed the job after eight deferrals. Any failure of a seeding step is now "no seed",
+    and the baseline is read into an empty index in a fresh directory: the same tree, what
+    it leaves out included, and the real index is left as it was."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    (repository / "new.txt").write_text("new work\n")
+    empty_repository(repository / "scratch" / "empty")
+    expected = snapshot_tree(repository, baseline)                   # seeded from a healthy index
+    if not git_crashes_seeding_from(repository, baseline):
+        pytest.skip(f"{git_version()} is not killed reading the review's corrupt index, so the crash "
+                    "this test is for cannot happen here (the stubbed test below covers the fallback)")
+    (repository / ".git" / "index").write_bytes(CORRUPT_INDEX)
+    assert snapshot_tree(repository, baseline) == expected
+    assert working_tree(repository, baseline) == expected[0]
+    result = salvage(repository, baseline, 1, timestamp="2026-09-29T09:00:00Z")
+    assert (result.tree, result.skipped) == (expected[0], ("scratch/empty/",))
+    assert git(repository, "show", f"{result.ref}:new.txt") == "new work"
+    assert (repository / ".git" / "index").read_bytes() == CORRUPT_INDEX
+    assert not list((repository / ".git").glob("subfleet-salvage-*"))
+
+
+@pytest.mark.parametrize("step,outcome", [
+    (["read-tree", "-m"], -11),                                  # SIGSEGV, as git 2.55 on the corrupt index
+    (["read-tree", "-m"], -9),                                   # SIGKILL: the kernel's memory-pressure kill
+    (["ls-files", "-v"], -11),                                   # clearing the copy's skip bits
+    (["rev-parse", "--git-path"], subprocess.TimeoutExpired(["git"], 60)),     # finding the real index
+    (["read-tree", "-m"], OSError(errno.EMFILE, "Too many open files")),
+], ids=["read-tree-segv", "read-tree-killed", "ls-files-segv", "git-path-timeout", "read-tree-emfile"])
+def test_any_failure_of_a_seeding_step_is_no_seed(repository, monkeypatch, step, outcome):
+    """P3-1 on any git: a seeding step that fails, transient or not, leaves the snapshot
+    unseeded, never failed. The fallback reads the baseline in a directory of its own, so
+    the `index.lock` a crashed git leaves beside the seed (which the base's fallback
+    tripped on, as a lock another git holds) is not in its way."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    expected = snapshot_tree(repository, baseline)
+    real, seeds, reads = subprocess.run, [], []
+
+    def run(argv, *args, **kwargs):
+        index = (kwargs.get("env") or {}).get("GIT_INDEX_FILE")
+        if list(argv[3:3 + len(step)]) == step:
+            if index:
+                Path(index + ".lock").write_bytes(b"")               # what a git that died leaves
+                seeds.append(Path(index).parent)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return subprocess.CompletedProcess(argv, outcome, b"", b"")
+        if list(argv[3:5]) != ["read-tree", "-m"] and list(argv[3:4]) == ["read-tree"]:
+            reads.append(Path(index).parent)                        # the unseeded read
+        return real(argv, *args, **kwargs)
+    monkeypatch.setattr(salvage_module.subprocess, "run", run)
+    assert snapshot_tree(repository, baseline) == expected
+    assert len(reads) == 1 and reads[0] not in seeds
+    assert not list((repository / ".git").glob("subfleet-salvage-*"))
+
+
 # --- the locale (F3) --------------------------------------------------------------
 
 
