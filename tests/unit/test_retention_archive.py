@@ -1904,7 +1904,10 @@ def test_a_repositorys_history_is_measured_once_a_pass(world, monkeypatch):
     w = world
     _remote_less(w)
     for n in range(3):
-        w.job(f"job-{n}", created=f"2026-09-01T00:0{n}:00Z")
+        wt = w.job(f"job-{n}", created=f"2026-09-01T00:0{n}:00Z")
+        (wt / f"own-{n}.txt").write_text(f"job {n}'s own commit\n")      # each its own HEAD
+        git(wt, "add", ".")
+        git(wt, "commit", "--quiet", "-m", f"job {n}")
     calls = []
     real = rgit.history_bytes
 
