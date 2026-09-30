@@ -58,6 +58,18 @@ if Path(sys.argv[0]).name == "subfleetd":
         peers.PS = os.environ["SUBFLEET_E2E_PS"]
         peers.PS_TIMEOUT_S = float(os.environ.get("SUBFLEET_E2E_PS_TIMEOUT_S", peers.PS_TIMEOUT_S))
         peers.CHAIN_BUDGET_S = float(os.environ.get("SUBFLEET_E2E_CHAIN_BUDGET_S", peers.CHAIN_BUDGET_S))
+    # A slow disk under an approval's request file, as CI's was (C-27.1): the publish
+    # waits before it writes, and nothing else changes. Any commit that shows an
+    # approval's event before its row would show it for this long.
+    publish_delay = float(os.environ.get("SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S", "0"))
+    if publish_delay:
+        from subfleet.conversations.store import ConversationStore
+        original_publish = ConversationStore._publish
+        def slow_publish(self, path, data):
+            if path.parent.name == "approvals":
+                time.sleep(publish_delay)
+            return original_publish(self, path, data)
+        ConversationStore._publish = slow_publish
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)

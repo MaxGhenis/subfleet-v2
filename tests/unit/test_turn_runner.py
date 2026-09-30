@@ -559,8 +559,8 @@ def test_a_question_waits_for_its_answer_with_no_limit(make_runner, monkeypatch,
     question waits for the person however long it takes."""
     from subfleet.conversations.turn import Approval, Step
     runner, clock, _ = make_runner(Clocks(approval_wait_s=2))
-    monkeypatch.setattr(runner.store, "add_approval", lambda **kw: None)
-    monkeypatch.setattr(runner.store, "set_state", lambda *a, **kw: None)
+    # The approval's row commits with its batch (C-27.1); this test is about the clock only.
+    monkeypatch.setattr(runner.store, "append_events", lambda **kw: 0)
     runner._apply(Step(approvals=[Approval("req-1", kind, {"tool": "AskUserQuestion"}, ("answer", "deny"))]))
     assert ("req-1" in runner.approval_seen) is timed
     clock.now += 3600 * 24
