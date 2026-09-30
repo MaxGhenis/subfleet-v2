@@ -384,7 +384,7 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, probe_record=self._probe_record)
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -720,12 +720,8 @@ class Daemon:
             reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
-        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
-        view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
-        view["reserved_probes"] = len(leases)
-        for lane in view["lanes"]:
-            if holder := view["unavailable_lanes"].get(lane["lane_id"]):
-                lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
+        # `status.json` lays the same leases over the timer's snapshot (C-18.1).
+        capacity.mark_probe_leases(view, self.store.query(capacity.PROBE_LEASES), self._probe_record)
         return self.timers.enrich_view(view)
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:

@@ -32,11 +32,14 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, probe_record=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # C-18.1: a probe holder's newest record (the daemon's), for the state
+        # status.json shows beside a lane that probe holds; None reads none.
+        self.probe_record = probe_record
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -230,9 +233,47 @@ class Timers:
             self.store.add_event('reset-credit.balance', lane_id=lane_id, data=balance)
             self.balances[lane_id] = balance
         self.store.add_event('timer.reset-credit', data=result)
-        from .status_json import write_status
-        write_status(self.root, self.snapshot(), now=self.now())
+        self.publish_status(self.snapshot())
         return result
+
+    def publish_status(self, snapshot):
+        """C-18.1, C-18.2: publish a post-heal snapshot as `status.json`.
+
+        Adds what the snapshot lacks: batch labels for the jobs it shows, and the
+        probe leases admission honours (`fence_probes`). The leases are laid
+        last and for the menu alone: the reset-credit policy and the alerts judge
+        the snapshot as it was built, so the slot an admission probe or a
+        keepalive holds for its seconds neither triggers a credit nor raises an
+        alert.
+        """
+        from .status_json import attach_batches, write_status
+        attach_batches(self.store, snapshot)
+        self.fence_probes(snapshot)
+        return write_status(self.root, snapshot, now=self.now())
+
+    def fence_probes(self, view):
+        """C-18.1: lay the probe leases admission honours over a view `enrich_view` judged.
+
+        `snapshot` reads rows, not leases, so a lane whose slot a probe holds (a
+        quarantined probe's for hours, C-5.7a) read as dispatchable in
+        status.json while admission refused it. The leases are laid as
+        `Daemon._capacity_view` lays them before `enrich_view`. They can only add
+        a lane to `unavailable_lanes` and probes to `reserved_probes`, and
+        `enrich_view` finds a lane dispatchable only while it is outside the one
+        and the fleet is below its cap with the other, so clearing the verdict of
+        each lane they reach is `enrich_view` judging again.
+        """
+        capacity.mark_probe_leases(view, self.store.query(capacity.PROBE_LEASES), self.probe_record)
+        full = self.fleet_full(view)
+        for row in view['lanes']:
+            if full or row['lane_id'] in view['unavailable_lanes']:
+                row['dispatchable'] = False
+        return view
+
+    def fleet_full(self, view):
+        """C-6.4: every active attempt and every probe's reservation counts toward `max_active_attempts`."""
+        return (sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0)
+                >= self.policy.get('caps', {}).get('max_active_attempts', 4))
 
     def stop(self):
         with self._lock:
@@ -485,6 +526,7 @@ class Timers:
         bindings = {}
         for lane in self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'):
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
+        full = self.fleet_full(view)
         for row in view['lanes']:
             row.update(self.metadata.get(row['lane_id'], {}))
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
@@ -515,8 +557,7 @@ class Timers:
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not row['desktop'] and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
-                                       row['in_flight'] < slot_cap and
-                                       sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < caps.get('max_active_attempts', 4))
+                                       row['in_flight'] < slot_cap and not full)
         return view
 
     def probe_cycle(self):
@@ -559,9 +600,7 @@ class Timers:
         snapshot['offline'] = offline
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
-        from .status_json import attach_batches, write_status
-        attach_batches(self.store, snapshot)
-        write_status(self.root, snapshot, now=self.now())
+        self.publish_status(snapshot)
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
                              'lanes': [lane.lane_id for lane, _ in results]})
         return snapshot
