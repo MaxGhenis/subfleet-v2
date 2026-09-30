@@ -1,8 +1,10 @@
 # Job retention by archive
 
-Revision 3, 2026-09-29: as built after the in-session review of a9a6cbf4
-(`~/reviews/retention-2026-09-28/d635-review-opus-insession.md`) and the
-brief's disk-relief correction; section 2 lists what changed. Revision 2 was
+Revision 4, 2026-09-30: as built after the final review of e50716e8
+(`~/reviews/retention-2026-09-28/final-review-opus3-a2-scratch/REVIEW.md`);
+section 2 lists what changed. Revision 3, 2026-09-29, followed the in-session
+review of a9a6cbf4 (`~/reviews/retention-2026-09-28/d635-review-opus-insession.md`)
+and the brief's disk-relief correction. Revision 2 was
 the first build under Max's d635 ruling ("ship at the archive-sweep bar").
 Revision 1 (ccc85387, 2026-09-28) was the design; its two reviews
 (`~/reviews/retention-2026-09-28/archive-design/review-design-{opus,astra}.md`)
@@ -10,7 +12,8 @@ and the ruling changed it as section 2 lists. The binding clauses are C-8.4,
 C-13.4 and C-17.1 in `docs/acceptance-contract.md`. Code:
 `subfleet/retention.py` (the pass), `retention_archive.py` (one job's
 journaled retirement, restore), `retention_git.py`, `retention_fs.py`,
-`retention_holders.py`, `retention_survey.py`, `retention_cli.py`.
+`retention_holders.py`, `retention_qos.py`, `retention_survey.py`,
+`retention_cli.py`.
 
 ## 1. Decision
 
@@ -24,10 +27,12 @@ back:
   a volume without clones. Two exceptions, both deleted without a copy:
   - a tracked file whose raw bytes hash to a blob that a network remote holds
     (section 6);
-  - regenerable output: what a virtualenv's creator, a package manager,
-    Python's bytecode compiler or a tool cache writes, identified by its
-    structure, in a directory git tracks nothing in and ignores entirely
-    (section 7). Anything else in such a directory is archived.
+  - regenerable output: a file a rule proves the project's own tools make
+    again (an installed distribution's file whose sha256 its RECORD names,
+    bytecode beside its source, a package file no newer than its package
+    manager's install marker, a tool cache's own files), in a directory whose
+    structure says a tool wrote it and which git tracks nothing in and
+    ignores entirely (section 7). Everything else there is archived.
 - **Git.** The worktree's admin directory (`<repo>/.git/worktrees/<id>`) byte
   for byte, and every object it names: HEAD, the index, `ORIG_HEAD`,
   `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase and
@@ -44,6 +49,18 @@ it somewhere else, or proves by its structure that the project's own tools
 make it again.
 
 ## 2. What changed
+
+### Revision 4 (final review of e50716e8)
+
+| Finding | Revision 3 | Revision 4 |
+|---|---|---|
+| N1: a repository with no network remote costs its whole history per retired job, and nothing reported it | The bundle held every object HEAD reached (about 460 MB per `~/chief-of-staff` job); only `summary.json` named its size | `added_bytes` (the bundle, manifest, summary, rows and byte copies) is reported wherever freed bytes are, with the net on disk (section 11). A job whose source repository has no network remote and whose bundle would carry more than `retention.remote_less_history_bytes` (default 64 MiB) is kept, `remote-less-history <size>` (section 4, step 2). The reference-counted base bundle that would lift that limit is section 17 |
+| N2: `Ignored.clear` compared git's names and the disk's byte for byte | An NFD-named parent, or a directory whose case changed on disk, made a directory holding work look ignored, and the work was dropped | Both sides NFC-normalized and casefolded, as APFS matches names (section 7) |
+| N3: work inside a tool's own entries was deleted without a copy | A tool's own top-level entries (a venv's `lib/`, a package in `node_modules`, a `__pycache__`, `.pytest_cache/v/`) were dropped whole | Inside them each file is judged by its kind's rule, and only a file the rule proves regenerable is dropped (section 7); section 15 no longer calls this class accepted |
+| N4: a job registered in a repository inside another job's tree retired without its own anchor | Both chosen in one pass, the host was quarantined first and the hosted job archived bytes-only | The host is pinned while the hosted job has rows (`nested-host`, at selection and at commit), and a hosted job whose host tree is not there is kept, so it retires first with its own anchor and bundle (sections 4, 10) |
+| N5: a registration reduced to `index` and `logs/` kept its job for ever | Deferred every day as `admin-unreadable` (the four `mstat6-g*` jobs, whose /tmp clones lost every file) | Such a remnant is no registration: the tree and the remnant's bytes are archived, the remnant removed with the tree (section 4, step 2) |
+| N6: every published archive kept its progress log | About 357 bytes per stored file, redundant with the manifest | Removed at publish (section 3) |
+| N9: retention's children ran at the operator's priority | `lsof`, git and the object readers spawned directly by a default-QoS daemon | Each starts under `taskpolicy -c utility`; the in-process steps lower their thread's disk I/O policy (section 12) |
 
 ### Revision 3 (review of a9a6cbf4 and the disk-relief correction)
 
@@ -84,11 +101,13 @@ make it again.
 <state>/retention/<job>/journal.json   the retirement's state, written before each step
 <state>/retention/<job>/worktree/      the quarantined worktree
 <state>/retention/<job>/job/           the quarantined job directory
-<state>/retention/<job>/archive/       the archive while it is built (progress.jsonl makes it resumable)
+<state>/retention/<job>/archive/       the archive while it is built (progress.jsonl makes it resumable;
+                                       removed at publish, since a published archive never resumes)
 <state>/archive/<job>/                 the verified archive, published once the rows are gone:
     manifest.json    every entry of every tree: path, lstat signature, and the sha256 and stored name,
-                     the omitted blob id, or the regenerable mark; link targets; hard-link groups;
-                     the salvage commits; the regenerable directories; the totals (section 11)
+                     the omitted blob id, or the regenerable mark (with the sha256 a RECORD vouched
+                     for); link targets; hard-link groups; the salvage commits; the regenerable
+                     directories; the totals (section 11)
     summary.json     totals, for `retention archives`
     files/           the stored files (clones), named by the signature of the version archived
     commits.bundle   the anchor, its only head, with every commit no network remote holds
@@ -116,6 +135,24 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    (`rev-parse --git-common-dir` in its workdir). Resolve every salvage ref;
    check the trees are on the state root's volume. A backlink that names
    another tree, an unresolvable salvage ref or another volume defers the job.
+   - An admin directory that is only a remnant (a real directory under
+     `worktrees` holding nothing but an `index` file and a `logs` directory:
+     what a temporary directory's cleaner leaves of a clone whose files it
+     deleted) is no registration: the job goes on without one, and the
+     remnant's bytes are archived as the admin tree and removed with it.
+   - A job whose registration is inside another job's tree, which is not
+     there (in quarantine, or gone), is kept (`nested-host`, 1 hour): retired
+     now it would have no anchor and no bundle of its own. Section 10 pins
+     the host so that this does not happen.
+   - With no network remote, the bundle is the whole history HEAD, the
+     baseline and the salvage commits reach, paid again by every job. Its
+     size is measured first (`rev-list --objects --disk-usage`, once per
+     repository and heads in a pass); above `retention.remote_less_history_bytes`
+     (default 64 MiB; 0 keeps every such job with history) the job is kept for
+     a day, `remote-less-history <size>`, before anything moves. A bundle that
+     comes out over the limit although the measure said less (it also carries
+     the anchor and a pack's own overhead) is dropped, the job put back, and
+     its size kept in the idle journal for the next check.
 3. **Lock** the registration with `locked` (text `subfleet retention: <job>`),
    so no `git worktree prune` or `git gc` drops it while the tree is away. A
    lock someone else wrote defers the job.
@@ -142,7 +179,9 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    anchor reaches), check both leases are still retention's, then delete the
    rows and the leases. This is the point of no return. While the rows exist,
    no byte of the job has been deleted.
-10. **Publish**: rename the archive to `<state>/archive/<job>`.
+10. **Publish**: rename the archive to `<state>/archive/<job>`, then remove
+    its `progress.jsonl` (a crash between the two is finished by the next
+    pass).
 11. **Reclaim**: verified deletion (section 9) of the worktree, the job
     directory and the admin directory, which removes the registration. If
     anything in the admin directory changed after the final check, it is kept
@@ -172,13 +211,15 @@ idle journal's deferral is recalled once per daemon.
 |---|---|
 | Tracked files, modified or not | Archived byte for byte, unless the raw bytes equal a blob a network remote holds (section 6) |
 | Untracked and ignored files: `build/`, `dist/`, `target/`, `.cache/`, data, logs | Archived byte for byte |
-| Regenerable output: a virtualenv, `node_modules`, `__pycache__`, tool caches | The tool's own entries are deleted with the tree, not archived, when section 7 identifies them; anything else in the directory, and everything section 7 does not identify, is archived |
+| Regenerable output: a virtualenv, `node_modules`, `__pycache__`, tool caches | Each file a rule of section 7 proves regenerable is deleted with the tree, not archived; everything else in the directory, inside the tool's own entries too, is archived |
 | Staged content | The index file is archived; every blob it stages is in the anchor's `index/` tree, in the bundle |
 | Detached, reflog-only, `ORIG_HEAD`, `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase state | Every commit, tree and blob id the admin directory names is a parent or entry of the anchor, in the bundle; the directory itself is archived |
 | Salvage commits | Parents of the anchor, so in the bundle or on a network remote; the manifest records each ref and commit; the refs themselves are never touched |
 | Nested repositories (`.git` directories, bare repositories) | Archived byte for byte, object stores included, wherever they are, inside a would-be virtualenv too |
 | A submodule (gitdir inside the admin directory) | Archived with the admin directory |
 | A linked worktree nested in the tree (its admin directory elsewhere) | The job is kept |
+| Another job's worktree registered in a repository inside this tree | This job is pinned until that one retires with its own anchor (section 10) |
+| An admin directory reduced to `index` and `logs/` | Archived byte for byte as the admin tree |
 | Symlinks, hard links, FIFOs, modes, mtimes | Recorded and restored; links are never followed |
 | The job directory: prompts, logs, attempt records, deliverables | Archived byte for byte |
 | The job's rows | `rows.json` |
@@ -207,28 +248,26 @@ doubt, the bytes are archived.
 ## 7. Regenerable output
 
 The disk relief Max asked for: a retired job's virtualenv or `node_modules` is
-often most of its size, and archiving it by clone frees nothing. Part of the
+often most of its size, and archiving it by clone frees nothing. A file of the
 worktree is deleted with the tree, not archived, only if all of these hold
-(`retention_fs.regenerable` and `RegenerableWalk`, one rule for the archive and
-the survey):
+(`retention_fs.regenerable`, `RegenerableWalk` and the rules below, one code
+path for the archive and the survey):
 
 - **The directory's structure says a tool wrote it**, never its name alone;
   every marker is a regular file, never a link:
   - `.venv` or `venv` holding a `pyvenv.cfg` with a `home` key (PEP 405's
     virtual environment marker);
-  - `node_modules` beside a `package.json` (both live `node_modules` sit
-    beside one);
-  - `__pycache__` holding only regular `.pyc` and `.pyo` files;
+  - `node_modules` beside a `package.json`;
+  - a `__pycache__` directory;
   - `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.uv-cache` or `.tox`
     holding a `CACHEDIR.TAG` that starts with the cache-directory standard's
     signature. Live trees (2026-09-29): 75 of 78 `.pytest_cache`, all 44
     `.ruff_cache`, all 4 `.mypy_cache` and all 18 `.uv-cache` carry it; the
     three `.pytest_cache` without one were made by agents for their logs. No
-    live tree has a `.tox`; whether tox writes the tag was not checked, and a
-    `.tox` without one is archived.
-- **Only the tool's own entries go.** Of each directory but `__pycache__`,
-  the top-level entries the tool writes are dropped, each with everything
-  under it; anything else stays and is archived:
+    live tree has a `.tox`; a `.tox` without a tag is archived.
+- **It is under one of the tool's own top-level entries.** Of each directory
+  but `__pycache__`, only the top-level entries the tool writes are looked
+  into; anything else at the top is archived whole:
 
   | Directory | The tool's own top-level entries |
   |---|---|
@@ -242,22 +281,59 @@ the survey):
   | `__pycache__` | all of it |
 
   These lists are what the tools write in the live trees; everything else
-  found there was an agent's: logs, JUnit reports, `.py` scripts, a git bundle
-  and a bare repository (`*.git`) at the top of tagged `.pytest_cache` and
-  `.uv-cache` directories, and a project folder at the top of a `.venv`. Each
-  entry is matched by its inode and type as listed when the directory was
-  found, so one replaced before the walk reaches it is archived.
+  found at their top was an agent's: logs, JUnit reports, `.py` scripts, a
+  git bundle and a bare repository (`*.git`) in tagged `.pytest_cache` and
+  `.uv-cache` directories, and a project folder in a `.venv`. Each entry is
+  matched by its inode and type as listed when the directory was found, so
+  one replaced before the walk reaches it is archived.
+- **Its kind's rule proves the tool makes it again** (final review of
+  e50716e8, N3). Until revision 3 a tool's entry was dropped whole, and an
+  agent's patch to an installed package, data under a venv's `share/`, a
+  notebook in a package directory or a `.pyc` that was not bytecode went
+  with it. Now each file is judged, and anything no rule proves is archived:
+
+  | Kind | A file is dropped only if |
+  |---|---|
+  | virtualenv, and each `.tox` environment | an installed distribution's `*.dist-info/RECORD` lists it (paths relative to `site-packages`, `../../../bin/<script>` included) with a sha256 its bytes match, and a size, if listed, equal to its own. The archive reads the file to check (`Verify`, recorded in the manifest with the sha256). A distribution installed from a local path vouches for nothing: PEP 610's `direct_url.json` naming no network URL (an editable install, a local wheel or directory), since its source may be the only copy. A path two distributions list differently is left out. A `RECORD`, listed without a hash as the wheel format requires, goes only when every other file of its `dist-info` directory verifies, so a restore never leaves a distribution half there (pip and uv read a `dist-info` holding only a RECORD as broken). Or it is bytecode, as below |
+  | `__pycache__` (anywhere a directory by that name is, and inside a virtualenv) | it is a `.pyc` or `.pyo` whose first four bytes are a magic number (two bytes, then CR LF) and whose source, `<module>.py`, is a regular file beside the `__pycache__` folder (pytest's rewritten `<module>.cpython-314-pytest-9.1.1.pyc` included) |
+  | `node_modules` | it is a regular file inside one of the tool's entries (a package, a scope, `.bin`, `.pnpm`), and neither its mtime nor its ctime is later than the package manager's install marker (`.package-lock.json`, `.modules.yaml`, `.yarn-integrity`, `.yarn-state.yml`, the earliest of their mtimes and ctimes). Without a marker, nothing there is dropped |
+  | `.pytest_cache` | it is `v/cache/nodeids`, `v/cache/lastfailed` or `v/cache/stepwise` |
+  | `.ruff_cache` | it is directly in a version directory and named by digits |
+  | `.mypy_cache` | it is under a version directory and ends in `.data.json`, `.meta.json`, `.data.ff` or `.meta.ff`, or is `@plugins_snapshot.json` |
+  | `.uv-cache` | never (no rule is proven for uv's cache formats; it is archived) |
+
+  Links are always archived (a link holds no bytes to free). A directory under
+  a tool's entry is dropped when it held something and everything in it was
+  dropped (a post-order pass after the walk); the tool's directory itself stays,
+  but for a `__pycache__`. The virtualenv skeleton (`pyvenv.cfg`, the
+  interpreter links, activation scripts, `_virtualenv.py`) is archived: it is
+  a few kilobytes, and restored it is a virtualenv `uv sync` fills again.
+
+  The `node_modules` rule is structural, not a proof by content: npm, pnpm
+  and yarn verify a package tarball's integrity, but keep no hash of each
+  file they unpack, and the tarballs are not kept. What it proves: nothing
+  written or changed after the last install finished is dropped, since an
+  edit, a new file, a rename, a `chmod`, and even an edit whose mtime was put
+  back all move the ctime, which no process can set. What it does not prove:
+  a file created inside an installed package before a later install that left
+  that package in place would be dropped. It errs toward archiving (no marker,
+  nothing dropped; the earliest marker counts), and no live job tree holds a
+  `node_modules` (2026-09-30).
 - **Git tracks nothing in the directory and ignores everything in it**: no
   path of one `ls-files --cached --others --exclude-standard` over the
   quarantined tree (tracked paths, untracked files no rule ignores, a nested
   repository as its directory) is the directory, inside it or one of its
-  parents. The listing is read again after the walk; a directory no longer
-  clear (an index or `.gitignore` changed before the walk recorded it) defers
-  the job. A change after the walk, the final check sees.
+  parents. Git prints the index's case and precomposed (NFC) names, the walk
+  the disk's, and APFS matches names regardless of either, so both sides are
+  compared NFC-normalized and casefolded; folding only merges names, so it can
+  make a directory less clear, never more (N2). The listing is read again
+  after the walk; a directory no longer clear (an index or `.gitignore`
+  changed before the walk recorded it) defers the job. A change after the
+  walk, the final check sees.
 - **No repository answers for it**: neither the directory nor a directory
   between it and the tree's root holds a `.git` (the root's own is the job's
-  repository), and a dropped entry holds no `.git` anywhere (a `pip install -e
-  git+...` clone in `site-packages`). Meeting one under a dropped entry sends
+  repository), and a tool's entry holds no `.git` anywhere (a `pip install -e
+  git+...` clone in `site-packages`). Meeting one under a tool's entry sends
   the walk round again with that entry archived, and the finding is written to
   the progress log, so later slices and attempts archive it without looking.
 - **The job has a registration**, so git can answer; without one, nothing is
@@ -270,11 +346,19 @@ live `target/` holds hand-built binaries and source folders next to cargo's
 
 Every dropped entry is still in the manifest with its signature, so the holder
 check, the final check and verified deletion treat it like any other: anything
-new or changed after the final check goes to conflicts. Its files are neither
-read nor stored, and restore does not recreate them (it lists each directory
-under `not_restored`, with the entries dropped); the project's own tools (`uv
-sync`, `bun install`, the next test run) make them again. The directory itself,
-and whatever else it held, is restored.
+new or changed after the final check goes to conflicts. Restore does not
+recreate dropped entries (it lists each directory under `not_restored`, with
+the paths dropped whose parent was not); the project's own tools (`uv sync`,
+`bun install`, the next test run) make them again. Everything else, inside
+the tool's entries too, is restored.
+
+Measured read-only on a live job's `uv` virtualenv (2026-09-30,
+`20260928-112535-trackb-b1-build-opus/.venv`, 7,702 files, 242,489,519
+bytes): the rules drop 7,676 files, 242,443,031 bytes (RECORD-verified files
+and bytecode beside its source) and 842 directories, and archive 26 files of
+46,488 bytes (the skeleton: `pyvenv.cfg`, `.gitignore`, `.lock`,
+`CACHEDIR.TAG`, the activation scripts, `_virtualenv.py`), in 33 s at load
+about 50. The per-file rules keep the relief the whole-entry rule gave.
 
 ## 8. Holder check
 
@@ -285,7 +369,8 @@ job's quarantine, its original paths, or its admin directory, or at the second
 check on one of the archived (device, inode) pairs (regenerable ones
 included: a process running from the job's virtualenv holds it). A read-only
 descriptor on a file is not a hold. The check fails closed: `lsof` missing,
-failing or timing out (15 minutes) defers the batch.
+failing or timing out (15 minutes) defers the batch. `lsof` runs under the
+retention clamp (section 12).
 
 ## 9. Verified deletion
 
@@ -310,7 +395,13 @@ resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
 inside the commit transaction); a turn job within `turn_keep_days`; an
-explicit reference.
+explicit reference; another job's worktree is registered in a repository
+inside its tree and that job still has rows (`nested-host`: which job each
+owned worktree's gitfile names is read once per pass, and a job whose tree is
+gone counts as hosted by the tree its source directory is in; asked again
+inside the commit transaction, so a host already in flight is put back). The
+hosted job then retires first, while its registration is readable, with its
+own anchor and bundle, and the host in a later pass.
 
 ## 11. Accounting
 
@@ -326,14 +417,29 @@ events, a pass's result and the daemon's log line keep apart:
 - `archived_bytes`: moved into the archive. These are clones, so deleting the
   originals frees nothing; the space comes back only when the archive is
   removed;
+- `added_bytes`: the space the archive itself adds (final review of
+  e50716e8, N1): its `commits.bundle`, `manifest.json`, `summary.json` and
+  `rows.json` (`rarch.ADDED`, measured on disk after `rows.json` is written
+  for `retention.pruned`, and on the published archive for
+  `retention.reclaimed` and `retention archives`), and any byte copies
+  (`copied_bytes`, a volume without clones). A remote-less repository's
+  bundle is its whole history (section 4, step 2);
 - `unlinked_bytes` (`retention.reclaimed`): every file removed from the trees.
 
-All are apparent sizes (`st_size`) except `freed_disk_bytes`. A pool's
-`bytes_before` and `bytes_after` count live trees (C-8.4's budget), not disk:
-the archive is outside the pools. Each pool in a pass's result also carries
-the `freed_bytes`, `freed_disk_bytes` and `archived_bytes` of the jobs it
-reclaimed, and the daemon's catch-up and hourly log lines name both. APFS snapshots (Time Machine's local ones)
-keep deleted blocks until they expire.
+The net on disk is `freed_disk_bytes - added_bytes`; what deleting a byte
+copy's original gives back is not counted as freed, so it errs low. All are
+apparent sizes (`st_size`) except `freed_disk_bytes`. A pool's `bytes_before`
+and `bytes_after` count live trees (C-8.4's budget), not disk: the archive is
+outside the pools. Each pool in a pass's result also carries the
+`freed_bytes`, `freed_disk_bytes`, `archived_bytes` and `added_bytes` of the
+jobs it reclaimed; the daemon's catch-up and hourly log lines name all four
+and the net; `retention archives` names the added bytes of each archive and
+in total; `survey --sample` estimates them per job (the bundle as `git
+rev-list --objects --disk-usage` measures the history it would carry, the
+manifest from its entries as the builder writes them, `rows.json` exactly) and
+reports the net, and the full survey estimates what the retiring jobs'
+archives add. APFS snapshots (Time Machine's local ones) keep deleted blocks
+until they expire.
 
 ## 12. Progress
 
@@ -358,6 +464,22 @@ keep deleted blocks until they expire.
   changed nothing (`progressed` false) doubles that wait, up to an hour; one
   that made progress sets it back to 5 s. A pass that did work never raises
   `TimeoutError`; the daemon's worker pool has one more thread for it.
+- **Below the operator's apps** (final review of e50716e8, N9). The daemon
+  runs at the default QoS, and a thread's QoS reaches no child
+  (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts
+  (`lsof`, git, the object readers) runs under `taskpolicy -c utility`, the
+  guardian's clamp (C-5.1); the in-process steps (archiving, the final check,
+  verified deletion, measuring sizes) lower only their thread's disk I/O
+  policy (`setiopolicy_np`, thread scope) and put it back. The thread's CPU
+  QoS is left alone: it takes the store's lock and the interpreter's, and a
+  low-QoS holder of either stalls the daemon; transactions run outside the
+  lowered blocks. `utility` is where agent work already runs. Measured on
+  2026-09-30 at load 55 to 80, a whole-machine `lsof` took 1.5 and 3.9 s
+  under it against 47 and 8 s under `background`, and a cached `git rev-list`
+  0.14 s against 9 and 1.3 s: `background` yields to every agent, and with
+  dozens running retention would wait behind them. `SUBFLEET_RETENTION_QOS`
+  in the daemon's environment chooses `background`, `maintenance` or
+  `inherit` instead.
 
 ## 13. Restore
 
@@ -372,8 +494,9 @@ keep deleted blocks until they expire.
    `DIR/worktree`, `DIR/job`, `DIR/admin`: directories, stored files (cloned
    back), omitted files from their blobs (each checked against its id),
    symlinks, hard links and FIFOs; then modes and mtimes, directories last.
-   Regenerable directories are not recreated; the report lists them under
-   `not_restored`. Restored to its original place, the admin directory
+   Regenerable entries are not recreated; the report lists each directory
+   that dropped some under `not_restored`, with the paths dropped whose parent
+   was not. Restored to its original place, the admin directory
    re-registers the worktree (without retention's lock), with its HEAD, index
    and reflogs.
 
@@ -421,42 +544,73 @@ Each is tested (section 16).
 - **I10, idempotence.** The anchor for the same inputs is the same commit, and
   every step can be run again after a crash.
 - **I11, only regenerable output is dropped, and all of it.** An entry is
-  deleted without a copy exactly when section 7 identifies it as a tool's own
-  (or inside one); the accounting (`regenerable_bytes`, `freed_bytes`) is the
-  sum of what was so deleted.
+  deleted without a copy exactly when a rule of section 7 proves it
+  regenerable (a file), or it is a directory under a tool's entry whose every
+  entry was so dropped; the accounting (`regenerable_bytes`, `freed_bytes`) is
+  the sum of the regular files so deleted.
+- **I12, the archive's own cost is reported.** Every figure of freed bytes
+  (the pass result, each pool, both events, the log lines, `retention
+  archives`, the sampled survey) comes with `added_bytes`, the published
+  archive's bundle, manifest, summary and rows and its byte copies, and a
+  remote-less repository's bundle never exceeds
+  `retention.remote_less_history_bytes`.
+- **I13, a hosted job keeps its own anchor.** A job registered in a
+  repository inside another job's tree is never retired in the same pass as
+  that job, nor without its registration.
 
-## 15. Residual risks (accepted by the d635 ruling)
+## 15. Residual risks
+
+**Accepted by the d635 ruling** (it accepted only micro-races, `SCM_RIGHTS`
+descriptors, and deliberately adversarial same-user tricks):
 
 - A write in the microseconds between an entry's final signature check and its
   unlink.
 - A writable descriptor passed over a Unix socket and held by no process at the
-  moment of a listing, or any other deliberately adversarial same-user trick;
-  processes of other users are invisible to a non-root `lsof` (worktrees are
-  0700).
+  moment of a listing.
+- Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
+  forged `direct_url.json`, vouching for an agent's file; data written under a
+  tool cache's own file names (`.pytest_cache/v/cache/nodeids`, a numbered
+  file in a `.ruff_cache` version directory, `*.data.json` in a
+  `.mypy_cache` version directory); data named `<module>.cpython-*.pyc`
+  starting with two bytes and CR LF beside a `<module>.py`; a package
+  manager's install marker touched to a later time by hand.
+
+**Not accepted by the ruling**, stated as they stand for Max's decision:
+
+- *Work placed inside a tool's own entries is no longer in this list* (final
+  review of e50716e8, N3): until revision 3 it was dropped with them and this
+  section wrongly called that accepted by d635; section 7 now archives
+  everything no rule proves regenerable. What remains of the class is the
+  `node_modules` rule's limit: a file created inside an installed package
+  before a later install that left that package in place is dropped, since
+  its mtime and ctime are then before the install marker (section 7). No live
+  job tree holds a `node_modules` (2026-09-30); without a marker nothing there
+  is dropped.
 - A remote-tracking ref whose commit the remote itself later dropped (a
-  force-push, then the server's gc): such a commit counted as held. The source
-  repository keeps its objects while it exists.
-- A file a person put by hand *inside one of a tool's own entries* (under a
-  virtualenv's `lib/` or `bin/`, a package in `node_modules`, `.pytest_cache/v/`,
-  a uv cache bucket), in a directory the project ignores, is deleted with it.
-  Anything put at the top of the tool's directory is archived (section 7); in
-  the live trees every agent-made file was there. A `.git` under a dropped
-  entry keeps it; a bare repository not named `.git` under one (uv's own
-  `git-v0` checkouts are such) does not.
+  force-push, then the server's gc): omission counted such a commit as held.
+  The source repository keeps its objects while it exists.
+- Processes of other users are invisible to a non-root `lsof`; worktrees are
+  0700, so only root could hold one.
 - Extended attributes, ACLs and file flags are not in the manifest; a clone
   keeps them, a byte copy and a restore do not.
+
+**Costs, not risks:**
+
 - Archives are never deleted automatically. With clones, an archive costs the
-  blocks of the files it keeps (they would otherwise have been freed); `retention
-  archives` lists them, and removing one is `rm -r <state>/archive/<job>` plus
-  its `refs/subfleet-archive/<job>/*`.
+  blocks of the files it keeps (they would otherwise have been freed), plus
+  `added_bytes`; `retention archives` lists both, and removing one is `rm -r
+  <state>/archive/<job>` plus its `refs/subfleet-archive/<job>/*`.
+- A job from a repository with no network remote whose history is over the
+  limit is kept, as before retention by archive, until the base bundle of
+  section 17 exists or the limit is raised.
 
 ## 16. Tests
 
 `tests/unit/test_retention_archive.py` (real git repositories, a fake clock and
 a fake process listing), `test_retention_regenerable.py`,
 `test_retention_archive_properties.py` and
-`test_retention_regenerable_properties.py` (Hypothesis), and the rewritten
-`test_retention_worktrees.py`, `test_timers_retention.py` and
+`test_retention_regenerable_properties.py` (Hypothesis), `test_retention_qos.py`,
+and the rewritten `test_retention_worktrees.py`, `test_timers_retention.py` and
 `test_policy_support.py`. One regression for each d635 item and each review
 finding:
 
@@ -478,3 +632,49 @@ finding:
 | Every pin | `test_every_pin_keeps_its_job[16 pins]`, `test_pinned_at_commit_rolls_back_then_retires_when_unpinned`, `test_resume_fence_and_retention_exclude_each_other`, `test_in_place_salvage_still_pins`, `test_salvage_is_bundled_and_its_ref_kept` |
 | Progress under load | `test_batch_bounds_a_pass_and_takes_the_oldest_first`, `test_a_pool_over_its_count_is_pruned_without_sizing_everything` |
 | Disk relief (I11) | `test_regenerable_output_is_deleted_with_the_tree_not_archived`, `test_work_left_inside_a_tool_directory_is_archived` (the live trees' findings), `test_lookalikes_are_archived_byte_for_byte`, `test_a_repository_inside_regenerable_output_is_archived`, `test_without_git_nothing_is_regenerable`, `test_ignore_rules_that_change_during_the_archive_defer_the_job`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept`, `test_a_replaced_tool_entry_is_archived`, `test_tool_layouts_split_the_tools_entries_from_everything_else[4 live layouts]`, `test_ignored_matches_git_status`, `test_sampled_survey_is_read_only_and_matches_the_retirement`, `test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored` (Hypothesis, against an independent oracle and `git status --ignored`) |
+| N1, what the archive adds | `test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are`, `test_byte_copies_count_as_added`, `test_retention_log_lines_report_what_the_archives_added`, `test_the_sampled_estimate_nets_what_the_archive_adds` |
+| N1, the remote-less history limit | `test_a_remote_less_repository_over_the_history_limit_keeps_its_job`, `test_the_history_limit_is_for_repositories_without_a_network_remote`, `test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job`, `test_the_survey_keeps_what_the_history_limit_keeps`, `test_retention_gets_both_budgets_from_policy_and_the_conversation_services_pins`, `test_conversation_and_retention_values_are_validated[remote_less_history_bytes]` |
+| N2, names folded | `test_ignored_compares_names_folded_as_apfs_matches_them`, `test_an_nfd_named_parent_does_not_make_a_visible_venv_ignored`, `test_a_directory_whose_case_changed_on_disk_keeps_its_tracked_edits` |
+| N3, only what a rule proves | `test_work_inside_a_tool_entry_is_archived` (the review's four cases), `test_installed_files_are_dropped_only_as_their_record_says`, `test_bytecode_needs_its_magic_number_and_its_source`, `test_a_package_file_changed_after_the_install_is_archived`, `test_a_tool_caches_own_files_are_dropped_and_nothing_else`, the property test (its oracle rewritten for the per-file rules) |
+| N4, nested host | `test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor`, `test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it` |
+| N5, a remnant registration | `test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept`, `test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job` |
+| N6, no progress log published | `test_a_published_archive_keeps_no_progress_log` |
+| N9, below the operator's apps | `test_every_child_retention_starts_is_clamped`, `test_the_clamp_follows_its_setting[4]`, `test_a_clamped_git_runs`, `test_the_threads_disk_io_is_lowered_and_put_back`, `test_the_archive_and_the_deletion_run_throttled` |
+
+## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
+
+Not built (final review of e50716e8, N1). With no network remote, each
+retired job's bundle carries the repository's whole history, so the limit of
+section 4 keeps such jobs when that history is large. The fix is to pay for
+the history once per repository:
+
+- **Layout.** `<state>/archive/.repos/<sha256 of the common directory's real
+  path>/`: `base.bundle`, `heads.json` (the base's heads, one ref per commit,
+  `refs/subfleet-base/<commit>`), `users.json` (the archives that depend on
+  it), and a journal, all written as the archive's files are (temp,
+  `F_FULLFSYNC`, rename).
+- **Building a job's bundle.** When the repository has no network remote,
+  take the base's heads as `held` (`--not <heads>`), after checking that each
+  is still a commit in the source repository; the job's bundle is then thin,
+  only what the job added. Its manifest names the base (`git.base`: the
+  directory and the heads it was made against), and the base's `users.json`
+  gains the job, both before the commit transaction. The first job of a
+  repository, or one whose history the base does not reach, extends the base:
+  a new base bundle of the old heads plus the job's anchor, verified like any
+  bundle, replacing the old one by rename.
+- **Verification.** Before the commit, the job's bundle is verified in a
+  throwaway repository that fetched the base first (its prerequisites are
+  the base's heads), with `index-pack --fix-thin`, as today.
+- **Restore.** Fetch the base, then the job's bundle; `check_archive` checks
+  both.
+- **Removal.** Removing an archive removes it from `users.json`; the base is
+  removed with its last user. Archives are removed only by a person, so the
+  count changes only then.
+- **Invariants to test.** I3 with the base fetched first; a base replaced
+  while a job's bundle is being built is detected (the manifest's recorded
+  heads must be ancestors of the current base's); no base is removed while a
+  manifest names it; crash at every step of extending the base.
+
+With it, `~/chief-of-staff`'s roughly 460 MB of history would be paid once,
+not per job, and `retention.remote_less_history_bytes` could be raised or
+removed.
