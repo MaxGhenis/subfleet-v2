@@ -92,6 +92,12 @@ dist-info (measured, section 15); restoring then running `uv sync` can
 reinstall a distribution over a patch restored into it (section 13); held
 refs are matched by name prefix (section 15).
 
+A final check (`r4-evidence/final-opus.md`, APPROVE WITH NOTES) found no loss
+path or wedge; after it, a kept bundle is held to the limit when reused,
+`baseline_held` is asked once a pass per repository and baseline with the
+configured git timeout, this machine's short name counts, and sections 4,
+13, 14 and 15 say what held refs and a held baseline cover.
+
 Finding 5 (a remnant's `index` and `logs/` name objects that are not
 anchored) is left as it is: the remnant's repository has lost its `HEAD` and
 `config` in every live case, and the bytes are archived.
@@ -198,9 +204,11 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
      a day, `remote-less-history <size>`, before anything moves. A bundle that
      comes out over the limit although the measure said less (it also carries
      the anchor and a pack's own overhead) is dropped, the job put back, and
-     its size kept in the idle journal for the next check. A job whose
-     baseline a network remote holds carries only its own work, however
-     large, and is not limited.
+     its size kept in the idle journal for the next check; a bundle an
+     earlier attempt made and kept is held to the limit as it stands when it
+     is used. A job whose baseline a network remote holds is not limited: its
+     bundle carries what its heads reach beyond the held refs, its own
+     commits and any unpushed history it merged or checked out.
 3. **Lock** the registration with `locked` (text `subfleet retention: <job>`),
    so no `git worktree prune` or `git gc` drops it while the tree is away. A
    lock someone else wrote defers the job.
@@ -560,7 +568,8 @@ the archive keeps the bytes either way.
 
 Without Subfleet: `manifest.json` lists every entry; `files/<name>` holds each
 stored file; `git fetch <archive>/commits.bundle '+refs/*:refs/restored/*'` in
-any clone of the project brings back every commit (a bundle whose repository
+any clone of the project brings back every commit (but those section 15's
+held-ref items name; a bundle whose repository
 had no network remote has no prerequisites and fetches into an empty
 repository); `git cat-file blob <id>` there gives each omitted file; the
 manifest's `salvage` names each salvage ref's commit. `subfleet retention
@@ -583,7 +592,9 @@ Each is tested (section 16).
 - **I3, commits kept.** Every commit and staged blob the worktree reached
   before retirement, and every salvage commit, is in the bundle or reachable
   from a network remote's refs, so a fresh clone of the remote plus the bundle
-  holds all of them. No ref is ever moved or deleted.
+  holds all of them, as long as the remote still has what its refs named when
+  the bundle was made (section 15); the source repository keeps them all
+  through the anchor ref while it exists. No ref is ever moved or deleted.
 - **I4, confinement.** Retention modifies only the job's paths under the state
   root, the admin directory it archived, and `refs/subfleet-archive/<job>/`.
 - **I5, atomic by rows.** While a job's rows exist, none of its bytes has been
@@ -648,11 +659,17 @@ descriptors, and deliberately adversarial same-user tricks):
   is on this machine); a `file://` index was not tested and is likely alike.
 - Held refs are the network remote's `refs/remotes/<name>/` by name, so refs a
   person fetched there from a local path, or those of a local remote named
-  `<name>/<something>`, count as held on the network for omission and for
-  the history limit.
+  `<name>/<something>`, count as held on the network: for omission, for the
+  bundle's boundary (its prerequisites) and for the history limit.
 - A remote-tracking ref whose commit the remote itself later dropped (a
-  force-push, then the server's gc): omission counted such a commit as held.
-  The source repository keeps its objects while it exists.
+  force-push, then the server's gc) counts as held the same three ways. A
+  restore into a fresh clone then lacks those commits (and blobs omitted on
+  their account); the source repository keeps them, through the anchor ref,
+  while it exists.
+- `this_machine` does not know every name of this machine: an `~/.ssh/config`
+  alias whose `HostName` is `localhost`, its LAN or tailnet address, or
+  `2130706433` still count as another machine, with the same consequence as
+  the item above for a second repository on the same disk.
 - Processes of other users are invisible to a non-root `lsof`; worktrees are
   0700, so only root could hold one.
 - Extended attributes, ACLs and file flags are not in the manifest; a clone
@@ -667,6 +684,9 @@ descriptors, and deliberately adversarial same-user tricks):
 - A job whose baseline no network remote holds, with history over the
   limit, is kept, as before retention by archive, until the base bundle of
   section 17 exists or the limit is raised.
+- A job whose baseline a remote holds is not limited, so one that merged or
+  checked out a large local history no remote holds (a local `main` far
+  ahead of `origin/main`) bundles that history, again for each such job.
 
 ## 16. Tests
 
@@ -708,6 +728,7 @@ finding:
 | Review of the revision-4 build | `test_installed_files_are_dropped_only_as_their_record_says` (a local `--find-links` install, a pip install), the property test's `findlinks` and `pip` cases, `test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that`, `test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went`, `test_a_host_that_is_there_without_the_registration_holds_nothing_up`, `test_a_remote_that_holds_nothing_counts_as_none`, `test_a_repositorys_history_is_measured_once_a_pass`, `test_the_survey_remembers_a_bundle_that_came_out_over_the_limit` |
 | The re-review | `test_nothing_under_node_modules_is_dropped`, `test_a_dist_info_goes_whole_or_not_at_all`, `test_an_install_from_a_server_on_this_machine_vouches_for_nothing`, `test_a_remote_on_this_machine_is_no_network_remote`, `test_a_remote_that_holds_only_unrelated_history_counts_as_none`, `test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does` |
 | The confirmation review | `test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline`, `test_this_machine_by_any_of_its_names` |
+| The final check | `test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now`, `test_this_machine_by_its_short_name` |
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each
