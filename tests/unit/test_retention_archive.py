@@ -1278,7 +1278,7 @@ def test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_an
     assert retention.nested_hosts(w.store.list_jobs(), w.root.resolve()) == {"job-a": {"job-b"}}
     first = run(w)
     assert first["pruned"] == ["job-b"], first["deferred"]
-    assert first["pin_reasons"]["job-a"] == "nested-host" and a_wt.is_dir()
+    assert first["pin_reasons"]["job-a"] == "nested-host: job-b" and a_wt.is_dir()     # names what it waits for
     manifest = json.loads((w.root / "archive" / "job-b" / "manifest.json").read_text())
     assert manifest["git"]["anchor"] and manifest["git"]["bundle"] == "commits.bundle"
     assert manifest["git"]["head"] == b_commit
@@ -1783,3 +1783,108 @@ def test_the_survey_keeps_what_the_history_limit_keeps(world):
     assert report["would_retire"]["jobs"] == 1
     assert report["would_retire"]["bundle_bytes_estimate"] > 150_000
     assert report["would_retire"]["added_bytes_estimate"] > report["would_retire"]["bundle_bytes_estimate"]
+
+
+def test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that(world):
+    """Review of the N4 fix: a job submitted from another job's tree root
+    registers its worktree in that tree's repository, outside the tree, so
+    neither pins nor waits for it; with its own tree gone and the other job
+    retiring, it retires too instead of being deferred every hour for ever."""
+    w = world
+    h_wt = w.job("job-h", created="2026-09-01T00:00:00Z")
+    g_wt = w.root / "worktrees" / "job-g"
+    git(h_wt, "worktree", "add", "--quiet", "--detach", str(g_wt), "HEAD")
+    w.store.add_job(job_id="job-g", request_id="req-g", payload_digest="d", kind="dispatch", workdir=str(h_wt),
+                    workdir_head=w.head(), worktree=str(g_wt), prompt_path="/p", sandbox="workspace-write",
+                    state="succeeded", created_at="2026-09-02T00:00:00Z")
+    (w.root / "jobs" / "job-g").mkdir()
+    shutil.rmtree(g_wt)                                                     # its tree is gone
+    assert retention.nested_hosts(w.store.list_jobs(), w.root.resolve()) == {}
+    result = run(w)
+    assert sorted(result["pruned"]) == ["job-g", "job-h"], result["deferred"]
+
+
+def _host_gone(w: World) -> tuple[Path, Path]:
+    a_wt, b_wt, _ = _nested_host(w)
+    shutil.rmtree(a_wt)                                    # the host's tree, and its rows, gone for good
+    for table in ("jobs",):
+        w.store.connection.execute(f"DELETE FROM {table} WHERE job_id='job-a'")
+    w.store.connection.commit()
+    shutil.rmtree(w.root / "jobs" / "job-a")
+    return a_wt, b_wt
+
+
+def test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went(world):
+    """Review of the N4 fix: the reason names the gone tree and what brings
+    the registration back, and the job waits a day, not an hour."""
+    from subfleet.retention_survey import survey
+    w = world
+    a_wt, b_wt = _host_gone(w)
+    clock = Clock()
+    state = retention.RetentionState()
+    result = run(w, clock=clock, state=state)
+    reason = result["deferred"]["job-b"]
+    assert reason.startswith("nested-host: its registration") and f"was inside {a_wt}, which is gone" in reason
+    assert state.deferred["job-b"][0] - clock() == rarch.DEFER_PERMANENT_S
+    assert b_wt.is_dir() and w.store.get_job("job-b")
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["kept"]["jobs_by_reason"] == {"nested-host": 1}, report["kept"]
+
+
+def test_a_host_that_is_there_without_the_registration_holds_nothing_up(world):
+    """Review of the N4 fix: the host's tree is there but the guest's
+    registration in it is gone (a prune): nothing will bring it back, so the
+    guest retires, and the host after it."""
+    w = world
+    a_wt, b_wt, _ = _nested_host(w)
+    shutil.rmtree(a_wt / "core" / ".git" / "worktrees" / "job-b")
+    first = run(w)
+    assert first["pruned"] == ["job-b"], first["deferred"]
+    assert run(w)["pruned"] == ["job-a"]
+
+
+def test_a_remote_that_holds_nothing_counts_as_none(world):
+    """Review of N1b: a network remote added but never fetched has no
+    remote-tracking ref, so the bundle is the whole history: the limit applies."""
+    w = world
+    _remote_less(w)
+    git(w.repo, "remote", "add", "origin", "https://git.example.invalid/project.git")
+    w.job("job-unfetched")
+    result = run(w, remote_less_history_bytes=100_000)
+    assert result["pruned"] == [] and result["deferred"]["job-unfetched"].startswith("remote-less-history: "), result
+
+
+def test_a_repositorys_history_is_measured_once_a_pass(world, monkeypatch):
+    """Review of N1b: once one job of a repository is over the limit, the
+    pass keeps its other jobs on that measure instead of measuring each."""
+    w = world
+    _remote_less(w)
+    for n in range(3):
+        w.job(f"job-{n}", created=f"2026-09-01T00:0{n}:00Z")
+    calls = []
+    real = rgit.history_bytes
+
+    def counting(*args, **kwargs):
+        calls.append(args[1])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(rgit, "history_bytes", counting)
+    result = run(w, remote_less_history_bytes=100_000)
+    assert sorted(result["deferred"]) == ["job-0", "job-1", "job-2"]
+    assert all(r.startswith("remote-less-history: ") for r in result["deferred"].values())
+    assert len(calls) == 1, calls
+
+
+def test_the_survey_remembers_a_bundle_that_came_out_over_the_limit(world):
+    """Review of N1b: the survey reads the size an earlier attempt's bundle
+    had (kept in its idle journal), as the pass does."""
+    from subfleet.retention_survey import survey
+    w = world
+    _remote_less(w)
+    w.job("job-edge")
+    measured = rgit.history_bytes(w.repo / ".git", [w.head()], [])
+    first = run(w, remote_less_history_bytes=measured + 1)            # the bundle carries a little more
+    assert first["deferred"]["job-edge"].startswith("remote-less-history: a "), first["deferred"]
+    (w.root / "policy.json").write_text(json.dumps({"retention": {"remote_less_history_bytes": measured + 1}}))
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["kept"]["jobs_by_reason"] == {"remote-less-history": 1}, report["kept"]

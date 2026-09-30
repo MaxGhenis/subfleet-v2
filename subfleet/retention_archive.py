@@ -111,6 +111,10 @@ class Context:
     remote_less_history_bytes: int | None = None
     #: (repository, heads) -> history bytes, measured once per pass.
     history: dict[tuple[str, tuple[str, ...]], int] = field(default_factory=dict)
+    #: repository -> the history bytes that put one of its jobs over the limit
+    #: this pass: the others are kept on it, not measured again each (their
+    #: histories are the same one, give or take their own commits).
+    history_over: dict[str, int] = field(default_factory=dict)
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -332,46 +336,45 @@ class Retirement:
 
     def _remote_less_history(self, common: Path, reg: rgit.Registration | None, heads: list[str | None],
                              seen: int = 0) -> None:
-        """Keep a job whose source repository has no network remote when its
+        """Keep a job whose source repository has no network remote (or none
+        with a remote-tracking ref: a remote added but never fetched) when its
         bundle would carry more than `remote_less_history_bytes` of history:
         nothing holds any of it elsewhere, so the bundle is every object HEAD,
         the baseline and the salvage commits reach, paid again by each job
         (about 460 MB per `~/chief-of-staff` job; final review of e50716e8,
-        N1). `seen` is a bundle an earlier attempt measured. Smaller ones
-        proceed. A measure that fails keeps the job too."""
+        N1). `seen` is a bundle an earlier attempt measured. Once one job of a
+        repository is over the limit in a pass, its others are kept on that
+        measure. Smaller ones proceed. A measure that fails keeps the job too."""
         limit = self.ctx.remote_less_history_bytes
         if limit is None:
             return
         try:
-            if rgit.network_remotes(common, cancel=self.ctx.cancel):
+            remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
+            if rgit.holds_anything(common, remotes, cancel=self.ctx.cancel):
                 return
-            if reg is not None:
-                heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
-            key = (str(common), tuple(sorted({h for h in heads if h})))
-            if key not in self.ctx.history:
-                self.ctx.history[key] = rgit.history_bytes(common, key[1], [], timeout=self.ctx.git_timeout_s,
-                                                           cancel=self.ctx.cancel)
-            size = max(self.ctx.history[key], seen)
+            size = self.ctx.history_over.get(str(common))
+            if size is None:
+                if reg is not None:
+                    heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
+                key = (str(common), tuple(sorted({h for h in heads if h})))
+                if key not in self.ctx.history:
+                    self.ctx.history[key] = rgit.history_bytes(common, key[1], [], timeout=self.ctx.git_timeout_s,
+                                                               cancel=self.ctx.cancel)
+                size = self.ctx.history[key]
+                if size > limit:
+                    self.ctx.history_over[str(common)] = size
+            size = max(size, seen)
         except rgit.GitError as exc:
             raise Defer("remote-less-history", DEFER_PERMANENT_S, f"size unknown: {exc}") from exc
         if size > limit:
             raise Defer("remote-less-history", DEFER_PERMANENT_S,
-                        f"{size} bytes of history with no network remote, over {limit} "
+                        f"{size} bytes of history no network remote holds, over {limit} "
                         "(retention.remote_less_history_bytes)")
 
     def _not_without_host(self, where: Path | None, worktree: Path) -> None:
-        """A job registered in a repository inside another job's tree is kept
-        while that tree is not there (in quarantine, or gone): retired now, it
-        would have no anchor and no bundle of its own, its commits only in the
-        host's archive (final review of e50716e8, N4). The host is pinned while
-        this job has rows, so normally it is always there."""
-        allocated = Path(os.path.realpath(self.root / "worktrees"))
-        if where is None or allocated not in where.parents:
-            return
-        if where == worktree or worktree in where.parents:
-            return
-        raise Defer("nested-host", DEFER_CHANGED_S,
-                    f"its registration ({where}) is inside another job's tree, which is not there")
+        found = host_absent(self.root, where, worktree, lambda host: _host_live(self.ctx.store, self.root, host))
+        if found is not None:
+            raise Defer("nested-host", *found)
 
     # --- step 2: lock the registration ---------------------------------------------------
 
@@ -837,6 +840,47 @@ def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
     return {"archived_bytes": int(totals.get("archived_bytes") or 0), "omitted_bytes": omitted,
             "regenerable_bytes": regenerable, "freed_bytes": omitted + regenerable,
             "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
+
+
+def host_absent(root: Path, where: Path | None, worktree: Path,
+                live: Callable[[Path], bool]) -> tuple[float, str] | None:
+    """(deferral, why) when a job's registration (`where`: its gitfile's admin
+    directory, or the source directory of a job whose tree is gone) lies
+    strictly inside another job's allocated tree and that tree is not there;
+    None when it may go on (final review of e50716e8, N4).
+
+    Retired then, the job would have no anchor and no bundle of its own, its
+    commits only in the host's archive. The host is pinned while this job has
+    rows (`nested-host`), so its tree is normally there. While the host is
+    retiring (it has rows or a journal), the job waits an hour; when the host
+    is gone for good, a day at a time, saying where its registration went.
+    A directory that is a tree's root registers its worktrees in its own
+    repository, outside the tree, and a host tree that is there but lacks
+    the registration has nothing to wait for: both go on."""
+    allocated = Path(os.path.realpath(root / "worktrees"))
+    if where is None:
+        return None
+    try:
+        parts = where.relative_to(allocated).parts
+    except ValueError:
+        return None
+    host = allocated / parts[0] if len(parts) >= 2 else None
+    if host is None or host == worktree or worktree in where.parents or os.path.lexists(host):
+        return None
+    if live(host):
+        return DEFER_CHANGED_S, f"its registration ({where}) is inside {host}, which is being retired; it goes once that tree is back or archived"
+    return DEFER_PERMANENT_S, (f"its registration ({where}) was inside {host}, which is gone; kept rather than "
+                               "retired without an anchor of its own (restoring that tree's archive brings the "
+                               "registration back)")
+
+
+def _host_live(store: Any, root: Path, host: Path) -> bool:
+    """Whether a job whose allocated tree is `host` still has rows, or is in a retirement."""
+    for row in store.query("SELECT worktree FROM jobs WHERE worktree LIKE ?", (f"%/{host.name}",)):
+        if row["worktree"] and os.path.realpath(row["worktree"]) == str(host):
+            return True
+    return any(isinstance(j, dict) and j.get("worktree") and os.path.realpath(j["worktree"]) == str(host)
+               for j in journals(root).values())
 
 
 def landed_salvage(manifest: dict[str, Any], salvage: list[dict[str, Any]]) -> set[int]:
@@ -1327,13 +1371,14 @@ class _Builder:
                                cancel=self.ctx.cancel)
             limit = self.ctx.remote_less_history_bytes
             size = temporary.stat().st_size
-            if not remotes and limit is not None and size > limit:
+            if limit is not None and size > limit and not rgit.holds_anything(common, remotes,
+                                                                              cancel=self.ctx.cancel):
                 # git's measure before the bundle said less; the bundle decides,
                 # and the next attempt's check remembers it (N1).
                 temporary.unlink()
                 self.r.save(history_bytes=size)
                 raise Defer("remote-less-history", DEFER_PERMANENT_S,
-                            f"a {size}-byte bundle with no network remote, over {limit} "
+                            f"a {size}-byte bundle no network remote holds, over {limit} "
                             "(retention.remote_less_history_bytes)")
             rgit.verify_bundle(common, temporary, expected, fmt, self.r.work / "verify.git",
                                timeout=self.ctx.git_timeout_s * 6, cancel=self.ctx.cancel)

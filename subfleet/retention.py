@@ -250,9 +250,11 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     # tree while it has rows: it retires first, with its own anchor (N4).
     for host in ([only] if only else sorted(hosted or ())):
         guests = sorted((hosted or {}).get(host) or ())
-        if guests and store.query(f"SELECT job_id FROM jobs WHERE job_id IN ({','.join('?' * len(guests))}) "
-                                  "LIMIT 1", tuple(guests)):
-            add(host, "nested-host")
+        live = [row["job_id"] for row in store.query(
+            f"SELECT job_id FROM jobs WHERE job_id IN ({','.join('?' * len(guests))}) ORDER BY job_id LIMIT 3",
+            tuple(guests))] if guests else []
+        if live:
+            add(host, "nested-host: " + ", ".join(live))      # names the jobs it waits for
     owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
              and not row["in_place"]}
     for row in store.query("SELECT r.artifact_id,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
