@@ -369,7 +369,7 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
 
 def test_a_person_request_whose_chain_cannot_be_read_fails_closed_and_may_be_asked_again(conv_with, tmp_path):
     """C-25.6, C-17.3: the daemon's peer check runs a `ps` that hangs (the real
-    one behind a wrapper, 0.5 s per try, 3 s in all). A person's approval.get and
+    one behind a wrapper, 1 s per try). A person's approval.get and
     approval.respond from a terminal fail with exit 1 `person-check-failed` naming
     the cause, not the bare "operation failed" of an unexpected exception: no
     nonce is shown, the approval stays pending and nothing reaches the provider.
@@ -378,8 +378,7 @@ def test_a_person_request_whose_chain_cannot_be_read_fails_closed_and_may_be_ask
     wrapper = tmp_path / "ps"
     wrapper.write_text(f"#!/bin/sh\nif [ -e '{hang}' ]; then exec /bin/sleep 600; fi\nexec /bin/ps \"$@\"\n")
     wrapper.chmod(0o755)
-    conv = conv_with(env={"SUBFLEET_E2E_PS": str(wrapper), "SUBFLEET_E2E_PS_TIMEOUT_S": "0.5",
-                          "SUBFLEET_E2E_CHAIN_BUDGET_S": "3"})
+    conv = conv_with(env={"SUBFLEET_E2E_PS": str(wrapper), "SUBFLEET_E2E_PS_TIMEOUT_S": "1"})
     cid = conv.create()
     mid = conv.submit(cid, "run something [fake:approval]")
     conv.until_state(mid, "approval-needed")
@@ -391,7 +390,7 @@ def test_a_person_request_whose_chain_cannot_be_read_fails_closed_and_may_be_ask
 
     hang.touch()
     cause = ("the caller's process chain could not be read: `ps -axo pid=,ppid=,tty=` "
-             "did not answer within 0.5 s, twice")
+             "did not answer within 1 s, twice")
     for op, args, what in (("approval.respond", answer, "answering an approval"),
                            ("approval.get", {"approval_id": approval["approval_id"]}, "reading an approval")):
         failed = conv.as_person(op, **args)

@@ -296,8 +296,9 @@ def sleepers(token: str) -> str:
 
 @pytest.fixture
 def quick(monkeypatch):
-    monkeypatch.setattr(peers, "PS_TIMEOUT_S", 0.5)
-    monkeypatch.setattr(peers, "CHAIN_BUDGET_S", 3.0)
+    """A hang is detected in 1 s a try; the chain keeps its whole budget, so a real
+    `ps` that answers slowly on a loaded host still reads it."""
+    monkeypatch.setattr(peers, "PS_TIMEOUT_S", 1.0)
 
 
 def test_process_chain_reads_this_process_with_the_real_ps():
@@ -313,7 +314,7 @@ def test_a_real_ps_that_hangs_is_killed_and_the_request_is_unreadable(tmp_path, 
     verdict = judge(os.getpid())
     elapsed = time.monotonic() - started
     assert verdict.unreadable and not verdict.person, verdict
-    assert "did not answer within 0.5 s, twice" in verdict.reason
+    assert "did not answer within 1 s, twice" in verdict.reason
     assert len(count.read_text().splitlines()) == 2
     assert elapsed < peers.CHAIN_BUDGET_S + 5          # spawning on a loaded host is not the check's time
     assert sleepers(token) == ""                       # each hung `ps` was killed, none left behind
@@ -365,7 +366,7 @@ def test_the_service_fails_an_unreadable_chain_closed_with_the_cause(tmp_path, m
     assert response["error"] == {
         "code": 1,
         "message": "person-check-failed: reading an approval is a person's decision, and the caller's process chain "
-                   "could not be read: `ps -axo pid=,ppid=,tty=` did not answer within 0.5 s, twice",
+                   "could not be read: `ps -axo pid=,ppid=,tty=` did not answer within 1 s, twice",
         "fix": "nothing was done; try again"}
     assert "nonce" not in json.dumps(response)
     assert any("person check for reading an approval could not run" in r.getMessage() for r in caplog.records)
