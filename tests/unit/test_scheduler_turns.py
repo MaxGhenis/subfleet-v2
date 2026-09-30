@@ -138,8 +138,12 @@ def test_the_2026_09_27_turn_wait_no_longer_happens(policy):
                     attempts=[a for a, _ in others], jobs=[j for _, j in others])
     turn = job(pinned_model="opus", kind="turn")
     assert evaluate(policy, snapshot, turn).chosen_lane in ("claude-1", "claude-9")
-    # The rule it replaces held the same turn on every lane.
-    assert evaluate(_capped(policy, fleet=3, per_lane=1), snapshot, turn).chosen_lane is None
+    # The rule it replaces held the same turn on every lane but the desktop login's, which refused it
+    # then; since 2026-09-30 that lane takes it, the chain's last resort (C-10.3), and a turn is never
+    # refused by its reserve.
+    assert evaluate(_capped(policy, fleet=3, per_lane=1), snapshot, turn).chosen_lane == "claude-4"
+    kept_off = {**turn, "exclusions": ["@desktop"]}
+    assert evaluate(_capped(policy, fleet=3, per_lane=1), snapshot, kept_off).chosen_lane is None
 
 
 TURN_CAPS = st.sampled_from([None, 0, 1, 2, 3])

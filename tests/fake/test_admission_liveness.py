@@ -451,16 +451,19 @@ def test_c26_9_with_no_turn_cap_one_pass_places_every_turn(tmp_path):
         assert max(lanes.count(lane_id) for lane_id in CODEX) >= 2
 
 
-@pytest.mark.parametrize("newer_pin", [None, "codex-2"])
+@pytest.mark.parametrize("newer_pin", [None, "codex-2", "codex-1"])
 def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin):
     """C-6.9 keeps an older job's place only where a later one could take the slot it waits
     for. With no turn cap there is none: an older turn waiting on its closed lane holds a
-    later turn neither `behind-older-job` nor `slot-kept`. With a cap set, FIFO holds."""
+    later turn neither `behind-older-job` nor `slot-kept`. With a cap set, FIFO holds where
+    the later turn would take the older one's lane (both pinned to codex-1), and since
+    2026-09-30 nowhere else: the older turn, pinned to codex-1, could never run on the lane
+    an unpinned later turn takes."""
     from tests.fake.test_admission_latency import commit, measure
     # Either cap alone turns FIFO on (review of 1b38d641: each half of the rule untested).
-    for caps, placed in (({}, True), ({"max_active_turns": 3, "turn_slots_per_lane": 1}, newer_pin is not None),
-                         ({"turn_slots_per_lane": 1}, newer_pin is not None),
-                         ({"max_active_turns": 3}, newer_pin is not None)):
+    placed = newer_pin != "codex-1"
+    for caps in ({}, {"max_active_turns": 3, "turn_slots_per_lane": 1}, {"turn_slots_per_lane": 1},
+                 {"max_active_turns": 3}):
         with fleet_daemon(tmp_path / ("fleet-" + "-".join(sorted(caps)))) as (service, harness, patch):
             service.policy["conversations"].update(caps)
             for lane_id in CODEX:
@@ -473,8 +476,10 @@ def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin
                 service._admit()
             assert service._holds[older]["reason"].startswith("closed")
             assert bool(service.store.list_attempts(newer)) is placed, (caps, service._holds.get(newer))
-            if not placed:
+            if not placed and caps:
                 assert service._holds[newer]["reason"] == "behind-older-job"
+            elif not placed:
+                assert service._holds[newer]["reason"].startswith("closed")
 
 
 def _turn_in(service, harness, n, *, workdir, sandbox="workspace-write", model="astra"):

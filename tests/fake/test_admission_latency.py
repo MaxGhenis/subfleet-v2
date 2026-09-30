@@ -417,8 +417,9 @@ def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, m
     and its successor codex-9, on the same credential. A pin that names another lane now is
     the one thing the check cannot decide from the lanes it looked at, so each check
     refuses and the route is evaluated again off the lock. After the last, the job is left
-    for the next pass (`route-moved`, `deferred`), holding back the later job it competes
-    with (C-6.9); the next pass places it. (A cap that began or ended used to do this; the
+    for the next pass (`route-moved`, `deferred`), holding back the later job that would
+    take its lane (C-6.9: codex-1 is closed, so the later job's lane is the one the pin
+    follows); the next pass places it. (A cap that began or ended used to do this; the
     check now judges every lane again then: review of 5d14f98.)"""
     service, harness = routing_state
     service.policy["caps"].update(max_active_attempts=4, reading_ttl_s=3600)
@@ -426,7 +427,8 @@ def test_c6_3_a_job_whose_decision_keeps_moving_keeps_its_place(routing_state, m
     ref = str(service.root / "home-codex-2")
     service.store.put_lane(Lane("codex-9", "codex", "codex:codex-2", Credential("codex", ref, "home"), ref,
                                 LaneOwner.V2, False, False))
-    measure(service, "codex-1")
+    service.store.add_closure(Closure("codex-1", "gpt-6-astra", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
     measure(service, "codex-2")
     measure(service, "codex-9")
     first = submit(service, harness, pinned_model="astra", pinned_lane="codex-2")

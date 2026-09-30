@@ -233,6 +233,10 @@ def test_c10_3_c6_3_claude_code_becoming_active_changes_nothing_at_the_reservati
     monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     daemon.store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                                Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    from subfleet.contracts import Reading, ReadingLabel
+    for window in ("five_hour", "seven_day"):                 # C-10.3: fresh, so no probe is needed first
+        daemon.store.add_reading(Reading("claude-4", "account", window, .2, daemon_module.after(3600),
+                                         ReadingLabel.PROVIDER, "fixture", daemon_module.utcnow()))
     idle = {"status": "idle", "statusUpdatedAt": time.time() * 1000 - 40 * 60_000}
     _registry(tmp_path, monkeypatch, **idle)
     first = submit(daemon, harness, "idle-desktop", pinned_model="opus")

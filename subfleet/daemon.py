@@ -580,6 +580,7 @@ class Daemon:
         self._hold_view_cache: tuple[float, Any, Any, dict] | None = None     # C-6.9, `_hold_view`
         self._hold_targets: tuple[dict | None, dict] = (None, {})             # C-6.9, per shared view
         self._last_desktop_hint: str | None = None                          # C-10.3, `_desktop_identity`
+        self._hold_checks: dict[str, Callable[[Any, Any], str | None]] = {}  # C-6.9, `_prepare_route`
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass:
         # C-26.9's turn pass and the detached pass each replace their own, and
@@ -3218,12 +3219,13 @@ class Daemon:
         self._finish_probe(record, outcome)
         return outcome
 
-    def _prepare_route(self, job: dict, decision_job: dict, exclusions: tuple[str, ...], *,
-                       held: Callable[[Any], str | None] | None = None):
+    def _prepare_route(self, job: dict, decision_job: dict, exclusions: tuple[str, ...]):
         # The admission worker serializes probes; a distinct durable holder and
         # a gated guardian prevent a restart from launching a duplicate probe.
-        # `held` (C-6.9) names an older job that could run where a decision would;
-        # asked before a probe is reserved, it raises `_HeldBehind` instead.
+        # C-6.9: the pass may leave a check for this job in `_hold_checks`, which
+        # names an older job that could run where a decision would; asked before a
+        # probe is reserved, it raises `_HeldBehind` instead.
+        held = self._hold_checks.get(job["job_id"])
         approved = set()
         for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
             desktop = self._desktop_identity()
@@ -3238,7 +3240,7 @@ class Daemon:
                 # reserves on; the job is not evaluated a second time before it.
                 self._early_routes[job["job_id"]] = (decision, basis)
                 return approved, desktop
-            if held is not None and (behind := held(decision)):
+            if held is not None and (behind := held(decision, basis.get("view"))):
                 raise _HeldBehind(behind, decision.chosen_lane)
             # C-10.3: refreshed off the lock, so a change of whether Claude Code is
             # using the desktop login is on record beside the probe. It refuses
@@ -3536,12 +3538,19 @@ class Daemon:
             return (demand["job_id"], demand.get("pinned_lane"), demand.get("pinned_model"),
                     tuple(demand.get("exclusions") or ()))
 
-        def usable_of(demand: dict):
-            key = demand_key(demand)
+        def usable_of(demand: dict, view: dict | None = None):
+            """The job's pairs on the pass's roster, or on `view`'s lanes: the waiter's pairs are
+            judged on the same lanes the newer job's lane was found on, or a re-enrolment
+            between the two (a pin that follows its credential) would compare two rosters."""
+            key = (id(view), *demand_key(demand))
             if key not in usable:
-                if not marked:
-                    marked.append([capacity.mark_desktop(dict(row), desktop=desktop_account) for row in roster])
-                usable[key] = scheduler.usable_pairs(self.policy, marked[0], demand)
+                if view is not None:
+                    lanes = view["lanes"]
+                else:
+                    if not marked:
+                        marked.append([capacity.mark_desktop(dict(row), desktop=desktop_account) for row in roster])
+                    lanes = marked[0]
+                usable[key] = scheduler.usable_pairs(self.policy, lanes, demand)
             return usable[key]
 
         def family_full(demand: dict) -> bool:
@@ -3568,7 +3577,8 @@ class Daemon:
             return targets[key]
 
         def older_blocker(rivals: list, demand: dict, target: tuple[str, str] | None = None, *,
-                          due: bool = True, mine_family: frozenset = frozenset()) -> tuple[str | None, list]:
+                          view: dict | None = None, due: bool = True,
+                          mine_family: frozenset = frozenset()) -> tuple[str | None, list]:
             """C-6.9: the rival this job is held behind, or None, and the rivals the
             answer rested on a lane for (checked again on the job's own decisions:
             before its admission probe, and inside its reservation). `target` is the
@@ -3595,13 +3605,14 @@ class Daemon:
                     return live[0][0], []          # not looked at this pass: held in its place, as before
                 try:
                     found = target_of(demand)
+                    view = self._hold_view(desktop_account)
                 except ROUTE_ERRORS:
                     return live[0][0], []
                 if found is None:
                     return live[0][0], []          # no lane for this job now: it waits in its place
                 target = found
             pair = (target[1], target[0])
-            blocker = next((rival for rival in live if scheduler.could_take(usable_of(rival[4]), pair)), None)
+            blocker = next((rival for rival in live if scheduler.could_take(usable_of(rival[4], view), pair)), None)
             return (blocker[0], []) if blocker is not None else (None, live)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
         # holds back only its own kind. Neither pool has a cap unless the policy
@@ -3831,15 +3842,15 @@ class Daemon:
                                        (next_check, job["job_id"]))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
-            def held_before_probe(decision) -> str | None:
+            def held_before_probe(decision, view) -> str | None:
                 """C-6.9: the rival that could run where this decision would, checked
                 before its admission probe reserves the lane (a probe's `slot:0` would
                 keep the rival from it, and the probe would be spent for nothing)."""
-                return (older_blocker(rivals, demand, (decision.chosen_lane, decision.chosen_model),
+                return (older_blocker(rivals, demand, (decision.chosen_lane, decision.chosen_model), view=view,
                                       mine_family=mine_family)[0] if rivals and decision.chosen_lane else None)
+            self._hold_checks[job["job_id"]] = held_before_probe
             try:
-                approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions,
-                                                                held=held_before_probe)
+                approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except _HeldBehind as late:
                 hold = {"reason": "behind-older-job", "behind": late.behind, "tier": tier, "lane": late.lane}
                 rechecks = self._capacity_wait(job["job_id"], f"behind:{late.behind}:{late.lane}", hold)
@@ -3854,6 +3865,8 @@ class Daemon:
                 self._early_routes.pop(job["job_id"], None)
                 self._unroutable(job, exc, holds)
                 continue
+            finally:
+                self._hold_checks.pop(job["job_id"], None)
             early = self._early_routes.pop(job["job_id"], None)
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
@@ -3951,7 +3964,7 @@ class Daemon:
                             # opened since the shared view): held behind it here,
                             # on a clock like every hold made after a look (C-6.10).
                             late, _ = older_blocker(rivals, demand, (decision.chosen_lane, decision.chosen_model),
-                                                    mine_family=mine_family)
+                                                    view=basis.get("view"), mine_family=mine_family)
                             if late:
                                 hold = {"reason": "behind-older-job", "behind": late, "tier": tier,
                                         "lane": decision.chosen_lane}

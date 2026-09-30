@@ -556,14 +556,17 @@ def test_a_lane_that_raises_never_leaves_another_lanes_hold(rig, monkeypatch):
     assert store.list_leases() == [] and not timer.active_holders
 
 
-@pytest.mark.parametrize("in_use,dispatchable", [(None, False), (True, False), (False, True)])
-def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, dispatchable):
+@pytest.mark.parametrize("in_use", [None, True, False])
+@pytest.mark.parametrize("bound,dispatchable", [(None, True), (0, False)])
+def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, bound, dispatchable):
     """C-10.3, C-18.2: `status.json` is built from the timers' snapshot; it judges the
-    desktop login's lane with the daemon's in-use signal (review of PR #72's plan: it
-    read the lane excluded while admission placed work there). No signal is use."""
+    desktop login's lane as admission does (review of PR #72's plan: it read the lane
+    excluded while admission placed work there): by its reserve since 2026-09-30, and not
+    by whether Claude Code is using the login."""
     timer, store, _, _, _ = rig
     store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
                         Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    timer.policy["admission"] = {**(timer.policy.get("admission") or {}), "desktop_max_in_flight": bound}
     timer.desktop_in_use = None if in_use is None else (lambda: in_use)
     row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
     assert row["dispatchable"] is dispatchable
