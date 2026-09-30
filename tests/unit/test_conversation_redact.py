@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from subfleet.conversations.redact import (
-    HIDDEN, INPUT_MAX, RESULT_MAX, DeltaBuffer, bounded_text, tool_completed, tool_started,
+    HIDDEN, INPUT_MAX, RESULT_MAX, TEXT_EVENT_MAX, DeltaBuffer, bounded_text, tool_completed, tool_started,
 )
 
 TOKEN = "sk-ant-oat01-" + "A" * 60
@@ -49,6 +49,37 @@ def test_streamed_text_is_scrubbed_a_line_at_a_time():
 def test_system_reminders_never_reach_events():
     """C-25.5 injected reminders are stripped from displayed text."""
     assert "secret" not in bounded_text("a <system-reminder>secret</system-reminder> b")
+
+
+def test_an_oversized_block_keeps_a_scrubbed_head_and_tail(monkeypatch):
+    """C-25.5 (review of 7da13417, finding 2): a text or thinking block over the
+    scrubber's budget keeps its head and tail, scrubbed and bounded for one event,
+    as it did before the budget; the matchers see only excerpts of it. A line too
+    long to excerpt is left out whole, never cut from its key."""
+    from subfleet.sessions import handoff
+    matched: list[int] = []
+    real = handoff._scrub
+    monkeypatch.setattr(handoff, "_scrub", lambda text, strip: (matched.append(len(text)), real(text, strip))[1])
+    body = "".join(f"Paragraph {i} of a long answer.\n" for i in range(12_000))
+    text = "<system-reminder>internal note</system-reminder>\nIntro with " + TOKEN + "\n" + body + "The end.\n"
+    shown = bounded_text(text)
+    assert len(shown) <= TEXT_EVENT_MAX and "characters omitted" in shown
+    assert shown.startswith("Intro with [REDACTED]\nParagraph 0 of a long answer.")
+    assert shown.endswith("Paragraph 11999 of a long answer.\nThe end.")
+    assert "internal note" not in shown and TOKEN not in shown
+    assert max(matched) <= handoff.EXCERPT_CHARS
+    single = 'password="' + "private value " * 25_000 + '"'
+    assert bounded_text(single) == f"… [{len(single):,} characters omitted] …"
+    assert handoff.clean(single, 500)[0] == f"… [{len(single):,} characters omitted] …"
+
+
+def test_a_large_tool_result_keeps_a_preview():
+    """C-25.5: a tool result over the budget still has its bounded head-and-tail
+    preview (it had become the omission marker alone)."""
+    output = "".join(f"row {i}: ok\n" for i in range(30_000))
+    preview = tool_completed("t1", output, is_error=False, hidden=False)["preview"]
+    assert len(preview) <= RESULT_MAX
+    assert preview.startswith("row 0: ok") and preview.endswith("row 29999: ok")
 
 
 def test_approval_masking_hides_tokens_but_never_a_command():

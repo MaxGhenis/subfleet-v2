@@ -222,8 +222,20 @@ def test_c23_54_a_revive_is_always_another_instance(fleet, revive_first):
     assert first in message and "revive" in message
 
 
+def test_c6_5_no_count_limits_a_sessions_writable_jobs_by_default(fleet):
+    """C-6.4 (2026-09-28, Max: "remove *all* caps"): one instance may hold any number
+    of writable jobs on distinct worktrees; a second writer in one checkout is still
+    refused, which is not a count."""
+    daemon, harness, _ = fleet
+    assert daemon.policy["caps"]["max_writable_per_session"] is None
+    repos = [make_repo(harness.root / f"many-{n}") for n in range(12)]
+    jobs = [writable(daemon, harness, repo) for repo in repos]
+    assert len(set(jobs)) == 12
+    assert "worktree" in refusal(daemon, harness, repos[0]) or refusal(daemon, harness, repos[0])
+
+
 def test_c6_5_the_per_session_cap_is_a_backstop(fleet):
-    """C-6.4 `max_writable_per_session` bounds a runaway caller and names itself."""
+    """C-6.4 `max_writable_per_session`, when a policy sets it, bounds a runaway caller and names itself."""
     daemon, harness, _ = fleet
     daemon.policy["caps"]["max_writable_per_session"] = 2
     for name in "ab":

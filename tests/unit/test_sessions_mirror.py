@@ -209,8 +209,8 @@ def test_cancelled_inventory_reports_progress_without_advancing_last_success(wor
         recorded.append(current.to_dict())
         return record(current, **kwargs)
 
-    def cancel_after_read(path):
-        value = read(path)
+    def cancel_after_read(path, **kwargs):
+        value = read(path, **kwargs)
         cancel.set()
         return value
 

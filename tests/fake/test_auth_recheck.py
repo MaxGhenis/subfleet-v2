@@ -382,7 +382,7 @@ def test_c10_8_no_free_attempt_slot_always_defers(rig):
     daemon, root, clock = rig
     lane = enroll(daemon)
     kill(daemon, lane["lane_id"], clock)
-    cap = daemon.policy["caps"]["max_active_attempts"]
+    daemon.policy["caps"]["max_active_attempts"] = cap = 4       # a policy that sets the cap (C-6.4)
     for n in range(cap):
         daemon.store.acquire_lease(f"lane:elsewhere:slot:{n}", f"probe:other:{n}")
     Account.calls = []

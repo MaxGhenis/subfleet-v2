@@ -237,7 +237,9 @@ def test_c10_8_a_daemon_filled_after_the_choice_defers_without_a_trace(rig, monk
 
 def test_c10_8_live_detached_attempts_fill_the_slots_and_turns_do_not(rig):
     daemon, root, clock = rig
-    cap = daemon.policy["caps"]["max_active_attempts"]
+    daemon.policy["caps"]["max_active_attempts"] = None       # no cap, the default: always a slot
+    assert daemon.timers.recheck_busy() is None
+    daemon.policy["caps"]["max_active_attempts"] = cap = 4
     for n in range(cap):
         daemon.store.add_job(job_id=f"t{n}", request_id=f"rt{n}", payload_digest="d", kind="turn",
                              workdir=str(root), prompt_path="/fake", sandbox="read-only")

@@ -66,8 +66,10 @@ def test_the_message_is_sent_only_after_initialize_and_carries_its_uuid():
     message id as its uuid; `accepted` needs the provider's replay of that uuid."""
     turn = ClaudeTurn(spec(images=(Image("ab" * 32, "image/png", "/x.png"),)), read_bytes=lambda p: b"\x89PNG")
     step = started(turn)
+    # C-26.8: `get_settings` goes just ahead of the message, so the served effort is the provider's.
+    assert [f.tag for f in step.frames] == ["user-message", "settings"]
+    assert json.loads(step.frames[1].line)["request"] == {"subtype": "get_settings"}
     frame = step.frames[0]
-    assert frame.tag == "user-message"
     body = json.loads(frame.line)
     assert body["uuid"] == MID and body["message"]["content"][0] == {"type": "text", "text": "fix the bug"}
     assert body["message"]["content"][1]["source"] == {"type": "base64", "media_type": "image/png", "data": "iVBORw=="}
@@ -122,6 +124,28 @@ def test_streamed_text_thinking_tools_and_completion():
     end = turn.feed(line(type="result", subtype="success", is_error=False, result="Fixed.", num_turns=2), 70)
     assert end.outcome.state == "complete" and end.outcome.accepted and end.outcome.answered
     assert [f.tag for f in end.frames] == ["close"] and end.events[-1].kind == "turn.completed"
+
+
+def test_a_long_answer_and_thinking_block_keep_their_head_and_tail_in_the_timeline():
+    """C-25.5 (review of 7da13417, finding 2): a text or thinking block over the
+    scrubber's budget had reached the timeline, and `final_text`, as the omission
+    marker alone. It keeps its scrubbed head and tail, bounded for one event; a
+    large `Write` is shown by its path, not as credential access."""
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    answer = "Here is the report.\n" + "".join(f"Finding {i}: fine.\n" for i in range(20_000)) + "Done.\n"
+    content = "".join(f"x{i} = {i}\n" for i in range(40_000))
+    full = turn.feed(line(type="assistant", message={"id": "msg_1", "model": "claude-opus-5-5", "content": [
+        {"type": "text", "text": answer}, {"type": "thinking", "thinking": answer, "signature": "sig"},
+        {"type": "tool_use", "id": "tu1", "name": "Write", "input": {"file_path": "/w/big.py", "content": content}}]}),
+        50)
+    text, thinking, tool = full.events
+    for event in (text, thinking):
+        assert len(answer) > 262_144 and len(event.data["text"]) <= 60_000
+        assert event.data["text"].startswith("Here is the report.\nFinding 0: fine.")
+        assert event.data["text"].endswith("Finding 19999: fine.\nDone.")
+        assert "characters omitted" in event.data["text"]
+    assert tool.data["hidden"] is False and tool.data["summary"] == "file_path: /w/big.py"
 
 
 def test_can_use_tool_becomes_an_approval_and_the_reply_is_scoped():
@@ -234,7 +258,7 @@ def test_replay_produces_the_same_events_and_frames():
 
     assert run() == run()
     events, frames = run()
-    assert frames == ["init", "user-message", "close"]
+    assert frames == ["init", "user-message", "settings", "close"]
     assert len({source for _, source in events}) == len(events)
 
 
@@ -491,7 +515,7 @@ def test_a_model_id_resolves_through_the_routed_model_when_the_catalog_has_no_su
                       read_bytes=lambda p: b"")
     turn.start()
     step = turn.feed(observed_init(), 0)
-    assert step.outcome is None and [f.tag for f in step.frames] == ["user-message"]
+    assert step.outcome is None and [f.tag for f in step.frames] == ["user-message", "settings"]
     assert turn.expected_model == "claude-opus-5-5"
     # Without the routed model, the same value is not in the catalog.
     bare = ClaudeTurn(spec(model_id="claude-opus-5-5", effort=None), read_bytes=lambda p: b"")
@@ -515,7 +539,9 @@ def test_the_catalog_is_kept_for_models_json():
     turn.feed(observed_init(), 0)
     by_value = {entry["value"]: entry for entry in turn.catalog}
     assert by_value["opus[1m]"] == {"value": "opus[1m]", "model": "claude-opus-5-5", "context_1m": True,
-                                    "display": None, "efforts": ["low", "medium", "high", "xhigh", "max"],
+                                    "display": None,
+                                    # C-26.8: ultracode is offered wherever xhigh is.
+                                    "efforts": ["low", "medium", "high", "xhigh", "max", "ultracode"],
                                     "fast": True}
     assert by_value["haiku"]["efforts"] == [] and by_value["claude-fable-5-1[1m]"]["fast"] is False
 

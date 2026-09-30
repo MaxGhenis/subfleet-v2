@@ -1362,7 +1362,7 @@
   "acceptance_owner": "fake",
   "v2_module": "subfleet/daemon.py",
   "test_name": "test_unmeasured_lane_is_probed_and_capped_to_one_in_flight",
-  "notes": "2026-09-03: five Opus lanes on unseeable accounts died mid-run. C-11.4 narrows the probe to writable or `hard` work (other jobs' first attempt is the probe); C-6.4 caps an unmeasured lane at one in flight."
+  "notes": "2026-09-03: five Opus lanes on unseeable accounts died mid-run. C-11.4 narrows the probe to writable or `hard` work (other jobs' first attempt is the probe); C-6.4 caps an unmeasured lane at one in flight. 2026-09-27: C-6.4 caps an unmeasured lane only when a policy sets `max_in_flight_unmeasured` (Max: \"uncap everything and instead use prioritization\"); the probe before writable or `hard` work stands, and a blind lane ranks after measured ones within its load band (C-11.3)."
  },
  {
   "id": 106,
@@ -1383,12 +1383,12 @@
   "v1_location": "`subfleet/delegate.py:568-584`, `subfleet/capacity.py:1315-1322`",
   "class": "routing-policy",
   "disposition": "replace",
-  "replacement": "The desktop-login lane is filtered out of the candidate set entirely and is dispatchable only when the job carries `--allow-desktop`, rather than merely ranking last.",
+  "replacement": "The desktop-login lane is filtered out of the candidate set while Claude Code uses that login (C-10.3's registry signal) unless the job carries `--allow-desktop`; otherwise it is a candidate ranked after every other lane.",
   "contract_clause": "C-10.3",
   "acceptance_owner": "unit",
   "v2_module": "subfleet/policy.py",
   "test_name": "test_desktop_login_lane_is_never_a_candidate_without_allow_desktop",
-  "notes": "verdict change: the 2026-09-04 standing order says the handicap was not enough; C-10.3 excludes the lane outright, so v1's ranking term has no v2 counterpart. See C-11.6."
+  "notes": "verdict change: the 2026-09-04 standing order says the handicap was not enough; C-10.3 excludes the lane outright, so v1's ranking term has no v2 counterpart. See C-11.6. 2026-09-27, Max: excluding it \"makes sense if we're using sf thru the cc app but not if thru the sf app\"; C-10.3 now refuses the lane only while Claude Code uses the login, and otherwise ranks it last, as v1 did."
  },
  {
   "id": 108,
@@ -1726,7 +1726,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/policy.py",
   "test_name": "test_codex_lanes_ordered_by_seven_day_reset_ascending",
-  "notes": "2026-08-22: drain the soonest-expiring window. Plan B keeps this as the Codex primary ordering key; in-flight never reorders Codex, but C-10.3 (row 138) overturns the display-only half of the shadow flag. Milestone 3."
+  "notes": "2026-08-22: drain the soonest-expiring window. Plan B keeps this as the Codex primary ordering key; in-flight never reorders Codex, but C-10.3 (row 138) overturns the display-only half of the shadow flag. Milestone 3. 2026-09-27: C-11.3's load band comes first, so in-flight counts reorder Codex lanes across bands only; within a band the weekly reset orders them as before."
  },
  {
   "id": 134,

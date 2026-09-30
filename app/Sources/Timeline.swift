@@ -86,6 +86,29 @@ struct TimelineItem: Identifiable, Equatable {
     var messageID: String?
     var content: TimelineContent
     var ts: String?
+
+    /// The card, when this row is an approval still waiting for the person.
+    var pendingCard: ApprovalCard? {
+        if case .approval(let card) = content, card.isPending { return card }
+        return nil
+    }
+
+    /// The card, when this row is an approval in any state.
+    var card: ApprovalCard? {
+        if case .approval(let card) = content { return card }
+        return nil
+    }
+}
+
+/// The pinned strip's Review button: "Review", or "Review (N)" while several
+/// cards wait; nil, and no button, while none does.
+func reviewButtonLabel(pending: Int) -> String? {
+    pending <= 0 ? nil : pending == 1 ? "Review" : "Review (\(pending))"
+}
+
+/// The sidebar's hand badge, spoken: "1 approval waiting", "3 approvals waiting".
+func approvalsWaitingWords(_ count: Int) -> String {
+    "\(count) approval\(count == 1 ? "" : "s") waiting"
 }
 
 /// One message and its turn.
@@ -111,6 +134,9 @@ struct TurnTimeline: Equatable {
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
+    /// The sequence number of the turn's first event: when it began running.
+    /// Compaction removes only deltas (C-25.4), so a re-read finds the same one.
+    var firstEventSeq: Int?
 
     /// Events first, then the settled receipt's facts (lane, served model).
     var served: Served { eventServed.merging(receiptServed) }
@@ -227,6 +253,10 @@ struct Timeline: Equatable {
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
     private var knownApprovals: [String: ApprovalView] = [:]
+    /// Whether the log has been read to its end since the timeline began or last
+    /// reset (a page that added nothing): until then rows still arrive above
+    /// whatever the view scrolled to.
+    private(set) var caughtUp = false
 
     init(conversationID: String) {
         self.conversationID = conversationID
@@ -241,6 +271,12 @@ struct Timeline: Equatable {
     }
 
     // MARK: Events
+
+    /// A new read of the log begins (the conversation opened again): until it
+    /// reaches the end, rows may still arrive above what the view shows.
+    mutating func startReading() {
+        caughtUp = false
+    }
 
     @discardableResult
     mutating func apply(page: EventsPage) -> PageResult {
@@ -259,6 +295,7 @@ struct Timeline: Equatable {
         if rebuilding && (page.events.isEmpty || !page.reset || page.floor.map { cursor >= $0 } == true) {
             rebuilding = false
         }
+        if count == 0 && !rebuilding && !page.reset { caughtUp = true }
         return .applied(count)
     }
 
@@ -266,6 +303,7 @@ struct Timeline: Equatable {
     mutating func resetEvents() {
         cursor = 0
         resets += 1
+        caughtUp = false
         firstEventTS = nil
         for id in order {
             guard var turn = turns[id] else { continue }
@@ -277,6 +315,7 @@ struct Timeline: Equatable {
             turn.limits = nil
             turn.diff = nil
             turn.items = []
+            turn.firstEventSeq = nil
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -314,6 +353,7 @@ struct Timeline: Equatable {
         let id = event.message_id ?? Timeline.conversationKey
         ensureTurn(id)
         guard var turn = turns[id] else { return }
+        turn.firstEventSeq = turn.firstEventSeq ?? event.seq
         if firstEventTS == nil, let ts = event.ts {
             firstEventTS = ts
             trimHistory()
@@ -389,21 +429,38 @@ struct Timeline: Equatable {
             let kind = fields.removeValue(forKey: "kind")?.string ?? "tool"
             let options = fields.removeValue(forKey: "options")?.array?.compactMap(\.string) ?? []
             let display = ApprovalDisplay(fields: fields)
-            if let requestID, turn.items.contains(where: { $0.id == "approval:\(id):\(requestID)" }) { break }
-            if let index = turn.items.firstIndex(where: {
+            // Known already from a view that carries its request id: the card moves to where
+            // the request came, below what the turn did before asking.
+            if let requestID, let index = turn.items.firstIndex(where: { $0.card?.requestID == requestID }) {
+                // This event read again: nothing to do.
+                guard turn.items[index].id != "approval:\(id):\(requestID)" else { break }
+                var row = turn.items.remove(at: index)
+                row.ts = event.ts ?? row.ts
+                turn.items.append(row)
+            } else if let index = turn.items.firstIndex(where: {
+                // Known from a view without the request id (an older daemon): by kind and display.
                 if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
                 return false
             }), case .approval(var card) = turn.items[index].content {
+                // Known from `approval.list` first: it moves to where the request came,
+                // below what the turn did before asking.
                 card.requestID = requestID
-                turn.items[index].content = .approval(card)
+                var row = turn.items.remove(at: index)
+                row.content = .approval(card)
+                row.ts = event.ts ?? row.ts
+                turn.items.append(row)
             } else {
                 let card = ApprovalCard(requestID: requestID,
-                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display),
+                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display,
+                                                                    requestID: requestID),
                                         kind: kind, display: display, options: options, state: .pending)
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
             }
-            if !(turn.messageState?.isTerminal ?? false) { turn.state = MessageState.approvalNeeded.rawValue }
+            // Only forward: a message the daemon has settled (ended, delivery unknown) stays so.
+            if !(turn.messageState.map { $0.isTerminal || $0 == .deliveryUnknown } ?? false) {
+                turn.state = MessageState.approvalNeeded.rawValue
+            }
         case "approval.resolved":
             let requestID = data["request_id"]?.displayText
             let decision = data["decision"]?.string
@@ -461,7 +518,22 @@ struct Timeline: Equatable {
         default:
             unknownKinds[event.kind, default: 0] += 1
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[id] = turn
+    }
+
+    /// A turn whose message has ended has no pending card: the daemon withdraws
+    /// an attempt's approvals before it settles the message (C-27.3), and a turn
+    /// that ends without `result` writes no event withdrawing its requests. A
+    /// message whose delivery is unknown was settled the same way.
+    private static func withdrawIfEnded(_ turn: inout TurnTimeline) {
+        guard let state = turn.messageState, state.isTerminal || state == .deliveryUnknown else { return }
+        for index in turn.items.indices {
+            if case .approval(var card) = turn.items[index].content, card.isPending {
+                card.state = .withdrawn
+                turn.items[index].content = .approval(card)
+            }
+        }
     }
 
     private func stream(_ turn: inout TurnTimeline, kind: String, block: String, text: String, final: Bool, ts: String?) {
@@ -519,6 +591,7 @@ struct Timeline: Equatable {
         if turn.personText == nil, let text = receipt.text {
             turn.personText = text + (receipt.text_truncated == true ? "\n…" : "")
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[receipt.message_id] = turn
         sortOrder()
     }
@@ -554,8 +627,9 @@ struct Timeline: Equatable {
     // MARK: Approvals
 
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
-    /// events made (which carry the provider's request id), by message, kind and
-    /// display; an approval with no card yet gets one.
+    /// events made (which carry the provider's request id): by the request id a
+    /// view carries, or, from an older daemon, by message, kind and display; an
+    /// approval with no card yet gets one.
     mutating func attach(approvals: [ApprovalView]) {
         for approval in approvals where approval.conversation_id == conversationID {
             knownApprovals[approval.approval_id] = approval
@@ -563,48 +637,125 @@ struct Timeline: Equatable {
             guard var turn = turns[approval.message_id] else { continue }
             let state: ApprovalCard.State = approval.state == "pending" ? .pending
                 : approval.state == "withdrawn" ? .withdrawn : .answered(nil)
+            // A card that is not pending cannot hold an approval the daemon says is: that
+            // hold was a guess by display (two identical requests in one turn), so let go.
+            if approval.state == "pending", let index = turn.items.firstIndex(where: {
+                if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id && !card.isPending }
+                return false
+            }), case .approval(var card) = turn.items[index].content {
+                card.approvalID = nil
+                turn.items[index].content = .approval(card)
+            }
             if let index = turn.items.firstIndex(where: {
                 if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id }
                 return false
             }), case .approval(var card) = turn.items[index].content {
                 if card.isPending { card.state = state }
                 turn.items[index].content = .approval(card)
-            } else if let index = turn.items.firstIndex(where: {
-                if case .approval(let card) = $0.content {
-                    return card.approvalID == nil && card.kind == approval.kind && card.display == approval.display
-                }
-                return false
+            } else if let index = turn.items.firstIndex(where: { item in
+                guard case .approval(let card) = item.content, card.approvalID == nil else { return false }
+                if let requestID = approval.request_id { return card.requestID == requestID }
+                return card.kind == approval.kind && card.display == approval.display
+                    && (card.isPending || approval.state != "pending")
             }), case .approval(var card) = turn.items[index].content {
                 card.approvalID = approval.approval_id
+                card.requestID = card.requestID ?? approval.request_id
                 if card.isPending { card.state = state }
                 turn.items[index].content = .approval(card)
             } else if approval.state == "pending" {
-                let card = ApprovalCard(requestID: nil, approvalID: approval.approval_id, kind: approval.kind,
-                                        display: approval.display, options: approval.options, state: .pending)
-                turn.items.append(TimelineItem(id: "approval:\(approval.message_id):\(approval.approval_id)",
-                                               messageID: approval.message_id, content: .approval(card),
+                let card = ApprovalCard(requestID: approval.request_id, approvalID: approval.approval_id,
+                                        kind: approval.kind, display: approval.display, options: approval.options,
+                                        state: .pending)
+                // A row id is shown once (SwiftUI's ForEach): a card that let go of this
+                // approval keeps the id it was made with.
+                var rowID = "approval:\(approval.message_id):\(approval.approval_id)"
+                if turn.items.contains(where: { $0.id == rowID }) { rowID += ":\(turn.items.count)" }
+                turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
             }
+            Timeline.withdrawIfEnded(&turn)
             turns[approval.message_id] = turn
         }
     }
 
+    /// The daemon's whole pending set for this conversation (`approval.list`,
+    /// `conversation.open`): a card joined to an approval it no longer lists is
+    /// withdrawn, since an approval never returns to pending. That covers what no
+    /// event says: an attempt that ended without `result`, or was admitted again.
+    mutating func reconcile(pending approvals: [ApprovalView]) {
+        let listed = Set(approvals.filter { $0.conversation_id == conversationID && $0.state == "pending" }
+            .map(\.approval_id))
+        for id in order {
+            guard var turn = turns[id] else { continue }
+            var changed = false
+            for index in turn.items.indices {
+                guard case .approval(var card) = turn.items[index].content, card.isPending,
+                      let approvalID = card.approvalID, !listed.contains(approvalID) else { continue }
+                card.state = .withdrawn
+                turn.items[index].content = .approval(card)
+                changed = true
+            }
+            if changed { turns[id] = turn }
+        }
+    }
+
     /// The id of a known approval for a card an event is making: same message,
-    /// kind and display, not yet held by another card of the turn; the oldest first.
-    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay) -> String? {
+    /// not yet held by another card of the turn; the one with the event's request
+    /// id, or, from an older daemon, the oldest with the same kind and display.
+    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay,
+                                 requestID: String?) -> String? {
         let held = Set(turn.items.compactMap { item -> String? in
             if case .approval(let card) = item.content { return card.approvalID }
             return nil
         })
-        return knownApprovals.values
-            .filter { $0.message_id == turn.messageID && $0.kind == kind && $0.display == display
-                && !held.contains($0.approval_id) }
+        let free = knownApprovals.values.filter { $0.message_id == turn.messageID && !held.contains($0.approval_id) }
+        if let requestID, let exact = free.first(where: { $0.request_id == requestID }) { return exact.approval_id }
+        return free
+            .filter { $0.request_id == nil && $0.kind == kind && $0.display == display }
             .min { ($0.created_at, $0.approval_id) < ($1.created_at, $1.approval_id) }?
             .approval_id
     }
 
     /// Every card still waiting for the person.
     var pendingApprovalCards: [ApprovalCard] { order.flatMap { turns[$0]?.pendingApprovals ?? [] } }
+
+    // MARK: Pending approvals within reach
+
+    /// Every pending card's row, oldest asked first (by its time, then where it
+    /// sits; a row with no time after those with one): the rows the pinned
+    /// strip's Review opens in turn, and the ones the view scrolls to.
+    var pendingApprovalItems: [TimelineItem] {
+        let rows = displayOrder.flatMap { id in (turns[id]?.items ?? []).filter { $0.pendingCard != nil } }
+        return rows.enumerated()
+            .map { (row: $0.element, place: $0.offset, at: $0.element.ts.flatMap(parseTimestamp)) }
+            .sorted { a, b in
+                switch (a.at, b.at) {
+                case let (x?, y?) where x != y: return x < y
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return a.place < b.place
+                }
+            }
+            .map(\.row)
+    }
+
+    /// The turn the strip pinned above the composer shows: the newest live turn
+    /// the provider has not answered, or else the turn of the oldest pending
+    /// card, so a card waiting on the person always has the strip's Review.
+    var pinnedTurn: TurnTimeline? {
+        if let live = liveMessageID, let turn = turns[live], turn.outcome == nil { return turn }
+        return pendingApprovalItems.first?.messageID.flatMap { turns[$0] }
+    }
+
+    /// The row the conversation scrolls to for an approval: the oldest pending
+    /// card not yet brought into view (`shown`), so each card is scrolled to
+    /// once, when it appears, wherever the person was reading; or, when the
+    /// person asked (`reveal`: the strip's Review, the sidebar badge), the
+    /// oldest pending card. Nil when no card waits.
+    func approvalScrollTarget(shown: Set<String>, reveal: Bool) -> String? {
+        let pending = pendingApprovalItems.map(\.id)
+        return reveal ? pending.first : pending.first { !shown.contains($0) }
+    }
 
     // MARK: History
 
@@ -692,12 +843,70 @@ struct Timeline: Equatable {
     /// followed by what its turn did.
     var items: [TimelineItem] {
         var out = history
-        for id in order {
+        for id in displayOrder {
             guard let turn = turns[id] else { continue }
             if let person = personItem(turn) { out.append(person) }
             out += turn.items
         }
         return out
+    }
+
+    /// Message ids in the order the timeline shows them: the turns in the order
+    /// they began running (their first event), then the messages still waiting
+    /// in the queue. Sequence order put a failover continuation (D-6) last,
+    /// under the messages queued before the limit and the next turn's approval
+    /// card, although C-26.7 runs it first (2026-09-27), and an unblock note
+    /// (C-24.8) below the person's turn that ran after it. A message that never
+    /// began (withdrawn, refused, or a continuation not yet sent) sits right
+    /// after the latest turn that began among the messages before it. The queue
+    /// shows in the order the daemon sends it, a repair message first.
+    var displayOrder: [String] {
+        let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
+        let repair = { (id: String) in Timeline.repairOrigins.contains(self.turns[id]?.origin ?? "") }
+        let waiting = queue.filter(repair) + queue.filter { !repair($0) }
+        let queued = Set(waiting)
+        var latest = 0
+        var placed: [(id: String, key: (Int, Int, Int))] = []
+        for (place, id) in order.enumerated() where !queued.contains(id) {
+            if id == Timeline.conversationKey {
+                placed.append((id, (Int.max, 1, place)))
+            } else if let began = turns[id]?.firstEventSeq {
+                placed.append((id, (began, 0, place)))
+                latest = max(latest, began)
+            } else {
+                placed.append((id, (latest, 1, place)))
+            }
+        }
+        return placed.sorted { $0.key < $1.key }.map(\.id) + waiting
+    }
+
+    /// The origins the daemon sends ahead of queued person messages
+    /// (`REPAIR_ORIGINS`, `next_dispatchable`).
+    static let repairOrigins: Set<String> = ["unblock-note", "failover"]
+
+    /// A message not yet sent to the provider: still queued (or not yet
+    /// received by the daemon), nothing done for it. A continuation belongs
+    /// with the message it continues, which the daemon sends next.
+    static func waitsInQueue(_ turn: TurnTimeline) -> Bool {
+        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty && turn.firstEventSeq == nil
+            && (turn.state == MessageState.queued.rawValue || turn.state == "sending")
+    }
+
+    /// The newest row of the turn that began last: what the view follows while
+    /// the end is on screen. Queued messages sit below it, and a message
+    /// withdrawn from the queue may too; neither changes while a turn streams.
+    var followedItem: TimelineItem? {
+        let begun = turns.values.filter { $0.messageID != Timeline.conversationKey && $0.firstEventSeq != nil }
+        if let turn = begun.max(by: { ($0.firstEventSeq ?? 0) < ($1.firstEventSeq ?? 0) }),
+           let last = turn.items.last ?? personItem(turn) {
+            return last
+        }
+        // Before any turn began: the last row above the queue.
+        for id in displayOrder.reversed() {
+            guard let turn = turns[id], !Timeline.waitsInQueue(turn) else { continue }
+            if let last = turn.items.last ?? personItem(turn) { return last }
+        }
+        return history.last
     }
 
     private func personItem(_ turn: TurnTimeline) -> TimelineItem? {
@@ -729,6 +938,48 @@ struct Timeline: Equatable {
             guard let state = turns[id]?.messageState else { return false }
             return [.waiting, .starting, .running, .approvalNeeded].contains(state)
         }
+    }
+}
+
+/// What the conversation view remembers to bring waiting cards into view: each
+/// new card once, when it appears, and the oldest whenever the conversation is
+/// opened or the person asks. It waits until the opened conversation has read
+/// its log, since rows arriving above a card move it out of view, and brings the
+/// card back once when the first page of older history this visit loads adds
+/// rows above it.
+struct ApprovalFollower: Equatable {
+    private(set) var conversationID: String?
+    private(set) var shown: Set<String> = []
+    /// The card last scrolled to in this visit.
+    private(set) var last: String?
+    /// History pages the timeline had when this visit began, and whether a page
+    /// has loaded since (only the first one moves the card back).
+    private(set) var historyPagesAtOpen = 0
+    private(set) var historyLoaded = false
+
+    /// The row to scroll to now, if any, after `timeline` changed or the person
+    /// asked (`reveal`, set to false once a row answers it).
+    mutating func target(in timeline: Timeline, reveal: inout Bool) -> String? {
+        if conversationID != timeline.conversationID {
+            conversationID = timeline.conversationID
+            shown = []
+            last = nil
+            historyPagesAtOpen = timeline.historyPagesLoaded
+            historyLoaded = false
+        }
+        guard timeline.caughtUp else { return nil }
+        let pending = timeline.pendingApprovalItems.map(\.id)
+        var target = timeline.approvalScrollTarget(shown: shown, reveal: reveal)
+        shown.formUnion(pending)
+        if !historyLoaded && timeline.historyPagesLoaded > historyPagesAtOpen {
+            historyLoaded = true
+            if target == nil, timeline.historyAddedByLastPage > 0, let last, pending.contains(last) { target = last }
+        }
+        if let target {
+            last = target
+            reveal = false
+        }
+        return target
     }
 }
 

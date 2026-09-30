@@ -113,8 +113,10 @@ def test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back
         counts = service._route_evaluations
         assert counts["old"] == 0 and counts["again"] == 0 and counts["deferred"] == 0
         assert counts["rejudged"] == 0             # no Claude lane was ever looked at
-        # The younger job competes for codex-1, unmeasured and so one slot: it waits for a slot, not a clock.
-        assert service._holds["younger"]["reason"] != "route-moved"
+        # The younger job competes for codex-1. With no cap (C-6.4, the default since
+        # 2026-09-27) it is placed beside the older one; under a cap it waits for a
+        # slot. Either way it never waits on a clock.
+        assert service._holds.get("younger", {}).get("reason") != "route-moved"
 
 
 def test_c6_3_a_reservation_records_the_evidence_an_evaluation_there_would(tmp_path):
@@ -221,7 +223,7 @@ def test_c26_9_a_stream_of_turns_never_keeps_an_older_writable_job_from_its_prob
             complete(service, turn)
             turn = successor
         assert probes == [(detached, "codex-1", "lane:codex-1:slot:0")]      # one probe, on the first pass
-        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+        assert slot_of(service, detached) == "lane:codex-1:slot:1"          # `slot:0` is the probe's alone
 
 
 def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe(tmp_path):
@@ -239,7 +241,30 @@ def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe
         assert [row["lane_id"] for row in service.store.list_attempts(detached)] == ["codex-1"]
         assert [job for job, _, _ in probes] == [detached]
         assert slot_of(service, turn) == "lane:codex-1:slot:turn-0"
-        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+        assert slot_of(service, detached) == "lane:codex-1:slot:1"
+
+
+def test_c11_4_detached_work_never_keeps_an_older_writable_job_from_its_probe(tmp_path):
+    """The uncap plan's review: with no per-lane cap a busy lane nearly always had an
+    attempt on `slot:0`, the one lease an admission probe takes, so an older writable
+    job waiting to probe lost it to each later job that needed no probe. Detached
+    attempts number from `slot:1` now: a read-only job runs on codex-1, a writable job
+    behind it is probed at once, beside it, and a third job runs beside both."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        probes = []
+        probing(service, patch, probes)
+        first = submit(service, harness, pinned_model="astra", tier="easy")
+        service._admit()
+        assert slot_of(service, first) == "lane:codex-1:slot:1"
+        writable = submit(service, harness, pinned_model="astra", tier="easy", sandbox="workspace-write",
+                          in_place=True)
+        later = submit(service, harness, pinned_model="astra", tier="easy")
+        service._admit()
+        assert probes == [(writable, "codex-1", "lane:codex-1:slot:0")]      # probed while `first` runs
+        assert slot_of(service, writable) == "lane:codex-1:slot:2"
+        assert slot_of(service, later) == "lane:codex-1:slot:3"
+        assert not service.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-1:slot:0'")
 
 
 def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_ends(tmp_path):
@@ -407,6 +432,221 @@ def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everyth
         assert admitted["detached"] == detached and admitted["turn"] == turns
 
 
+def test_c26_9_with_no_turn_cap_one_pass_places_every_turn(tmp_path):
+    """The shipped policy sets no turn cap: five turns on three measured Codex lanes are
+    all placed by one admission call, so two lanes each run two turns, and no turn is held
+    `fleet-full` or `slot-kept` (2026-09-27: a turn waited 12 minutes behind two others)."""
+    from tests.fake.test_admission_latency import measure
+    with fleet_daemon(tmp_path / "fleet") as (service, harness, patch):
+        assert service.policy["conversations"]["max_active_turns"] is None
+        assert service.policy["conversations"]["turn_slots_per_lane"] is None
+        for lane_id in CODEX:
+            measure(service, lane_id)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        turns = [submit_turn(service, harness, n) for n in range(5)]
+        service._admit()
+        held = {job_id: service._holds.get(job_id) for job_id in turns if not service.store.list_attempts(job_id)}
+        assert not held
+        lanes = [service.store.list_attempts(job_id)[0]["lane_id"] for job_id in turns]
+        assert max(lanes.count(lane_id) for lane_id in CODEX) >= 2
+
+
+@pytest.mark.parametrize("newer_pin", [None, "codex-2"])
+def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin):
+    """C-6.9 keeps an older job's place only where a later one could take the slot it waits
+    for. With no turn cap there is none: an older turn waiting on its closed lane holds a
+    later turn neither `behind-older-job` nor `slot-kept`. With a cap set, FIFO holds."""
+    from tests.fake.test_admission_latency import commit, measure
+    # Either cap alone turns FIFO on (review of 1b38d641: each half of the rule untested).
+    for caps, placed in (({}, True), ({"max_active_turns": 3, "turn_slots_per_lane": 1}, newer_pin is not None),
+                         ({"turn_slots_per_lane": 1}, newer_pin is not None),
+                         ({"max_active_turns": 3}, newer_pin is not None)):
+        with fleet_daemon(tmp_path / ("fleet-" + "-".join(sorted(caps)))) as (service, harness, patch):
+            service.policy["conversations"].update(caps)
+            for lane_id in CODEX:
+                measure(service, lane_id)
+            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+            commit(service, "close", "codex-1", 1)
+            older = submit_turn(service, harness, 0, pinned_lane="codex-1")
+            newer = submit_turn(service, harness, 1, **({"pinned_lane": newer_pin} if newer_pin else {}))
+            for _ in range(2):
+                service._admit()
+            assert service._holds[older]["reason"].startswith("closed")
+            assert bool(service.store.list_attempts(newer)) is placed, (caps, service._holds.get(newer))
+            if not placed:
+                assert service._holds[newer]["reason"] == "behind-older-job"
+
+
+def _turn_in(service, harness, n, *, workdir, sandbox="workspace-write", model="astra"):
+    """A conversation turn's job in `workdir`, as the dispatcher submits it."""
+    from subfleet import protocol
+    prompt = harness.root / f"turn-{n}.md"
+    prompt.write_text("turn")
+    args = protocol.SubmitArgs(request_id=f"turn:message-{n}:0", kind="turn", workdir=str(workdir),
+                               prompt_path=str(prompt), sandbox=sandbox, pinned_model=model,
+                               name=f"turn-conversation-{n}", in_place=True, independent=True,
+                               no_preamble=True, max_attempts=1, allow_tmp=True)
+    turn = {"conversation_id": f"conversation-{n}", "message_id": f"message-{n}", "provider": "codex",
+            "digest": f"digest-{n}"}
+    return service.submit(args, turn=turn)["job_id"]
+
+
+def _checkout(harness):
+    """Make the harness's workdir a git checkout with one commit, so writable turns lease it."""
+    from tests.unit.test_salvage import git
+    for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"), ("config", "user.email", "t@example.invalid")):
+        git(harness.workdir, *argv)
+    (harness.workdir / "f.txt").write_text("x\n")
+    git(harness.workdir, "add", ".")
+    git(harness.workdir, "commit", "-m", "base")
+
+
+def _end(service, job_id):
+    """The job's attempts end and release their leases, as a finished turn's do."""
+    with service.store.transaction("test.end") as tx:
+        for (attempt_id,) in tx.execute("SELECT attempt_id FROM attempts WHERE job_id=?", (job_id,)).fetchall():
+            tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (attempt_id,))
+            tx.execute("DELETE FROM leases WHERE holder=?", (attempt_id,))
+        tx.execute("UPDATE jobs SET state='succeeded' WHERE job_id=?", (job_id,))
+        tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
+
+
+def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease(tmp_path):
+    """Two writable turns in one checkout take turns on its lease; with no turn cap, a
+    read-only turn of a third conversation elsewhere is placed while one of them waits."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        elsewhere = harness.root / "elsewhere"
+        elsewhere.mkdir()
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        assert service.store.list_attempts(first)
+        second = _turn_in(service, harness, 1, workdir=harness.workdir)
+        third = _turn_in(service, harness, 2, workdir=elsewhere, sandbox="read-only")
+        for _ in range(3):
+            service._admit_turns()
+        assert not service.store.list_attempts(second)
+        assert service._holds[second]["reason"] == "lease-held"
+        assert service.store.list_attempts(third), service._holds.get(third)
+
+
+def _clock(service, job_id, when):
+    service.store.update_job(job_id, next_check_at=when)
+
+
+@pytest.mark.parametrize("older_clock", ["future", "due"])
+@pytest.mark.parametrize("caps,newer_model", [
+    ({}, "astra"),                                                   # no cap: no C-6.9 hold among turns
+    ({"max_active_turns": 3, "turn_slots_per_lane": 1}, "terra"),   # capped, but the two do not compete
+    ({"max_active_turns": 50, "turn_slots_per_lane": 50}, "terra"),
+])
+def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_path, caps, newer_model, older_clock):
+    """FIFO on a lease (review of 1b38d641). An older turn waits for a checkout another
+    turn holds; that turn ends after the pass has passed the older one, and a newer turn
+    wanting the same checkout is looked at next. The newer turn waits, queued behind the
+    older one, which takes the checkout on the next pass. Without the queue the newer turn
+    took it: with no turn cap nothing else holds one turn behind another, and a turn of
+    another model never competed (C-6.9) even with caps set. The older turn is passed on
+    its clock (`future`: queued from its recorded hold) or looked at (`due`: queued when
+    it is held again); each path is forced, not left to where a second boundary falls."""
+    from subfleet.daemon import after, utcnow
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        service.policy["conversations"].update(caps)
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        assert service.store.list_attempts(first)
+        older = _turn_in(service, harness, 1, workdir=harness.workdir)
+        service._admit_turns()
+        assert service._holds[older]["reason"] == "lease-held"
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir, model=newer_model)
+        _clock(service, older, after(3600) if older_clock == "future" else utcnow())
+        real = service._workspace
+
+        def first_ends_now(job):
+            if job["job_id"] == newer:
+                _end(service, first)
+            return real(job)
+        patch.setattr(service, "_workspace", first_ends_now)
+        service._admit_turns()
+        hold = service._holds[newer]
+        assert not service.store.list_attempts(newer), hold
+        assert hold["reason"] == "lease-held" and hold["leases"] == [] and hold["queued_behind"] == [older]
+        assert [key.split(":", 1)[0] for key in hold["queued"]] == ["worktree"]
+        patch.setattr(service, "_workspace", real)
+        service._admit_turns()
+        assert service.store.list_attempts(older), service._holds.get(older)
+        assert not service.store.list_attempts(newer)
+        _end(service, older)
+        service._admit_turns()
+        assert service.store.list_attempts(newer), service._holds.get(newer)
+
+
+def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
+    """Three turns wait for one checkout: a lease freed mid-pass is queued for the oldest,
+    both later turns name the oldest, and the checkout then passes to them in age order."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        first = _turn_in(service, harness, 0, workdir=harness.workdir)
+        service._admit_turns()
+        oldest = _turn_in(service, harness, 1, workdir=harness.workdir)
+        middle = _turn_in(service, harness, 2, workdir=harness.workdir)
+        service._admit_turns()
+        assert service._holds[oldest]["reason"] == service._holds[middle]["reason"] == "lease-held"
+        newest = _turn_in(service, harness, 3, workdir=harness.workdir)
+        for job_id in (oldest, middle):
+            _clock(service, job_id, after(3600))
+        real = service._workspace
+
+        def first_ends_now(job):
+            if job["job_id"] == newest:
+                _end(service, first)
+            return real(job)
+        patch.setattr(service, "_workspace", first_ends_now)
+        service._admit_turns()
+        assert service._holds[newest]["queued_behind"] == [oldest]
+        patch.setattr(service, "_workspace", real)
+        order = []
+        for _ in range(3):
+            service._admit_turns()
+            live = [job_id for job_id in (oldest, middle, newest) if service.store.query(
+                "SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running')", (job_id,))]
+            assert len(live) <= 1
+            order.extend(job_id for job_id in live if job_id not in order)
+            for job_id in live:
+                _end(service, job_id)
+        assert order == [oldest, middle, newest]
+
+
+def test_c26_9_a_turn_on_its_clock_keeps_its_place_for_a_lease_it_was_queued_for(tmp_path):
+    """A turn whose last hold was queued-only (the lease free, kept for an older turn that
+    has since gone) keeps its place while it waits on its clock: a newer turn wanting the
+    lease is queued behind it, not placed. The clocked-skip branch reads `queued` as well
+    as `leases` (review of b74e4aa5: a branch reading only `leases` passed every test).
+    No release happens in the pass, so the waiting turn is not hurried: the hold it
+    recorded is set up directly, as a pass would have recorded it."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        waiting = _turn_in(service, harness, 1, workdir=harness.workdir)
+        key = f"worktree:{service._write_target(service._job(waiting), harness.workdir)}"
+        hold = {"reason": "lease-held", "leases": [], "queued": [key], "queued_behind": ["gone"]}
+        service._capacity_wait(waiting, "lease-held:" + key, hold)
+        with service.store.transaction("fixture.wait") as tx:
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                       (after(3600), waiting))
+        service._admit_turns()                                   # records the lease snapshot: nothing is freed next
+        newer = _turn_in(service, harness, 2, workdir=harness.workdir)
+        service._admit_turns()
+        assert not service.store.list_attempts(newer), service._holds.get(newer)
+        assert service._holds[newer]["queued_behind"] == [waiting]
+
+
 # --- the property: what e053b2c's admission places, this one places, pass for pass ----------------
 
 CODEX = ("codex-1", "codex-2", "codex-3")
@@ -421,14 +661,15 @@ def as_before(service, patch) -> None:
     order (a turn before the detached jobs of its own tier only), and the route evaluated
     again, whole, inside the reserving transaction, at the reservation's clock, as e053b2c
     did whenever a commit had landed since its early evaluation. Turn slots are numbered
-    apart from detached ones, as here: with one numbering e053b2c let turns of a writable
-    job's own tier keep it from its probe (the test above), which is a hold this change
-    removes, not a bar to hold it to."""
+    apart from detached ones, and detached ones from 1, as here: with one numbering
+    e053b2c let turns of a writable job's own tier keep it from its probe (the test
+    above), and detached attempts on `slot:0` did the same to a writable job behind them
+    (review of the uncap plan), holds this code removes, not a bar to hold it to."""
     evaluate = Daemon._pick.__get__(service)
 
     def numbered_apart(tx, lane_id, turn):
         prefix = f"lane:{lane_id}:slot:" + ("turn-" if turn else "")
-        slot = 0
+        slot = 0 if turn else 1
         while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"{prefix}{slot}",)).fetchone():
             slot += 1
         return f"{prefix}{slot}"

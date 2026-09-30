@@ -322,6 +322,25 @@ def test_a_cold_sweep_dispatches_nothing_without_an_explicit_recovery(monkeypatc
     assert revive_module.OPT_IN_FIX in err
 
 
+@pytest.mark.parametrize("owned", [True, None], ids=["owned", "unknown"])
+def test_the_cold_sweep_note_says_when_an_unreadable_record_held_a_session(monkeypatch, owned):
+    """C-23.35 (review of the round-2 fixes, F3): a session held because a desktop
+    record could not be read is not called desktop-owned without saying why."""
+    from subfleet.sessions import revive as revive_module
+    candidate = revive_module.Candidate(session_id=ALICE, desktop_owned=owned)
+    held = revive_module.Attempted(session_id=ALICE, admitted=False, reason="held",
+                                   fix=revive_module.OPT_IN_FIX, candidate=candidate)
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates", lambda *a, **k: [candidate])
+    monkeypatch.setattr(revive_module, "revive", lambda *a, **k: held)
+    code, _out, err = run(["sessions", "continue", "--scope", "cold"], monkeypatch)
+    assert code == int(Exit.OK)
+    assert "automatic revival of desktop-owned sessions is off" in err
+    assert ("a session whose desktop record could not be read counts as one" in err) is (owned is None)
+
+
 def test_a_batch_cap_of_zero_means_zero(monkeypatch):
     """C-17.1 preserves `--max`: an explicit zero requests no recoveries."""
     from subfleet.sessions import revive as revive_module
