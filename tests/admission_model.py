@@ -102,7 +102,10 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         tier = _tier(policy, job)
         if job.get("pinned_lane") and job.get("wait_reason") not in ("approval", "uncertain") \
                 and scheduler.pin_unadmittable(policy, view, job):
-            result.outcomes.append(Outcome(job["job_id"], None, "pin-unadmittable", klass=klass))
+            # The daemon evaluates no route for it; what `evaluate` would say is kept
+            # as an observation, so a property can check it placed the job nowhere.
+            result.outcomes.append(Outcome(job["job_id"], None, "pin-unadmittable",
+                                           scheduler.evaluate(policy, view, job), klass=klass))
             continue
         if not turn:
             busy = scheduler.machine_hold(policy, machine, klass)
