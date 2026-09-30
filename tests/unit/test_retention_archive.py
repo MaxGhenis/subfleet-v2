@@ -1703,3 +1703,83 @@ def test_byte_copies_count_as_added(world, monkeypatch):
     archive = w.root / "archive" / "job-copy"
     metadata = sum((archive / n).stat().st_size for n in rarch.ADDED if (archive / n).exists())
     assert result["added_bytes"] == metadata + totals["copied_bytes"]
+
+
+def _remote_less(w: World, history: int = 150_000) -> None:
+    """The source repository has no network remote (live: ~/chief-of-staff),
+    with `history` bytes of incompressible history."""
+    git(w.repo, "remote", "remove", "origin")
+    (w.repo / "history.bin").write_bytes(os.urandom(history))
+    git(w.repo, "add", ".")
+    git(w.repo, "commit", "--quiet", "-m", "history")
+
+
+def test_a_remote_less_repository_over_the_history_limit_keeps_its_job(world):
+    """N1b (final review of e50716e8): with no network remote the bundle is the
+    whole history, paid again by every job; over the policy's limit the job is
+    kept as before retention by archive (`remote-less-history <size>`), before
+    anything moves. Under it, or with a network remote, it retires."""
+    w = world
+    _remote_less(w)
+    wt = w.job("job-big")
+    before = snapshot(wt)
+    measured = rgit.history_bytes(w.repo / ".git", [w.head()], [])
+    assert measured > 150_000
+    result = run(w, remote_less_history_bytes=100_000)
+    assert result["pruned"] == []
+    assert result["deferred"]["job-big"].startswith(f"remote-less-history: {measured} bytes"), result["deferred"]
+    assert snapshot(wt) == before and w.store.get_job("job-big") and not (w.root / "retention" / "job-big").exists()
+    assert not git(w.repo, "for-each-ref", "refs/subfleet-archive")               # nothing anchored either
+    assert run(w, remote_less_history_bytes=0)["pruned"] == []                    # 0: every such job with history
+    # The bundle also carries the anchor and a pack's own overhead.
+    retired = run(w, remote_less_history_bytes=measured + 64 * 1024, state=retention.RetentionState())
+    assert retired["pruned"] == ["job-big"], retired["deferred"]
+    assert (w.root / "archive" / "job-big" / "commits.bundle").stat().st_size <= measured + 64 * 1024
+
+
+def test_the_history_limit_is_for_repositories_without_a_network_remote(world):
+    w = world
+    (w.repo / "history.bin").write_bytes(os.urandom(150_000))
+    git(w.repo, "add", ".")
+    git(w.repo, "commit", "--quiet", "-m", "history")
+    w.push()
+    w.job("job-pushed")
+    assert run(w, remote_less_history_bytes=0)["pruned"] == ["job-pushed"]
+
+
+def test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job(world, monkeypatch):
+    """The bundle decides: if git's measure said less than the bundle made,
+    the bundle is dropped, the job put back, and its next check remembers."""
+    w = world
+    _remote_less(w)
+    w.job("job-under")
+    monkeypatch.setattr(rgit, "history_bytes", lambda *args, **kwargs: 1)
+    clock = Clock()
+    state = retention.RetentionState()
+    first = run(w, remote_less_history_bytes=100_000, clock=clock, state=state)
+    assert first["pruned"] == [] and first["deferred"]["job-under"].startswith("remote-less-history: a "), first
+    journal = json.loads((w.root / "retention" / "job-under" / "journal.json").read_text())
+    assert journal["state"] == "idle" and journal["history_bytes"] > 100_000
+    assert not list((w.root / "retention" / "job-under" / "archive").glob("commits.bundle*"))
+    clock.advance(rarch.DEFER_PERMANENT_S + 1)
+    second = run(w, remote_less_history_bytes=100_000, clock=clock, state=state)
+    assert second["deferred"]["job-under"].startswith(f"remote-less-history: {journal['history_bytes']} bytes")
+    assert (w.root / "worktrees" / "job-under").is_dir()
+
+
+def test_the_survey_keeps_what_the_history_limit_keeps(world):
+    from subfleet.retention_survey import sample, survey
+    w = world
+    _remote_less(w)
+    w.job("job-survey")
+    (w.root / "policy.json").write_text(json.dumps({"retention": {"remote_less_history_bytes": 100_000}}))
+    over = {"detached": (0, 0), "turn": (0, 0)}
+    report = survey(w.root, holders=False, sample_throughput=False, budgets=over)
+    assert report["kept"]["jobs_by_reason"] == {"remote-less-history": 1}, report["kept"]
+    sampled = sample(w.root, 3)
+    assert sampled["kept_in_sample"]["job-survey"].startswith("remote-less-history: ")
+    (w.root / "policy.json").write_text(json.dumps({"retention": {"remote_less_history_bytes": 10 ** 9}}))
+    report = survey(w.root, holders=False, sample_throughput=False, budgets=over)
+    assert report["would_retire"]["jobs"] == 1
+    assert report["would_retire"]["bundle_bytes_estimate"] > 150_000
+    assert report["would_retire"]["added_bytes_estimate"] > report["would_retire"]["bundle_bytes_estimate"]

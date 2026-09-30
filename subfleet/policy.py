@@ -15,6 +15,7 @@ from typing import Any
 from .contracts import (
     DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
+    RETENTION_REMOTE_LESS_HISTORY_BYTES,
     Closure, Decision, Exit, Lane, Reading,
 )
 
@@ -123,6 +124,7 @@ RETENTION_DEFAULTS: dict[str, float] = {
     "turn_jobs": TURN_RETENTION_MAX_JOBS,
     "turn_bytes": TURN_RETENTION_MAX_BYTES,
     "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
+    "remote_less_history_bytes": RETENTION_REMOTE_LESS_HISTORY_BYTES,
 }
 
 
@@ -359,7 +361,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
              {"compact_per_tick", *TURN_CAPS}),
-            ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
+            ("retention", RETENTION_DEFAULTS, {"turn_keep_days", "remote_less_history_bytes"},
+             {"jobs", "bytes", "turn_jobs", "turn_bytes", "remote_less_history_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")

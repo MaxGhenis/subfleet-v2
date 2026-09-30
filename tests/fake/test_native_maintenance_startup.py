@@ -108,6 +108,10 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
     assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
     assert seen['pins'] == service.conversations.retention_pins
+    assert seen['remote_less_history_bytes'] == 64 * 1024 ** 2          # d635 N1: the default
+    service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'remote_less_history_bytes': 0}}
+    service._retention()
+    assert seen['remote_less_history_bytes'] == 0
 
 
 def test_retention_catch_up_backs_off_while_a_pass_changes_nothing(state_daemon, monkeypatch):

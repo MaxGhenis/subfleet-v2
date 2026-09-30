@@ -104,6 +104,11 @@ class Context:
     #: called inside the commit transaction.
     pinned: Callable[[str, set[int]], str | None] | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
+    #: A job whose source repository has no network remote is kept when its
+    #: bundle would carry more history than this (N1); None: no limit.
+    remote_less_history_bytes: int | None = None
+    #: (repository, heads) -> history bytes, measured once per pass.
+    history: dict[tuple[str, tuple[str, ...]], int] = field(default_factory=dict)
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -302,6 +307,9 @@ class Retirement:
                 # C-8.4: a salvage ref that cannot be put into the archive pins its job, as before.
                 raise Defer("salvage not archivable", DEFER_PERMANENT_S, str(ref))
             salvage.append({"artifact_id": row["artifact_id"], "ref": ref, "commit": commit})
+        if common is not None:
+            self._remote_less_history(common, reg, [job.get("workdir_head"), *[s["commit"] for s in salvage]],
+                                      int(cache.get("history_bytes") or 0))
         device = os.lstat(self.work).st_dev
         for path in (worktree, job_dir):
             st = _lstat(path) if path is not None else None
@@ -319,6 +327,35 @@ class Retirement:
             "check1": False,
         }
         self.save()
+
+    def _remote_less_history(self, common: Path, reg: rgit.Registration | None, heads: list[str | None],
+                             seen: int = 0) -> None:
+        """Keep a job whose source repository has no network remote when its
+        bundle would carry more than `remote_less_history_bytes` of history:
+        nothing holds any of it elsewhere, so the bundle is every object HEAD,
+        the baseline and the salvage commits reach, paid again by each job
+        (about 460 MB per `~/chief-of-staff` job; final review of e50716e8,
+        N1). `seen` is a bundle an earlier attempt measured. Smaller ones
+        proceed. A measure that fails keeps the job too."""
+        limit = self.ctx.remote_less_history_bytes
+        if limit is None:
+            return
+        try:
+            if rgit.network_remotes(common, cancel=self.ctx.cancel):
+                return
+            if reg is not None:
+                heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
+            key = (str(common), tuple(sorted({h for h in heads if h})))
+            if key not in self.ctx.history:
+                self.ctx.history[key] = rgit.history_bytes(common, key[1], [], timeout=self.ctx.git_timeout_s,
+                                                           cancel=self.ctx.cancel)
+            size = max(self.ctx.history[key], seen)
+        except rgit.GitError as exc:
+            raise Defer("remote-less-history", DEFER_PERMANENT_S, f"size unknown: {exc}") from exc
+        if size > limit:
+            raise Defer("remote-less-history", DEFER_PERMANENT_S,
+                        f"{size} bytes of history with no network remote, over {limit} "
+                        "(retention.remote_less_history_bytes)")
 
     def _not_without_host(self, where: Path | None, worktree: Path) -> None:
         """A job registered in a repository inside another job's tree is kept
@@ -1233,6 +1270,16 @@ class _Builder:
                 os.close(fd)
             rgit.create_bundle(common, temporary, [ref], held, timeout=self.ctx.git_timeout_s * 6,
                                cancel=self.ctx.cancel)
+            limit = self.ctx.remote_less_history_bytes
+            size = temporary.stat().st_size
+            if not remotes and limit is not None and size > limit:
+                # git's measure before the bundle said less; the bundle decides,
+                # and the next attempt's check remembers it (N1).
+                temporary.unlink()
+                self.r.save(history_bytes=size)
+                raise Defer("remote-less-history", DEFER_PERMANENT_S,
+                            f"a {size}-byte bundle with no network remote, over {limit} "
+                            "(retention.remote_less_history_bytes)")
             rgit.verify_bundle(common, temporary, expected, fmt, self.r.work / "verify.git",
                                timeout=self.ctx.git_timeout_s * 6, cancel=self.ctx.cancel)
             os.replace(temporary, bundle)

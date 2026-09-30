@@ -2553,7 +2553,8 @@ class Daemon:
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
-                             state=self._retention_state)
+                             state=self._retention_state,
+                             remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))

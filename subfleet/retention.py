@@ -43,8 +43,8 @@ from typing import Any
 from . import retention_archive as rarch
 from . import retention_git as rgit
 from .contracts import (
-    RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES,
-    TURN_RETENTION_MAX_JOBS,
+    RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
+    TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
@@ -341,7 +341,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 state: RetentionState | None = None,
                 holders: Callable[..., dict[str, list[str]]] | None = None,
                 clock: Callable[[], float] = time.monotonic, batch: int = BATCH,
-                slice_s: float = SLICE_S, measure_s: float | None = None) -> dict[str, Any]:
+                slice_s: float = SLICE_S, measure_s: float | None = None,
+                remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES) -> dict[str, Any]:
     """Retire the oldest unpinned terminal jobs of each pool over its budget.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
@@ -351,7 +352,10 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     every retirement in its journal for the next pass. `holders` lists the
     processes holding a batch's trees (default: `lsof`). `pins` is asked again
     inside every delete transaction. `salvage_referenced_elsewhere` is kept for
-    callers of the old API: an artifact it vouches for does not pin.
+    callers of the old API: an artifact it vouches for does not pin. A job
+    whose source repository has no network remote, and whose bundle would
+    carry more than `remote_less_history_bytes` of history, is kept
+    (`remote-less-history`; None: no limit).
     """
     budgets = {"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)}
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
@@ -369,7 +373,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     run = _Pass(store, Path(state_root).resolve(), budgets=budgets, turn_keep_s=turn_keep_s, pins=pins,
                 explicit=set(referenced_job_ids), salvage_referenced_elsewhere=salvage_referenced_elsewhere,
                 cancel=cancel, deadline=deadline, state=state, holders=holders or lsof_holders, clock=clock,
-                batch=batch, slice_s=slice_s, measure_s=measure_s, progress=progress)
+                batch=batch, slice_s=slice_s, measure_s=measure_s, progress=progress,
+                remote_less_history_bytes=remote_less_history_bytes)
     try:
         return run.run()
     except (_Interrupted, rarch.Interrupted, rgit.Cancelled) as exc:
@@ -381,7 +386,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 
 class _Pass:
     def __init__(self, store, root, *, budgets, turn_keep_s, pins, explicit, salvage_referenced_elsewhere,
-                 cancel, deadline, state, holders, clock, batch, slice_s, measure_s, progress):
+                 cancel, deadline, state, holders, clock, batch, slice_s, measure_s, progress,
+                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES):
         self.store = store
         self.root = root
         self.budgets = budgets
@@ -399,7 +405,8 @@ class _Pass:
         self.measure_s = measure_s
         self.progress = progress
         self.errors: list[dict[str, str]] = progress["errors"]
-        self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit)
+        self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit,
+                                 remote_less_history_bytes=remote_less_history_bytes)
         self.sizes: dict[str, int] = {}
         #: Jobs whose size could not be measured: decided, size unknown (N2).
         self.unknown: set[str] = set()
