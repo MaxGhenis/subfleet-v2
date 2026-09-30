@@ -122,6 +122,10 @@ class SubmitArgs:
     # C-17.7: {"id", "label", "index", "size"} for a job submitted by `run --batch`.
     # A label for people and the app, never an input to routing or the digest.
     batch: dict | None = None
+    # C-6.14: `run --paths`, what a writable job's own worktree checks out (`.`
+    # is everything). Part of the request digest when given; kept in the
+    # manifest's `workspace.checkout`, not in the jobs table.
+    checkout_paths: list[str] | None = None
 
 
 @dataclass

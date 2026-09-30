@@ -318,8 +318,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     caps = {**DEFAULT_CAPS, "reading_ttl_s": READING_TTL_S,
             "max_tokens_observed": None, **value["caps"]}
     for name, item in caps.items():
-        if item is None and (name == "max_tokens_observed" or name in COUNT_CAPS):
-            continue            # C-6.4: null is no cap
+        if item is None and (name in ("max_tokens_observed", "sparse_checkout_min_bytes") or name in COUNT_CAPS):
+            continue            # C-6.4: null is no cap; C-6.14: null is never sparse
         if not isinstance(item, int) or isinstance(item, bool) or item < 1:
             fail(f"caps.{name}", "must be a positive integer, or null for no cap" if name in COUNT_CAPS
                  else "must be a positive integer")

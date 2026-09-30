@@ -59,7 +59,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    allow_desktop: bool = False, policy_hash: str = "",
                    isolated_review: bool = False, review_root: str | None = None,
                    round_lease: str | None = None, resume: Mapping[str, Any] | None = None,
-                   unmeasured_reserve_reason: str | None = None) -> str:
+                   unmeasured_reserve_reason: str | None = None,
+                   checkout_paths: Collection[str] | None = None) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -89,6 +90,10 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
             # Default submissions retain their old digest across this additive
             # upgrade; explicit authorization is part of the exact request.
             payload["unmeasured_reserve_reason"] = unmeasured_reserve_reason
+        if checkout_paths is not None:
+            # C-6.14, additive as above: a submission without `--paths` keeps
+            # its digest; the paths are a set, so their order is not the request.
+            payload["checkout_paths"] = sorted(checkout_paths)
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

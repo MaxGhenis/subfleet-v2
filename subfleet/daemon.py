@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, checkout, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -225,6 +225,28 @@ WORKSPACE_PLACE_UNCOMMITTED = (" The caller ran this job from {top}/{prefix}, wh
 WORKSPACE_PLACE_UNCHECKED = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "
                              "that directory is relative to {worktree}/{prefix} here (if commit {head} does not "
                              "hold it, you start at {worktree}; create it there).")
+#: C-6.14: the caller's place is in the repository but not in its sparse checkout.
+WORKSPACE_PLACE_SPARSE = (" The caller ran this job from {top}/{prefix}, which holds {size} and is not "
+                          "checked out here, so you start at {worktree}: a path the task gives relative to "
+                          "that directory is relative to {worktree}/{prefix}, and `git sparse-checkout add "
+                          "{prefix}` checks it out.")
+#: C-6.14: what a job in a sparse worktree is told about it, after the workspace note.
+SPARSE_NOTE = (
+    "Only part of this repository is checked out: a full checkout of {head} would write {tree_bytes} in "
+    "{tree_files} files, so your workspace is a sparse checkout (git sparse-checkout, cone mode) holding the "
+    "top-level files and {dirs} ({cone_bytes} in all). Every other committed file is in the repository and "
+    "can be read without checking it out: `git show HEAD:<path>`, `git ls-tree -r --name-only HEAD -- <dir>`, "
+    "`git grep -e <pattern> HEAD -- <dir>`. To work in a directory that is not checked out, add it first with "
+    "`git sparse-checkout add <dir>`, naming the narrowest directory the work needs{largest}; never run "
+    "`git sparse-checkout disable`, which checks out everything. Files you write outside the checked-out "
+    "directories are kept as well.{left_out}\n\n"
+)
+#: How many cone directories the note names before it points at `git sparse-checkout list`.
+SPARSE_NOTE_DIRS = 20
+#: C-6.14: how long measuring a worktree on disk may take, right after admission
+#: cuts it (on the admission pass) and after each attempt's salvage.
+WORKTREE_SIZE_CREATED_S = 5.0
+WORKTREE_SIZE_AFTER_S = 10.0
 HEADLESS_PREAMBLE = (
     HEADLESS_MARKER + "\nThis is a delegated, headless job. Complete the task "
     "autonomously, preserve the caller's work, and return a final deliverable.\n\n"
@@ -381,6 +403,35 @@ def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | 
         return None
     entries = [entry.split(b"\t", 1) for entry in found.stdout.split(b"\0") if b"\t" in entry]
     return any(meta.split()[1:2] == [b"tree"] and path == os.fsencode(prefix) for meta, path in entries)
+
+
+def _sparse_note(plan: dict, head: str) -> str:
+    """C-6.14: the paragraph a job in a sparse worktree is given (`SPARSE_NOTE`)."""
+    if plan.get("mode") != "sparse":
+        return ""
+    cone = list(plan.get("cone") or ())
+    if not cone:
+        dirs = "no directory"
+    else:
+        shown = ", ".join(cone[:SPARSE_NOTE_DIRS])
+        more = len(cone) - SPARSE_NOTE_DIRS
+        dirs = ("these directories: " + shown
+                + (f", and {more} more (`git sparse-checkout list` names them all)" if more > 0 else ""))
+    largest = plan.get("largest_excluded") or []
+    largest_text = ("; the largest left out are " + "; ".join(
+        f"{item['path']} ({checkout.human_bytes(item['bytes'])})" for item in largest)) if largest else ""
+    left = [item for item in plan.get("considered") or () if item.get("reason") == "budget"
+            and item.get("from") == "brief" and not item.get("checked_out", item.get("included"))]
+    left_text = ""
+    if left:
+        named = ", ".join(f"{item['path']} ({checkout.human_bytes(item.get('bytes'))})" for item in left)
+        left_text = (f" The task names {named}, which {'is' if len(left) == 1 else 'are'} not checked out "
+                     f"because this checkout holds at most {checkout.human_bytes(plan.get('budget_bytes'))}: "
+                     "add only the part the work needs.")
+    return SPARSE_NOTE.format(head=head[:12], tree_bytes=checkout.human_bytes(plan.get("tree_bytes")),
+                              tree_files=plan.get("tree_files"), dirs=dirs,
+                              cone_bytes=checkout.human_bytes(plan.get("cone_bytes")),
+                              largest=largest_text, left_out=left_text)
 
 
 class Daemon:
@@ -1474,13 +1525,14 @@ class Daemon:
                     raise ValueError("max_attempts must be positive and within policy caps")
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
+                explicit = self._explicit_paths(args, sandbox, workdir, head, turn)
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
                     task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
-                    unmeasured_reserve_reason=reason)
+                    unmeasured_reserve_reason=reason, checkout_paths=args.checkout_paths)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -1510,7 +1562,7 @@ class Daemon:
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id
             values = dataclasses.asdict(args)
-            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider", "checkout_paths"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
                           workdir=str(workdir), workdir_head=head, out_path=out,
@@ -1578,8 +1630,18 @@ class Daemon:
                     if held is False:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
-                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
-                note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+                # C-6.14: how much of the repository the worktree checks out.
+                plan = self._plan_checkout(workdir, top, head, prefix, prompt, explicit, cap)
+                if plan["mode"] == "sparse" and prefix != "." and not plan.get("place_checked_out", True):
+                    # The caller's place is past the budget: the job starts at the top.
+                    size = next((item.get("bytes") for item in plan.get("considered") or ()
+                                 if item.get("from") == "caller"), None)
+                    place = WORKSPACE_PLACE_SPARSE.format(top=top, prefix=prefix, worktree=worktree,
+                                                          size=checkout.human_bytes(size))
+                    prefix = "."
+                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix, "checkout": plan}
+                note = (WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place)
+                        + _sparse_note(plan, head)).encode()
             preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
             if sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
@@ -2099,6 +2161,7 @@ class Daemon:
                 "('job.workspace_deferred','job.workspace_failed') ORDER BY event_id DESC LIMIT 1", (a.job_id,))
             return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                                **json.loads(workspace["data_json"])} if workspace else None),
+                    "worktree_report": self._worktree_report(a.job_id),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
@@ -2833,26 +2896,38 @@ class Daemon:
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
+            # C-6.14: a job submitted with a checkout plan is handed its worktree
+            # only once `worktree.json` records it made; one without (submitted
+            # before the plan existed) is judged as before.
+            plan = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {})
+                    .get("workspace") or {}).get("checkout")
             if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None):
+                                           or git_head(workdir, timeout_s=cap) is None
+                                           or (plan is not None and not self._worktree_record(job["job_id"]).get("created"))):
                 # A `worktree add` killed at its cap can leave a directory that is
-                # not a worktree. `.git` is checked first because git run in a
-                # bare directory answers for whatever repository encloses it.
-                # Nothing has run here (the job has no attempt), so it is rebuilt
-                # rather than handed to a provider.
+                # not a worktree, and a sparse one cut short has a HEAD and no
+                # files. `.git` is checked first because git run in a bare
+                # directory answers for whatever repository encloses it. Nothing
+                # has run here (the job has no attempt), so it is rebuilt rather
+                # than handed to a provider.
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
+                started = time.monotonic()
                 try:
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True,
-                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
+                    checkout.create_worktree(job["workdir"], workdir, job["workdir_head"], plan,
+                                             timeout_s=self.policy["caps"]["worktree_add_timeout_s"])
+                except checkout.CheckoutError as exc:
+                    self._discard_worktree(job["workdir"], workdir, cap)
+                    if exc.transient:
+                        raise SalvageError(f"could not allocate worktree: {exc}", transient=True) from exc
+                    raise AdapterError(f"could not allocate worktree: {exc}",
+                                       fix="check repository and state-root permissions") from exc
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
                     raise
-                if result.returncode:
-                    self._discard_worktree(job["workdir"], workdir, cap)
-                    raise AdapterError("could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}"),
-                                       fix="check repository and state-root permissions")
+                os.chmod(workdir, 0o700)
+                self._record_worktree(job, workdir, "created", cap_s=WORKTREE_SIZE_CREATED_S,
+                                      made_in_s=time.monotonic() - started)
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -2862,11 +2937,96 @@ class Daemon:
             baseline = git_tree(workdir, head, timeout_s=cap)
         return workdir, head, baseline
 
+    def _explicit_paths(self, args: protocol.SubmitArgs, sandbox: Sandbox, workdir: Path,
+                        head: str | None, turn: dict | None) -> list[str] | None | bool:
+        """C-6.14: `run --paths` as cone directories (`checkout.explicit_dirs`): False
+        when not given, None for `.` (everything). Refused for a job that gets no
+        worktree of its own, and for a path the caller's head does not hold."""
+        if args.checkout_paths is None:
+            return False
+        paths = args.checkout_paths
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) for path in paths):
+            raise ValueError("paths must be a non-empty list of repository paths")
+        if sandbox != Sandbox.WORKSPACE_WRITE or args.in_place or turn is not None or head is None:
+            raise ValueError("paths: only a writable job in a worktree of its own checks out part of a "
+                             "repository; this job works in the caller's checkout")
+        cleaned = [checkout.normalize_explicit(path) for path in paths]
+        if "." in cleaned:
+            return None
+        try:
+            kinds = checkout.object_kinds(workdir, head, cleaned,
+                                          timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        except subprocess.SubprocessError as exc:
+            raise SalvageError(f"git cat-file did not finish: {exc}", transient=True) from exc
+        return checkout.explicit_dirs(cleaned, kinds)
+
+    def _plan_checkout(self, workdir: Path, top: str, head: str, prefix: str, prompt: bytes,
+                       explicit: list[str] | None | bool, cap: float) -> dict:
+        """C-6.14: measure the caller's head and plan the job's checkout
+        (`checkout.plan_checkout`). A measurement that fails is recorded and
+        gets a full checkout, as every job had before; it never refuses a submit."""
+        caps = self.policy["caps"]
+        threshold = caps.get("sparse_checkout_min_bytes")
+        budget = caps.get("sparse_cone_budget_bytes") or 1024 ** 3
+        sizes, error = None, None
+        try:
+            sizes = checkout.measure_tree(top, head, timeout_s=cap)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            error = f"{type(exc).__name__}: {exc}"[:300]
+            self.log.warning("submit could not measure %s at %s: %s", top, head[:12], error)
+        named: list[dict] = []
+        dropped = 0
+        if sizes is not None and explicit is False and threshold is not None and sizes.bytes > threshold:
+            roots = {top: ".", os.path.realpath(top): "."}
+            for spelling in (str(workdir), os.path.realpath(workdir)):
+                roots.setdefault(spelling, prefix)
+            named, dropped = checkout.named_paths(prompt, sizes, roots=roots, prefix=prefix)
+        plan = checkout.plan_checkout(sizes, threshold=threshold, budget=budget, explicit=explicit,
+                                      named=named, prefix=prefix, git_ok=checkout.sparse_supported(),
+                                      unmeasured=error)
+        if dropped:
+            plan["named_dropped"] = dropped
+        return plan
+
+    def _worktree_record(self, job_id: str) -> dict:
+        return self._read_json(self.root / "jobs" / job_id / "worktree.json") or {}
+
+    def _record_worktree(self, job: dict, path: str, stage: str, *, cap_s: float,
+                         attempt: int | None = None, made_in_s: float | None = None) -> None:
+        """C-6.14: measure a job's own worktree on disk and record it in
+        `jobs/<id>/worktree.json` (`created`, which also marks the checkout
+        finished, or `latest`), with one `daemon.log` line."""
+        usage = checkout.disk_usage(path, cap_s=cap_s)
+        plan = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {})
+                .get("workspace") or {}).get("checkout")
+        record = self._worktree_record(job["job_id"])
+        entry = {"at": utcnow(), **usage}
+        if attempt is not None:
+            entry["attempt"] = attempt
+        if made_in_s is not None:
+            entry["made_in_s"] = round(made_in_s, 3)
+        record.update(path=path, checkout=checkout.describe(plan))
+        record[stage] = entry
+        self._publish("worktree", self.root / "jobs" / job["job_id"] / "worktree.json", json_bytes(record))
+        self.log.info("worktree %s %s: %s; on disk %s (%s apparent, %d files%s)%s", job["job_id"],
+                      "created" if stage == "created" else f"after a{attempt}", checkout.describe(plan),
+                      checkout.human_bytes(usage["bytes"]), checkout.human_bytes(usage["apparent_bytes"]),
+                      usage["files"], "" if usage["complete"] else f", partial: stopped at {cap_s:g} s",
+                      f" in {made_in_s:.1f} s" if made_in_s is not None else "")
+
+    def _worktree_report(self, job_id: str) -> dict | None:
+        """C-6.14, for `runs show` (`checkout.report`)."""
+        return checkout.report(self.root / "jobs" / job_id)
+
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
         """For the caller (review of d261): the sandbox the job got, and for a
         writable job that is not in place, the worktree it will write in."""
         workspace = (self._read_json(self.root / "jobs" / job_id / "manifest.json") or {}).get("workspace") or {}
-        return {"sandbox": sandbox, "worktree": workspace.get("worktree")}
+        reply = {"sandbox": sandbox, "worktree": workspace.get("worktree")}
+        summary = checkout.summary(workspace.get("checkout"))
+        if summary:
+            reply["checkout"] = summary            # C-6.14
+        return reply
 
     def _launch_dir(self, job: dict, provider: str | None = None) -> str:
         """Where the provider starts: the caller's directory, or in a worktree the
@@ -4862,12 +5022,25 @@ class Daemon:
                        "checkpoint": git_head(job.get("worktree") or job["workdir"], timeout_s=cap)}
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
+            self._size_after(job, a)
         result = receipt["result"]
         if not result:
             return [], receipt["checkpoint"]
         ref = result.get("ref") or result.get("ref_name")
         commit = result.get("commit") or result.get("commit_sha")
         return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
+
+    def _size_after(self, job: dict, a: dict) -> None:
+        """C-6.14: after an attempt's salvage, what the job's own worktree holds on
+        disk (never an in-place job's checkout, which is the caller's). A failure
+        is logged; it never holds finalization."""
+        path = job.get("worktree")
+        if job.get("in_place") or not path or Path(path).parent != self.root / "worktrees":
+            return
+        try:
+            self._record_worktree(job, path, "latest", cap_s=WORKTREE_SIZE_AFTER_S, attempt=a["seq"])
+        except OSError as exc:
+            self.log.warning("worktree %s: could not record its size: %s", job["job_id"], exc)
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.

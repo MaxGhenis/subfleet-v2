@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from . import capacity, ids, protocol
+from .checkout import describe as describe_checkout
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -683,7 +684,15 @@ def _prepare_submit(args: argparse.Namespace,
         isolated_review=bool(getattr(args, "isolated_review", False)),
         review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
         batch=batch,
+        checkout_paths=_checkout_paths(getattr(args, "paths", None)),
     ), None
+
+
+def _checkout_paths(values: list[str] | None) -> list[str] | None:
+    """`--paths`, repeatable and comma-separated, as the list the daemon checks (C-6.14)."""
+    if not values:
+        return None
+    return [part.strip() for value in values for part in value.split(",") if part.strip()] or None
 
 
 def _asking_again(verb: str, what: str) -> Callable[[ResponseLost], None]:
@@ -824,6 +833,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             # d261: a build job writes by policy, in its own worktree, not here.
             note(f"  writes in {result['worktree']} (a copy of this repository's HEAD, without "
                  f"uncommitted files); --in-place writes here, -s read-only writes nowhere")
+            plan = result.get("checkout") or {}
+            if plan.get("mode") == "sparse":
+                # C-6.14: what the worktree holds, and what it leaves for the job to add.
+                note(f"  checkout: {describe_checkout(plan)}; the rest stays readable with "
+                     f"`git show HEAD:<path>` and `git sparse-checkout add <dir>`")
+                if plan.get("left_out"):
+                    note(f"  not checked out, over the budget: {', '.join(plan['left_out'])}")
         elif result.get("sandbox"):
             note(f"  sandbox: {result['sandbox']}")
         if wait_inline:
@@ -853,6 +869,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
+    "paths": ("paths", "list"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -2721,6 +2738,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="allow a workdir under /tmp (C-2.4)")
     p_run.add_argument("--in-place", action="store_true",
                        help="write in the caller's directory instead of a worktree")
+    p_run.add_argument("--paths", action="append", metavar="PATH",
+                       help="check out only these repository paths (relative to its top; repeatable or "
+                            "comma-separated) in the job's own worktree when the repository is over the "
+                            "sparse threshold; `.` checks out everything (C-6.14)")
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
