@@ -9,7 +9,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet.capacity import PROBE_LEASES, build_view, mark_probe_leases
-from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
+from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading, ReadingLabel
 from subfleet.status_json import build_status, write_status
 from subfleet.store import Store
 from subfleet.timers import Timers, iso
@@ -367,7 +367,7 @@ V1_CLAUDE_ROW = {"lane_id", "verdict", "enabled", "owner", "dispatchable", "emai
 V1_FLEET = {"total_homes", "dispatchable_now", "best_home", "earliest_reset", "reset_credits_remaining"}
 V1_CLAUDE_LANES = {"enrolled", "dispatchable_now"}
 PROBE_ROW = {"probe_state", "probe_holder"}
-PROBE_STATES = ("reserved", "starting", "containing", "quarantined", "uncertain")
+PROBE_STATES = ("reserved", "starting", "containing", "quarantined", "completed", "uncertain")
 
 
 def _codex(n, **extra):
@@ -592,17 +592,26 @@ LANE_CASE = st.fixed_dictionaries({
     "revoked": st.booleans(), "probe": st.sampled_from([None, "quarantined", "reserved", "no-record"])})
 
 
+ABSENT = object()
+
+
+def _cap(values):
+    return st.one_of(st.just(ABSENT), st.none(), values)
+
+
 @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(cases=st.lists(LANE_CASE, min_size=3, max_size=3), fleet_cap=st.integers(1, 8),
-       per_lane=st.integers(1, 3), unmeasured=st.integers(1, 2))
+@given(cases=st.lists(LANE_CASE, min_size=3, max_size=3), fleet_cap=_cap(st.integers(1, 8)),
+       per_lane=_cap(st.integers(1, 3)), unmeasured=_cap(st.integers(1, 2)))
 def test_c18_1_status_json_and_admission_judge_probe_leases_alike(fleet, cases, fleet_cap, per_lane, unmeasured):
-    """C-18.1 differential: `fence_probes` after `enrich_view` (status.json) agrees with the daemon's order,
-    `mark_probe_leases` before `enrich_view` (admission), on every lane's verdict and probe fields."""
+    """C-6.4, C-18.1 differential: `fence_probes` after `enrich_view` (status.json) agrees with the daemon's
+    order, `mark_probe_leases` before `enrich_view` (admission), on every lane's verdict and probe fields, whether
+    a cap is set, null or absent (no cap, #72); and in both a lane a probe lease names is out, whatever else holds."""
     timer, store, records, sent, enroll = fleet
     if not store.list_lanes():
         enroll(1, 2, 3)
-    timer.policy["caps"] = {"max_active_attempts": fleet_cap, "max_in_flight_per_lane": per_lane,
-                            "max_in_flight_unmeasured": unmeasured}
+    caps = {"max_active_attempts": fleet_cap, "max_in_flight_per_lane": per_lane,
+            "max_in_flight_unmeasured": unmeasured}
+    timer.policy["caps"] = {key: value for key, value in caps.items() if value is not ABSENT}
     timer.metadata = {f"codex-{n}": {"probe_status": "revoked"} for n, case in enumerate(cases, 1) if case["revoked"]}
     records.clear()
     with store.transaction("test.leases") as tx:
@@ -633,3 +642,134 @@ def test_c18_1_status_json_and_admission_judge_probe_leases_alike(fleet, cases, 
             == {row["lane_id"]: tuple(row.get(key) for key in fields) for row in admission["lanes"]})
     assert status["unavailable_lanes"] == admission["unavailable_lanes"]
     assert status["reserved_probes"] == admission["reserved_probes"] == sum(bool(case["probe"]) for case in cases)
+    held = {f"codex-{n}" for n, case in enumerate(cases, 1) if case["probe"]}
+    for judged in (status, admission):
+        assert held <= set(judged["unavailable_lanes"])
+        for row in judged["lanes"]:
+            assert (row.get("probe_holder") is not None) == (row["lane_id"] in held)
+            if row["lane_id"] in held:
+                assert not row["dispatchable"]
+                assert row["probe_state"] == {"no-record": "uncertain"}.get(cases[int(row["lane_id"][6:]) - 1]["probe"],
+                                                                         cases[int(row["lane_id"][6:]) - 1]["probe"])
+
+
+def test_c18_1_the_published_verdict_is_one_committed_states(fleet):
+    """C-18.1 the leases are read with the snapshot's rows: a probe that ends and closes its lane in one commit
+    between the snapshot and the publication never publishes the lane as dispatchable (it was held, then closed)."""
+    timer, store, records, sent, enroll = fleet
+    enroll(1, 2)
+    store.acquire_lease("lane:codex-1:slot:0", "probe:finishing")
+    records["probe:finishing"] = {"holder": "probe:finishing", "state": "running"}
+    snapshot = timer.snapshot()
+    with store.transaction("test.probe_finished"):
+        store.release_leases("probe:finishing")
+        store.add_closure(Closure("codex-1", "account", iso(AT + timedelta(hours=1)),
+                                  ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    records["probe:finishing"] = {"holder": "probe:finishing", "state": "completed"}
+    timer.publish_status(snapshot)
+    status, homes = _published(timer)
+    assert not homes["codex-1"]["dispatchable"]
+    assert (homes["codex-1"]["probe_state"], homes["codex-1"]["probe_holder"]) == ("running", "probe:finishing")
+    assert status["codex"]["fleet"]["dispatchable_now"] == 1
+    timer.publish_status(timer.snapshot())
+    status, homes = _published(timer)
+    assert not homes["codex-1"]["dispatchable"] and homes["codex-1"]["probe_state"] is None
+
+
+def _fresh_weekly(store, lane_id, utilization=.2):
+    store.add_reading(Reading(lane_id, "account", "seven_day", utilization, iso(AT + timedelta(days=1)),
+                              ReadingLabel.PROVIDER, "wham", iso(AT - timedelta(seconds=5))))
+
+
+def test_c18_1_c19_the_probe_cycles_reset_credit_policy_judges_before_the_leases(fleet):
+    """C-18.1, C-19 an admission probe's seconds on the only lane with headroom do not send the policy looking
+    for a credit to spend: it judges the snapshot before the leases, and status.json shows the lane held."""
+    timer, store, records, sent, enroll = fleet
+    enroll(1)
+    timer.policy["reset_credits"] = {"enabled": True}
+    _fresh_weekly(store, "codex-1")
+    store.acquire_lease("lane:codex-1:slot:0", "probe:admission")
+    records["probe:admission"] = {"holder": "probe:admission", "state": "reserved"}
+    snapshot = timer.probe_cycle()
+    status, homes = _published(timer)
+    assert homes["codex-1"]["probe_state"] == "reserved" and not homes["codex-1"]["dispatchable"]
+    assert snapshot["reset_policy"]["status"] == "not-triggered", snapshot["reset_policy"]
+
+
+def test_c18_1_c19_a_reset_credit_pass_judges_before_the_leases(fleet):
+    """C-18.1, C-19 the reset-credit timer's own pass judges the snapshot before the leases, as the cycle's does."""
+    timer, store, records, sent, enroll = fleet
+    enroll(1)
+    timer.policy["reset_credits"] = {"enabled": True}
+    _fresh_weekly(store, "codex-1")
+    store.acquire_lease("lane:codex-1:slot:0", "probe:admission")
+    assert timer.reset_credits_cycle()["status"] == "not-triggered"
+    status, homes = _published(timer)
+    assert homes["codex-1"]["probe_state"] == "uncertain" and not homes["codex-1"]["dispatchable"]
+
+
+def test_c18_1_mark_probe_leases_takes_out_every_lane_a_lease_names():
+    """C-11.4, C-18.1 every lane lease a probe holds takes its lane out and names it; a lease on no lane counts
+    toward the fleet and marks nothing; another reason for a lane already out is kept, laid first or last."""
+    view = {"lanes": [{"lane_id": "codex-1"}, {"lane_id": "codex-2"}, {"lane_id": "codex-3"}]}
+    leases = [{"lease_key": "lane:codex-1:slot:0", "holder": "probe:a"},
+              {"lease_key": "lane:codex-9:slot:0", "holder": "probe:gone-lane"},
+              {"lease_key": "out:/tmp/x", "holder": "probe:not-a-lane"},
+              {"lease_key": "lane:codex-3:slot:0", "holder": "probe:timer:read"}]
+    records = {"probe:a": {"state": "quarantined"}, "probe:timer:read": {}}
+    mark_probe_leases(view, leases, records.get)
+    assert view["unavailable_lanes"] == {"codex-1": "probe:a", "codex-9": "probe:gone-lane", "codex-3": "probe:timer:read"}
+    assert view["reserved_probes"] == 4
+    lanes = {row["lane_id"]: row for row in view["lanes"]}
+    assert (lanes["codex-1"]["probe_state"], lanes["codex-1"]["probe_holder"]) == ("quarantined", "probe:a")
+    assert lanes["codex-3"]["probe_state"] == "uncertain"
+    assert "probe_state" not in lanes["codex-2"] and "probe_holder" not in lanes["codex-2"]
+    assert mark_probe_leases({"lanes": [{"lane_id": "codex-1"}]}, leases[:1])["lanes"][0]["probe_state"] == "uncertain"
+    latched = {"lanes": [{"lane_id": "codex-1"}], "unavailable_lanes": {"codex-1": "credential-latched"}}
+    assert mark_probe_leases(latched, leases[:1])["unavailable_lanes"] == {"codex-1": "credential-latched"}
+    assert latched["lanes"][0]["probe_holder"] == "probe:a"
+
+
+def test_c18_1_the_daemon_hands_the_timer_its_probe_records(tmp_path, monkeypatch):
+    """C-18.1 wired as the daemon runs it: status.json names each held lane's probe state from the daemon's own
+    records, and agrees with the daemon's capacity view on every lane's verdict and probe fields."""
+    from subfleet.daemon import Daemon
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    daemon = Daemon(tmp_path / "root")
+    try:
+        for n in (1, 2, 3):
+            home = tmp_path / f"codex-{n}"
+            home.mkdir()
+            daemon.store.put_lane(Lane(f"codex-{n}", "codex", f"codex:{n}", Credential("codex", str(home), "home"),
+                                       str(home), LaneOwner.V2, False, True))
+        daemon.store.acquire_lease("lane:codex-1:slot:0", "probe:abc")
+        daemon._save_probe({"holder": "probe:abc", "job_id": None, "lane_id": "codex-1", "state": "quarantined"})
+        daemon.store.acquire_lease("lane:codex-2:slot:0", "probe:timer:xyz")
+        daemon.timers.publish_status(daemon.timers.snapshot())
+        status = json.loads((daemon.root / "status.json").read_text())
+        published = {row["lane_id"]: (row["dispatchable"], row["probe_state"], row["probe_holder"])
+                     for row in status["codex"]["homes"]}
+        admission = {row["lane_id"]: (row["dispatchable"], row.get("probe_state"), row.get("probe_holder"))
+                     for row in daemon._capacity_view(desktop_in_use=False)["lanes"]}
+        assert published == admission
+        assert published["codex-1"] == (False, "quarantined", "probe:abc")
+        assert published["codex-2"] == (False, "uncertain", "probe:timer:xyz")
+        assert published["codex-3"][1:] == (None, None)
+    finally:
+        daemon.close()
+
+
+def test_c6_4_c18_1_with_no_fleet_cap_probe_leases_take_out_only_their_own_lanes(fleet):
+    """C-6.4 (#72), C-18.1 under the shipped policy, which sets no max_active_attempts, five probe leases take out
+    five lanes and nothing else: the sixth is published dispatchable, as admission would place work there."""
+    timer, store, records, sent, enroll = fleet
+    enroll(1, 2, 3, 4, 5, 6)
+    assert "max_active_attempts" not in timer.policy["caps"]
+    for n in (1, 2, 3, 4, 5):
+        store.acquire_lease(f"lane:codex-{n}:slot:0", f"probe:{n}")
+    timer.publish_status(timer.snapshot())
+    status, homes = _published(timer)
+    assert [lane_id for lane_id, row in sorted(homes.items()) if row["dispatchable"]] == ["codex-6"]
+    fleet_row = status["codex"]["fleet"]
+    assert (fleet_row["dispatchable_now"], fleet_row["probe_held"], fleet_row["best_home"]) == (
+        1, 5, homes["codex-6"]["home"])
