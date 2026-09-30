@@ -1,0 +1,52 @@
+{
+  "case": "ok-prose-quotes-limits",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "Phrases from job 20260929-230209-pb-gpt61sol-judge (2026-09-30): the narration is a1's verbatim, and the deliverable restates a1's and a2's findings. Both attempts exited 0 with is_error false and rate_limit_event allowed, and were classified limited from this prose, a1 with a reset clock parsed from it. rate_limit_info is the verbatim experiment-0 max@axiom.org payload; the frames are assembled.",
+  "requested_model": "claude-opus-5",
+  "session_id": "20202020-2020-4020-8020-202020202020",
+  "class": "ok",
+  "detail_contains": "rate_limit_event",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.05,
+      "resets_at_epoch": 1788624000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.25,
+      "resets_at_epoch": 1789056000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "deliverable": "## Judge run\n\n- 110 calls were refused with HTTP 429 and re-run; all 110 now have verdicts.\n- The first 22 verdicts were billed to the desktop login, which then hit its 5-hour session limit (it resets 1:30am (America/New_York)).\n- Claude Code prints \"You've hit your usage limit\" or \"Your organization has disabled Claude subscription access\" when a lane is really closed; neither appeared on this lane.\n",
+  "attestation": {
+    "status": "attested",
+    "served_model": "claude-opus-5"
+  },
+  "stream": {
+    "init": true,
+    "assistants": 2,
+    "assistant_models": [
+      "claude-opus-5",
+      "claude-opus-5"
+    ],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

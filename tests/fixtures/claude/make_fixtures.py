@@ -1167,6 +1167,67 @@ def build() -> None:
         },
     )
 
+    # 20 — a finished turn whose own words are about limits (C-9.2, invariant 176).
+    sid = "20202020-2020-4020-8020-202020202020"
+    narration = ("The pool failed fast on 110 cases. That usually means a usage limit "
+                 "or an auth error. Reading the error envelopes now.")
+    answer = (
+        "## Judge run\n\n"
+        "- 110 calls were refused with HTTP 429 and re-run; all 110 now have verdicts.\n"
+        "- The first 22 verdicts were billed to the desktop login, which then hit its "
+        "5-hour session limit (it resets 1:30am (America/New_York)).\n"
+        "- Claude Code prints \"You've hit your usage limit\" or \"Your organization has "
+        "disabled Claude subscription access\" when a lane is really closed; neither "
+        "appeared on this lane.\n"
+    )
+    rows = [
+        init_event(sid, OPUS),
+        assistant_event(sid, OPUS, narration, stop_reason="tool_use"),
+        rate_limit_event(sid, RL_AXIOM),
+        assistant_event(sid, OPUS, answer),
+        result_success(sid, answer),
+    ]
+    write_case(
+        "ok-prose-quotes-limits",
+        stdout=stream(rows),
+        stderr="",
+        rc=0,
+        transcript=transcript_rows(sid, [OPUS], answer),
+        expected={
+            "synthetic": True,
+            "provenance": (
+                "Phrases from job 20260929-230209-pb-gpt61sol-judge (2026-09-30): the "
+                "narration is a1's verbatim, and the deliverable restates a1's and a2's "
+                "findings. Both attempts exited 0 with is_error false and "
+                "rate_limit_event allowed, and were classified limited from this prose, "
+                "a1 with a reset clock parsed from it. rate_limit_info is the verbatim "
+                "experiment-0 max@axiom.org payload; the frames are assembled."
+            ),
+            "requested_model": OPUS,
+            "session_id": sid,
+            "class": "ok",
+            "detail_contains": "rate_limit_event",
+            "evidence": {
+                "auth": "system/init",
+                "admission": "rate_limit_event.status=allowed",
+                "quota": "rate_limit_event.unifiedWindows",
+            },
+            "closure": None,
+            "readings": provider_readings(RL_AXIOM),
+            "deliverable": answer,
+            "attestation": {"status": "attested", "served_model": OPUS},
+            "stream": {
+                "init": True,
+                "assistants": 2,
+                "assistant_models": [OPUS, OPUS],
+                "rate_limit_events": 1,
+                "result_subtype": "success",
+                "truncated_tail": False,
+                "bad_lines": 0,
+            },
+        },
+    )
+
 
 if __name__ == "__main__":
     build()

@@ -856,7 +856,7 @@ class ClaudeAdapter(Adapter):
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
         summary = parse_stream(stdout)
-        corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
+        corpus = f"{stderr}\n{chr(10).join(summary.error_texts())}"   # C-9.2
 
         if not summary.has_init:
             detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
@@ -1441,6 +1441,11 @@ class ClaudeAdapter(Adapter):
         The raw rc and signal ride along with every class (C-9.2), and the readings the
         `rate_limit_event` yielded are attached whatever the class: a limited lane's
         capacity is exactly what the router most needs to know.
+
+        Words count only from the provider's error text, and a turn that finished
+        and delivered is `ok` whatever any words say: only the provider's
+        structured verdicts (an auth error kind, a rejected `rate_limit_event`, a
+        refusal) outrank it (C-9.2).
         """
         attempt_dir = Path(attempt_dir)
         notes = dict(launch.notes) if launch is not None else {}
@@ -1479,6 +1484,12 @@ class ClaudeAdapter(Adapter):
         # or disable the lane that served it.
         corpus = "\n".join([stderr, *summary.error_texts()])
         scrubbed = _scrub_non_limit(corpus)
+        # C-9.2, C-12.6: a turn that ended cleanly and delivered text finished.
+        # No wording unfinishes it; only the structured verdicts below can.
+        finished = (exit_info.rc == 0 and summary.result is not None
+                    and not summary.result.is_error)
+        text = self._final_text(summary, transcript, notes, session_id) if finished else ""
+        delivered = finished and bool(text.strip())
 
         evidence: dict[str, Any] = {
             "rc": exit_info.rc,
@@ -1523,9 +1534,24 @@ class ClaudeAdapter(Adapter):
                 served_model=served_model,
             )
 
+        if delivered:
+            # C-9.2: what the error text said about a turn that finished anyway is
+            # kept as evidence, and acted on by nothing below.
+            unheeded = {
+                name: _first_line_containing(source, found)
+                for name, pattern, source in (
+                    ("cli", CLI_TOO_OLD_RE, corpus), ("org_block", ORG_BLOCK_RE, corpus),
+                    ("auth", AUTH_SIGNATURE_RE, corpus), ("credits", CREDITS_RE, scrubbed),
+                    ("limit", LIMIT_RE, scrubbed),
+                )
+                if (found := pattern.search(source))
+            }
+            if unheeded:
+                evidence["words_after_delivery"] = unheeded
+
         # 0. The host CLI, not the lane. Cooling a healthy lane for this would be a
         #    lie about capacity, and rotating lanes cannot help (C-9.2 keeps the rc).
-        match = CLI_TOO_OLD_RE.search(corpus)
+        match = None if delivered else CLI_TOO_OLD_RE.search(corpus)
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
@@ -1534,7 +1560,7 @@ class ClaudeAdapter(Adapter):
             )
 
         # 1. Authentication (C-9.3).
-        match = ORG_BLOCK_RE.search(corpus)
+        match = None if delivered else ORG_BLOCK_RE.search(corpus)
         if match:
             return finish(
                 OutcomeClass.AUTH_DEAD,
@@ -1550,7 +1576,7 @@ class ClaudeAdapter(Adapter):
                 f"auth-dead: the provider reported error {auth_kind}",
                 answered={"auth": f"provider error kind {auth_kind}"},
             )
-        auth_signature = AUTH_SIGNATURE_RE.search(corpus)
+        auth_signature = None if delivered else AUTH_SIGNATURE_RE.search(corpus)
         auth_false_positive: str | None = None
         if auth_signature is not None:
             if not summary.has_init:
@@ -1593,8 +1619,9 @@ class ClaudeAdapter(Adapter):
             )
 
         # 3. Quota in words. The event may have been emitted before the refusal, or
-        #    never: the text is then the only clock we have.
-        match = CREDITS_RE.search(scrubbed)
+        #    never: the text is then the only clock we have. Words about a turn that
+        #    finished and delivered close nothing (C-9.2).
+        match = None if delivered else CREDITS_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(
@@ -1618,7 +1645,7 @@ class ClaudeAdapter(Adapter):
                     "quota": "model-scoped credit exhaustion in the provider's text",
                 },
             )
-        match = LIMIT_RE.search(scrubbed)
+        match = None if delivered else LIMIT_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
@@ -1649,9 +1676,8 @@ class ClaudeAdapter(Adapter):
             )
 
         # 5. Success, and the one shape that looks like success and is not (C-12.6).
-        text = self._final_text(summary, transcript, notes, session_id)
-        if exit_info.rc == 0 and summary.result is not None and not summary.result.is_error:
-            if text.strip():
+        if finished:
+            if delivered:
                 sensed = (
                     ", ".join(sorted(info.windows)) if info and info.windows else "none"
                 )
