@@ -407,7 +407,19 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert admission_settings({})["lane_spread"] == 2
     policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
     loaded = load_policy(write_policy(tmp_path, policy_data))
-    assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
+    assert loaded["admission"] == {**ADMISSION_DEFAULTS, "lane_spread": None, "machine_guard": None,
+                                   "desktop_recent_s": 0}
+    # C-10.3: the desktop login's reserve. A window named alone keeps the other's default; null keeps none.
+    assert ADMISSION_DEFAULTS["desktop_reserve"] == {"five_hour": 0.3, "seven_day": 0.3}
+    assert ADMISSION_DEFAULTS["desktop_max_in_flight"] == 2
+    policy_data["admission"] = {"desktop_reserve": {"five_hour": 0.5}, "desktop_max_in_flight": None}
+    loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
+    assert loaded["desktop_reserve"] == {"five_hour": 0.5, "seven_day": 0.3} and loaded["desktop_max_in_flight"] is None
+    policy_data["admission"] = {"desktop_reserve": None, "desktop_max_in_flight": 0}
+    loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
+    assert loaded["desktop_reserve"] is None and loaded["desktop_max_in_flight"] == 0
+    assert admission_settings({"admission": {"desktop_reserve": {"seven_day": None}}})["desktop_reserve"] == {
+        "five_hour": 0.3, "seven_day": None}
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["session"] is None
 
@@ -426,6 +438,14 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"machine_guard": {"background": {"load_per_cpu": 0}}}, "admission.machine_guard.background.load_per_cpu"),
     ({"machine_guard": {"session": {"memory_pressure": "normal"}}}, "admission.machine_guard.session.memory_pressure"),
     ({"machine_guard": {"session": {"load": 3}}}, "admission.machine_guard.session.load"),
+    ({"desktop_reserve": 0.3}, "admission.desktop_reserve"),
+    ({"desktop_reserve": {"weekly": 0.3}}, "admission.desktop_reserve.weekly"),
+    ({"desktop_reserve": {"five_hour": 1.5}}, "admission.desktop_reserve.five_hour"),
+    ({"desktop_reserve": {"seven_day": -0.1}}, "admission.desktop_reserve.seven_day"),
+    ({"desktop_reserve": {"five_hour": True}}, "admission.desktop_reserve.five_hour"),
+    ({"desktop_max_in_flight": -1}, "admission.desktop_max_in_flight"),
+    ({"desktop_max_in_flight": 1.5}, "admission.desktop_max_in_flight"),
+    ({"desktop_max_in_flight": True}, "admission.desktop_max_in_flight"),
 ])
 def test_invalid_admission_settings_name_the_key(tmp_path, policy_data, section, error_key):
     """C-6.13, C-11.1: a turn is never held, so no guard names `attended`; the rest

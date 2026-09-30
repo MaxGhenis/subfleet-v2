@@ -162,14 +162,24 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
 #: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `desktop_reserve` is the headroom of each account window the desktop login
+#: keeps for interactive sessions (C-10.3, 2026-09-30, Max: "why wouldnt we allow
+#: using the active acct?"): detached work is refused that lane while the window's
+#: latest reading is at or above `1 - reserve`; null for a window, or for the key,
+#: keeps none. `desktop_max_in_flight` is how many detached attempts the desktop
+#: lane takes at once, because its readings arrive only as attempts end; null is no
+#: bound and 0 keeps detached work off the login. Neither holds a conversation turn.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
+DESKTOP_RESERVE_WINDOWS = ("five_hour", "seven_day")
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "desktop_reserve": {"five_hour": 0.3, "seven_day": 0.3},
+    "desktop_max_in_flight": 2,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -179,7 +189,10 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    settings = {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    if isinstance(settings["desktop_reserve"], dict):
+        settings["desktop_reserve"] = {**ADMISSION_DEFAULTS["desktop_reserve"], **settings["desktop_reserve"]}
+    return settings
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -363,6 +376,21 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                         fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
                 else:
                     fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+    reserve = settings["desktop_reserve"]
+    if reserve is not None:
+        if not isinstance(reserve, dict):
+            fail("admission.desktop_reserve", "must be an object of per-window headroom fractions, or null")
+        for window, kept in reserve.items():
+            if window not in DESKTOP_RESERVE_WINDOWS:
+                fail(f"admission.desktop_reserve.{window}",
+                     f"is not an account window ({', '.join(DESKTOP_RESERVE_WINDOWS)})")
+            if kept is not None and not _fraction(kept):
+                fail(f"admission.desktop_reserve.{window}", "must be a fraction from 0 to 1, or null for none")
+        # A window left out keeps the default: naming one window never drops the other's reserve.
+        settings["desktop_reserve"] = {**ADMISSION_DEFAULTS["desktop_reserve"], **reserve}
+    bound = settings["desktop_max_in_flight"]
+    if bound is not None and (not isinstance(bound, int) or isinstance(bound, bool) or bound < 0):
+        fail("admission.desktop_max_in_flight", "must be a nonnegative whole number of attempts, or null for no bound")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)

@@ -52,8 +52,8 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState,
-                        Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (DESKTOP_EXCLUSION, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S,
+                        JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -584,12 +584,23 @@ def _prompt_path(args: argparse.Namespace, request_id: str,
         return None, fail(Exit.OPERATIONAL, f"run: cannot stage the prompt: {exc}")
 
 
+def _with_desktop_exclusion(args: argparse.Namespace) -> list[str]:
+    """C-10.3: `-x` as given, plus `@desktop` for `--no-desktop` (once)."""
+    exclusions = list(getattr(args, "exclude", None) or [])
+    if getattr(args, "no_desktop", False) and DESKTOP_EXCLUSION not in exclusions:
+        exclusions.append(DESKTOP_EXCLUSION)
+    return exclusions
+
+
 def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
     """Client-side admission checks that never need a daemon (C-6.1, C-6.5)."""
     if args.task and not args.tier:
         return None, fail(Exit.INVALID_INPUT, "run: --tier is required with --task")
     if args.tier and not args.task:
         return None, fail(Exit.INVALID_INPUT, "run: --tier requires --task")
+    if getattr(args, "no_desktop", False) and getattr(args, "allow_desktop", False):
+        return None, fail(Exit.INVALID_INPUT, "run: --no-desktop and --allow-desktop contradict each other",
+                          "the desktop login is a lane by default (C-10.3); give --no-desktop alone to keep off it")
     if not (args.task or args.m or args.a or args.H):
         return None, fail(Exit.INVALID_INPUT,
                           "run: name the work or pin the lane",
@@ -670,7 +681,7 @@ def _prepare_submit(args: argparse.Namespace,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
         name=args.name,
-        exclusions=list(args.exclude or []),
+        exclusions=_with_desktop_exclusion(args),
         allow_desktop=bool(args.allow_desktop),
         allow_tmp=bool(args.allow_tmp),
         in_place=bool(args.in_place),
@@ -849,7 +860,8 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "account": ("a", "str"), "codex_home": ("H", "path"), "workdir": ("C", "path"),
     "prompt": ("p", "path"), "prompt_text": ("prompt", "str"), "out": ("o", "path"),
     "name": ("name", "str"), "sandbox": ("s", "str"), "exclude": ("exclude", "list"),
-    "allow_desktop": ("allow_desktop", "bool"), "allow_tmp": ("allow_tmp", "bool"),
+    "allow_desktop": ("allow_desktop", "bool"), "no_desktop": ("no_desktop", "bool"),
+    "allow_tmp": ("allow_tmp", "bool"),
     "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
@@ -1981,8 +1993,10 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    if args.no_desktop and args.allow_desktop:
+        return fail(Exit.INVALID_INPUT, "why: --no-desktop and --allow-desktop contradict each other")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
-                           pinned_model=args.m, exclusions=list(args.exclude or []),
+                           pinned_model=args.m, exclusions=_with_desktop_exclusion(args),
                            allow_desktop=bool(args.allow_desktop))
     try:
         result = _client(args).call("why", _asdict(why))
@@ -2716,7 +2730,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",
                        help="never pick this account (repeatable)")
     p_run.add_argument("--allow-desktop", action="store_true",
-                       help="allow the desktop app's own login as a lane (C-10.3)")
+                       help="accepted for compatibility: the desktop app's own login is a lane by default, "
+                            "behind its reserve (C-10.3)")
+    p_run.add_argument("--no-desktop", action="store_true",
+                       help="never run on the desktop app's own login (the same as -x @desktop, C-10.3)")
     p_run.add_argument("--allow-tmp", action="store_true",
                        help="allow a workdir under /tmp (C-2.4)")
     p_run.add_argument("--in-place", action="store_true",
@@ -2838,6 +2855,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("-m", dest="m", choices=MODEL_CHOICES)
     p_why.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL")
     p_why.add_argument("--allow-desktop", action="store_true")
+    p_why.add_argument("--no-desktop", action="store_true")
     _add_json(p_why)
     p_why.set_defaults(handler=cmd_why)
 

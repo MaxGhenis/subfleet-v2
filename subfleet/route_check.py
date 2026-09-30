@@ -208,6 +208,10 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     walk = tuple(setup["chain"])
     if walk[:len(decision.chain)] != tuple(decision.chain):
         return "moved", 0, None      # not the job's chain: only a pin or the policy makes it, checked before
+    # C-10.3: the desktop login's lane is the chain's last resort, as `evaluate` walks
+    # it: the first model with another candidate takes it; with none anywhere, the
+    # first model that has the desktop lane takes that.
+    fallback: tuple[int, str, str] | None = None
     for index, short in enumerate(walk):
         # Past the models the early decision judged, every lane is judged now.
         evaluation = decision.evaluations[index] if index < len(decision.evaluations) else None
@@ -220,8 +224,16 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
                              for lane_id in evaluation["candidates"] if lane_id not in changed})
         if standing:
             best = min(standing, key=lambda lane_id: scheduler.rank_key(setup, short, lane_id, standing[lane_id]))
-            return None, len(judged_lanes), as_now(decision, setup, replaced, walked, now_readings, open_now,
-                                                   precise, ttl, chosen=(best, short))
+            if not standing[best].get("desktop"):
+                return None, len(judged_lanes), as_now(decision, setup, replaced, walked, now_readings, open_now,
+                                                       precise, ttl, chosen=(best, short))
+            if fallback is None:
+                fallback = (index, best, short)
+    if fallback is not None:
+        index, best, short = fallback
+        del walked[index + 1:], replaced[index + 1:]
+        return None, len(judged_lanes), as_now(decision, setup, replaced, walked, now_readings, open_now,
+                                               precise, ttl, chosen=(best, short))
     return None, len(judged_lanes), as_now(decision, setup, replaced, walked, now_readings, open_now,
                                            precise, ttl, chosen=None)
 
@@ -296,7 +308,8 @@ def as_now(decision: Decision, setup: Mapping[str, Any], replaced: list[set[str]
                             "capacity_blocks": list(setup["capacity_blocks"]),
                             "stranding_closures": kept(evaluation["stranding_closures"],
                                                        [row for row in open_ if row["scope"] in higher], by_id),
-                            "reason": scheduler.model_reason(setup, index, short, ranked, details),
+                            "reason": scheduler.model_reason(setup, index, short, ranked, details,
+                                                             chosen=chosen is not None and index == len(walked) - 1),
                             "evaluated_at": capacity._iso(instant)})
     lane, model = chosen or (None, None)
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations), lane, model,

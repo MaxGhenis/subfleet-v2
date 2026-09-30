@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import READING_TTL_S, IdentityStatus
+from .contracts import READING_TTL_S, IdentityStatus, DESKTOP_RESERVE_REPROBE_S
 from .sessions.transcripts import read_regular
 
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -268,6 +268,50 @@ def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
     return min(ends, default=None)
 
 
+def desktop_reserve_readings(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
+                             reading_ttl_s: int = READING_TTL_S,
+                             scopes: Iterable[str] | None = None) -> dict[tuple[str, str], dict[str, Any]]:
+    """C-10.3: per (scope, window), the reading the desktop login's reserve counts.
+
+    The latest `provider` reading of each `five_hour` and `seven_day` window, of
+    the account or of a model (`scopes`, every scope when None), observed by `now`,
+    whether or not it is still fresh, while its window has not reset (`resets_at`
+    after `now`); one with no `resets_at` counts only while fresh. The desktop
+    lane's readings come only from the attempts and probes that ran on it, so a
+    freshness rule alone would leave the reserve blind two minutes after each.
+    Within one window a later reading was lower than an earlier one only after a
+    reset inside it (48 drops in 54,698 consecutive pairs in the live store on
+    2026-09-30), so a reading kept past its freshness overstates use, and refuses
+    more, far more often than it understates it; `DESKTOP_RESERVE_REPROBE_S` bounds
+    how long it refuses alone."""
+    instant = _time(now)
+    wanted = None if scopes is None else set(scopes)
+    found: dict[tuple[str, str], tuple[tuple[datetime, int], dict[str, Any]]] = {}
+    for item in readings:
+        row = _row(item)
+        if row.get("window") not in ("five_hour", "seven_day") or (wanted is not None and row.get("scope") not in wanted):
+            continue
+        if row.get("label") not in ("provider", "stale-provider"):
+            continue
+        utilization = row.get("utilization")
+        if (not isinstance(utilization, (int, float)) or isinstance(utilization, bool)
+                or not math.isfinite(utilization) or not 0 <= utilization <= 1):
+            continue
+        observed = _time(row["observed_at"])
+        if observed > instant:
+            continue
+        if row.get("resets_at"):
+            if _time(row["resets_at"]) <= instant:
+                continue
+        elif not fresh_provider({**row, "label": "provider"}, now=instant, reading_ttl_s=reading_ttl_s):
+            continue
+        key = (row["scope"], row["window"])
+        order = (observed, int(row.get("reading_id") or 0))
+        if key not in found or order > found[key][0]:
+            found[key] = (order, row)
+    return {key: row for key, (_, row) in found.items()}
+
+
 def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S) -> dict[str, datetime]:
     """C-6.3: per lane, the first instant after the view's `now` at which the
     clock alone may change how `scheduler.evaluate` judges that lane on the
@@ -307,6 +351,21 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
         row = _row(item)
         if not row.get("released_at") and (until := _time(row["until_at"])) > instant:
             note(row["lane_id"], until)
+    # C-10.3: the desktop login's reserve counts a reading past its freshness until
+    # its window resets, and one at or above its ceiling refuses alone only for
+    # `DESKTOP_RESERVE_REPROBE_S`: either instant may change how the lane is judged
+    # with no row changing.
+    for lane in view.get("lanes", ()):
+        if lane.get("desktop"):
+            counted = desktop_reserve_readings([row for row in view.get("readings", ())
+                                                if _row(row)["lane_id"] == lane["lane_id"]],
+                                               now=instant, reading_ttl_s=reading_ttl_s)
+            for row in counted.values():
+                if row.get("resets_at"):
+                    note(lane["lane_id"], _time(row["resets_at"]))
+                reprobe = _time(row["observed_at"]) + timedelta(seconds=DESKTOP_RESERVE_REPROBE_S)
+                if reprobe > instant:
+                    note(lane["lane_id"], reprobe)
     return found
 
 
@@ -371,9 +430,27 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
     return lane
 
 
-def desktop_excluded(lane: Mapping[str, Any]) -> bool:
-    """C-10.3: the desktop login's lane while Claude Code uses it (or while that is unknown)."""
-    return bool(lane.get("desktop")) and lane.get("desktop_in_use", True) is not False
+def desktop_reserved(lane: Mapping[str, Any], admission: Mapping[str, Any] | None, *,
+                     now: str | datetime, reading_ttl_s: int = READING_TTL_S) -> bool:
+    """C-10.3: whether the desktop login's reserve refuses detached work on `lane` now.
+
+    As `scheduler.desktop_reserve` judges it, from the lane's own readings and its
+    detached attempts in flight (`lane["in_flight"]`, as a view counts them). Only
+    the reserve: whether Claude Code is using the login refuses nothing."""
+    if not lane.get("desktop"):
+        return False
+    from .policy import ADMISSION_DEFAULTS
+
+    settings = {**ADMISSION_DEFAULTS, **(admission or {})}
+    reserve, bound = settings["desktop_reserve"] or {}, settings["desktop_max_in_flight"]
+    if bound is not None and lane.get("in_flight", 0) >= bound:
+        return True
+    instant = _time(now)
+    counted = desktop_reserve_readings(lane.get("readings", ()), now=instant, reading_ttl_s=reading_ttl_s,
+                                       scopes=("account",))
+    return any(reserve.get(window) is not None and row["utilization"] >= round(1 - reserve[window], 6)
+               and (instant - _time(row["observed_at"])).total_seconds() <= DESKTOP_RESERVE_REPROBE_S
+               for (_, window), row in counted.items())
 
 
 def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Iterable[Any] = (),
@@ -441,22 +518,26 @@ def identity_blocked(lane: Mapping[str, Any]) -> bool:
     return str(lane.get("identity_status") or "") == IdentityStatus.MISMATCH.value
 
 
-def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
+def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any],
+               admission: Mapping[str, Any] | None = None) -> list[str]:
     """C-6.11: the lanes that could take some job now, whatever its model.
 
-    Owned by v2, enabled, not the desktop login while Claude Code uses it
-    (C-10.3), identity not mismatched, under no account-wide closure, with a slot
-    free (always, while no per-lane cap is set, C-6.4) and no probe holding it. A
-    lane closed for one model only is open: another model may still run there. A
-    job can still be refused an open lane (a model-scoped closure, the reserve,
-    its own exclusions); the count says capacity exists, not that it fits.
+    Owned by v2, enabled, not the desktop login while its reserve refuses detached
+    work (C-10.3, `desktop_reserved`), identity not mismatched, under no
+    account-wide closure, with a slot free (always, while no per-lane cap is set,
+    C-6.4) and no probe holding it. A lane closed for one model only is open:
+    another model may still run there. A job can still be refused an open lane (a
+    model-scoped closure, the reserve, its own exclusions); the count says
+    capacity exists, not that it fits.
     """
     from .policy import lane_slot_cap
 
     found = []
     for lane in view["lanes"]:
         slots = lane_slot_cap(caps, bool(lane.get("measured")))
-        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not desktop_excluded(lane)
+        reserved = desktop_reserved(lane, admission, now=view["now"],
+                                    reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S))
+        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not reserved
                 and not identity_blocked(lane)
                 and not any(row.get("scope") == "account" for row in lane.get("closures", ()))
                 and (slots is None or lane.get("in_flight", 0) < slots)

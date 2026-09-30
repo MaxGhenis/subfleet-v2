@@ -84,7 +84,8 @@ def test_c_11_6_observed_0633_promotes_exhausted_opus_chain_to_astra(policy, obs
     assert decision.chosen_lane == "codex-1"
     assert "opus: no candidate lanes after exclusions; promoted" in decision.reason
     reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
-    assert reasons == {"claude-1": ["excluded", "desktop"], "claude-2": ["no-slot"], "claude-3": ["no-slot"]}
+    # C-10.3 (2026-09-30): the desktop login is refused only by the exclusion here, not for being the desktop's.
+    assert reasons == {"claude-1": ["excluded"], "claude-2": ["no-slot"], "claude-3": ["no-slot"]}
 
 
 def test_pinned_opus_same_0633_state_returns_no_lane_and_earliest_reset(policy, observed_0633):
@@ -172,13 +173,17 @@ def test_account_scoped_closure_removes_both_claude_models(policy, model):
                               job(pinned_model=model))) == Exit.NO_LANE
 
 
-def test_v1_never_candidate_and_desktop_requires_allow_desktop(policy):
-    """C-10.3, C-10.4, C-11.2: desktop permission does not override v1 ownership."""
+def test_v1_never_candidate_and_the_desktop_login_is_a_candidate_by_default(policy):
+    """C-10.3, C-10.4, C-11.2: the desktop login is a lane for every job (2026-09-30), `--no-desktop` keeps
+    a job off it, and nothing about the desktop overrides v1 ownership."""
     snapshot = view([lane("claude-1", owner="v1"), lane("claude-2", desktop=True)])
-    assert exit_code(evaluate(policy, snapshot, job(pinned_model="opus"))) == Exit.NO_LANE
-    allowed = evaluate(policy, snapshot, job(pinned_model="opus", allow_desktop=True))
-    assert allowed.chosen_lane == "claude-2"
-    assert allowed.evaluations[0]["rejections"][0]["reasons"] == ["owner-v1"]
+    for spec in (job(pinned_model="opus"), job(pinned_model="opus", allow_desktop=True)):
+        decision = evaluate(policy, snapshot, spec)
+        assert decision.chosen_lane == "claude-2"
+        assert decision.evaluations[0]["rejections"][0]["reasons"] == ["owner-v1"]
+    kept_off = evaluate(policy, snapshot, job(pinned_model="opus", exclusions=["@desktop"]))
+    assert exit_code(kept_off) == Exit.NO_LANE
+    assert rejection(kept_off, "opus", "claude-2")["reasons"] == ["excluded"]
 
 
 def test_all_rejection_reasons_recorded_for_one_lane(policy):
@@ -187,7 +192,8 @@ def test_all_rejection_reasons_recorded_for_one_lane(policy):
                     [closure("claude-1")], [attempt("claude-1", "a"), attempt("claude-1", "b")])
     result = evaluate(policy, snapshot, job(pinned_model="opus", exclusions=["claude-1"]))
     assert result.evaluations[0]["rejections"][0]["reasons"] == [
-        "excluded", "desktop", "owner-v1", "disabled", f"closed:account:{TOMORROW}", "no-slot", "below-floor"]
+        "excluded", "owner-v1", "disabled", f"closed:account:{TOMORROW}", "no-slot", "below-floor",
+        "desktop-reserve:seven_day", "desktop-reserve:in-flight"]
 
 
 def test_unmeasured_lane_takes_one_slot_second_job_waits(policy):
@@ -372,7 +378,7 @@ def test_no_lane_with_admission_evidence_reports_unknown_reset(policy):
     snapshot = view([lane(desktop=True)], [reading("claude-1", utilization=None,
                     reset=None, label="admission-observed", window="admission",
                     scope=OPUS)])
-    decision = evaluate(policy, snapshot, job(pinned_model="opus"))
+    decision = evaluate(policy, snapshot, job(pinned_model="opus", exclusions=["@desktop"]))
     assert exit_code(decision) == Exit.NO_LANE
     assert "earliest reset: unknown" in decision.reason
 
@@ -552,7 +558,9 @@ def test_unmeasured_reserve_authorization_preserves_other_rejections(reserve_pol
                 "floor": "below-floor", "measured-reserve": "reserve:fable:reserved"}.get(guard, "no-slot")
     if guard == "owner": target["owner"] = "v1"
     elif guard == "enabled": target["enabled"] = False
-    elif guard == "desktop": target["desktop"], expected = True, "desktop"
+    elif guard == "desktop":             # C-10.3: the desktop login's reserve, as any other guard
+        target["desktop"], expected = True, "desktop-reserve:five_hour"
+        rows = [reading("claude-1", .75, window="five_hour")]
     elif guard == "identity": target["identity_status"] = "mismatch"
     elif guard == "excluded": changes["exclusions"], expected = ["claude-1"], "excluded"
     elif guard in ("account-closure", "model-closure"):

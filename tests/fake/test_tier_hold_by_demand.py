@@ -174,7 +174,8 @@ def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(
 
 @pytest.mark.parametrize("case", ["same-lane", "newer-unpinned", "older-unpinned", "newer-unknown-pin"])
 def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
-    """C-6.9 only two different pins are disjoint; a free choice, a shared pin, or an unresolvable pin competes."""
+    """C-6.9 a shared pin, a newer free choice that would take the older job's lane (claude-a ranks first), an
+    older free choice, or a pin nobody can resolve: the newer job waits."""
     service, harness = pinned_fleet
     older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
                             "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
@@ -205,3 +206,115 @@ def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
     assert scheduler.competes(f, f, a, a) and scheduler.competes(f, f, a, None) and scheduler.competes(f, f, None, b)
     assert not scheduler.competes(f, frozenset({"opus"}), a, a)
     assert scheduler.competes(None, f, a, b) is False                                  # lanes disjoint wins even with unknown models
+
+
+# --- C-6.9 (2026-09-30): held only behind a job that could run where this one would ---------------
+#
+# 2026-09-30, 15:55Z: `20260930-115551-pb-gpt61sol-rejudge3` could run on the desktop lane
+# (claude-9, open); `why` said it was held behind `20260930-114555-pr87-review-2`, an older
+# standard job that could never run there. `competes` compared models and lane pins only, and an
+# unpinned job "could run on every lane".
+
+from subfleet.contracts import (DESKTOP_EXCLUSION, ClockSource, Closure, ClosureReason)
+from subfleet.daemon import Daemon
+
+
+def close_astra(service, lane_id):
+    service.store.add_closure(Closure(lane_id, "gpt-6-astra", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+
+
+@pytest.fixture
+def three_codex(fleet):
+    """codex-1 (the fleet's), codex-2 and codex-3, each measured with room for astra and terra."""
+    service, harness = fleet
+    for lane_id in ("codex-2", "codex-3"):
+        home = harness.root / lane_id
+        home.mkdir()
+        service.store.put_lane(Lane(lane_id, "codex", f"codex:fixture-{lane_id}", Credential("codex", str(home), "home"),
+                                    str(home), LaneOwner.V2, False))
+        service.store.add_reading(Reading(lane_id, "account", "seven_day", .2, after(86400),
+                                          ReadingLabel.PROVIDER, "fixture", utcnow()))
+    return service, harness
+
+
+def lane_of(service, job_id):
+    return [row["lane_id"] for row in service.store.list_attempts(job_id)]
+
+
+def test_c6_9_a_newer_job_takes_a_lane_the_older_waiter_cannot_use(three_codex):
+    """C-6.9 (a): the older astra job excludes codex-2 and codex-3, codex-1 is closed; the newer job runs on codex-2."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra", exclusions=["codex-2", "codex-3"])
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer) == ["codex-2"]
+    assert not service.store.list_attempts(older)
+
+
+def test_c6_9_the_fairness_guarantee_holds_where_both_could_run(three_codex):
+    """C-6.9 (b): codex-1 closed; the older job may use codex-2, which the newer would take: the newer waits,
+    behind it by name, and the older takes codex-2 when it is next looked at."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    assert service._holds[newer]["reason"] == "behind-older-job" and service._holds[newer]["behind"] == older
+    service.store.update_job(older, next_check_at=None)
+    service._admit()
+    assert lane_of(service, older) == ["codex-2"]
+
+
+def test_c6_9_identical_jobs_are_held_without_asking_where_the_newer_would_run(fleet, monkeypatch):
+    """C-6.9: where the older job's own facts allow all the newer one's, no view is built and no route evaluated."""
+    service, harness = fleet
+    monkeypatch.setattr(service, "_hold_view", lambda desktop: pytest.fail("evaluated a held job's lane"))
+    older = submit(service, harness, pinned_model="astra")
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert service._holds[newer] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+
+
+def test_c6_9_the_lane_a_job_is_reserved_on_is_checked_against_the_waiters_again(three_codex, monkeypatch):
+    """C-6.9: the shared view said codex-3 (the older job cannot use it); the job's own decision chose codex-2,
+    opened since, where the older job could run: held there, inside the reservation, on a clock."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    close_astra(service, "codex-2")
+    stale = service._route_view(service._desktop_identity())[2]
+    with service.store.transaction("fixture.reopen") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-2'", (utcnow(),))
+    monkeypatch.setattr(service, "_hold_view", lambda desktop: stale)
+    older = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    hold = service._holds[newer]
+    assert (hold["reason"], hold["behind"], hold["lane"]) == ("behind-older-job", older, "codex-2")
+    job = service.store.get_job(newer)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity") and job["next_check_at"]
+
+
+def test_c6_9_a_newer_job_runs_on_the_desktop_login_an_older_no_desktop_job_keeps_off(fleet, monkeypatch):
+    """C-6.9, C-10.3 the incident's shape: every other Claude lane closed for Opus, the older job says
+    --no-desktop, the newer does not; Claude Code is active on the desktop login. The newer runs there."""
+    service, harness = fleet
+    for lane_id, email in (("claude-1", "max@optiqal.ai"), ("claude-9", "max@thesisinstitute.org")):
+        service.store.put_lane(Lane(lane_id, "claude", f"claude:{email}", Credential("claude", f"/fake/{lane_id}", "home"),
+                                    f"/fake/{lane_id}", LaneOwner.V2, False, label=email))
+    service.store.add_closure(Closure("claude-1", "account", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    monkeypatch.setattr("subfleet.daemon.capacity.read_desktop_account", lambda: "max@thesisinstitute.org")
+    older = submit(service, harness, pinned_model="opus", exclusions=[DESKTOP_EXCLUSION])
+    newer = submit(service, harness, pinned_model="opus")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer) == ["claude-9"]
+    assert not service.store.list_attempts(older)

@@ -160,7 +160,9 @@
   "admission": {
     "lane_spread": 2,
     "desktop_recent_s": 1800,
-    "machine_guard": null
+    "machine_guard": null,
+    "desktop_reserve": {"five_hour": 0.3, "seven_day": 0.3},
+    "desktop_max_in_flight": 2
   },
   "conversations": {
     "approval_wait_s": 3600,

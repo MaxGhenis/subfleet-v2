@@ -15,6 +15,7 @@ from subfleet.daemon import Daemon, after, utcnow
 from subfleet.store import Store
 from tests.caps import capped
 from tests.claude_code import claude_code_active
+from subfleet.contracts import DESKTOP_EXCLUSION
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -44,8 +45,9 @@ def routing_state(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
-    # C-10.3: these cases were written while the desktop lane was always refused;
-    # they keep Claude Code using the desktop login, which refuses it still.
+    # C-10.3: these cases were written while the desktop lane was always refused.
+    # Claude Code stays active on the desktop login, which since 2026-09-30 refuses
+    # nothing; the cases that mean to keep a job off that lane say `@desktop`.
     claude_code_active(monkeypatch, tmp_path / "claude")
     service = Daemon(root)
     try:
@@ -55,8 +57,8 @@ def routing_state(tmp_path, monkeypatch):
 
 
 def research_args(harness, **changes):
-    return harness.submit_args(pinned_model=None, task="research", tier="standard",
-                               exclusions=["max@rulesfoundation.org"], **changes)
+    return harness.submit_args(**{"pinned_model": None, "task": "research", "tier": "standard",
+                                  "exclusions": ["max@rulesfoundation.org"], **changes})
 
 
 def test_c11_6_submitted_research_records_astra_promotion_and_why(routing_state):
@@ -140,12 +142,14 @@ def test_c10_3_desktop_refresh_precedes_reservation_transaction(routing_state, m
         calls.append(True)
         return "current@example.com"
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", desktop)
-    job_id = service.dispatch("submit", research_args(harness))["job_id"]
+    job_id = service.dispatch("submit", research_args(
+        harness, exclusions=["max@rulesfoundation.org", DESKTOP_EXCLUSION]))["job_id"]
     service._admit()
     decision = service.dispatch("why", {"job_id": job_id})["decision"]
     assert calls
     assert decision["chosen_model"] == "astra"
-    assert "desktop" in str(decision["evaluations"])
+    refused = {row["lane_id"]: row for row in decision["evaluations"][0]["rejections"]}
+    assert refused["claude-2"]["desktop"] and refused["claude-2"]["reasons"] == ["excluded"]
 
 
 def test_c11_4_hard_probe_uses_requested_model_and_records_admission(routing_state, monkeypatch):
@@ -309,7 +313,21 @@ def test_c10_3_desktop_switch_during_probe_is_rechecked_before_dispatch(routing_
         monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: "current@example.com")
         return Outcome(OutcomeClass.OK, "admitted", {"rc": 0})
     monkeypatch.setattr(service, "_execute_probe", probe)
-    job_id = service.dispatch("submit", harness.submit_args(pinned_model="opus", tier="hard"))["job_id"]
+    job_id = service.dispatch("submit", harness.submit_args(pinned_model="opus", tier="hard",
+                                                             exclusions=[DESKTOP_EXCLUSION]))["job_id"]
     service._admit()
     assert not service.store.list_attempts(job_id)
-    assert "desktop" in service.dispatch("why", {"job_id": job_id})["text"]
+    assert "claude-2: excluded" in service.dispatch("why", {"job_id": job_id})["text"]
+
+
+def test_c10_3_a_desktop_switch_during_the_probe_leaves_a_default_job_its_lane(routing_state, monkeypatch):
+    """C-10.3 (2026-09-30): the lane that became the desktop login is still a candidate, Claude Code active."""
+    service, harness = routing_state
+    service.store.put_lane(claude_lane("claude-2", account="current@example.com"))
+    def probe(job, lane, model, holder):
+        monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: "current@example.com")
+        return Outcome(OutcomeClass.OK, "admitted", {"rc": 0})
+    monkeypatch.setattr(service, "_execute_probe", probe)
+    job_id = service.dispatch("submit", harness.submit_args(pinned_model="opus", tier="hard"))["job_id"]
+    service._admit()
+    assert [a["lane_id"] for a in service.store.list_attempts(job_id)] == ["claude-2"]

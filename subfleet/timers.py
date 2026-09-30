@@ -15,7 +15,7 @@ import time
 from uuid import uuid4
 
 from . import capacity
-from .policy import cap as policy_cap, lane_slot_cap
+from .policy import admission_settings, cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential
@@ -596,10 +596,13 @@ class Timers:
             headroom_ok = override or not any(r['utilization'] >= 1 - self.policy.get('headroom_floor', .15) for r in measured if r['scope'] == 'account')
             caps = self.policy.get('caps', {})
             # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
-            # login's lane is dispatchable while Claude Code is not using it.
+            # login's lane is dispatchable while its reserve admits detached work,
+            # whether or not Claude Code is using the login.
             slot_cap = lane_slot_cap(caps, bool(measured) and not override)
             fleet_cap = policy_cap(caps, 'max_active_attempts')
-            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
+            reserved = capacity.desktop_reserved(row, admission_settings(self.policy), now=self.now(),
+                                                 reading_ttl_s=caps.get('reading_ttl_s', 120))
+            row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not reserved and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
                                        (slot_cap is None or row['in_flight'] < slot_cap) and
