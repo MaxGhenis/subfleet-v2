@@ -584,6 +584,193 @@ def test_c13_1_a_retry_after_a_salvage_that_succeeded_holds_nothing_more(state_d
     assert git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/") == salvaged["path"]
 
 
+#: a1's lines in the notice of a job that ends before its next attempt finalizes (P2).
+A1_LINE = "attempt a1: transient, rc=0: fixture transport disconnected"
+A1_SALVAGE = "salvage failed: git add timed out after 60 s"
+
+
+def salvage_refs(workdir):
+    return git(workdir, "for-each-ref", "--format=%(refname)", "refs/subfleet-salvage/").split()
+
+
+def test_c13_1_a_job_cancelled_while_it_waits_to_retry_says_what_its_salvage_could_not_save(
+        state_daemon, monkeypatch):
+    """Review of ceacf18b, P2 (a): a1's salvage failed and the job waited to try again; the
+    caller cancelled it. The only notice said `cancelled before launch`, so nobody was told
+    that a1's work is in no ref, only in the worktree, or that a1 had run at all."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon.dispatch("kill", {"job_id": job_id})
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("cancelled", 130)
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE,
+                                      f"{A1_SALVAGE}; the worktree is kept: {workdir}"]
+    [a1] = daemon.store.list_attempts(job_id)
+    assert not [row for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"]
+    assert salvage_refs(workdir) == [] and (workdir / "new-by-a1.txt").read_text() == "a1 work\n"
+
+
+def test_c13_1_a_retry_whose_preparation_fails_says_what_the_last_salvage_could_not_save(
+        state_daemon, monkeypatch):
+    """P2 (b): a1's salvage failed, then a2's start snapshot timed out on every admission
+    pass (here `git add`; every other git call is real) until C-6.8 failed the job. The
+    notice gave only the workspace error, nothing of a1 or its failed salvage."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+
+    def slow(*args, **kwargs):
+        raise SalvageError("git add timed out after 60 s", transient=True)
+    monkeypatch.setattr(salvage_module, "_add", slow)
+    limit = daemon.policy["caps"]["workspace_retry_max"]
+    for _ in range(limit + 1):
+        daemon.store.update_job(job_id, next_check_at=None)
+        daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and len(daemon.store.list_attempts(job_id)) == 1
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == [
+        f"failed while preparing the retry: workspace preparation failed after {limit} retries: "
+        "SalvageError: git add timed out after 60 s",
+        A1_LINE, f"{A1_SALVAGE}; the worktree is kept: {workdir}"]
+    assert events(daemon, job_id, "salvage.baseline_held") == [] and salvage_refs(workdir) == []
+    assert (workdir / "new-by-a1.txt").read_text() == "a1 work\n"
+
+
+def test_c13_1_a_retry_refused_at_admission_says_what_the_last_salvage_could_not_save(state_daemon, monkeypatch):
+    """P2 (b), a refusal: the in-place checkout was switched to `main` while the retry
+    waited, so admission refuses it (rc 7, C-13.2) before any snapshot is taken."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    git(workdir, "branch", "-m", "main")
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    lines = job_notices(daemon, job_id)[0].split("\n")[1:]
+    assert lines[0].startswith("failed while preparing the retry: writable job refused on main; fix: ")
+    assert lines[1:] == [A1_LINE, f"{A1_SALVAGE}; the worktree is kept: {workdir}"]
+
+
+def held_while_waiting(daemon, harness, monkeypatch):
+    """P2 (c): an admission pass held a2's start snapshot (a1's work) and found no capacity."""
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    with monkeypatch.context() as full:
+        full.setitem(daemon.policy["caps"], "max_active_attempts", 0)
+        daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "waiting" and len(daemon.store.list_attempts(job_id)) == 1
+    return workdir, job_id, f"refs/subfleet-salvage/{job_id}-a2-baseline"
+
+
+def test_c13_1_a_job_cancelled_after_its_retrys_start_was_held_records_and_names_the_ref(
+        state_daemon, monkeypatch):
+    """P2 (c): the held ref existed, but only its `salvage.baseline_held` event named it: no
+    attempt had it as a salvage artifact (a2 was never reserved), and the notice said
+    `cancelled before launch`. The cancel records it as a1's artifact, so retention keeps
+    the job (C-13.4) and `runs show` lists it, and the notice names it."""
+    from subfleet import retention
+    daemon, harness = state_daemon
+    workdir, job_id, ref = held_while_waiting(daemon, harness, monkeypatch)
+    [held] = events(daemon, job_id, "salvage.baseline_held")
+    daemon.dispatch("kill", {"job_id": job_id})
+    assert daemon.store.get_job(job_id)["state"] == "cancelled"
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE, A1_SALVAGE,
+                                      f"the worktree after attempt a1 is held under {ref}"]
+    [a1] = daemon.store.list_attempts(job_id)
+    [artifact] = [row for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"]
+    assert artifact["path"] == ref and held["ref"] == ref and salvage_refs(workdir) == [ref]
+    assert artifact["sha256"] == daemon_module.hashlib.sha256(held["commit"].encode()).hexdigest()
+    assert git(workdir, "show", f"{ref}:new-by-a1.txt") == "a1 work"
+    assert ref in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
+    # Read, the notice pins nothing; the artifact still does.
+    with daemon.store.transaction("test.notice_read", job_id=job_id) as tx:
+        tx.execute("UPDATE notices SET state='acknowledged' WHERE job_id=?", (job_id,))
+    assert job_id in retention._pins(daemon.store, set(), set())
+    assert job_id not in retention._pins(daemon.store, set(), {artifact["artifact_id"]})
+
+
+def test_c13_1_a_cancelled_jobs_held_ref_names_what_its_snapshot_left_out(state_daemon, monkeypatch):
+    """P2 (c) with a nested repository with no commit beside a1's work: the held snapshot
+    left it out (no ref can hold one), and the notice says so and that the worktree is kept."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    empty_repository(workdir / "newpkg")
+    with monkeypatch.context() as full:
+        full.setitem(daemon.policy["caps"], "max_active_attempts", 0)
+        daemon._admit()
+    daemon.dispatch("kill", {"job_id": job_id})
+    assert job_notices(daemon, job_id)[0].split("\n")[-1] == (
+        f"the worktree after attempt a1 is held under refs/subfleet-salvage/{job_id}-a2-baseline, which left out "
+        f"1 nested repository with no commit, kept only in the worktree: 'newpkg/'; the worktree is kept: {workdir}")
+
+
+def test_c13_1_a_cancel_while_the_retrys_start_is_being_held_is_told_in_one_more_notice(
+        state_daemon, monkeypatch):
+    """P2 (c), the race: the cancel commits while admission writes the held ref, before its
+    event, so the cancel's notice cannot name it. Admission, finding the job ended when it
+    records the event, records the ref as a1's artifact and says where it is in one more
+    notice; nothing is reserved."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    real = daemon_module.pin_baseline
+
+    def cancelled_meanwhile(*args, **kwargs):
+        held = real(*args, **kwargs)
+        daemon.dispatch("kill", {"job_id": job_id})
+        return held
+    monkeypatch.setattr(daemon_module, "pin_baseline", cancelled_meanwhile)
+    daemon._admit()
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    assert daemon.store.get_job(job_id)["state"] == "cancelled" and len(daemon.store.list_attempts(job_id)) == 1
+    first, second = job_notices(daemon, job_id)
+    assert first.split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE,
+                                     f"{A1_SALVAGE}; the worktree is kept: {workdir}"]
+    assert second.split("\n")[1:] == [f"as the job ended, the worktree after attempt a1 is held under {ref}"]
+    [a1] = daemon.store.list_attempts(job_id)
+    assert [row["path"] for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"] == [ref]
+    assert git(workdir, "show", f"{ref}:new-by-a1.txt") == "a1 work"
+
+
+def test_c13_1_a_retry_cancelled_before_its_launch_names_the_attempt_before_it(state_daemon, monkeypatch):
+    """P2's rule on the reserved path: a2 was reserved on its held start, then cancelled
+    before it launched. Its notice said `cancelled-before-launch` alone; it now says which
+    attempt that was, and what a1's salvage could not save and where a1's work is held."""
+    from subfleet.daemon import Daemon
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    daemon.dispatch("kill", {"job_id": job_id})
+    Daemon._launch(daemon, daemon.store.get_attempt(a2["attempt_id"]))      # the fixture forbids scheduled launches
+    assert daemon._children == {} and daemon.store.get_job(job_id)["state"] == "cancelled"
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == ["attempt a2: cancelled-before-launch", A1_LINE, A1_SALVAGE,
+                                      f"the worktree after attempt a1 is held under {ref}"]
+    assert [row["path"] for row in daemon.store.list_artifacts(a2["attempt_id"])] == [ref]     # not twice
+    assert not [row for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"]
+
+
+def test_c13_1_a_quarantined_retry_names_the_attempt_before_it(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    from subfleet.procs import Containment
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    _, a2 = daemon.store.list_attempts(job_id)
+    daemon._quarantine(a2, Containment(marker_pids=frozenset({42099})), "escaped fixture")
+    lines = job_notices(daemon, job_id)[0].split("\n")[1:]
+    assert lines[0].startswith("attempt a2 quarantined: {")
+    assert lines[1:] == [A1_LINE, A1_SALVAGE,
+                         f"the worktree after attempt a1 is held under refs/subfleet-salvage/{job_id}-a2-baseline"]
+
+
+def test_c13_1_a_job_cancelled_after_a_salvage_that_succeeded_names_only_the_attempt(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch, salvage_fails=False)
+    daemon.dispatch("kill", {"job_id": job_id})
+    assert job_notices(daemon, job_id)[0].split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE]
+
+
 @pytest.mark.parametrize("transient", [True, False])
 def test_c13_1_a_baseline_that_cannot_be_held_is_a_workspace_failure(state_daemon, monkeypatch, transient):
     """C-6.8: nothing runs in the worktree unheld; the job waits, or fails with the cause."""

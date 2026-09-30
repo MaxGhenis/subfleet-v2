@@ -134,6 +134,13 @@ def _skipped(paths: list[str]) -> dict:
     return {"count": len(paths), "paths": paths[:SALVAGE_SKIPPED_SHOWN]}
 
 
+def _left_out(skipped: dict) -> str:
+    """C-13.1: `_skipped`'s record as a notice names it."""
+    count, paths = skipped["count"], skipped["paths"]
+    shown = ", ".join(f"'{path}'" for path in paths) + (", ..." if count > len(paths) else "")
+    return f"{count} nested repositor{'y' if count == 1 else 'ies'} with no commit, kept only in the worktree: {shown}"
+
+
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -2381,7 +2388,10 @@ class Daemon:
                 if not active:
                     tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (utcnow(), row["job_id"]))
                     tx.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
-                    self._notice(tx, row, "cancelled before launch")
+                    # C-13.1, C-15.1: a job with an attempt behind it was waiting to try again.
+                    earlier = self._earlier_attempt(tx, row)
+                    self._notice(tx, row, "cancelled while waiting to retry" + earlier if earlier
+                                 else "cancelled before launch")
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
@@ -2737,6 +2747,12 @@ class Daemon:
         event, as the attempt's evidence names it (`baseline_skipped`).
         A failure to hold it is C-6.8's, as the snapshot's own is: the job waits
         or fails, and nothing runs in the worktree meanwhile.
+
+        A job that ends before its retry is reserved records the ref as its last
+        attempt's artifact and names it in its notice (`_earlier_attempt`). One
+        cancelled while this pass wrote the ref, before its event, had its notice
+        written without it; so when the event is new and the job has ended, the
+        ref is recorded here and told in one more notice (review of ceacf18b, P2).
         """
         if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous:
             return None
@@ -2748,18 +2764,23 @@ class Daemon:
         seq = len(previous) + 1
         ref, commit = pin_baseline(workspace, job["job_id"], seq, baseline, head,
                                    timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        artifact = {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
         # The ref may be written before capacity becomes available. Record it
         # then, once, so it remains discoverable even if no retry is reserved.
         with self.store.transaction("salvage.baseline_recorded", job_id=job["job_id"]) as tx:
             held = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held'",
                               (job["job_id"],)).fetchall()
             if not any(json.loads(row[0]).get("ref") == ref for row in held):
+                data = {"ref": ref, "commit": commit, "seq": seq, "after": previous[-1]["attempt_id"],
+                        **({"skipped": _skipped(skipped)} if skipped else {})}
                 tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
                            (utcnow(), "salvage.baseline_held", job["job_id"], previous[-1]["attempt_id"],
-                            json.dumps({"ref": ref, "commit": commit, "seq": seq,
-                                        "after": previous[-1]["attempt_id"],
-                                        **({"skipped": _skipped(skipped)} if skipped else {})})))
-        return {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
+                            json.dumps(data)))
+                current = dict(tx.execute("SELECT * FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone())
+                if current["state"] in TERMINAL:
+                    self.store.add_artifact(previous[-1]["attempt_id"], **artifact)
+                    self._notice(tx, current, "as the job ended, " + self._held_line(current, data), again=True)
+        return artifact
 
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
         """For the caller (review of d261): the sandbox the job got, and for a
@@ -3990,8 +4011,10 @@ class Daemon:
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
         tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-        self._notice(tx, job, f"skipped: session {job['caller_session']} already has a live "
-                              f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
+        earlier = self._earlier_attempt(tx, job)      # C-13.1: a retry of a revive
+        self._notice(tx, job, ("failed while preparing the retry: " if earlier else "")
+                     + f"skipped: session {job['caller_session']} already has a live "
+                       f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}" + earlier)
 
     @staticmethod
     def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
@@ -4051,7 +4074,9 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
             tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-            self._notice(tx, job, detail)
+            # C-13.1, C-15.1: a job with an attempt behind it was preparing its retry.
+            earlier = self._earlier_attempt(tx, job)
+            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier)
         self._notify()
 
     def _launch(self, a: dict) -> None:
@@ -4493,7 +4518,9 @@ class Daemon:
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
             if not retry:
-                self._notice(tx, job, detail)
+                # C-13.1, C-15.1: a retry that never launched names the attempt before it.
+                earlier = self._earlier_attempt(tx, job, before=a["seq"])
+                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier)
         self._notify()
 
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
@@ -4565,7 +4592,9 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
-            self._notice(tx, job, "quarantined: " + detail)
+            # C-13.1, C-15.1: a quarantined retry names the attempt before it.
+            earlier = self._earlier_attempt(tx, job, before=a["seq"])
+            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
@@ -4710,13 +4739,69 @@ class Daemon:
         lines = [evidence["salvage_error"]] if evidence.get("salvage_error") else []
         skipped = evidence.get("salvage_skipped")
         if skipped:
-            count, paths = skipped["count"], skipped["paths"]
-            shown = ", ".join(f"'{path}'" for path in paths) + (", ..." if count > len(paths) else "")
-            lines.append(f"salvage left out {count} nested repositor{'y' if count == 1 else 'ies'} "
-                         f"with no commit, kept only in the worktree: {shown}")
+            lines.append(f"salvage left out {_left_out(skipped)}")
         if lines and (skipped or not artifacts):
             lines[-1] += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
         return "".join("\n" + line for line in lines)
+
+    @staticmethod
+    def _held_line(job: dict, held: dict) -> str:
+        """C-13.1: a start snapshot admission held after a failed salvage (a
+        `salvage.baseline_held` event's data), as one line of a notice."""
+        line = f"the worktree after attempt a{held['seq'] - 1} is held under {held['ref']}"
+        if held.get("skipped"):
+            line += (f", which left out {_left_out(held['skipped'])}; "
+                     f"the worktree is kept: {job.get('worktree') or job['workdir']}")
+        return line
+
+    def _earlier_attempt(self, tx, job: dict, *, before: int | None = None) -> str:
+        """C-13.1, C-15.1: the notice's lines for a job's last attempt before `before`
+        (any, when None), for a job that ends without finalizing another; "" when it
+        has none.
+
+        That is a job cancelled while it waits to try again, or failed, refused or
+        skipped while its retry is prepared (`_fail_queued`, `_skip_revive`), and
+        a retry that never launched or was quarantined. The attempt's line, as C-15.1 gives it
+        (`attempt a<seq>: <class>, rc=<rc>: <detail>`), what its salvage could not
+        save (`_salvage_summary`), and the start snapshot admission held after it
+        when that salvage failed (`_pin_baseline`, named by its event), which no
+        attempt records when no retry was reserved (the job was cancelled while
+        it waited for capacity): it is recorded here as the job's last attempt's
+        salvage artifact, so retention keeps it (C-13.4) and `runs show` lists it.
+        Before, such a job's notice said "cancelled before launch" or gave only
+        the retry's workspace error, and nothing of the failed salvage or the ref
+        (review of ceacf18b, P2).
+        """
+        attempts = [dict(row) for row in tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq",
+                                                    (job["job_id"],)).fetchall()]
+        earlier = [attempt for attempt in attempts if before is None or attempt["seq"] < before]
+        if not earlier:
+            return ""
+        last = earlier[-1]
+        own = [dict(row) for row in tx.execute("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
+                                               (last["attempt_id"],)).fetchall()]
+        recorded = {row[0] for row in tx.execute(
+            "SELECT r.path FROM artifacts r JOIN attempts a USING(attempt_id) WHERE a.job_id=? AND r.role='salvage'",
+            (job["job_id"],)).fetchall()}
+        held = []
+        for (data,) in tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held' "
+                                  "ORDER BY event_id", (job["job_id"],)).fetchall():
+            data = json.loads(data)
+            if (not isinstance(data, dict) or data.get("after") != last["attempt_id"]
+                    or not data.get("ref") or not data.get("commit") or not data.get("seq")):
+                continue            # never a reason a cancel or a failure cannot be recorded
+            artifact = {"role": "salvage", "path": data["ref"],
+                        "sha256": hashlib.sha256(data["commit"].encode()).hexdigest(), "bytes": 0}
+            if data["ref"] not in recorded:
+                self.store.add_artifact(attempts[-1]["attempt_id"], **artifact)
+                recorded.add(data["ref"])
+            held.append((data, artifact))
+        rc = "-" if last["rc"] is None else last["rc"]
+        return (f"\nattempt a{last['seq']}: {last['outcome_class'] or 'unknown'}, rc={rc}: "
+                f"{last['outcome_detail'] or '-'}"
+                + self._salvage_summary(job, own + [artifact for _, artifact in held],
+                                        json.loads(last["evidence_json"] or "{}"))
+                + "".join("\n" + self._held_line(job, data) for data, _ in held))
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
