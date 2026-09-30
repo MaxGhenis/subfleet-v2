@@ -578,29 +578,30 @@ class CodexAdapter(Adapter):
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+        # C-9.2, C-9.3: a credential failure in Codex's own words outranks even a
+        # finished turn. "Your access token could not be refreshed" says the lane
+        # dies when its current token lapses, not that this turn could not finish.
+        for event, text in signals:
+            if AUTH_RE.search(text):
+                evidence["authentication"] = event or text
+                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
-        # C-9.2: a turn that finished and delivered is `ok` whatever the words
-        # around it say, a credential-looking one included: a lane whose token was
-        # revoked cannot complete a turn.
+        # C-9.2: past that, a turn that finished and delivered is `ok` whatever
+        # Codex's words around it say.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
         if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
             if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
                 evidence["admission"] = "deliverable with exit 0"
                 # Kept as evidence, acted on by nothing.
                 unheeded = {}
-                for name, regex in (("auth", AUTH_RE), ("cli", OLD_CLI_RE),
-                                    ("content", CONTENT_RE), ("limit", LIMIT_RE)):
+                for name, regex in (("cli", OLD_CLI_RE), ("content", CONTENT_RE), ("limit", LIMIT_RE)):
                     hit = next((text for _event, text in signals if regex.search(text)), None)
                     if hit is not None:
                         unheeded[name] = hit[:300]
                 if unheeded:
                     evidence["words_after_delivery"] = unheeded
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
-        for event, text in signals:
-            if AUTH_RE.search(text):
-                evidence["authentication"] = event or text
-                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
                                    (CONTENT_RE, OutcomeClass.CONTENT_FILTER, "Content-filter rejection; prompt reconciliation required")):
             for event, text in signals:

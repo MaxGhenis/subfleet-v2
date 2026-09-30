@@ -1706,6 +1706,13 @@ class ClaudeAdapter(Adapter):
                         ),
                     },
                 )
+            if text.strip():
+                return finish(
+                    OutcomeClass.UNKNOWN,
+                    "unknown: rc 0, but the last text is the provider's own error text, "
+                    "not a deliverable",
+                    answered={"deliverable": "provider error text with rc 0 (C-9.2)"},
+                )
             return finish(
                 OutcomeClass.UNKNOWN,
                 "unknown: empty deliverable with rc 0",

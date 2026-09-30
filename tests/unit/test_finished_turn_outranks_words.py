@@ -1,5 +1,6 @@
 """C-9.2, C-9.3, C-9.4: text is evidence only when the provider wrote it, and a
-turn that finished and delivered is `ok` whatever any text says.
+turn that finished and delivered is `ok` unless one of the provider's own verdicts
+says otherwise.
 
 On 2026-09-30 job 20260929-230209-pb-gpt61sol-judge ran twice to completion on
 Claude lanes (rc 0, `is_error: false`, `rate_limit_event` allowed, an 11 KB
@@ -11,8 +12,8 @@ deliverables away, and dispatched the job a third time.
 
 Codex had the same hole one step removed: its stderr carries `codex_core::tools`
 records that echo the model's blocked commands and failed patches word for word,
-and its credential pattern ran before its success check, so a finished turn whose
-echoed command mentioned a revoked token would have disabled the lane.
+and every pattern read them, so a finished turn whose echoed command mentioned a
+revoked token would have disabled the lane.
 
 The properties here hold for every input, not only the incident's.
 """
@@ -223,6 +224,17 @@ def test_the_providers_error_words_are_never_the_delivery(shape, expected):
     assert outcome.cls is expected, outcome.detail
 
 
+def test_an_undelivered_finished_turn_says_why():
+    """C-9.2, C-12.6 rc 0 whose only text is the provider's own (a result with no
+    `is_error`, no limit words in it) is `unknown`, and says it was the provider's
+    text, not an empty deliverable."""
+    rows = [{"type": "system", "subtype": "init", "session_id": SID, "model": OPUS},
+            {"type": "result", "subtype": "success", "session_id": SID, "result": "Done."}]
+    outcome = _classify_claude(rows, 0)
+    assert outcome.cls is OutcomeClass.UNKNOWN
+    assert "provider's own error text" in outcome.detail
+
+
 @pytest.mark.parametrize("change,expected", [
     ("rejected-event", OutcomeClass.LIMITED),
     ("auth-kind", OutcomeClass.AUTH_DEAD),
@@ -351,15 +363,19 @@ def test_a_finished_codex_turn_is_ok_despite_echoed_credential_words(echoed):
     assert "words_after_delivery" not in outcome.evidence
 
 
-def test_a_finished_codex_turn_outranks_a_recovered_credential_error():
-    """C-9.2 a non-terminal `error` event with credential words, then a completed
-    turn and a deliverable, is `ok`: a lane whose token was revoked cannot finish.
-    The words are kept as evidence."""
+def test_a_codex_credential_failure_outranks_a_finished_turn():
+    """C-9.2, C-9.3 Codex's own credential failure, as an `error` event or its own
+    stderr record, is `auth-dead` even when the turn then finished: a refresh that
+    failed means the lane dies when its current token lapses, whether or not this
+    turn got through first (review of c45acefe)."""
     rows, rc = _codex_rows("finished", "Done.")
     rows.insert(0, {"type": "error", "message": "Your refresh token was revoked."})
-    outcome = _classify_codex(rows, rc)
-    assert outcome.cls is OutcomeClass.OK
-    assert "refresh token" in outcome.evidence["words_after_delivery"]["auth"]
+    assert _classify_codex(rows, rc).cls is OutcomeClass.AUTH_DEAD
+    own_record = ("2026-09-29T17:05:00.000001Z ERROR codex_core::auth: failed to refresh "
+                  "token: Your refresh token was revoked\n")
+    after_echo = f"{ECHO_HEAD}Command blocked by PreToolUse hook: rg 'revoked'\n{own_record}"
+    assert _classify_codex(*_codex_rows("finished", "Done."), stderr=after_echo).cls \
+        is OutcomeClass.AUTH_DEAD
 
 
 def test_a_codex_deliverable_quoting_limits_is_ok():
