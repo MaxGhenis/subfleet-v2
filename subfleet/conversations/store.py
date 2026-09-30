@@ -22,12 +22,14 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import (
+    APPROVAL_NEEDED, CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, RUNNING, STARTING, TERMINAL_STATES,
+)
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -968,6 +970,14 @@ class ConversationStore:
         """Move a message; with `expect`, only from those states, with `unbound`,
         only while no job is bound to it, and with `expect_turn_seq`, only at that
         turn sequence. Returns whether it moved."""
+        with self.transaction() as tx:
+            return self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
+                                   expect_turn_seq=expect_turn_seq, **fields)
+
+    def _set_state(self, tx: sqlite3.Connection, message_id: str, state: str, *, reason: str | None = None,
+                   expect: tuple[str, ...] | None = None, unbound: bool = False,
+                   expect_turn_seq: int | None = None, **fields: Any) -> bool:
+        """`set_state` in the caller's transaction."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
@@ -987,12 +997,11 @@ class ConversationStore:
         if expect_turn_seq is not None:
             where += " AND turn_seq=?"
             wparams.append(expect_turn_seq)
-        with self.transaction() as tx:
-            cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
-            if cur.rowcount:
-                row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
-                self._change(tx, row["conversation_id"], message_id, state, reason=reason)
-            return bool(cur.rowcount)
+        cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
+        if cur.rowcount:
+            row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+            self._change(tx, row["conversation_id"], message_id, state, reason=reason)
+        return bool(cur.rowcount)
 
     def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
@@ -1057,28 +1066,50 @@ class ConversationStore:
 
     def add_approval(self, *, message_id: str, conversation_id: str, attempt_id: str, provider_request_id: str,
                      kind: str, request: dict, display: dict, options: tuple[str, ...]) -> tuple[dict, bool]:
-        existing = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                            (attempt_id, provider_request_id))
-        if existing:
-            return _decode_approval(existing), False
+        staged = self._stage_approval(message_id=message_id, conversation_id=conversation_id, attempt_id=attempt_id,
+                                      provider_request_id=provider_request_id, kind=kind, request=request,
+                                      display=display, options=options)
+        created = False
+        if staged is not None:
+            with self.transaction() as tx:
+                created = bool(self._insert_approvals(tx, [staged], utcnow()))
+        row = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                       (attempt_id, provider_request_id))
+        return _decode_approval(row), created
+
+    def _stage_approval(self, *, message_id: str, conversation_id: str, attempt_id: str, provider_request_id: str,
+                        kind: str, request: dict, display: dict, options: tuple[str, ...]) -> tuple | None:
+        """Publish an approval's exact request (C-27.1) ahead of its row, as a message's
+        text is (C-24.3), and return the row to insert; None when the attempt already
+        has one for this request."""
+        if self.one("SELECT 1 FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                    (attempt_id, provider_request_id)):
+            return None
         approval_id = new_id("ap")
         raw = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
         path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
         self._publish(path, raw)
-        with self.transaction() as tx:
-            tx.execute(
+        return (approval_id, message_id, conversation_id, attempt_id, provider_request_id, kind, str(path),
+                hashlib.sha256(raw).hexdigest(), json.dumps(display), json.dumps(list(options)), secrets.token_hex(16))
+
+    def _insert_approvals(self, tx: sqlite3.Connection, staged: list[tuple], now: str) -> int:
+        """Insert staged approvals, pending, with one change-feed row per message given
+        one; returns how many were inserted."""
+        added: dict[str, str] = {}
+        inserted = 0
+        for row in staged:
+            cur = tx.execute(
                 "INSERT OR IGNORE INTO approvals(approval_id,message_id,conversation_id,attempt_id,provider_request_id,kind,"
                 "request_path,request_sha256,display_json,options_json,nonce,state,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
-                (approval_id, message_id, conversation_id, attempt_id, provider_request_id, kind, str(path),
-                 hashlib.sha256(raw).hexdigest(), json.dumps(display), json.dumps(list(options)),
-                 secrets.token_hex(16), utcnow()))
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)", (*row, now))
+            if cur.rowcount:
+                added[row[1]] = row[2]
+                inserted += 1
+        for message_id, conversation_id in added.items():
             pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                  (message_id,)).fetchone()[0]
             self._change(tx, conversation_id, message_id, None, pending=pending)
-        row = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                       (attempt_id, provider_request_id))
-        return _decode_approval(row), True
+        return inserted
 
     def approval(self, approval_id: str) -> dict:
         row = self.one("SELECT * FROM approvals WHERE approval_id=?", (approval_id,))
@@ -1139,12 +1170,25 @@ class ConversationStore:
             "attempt_id": attempt_id, "stdout_offset": 0, "stdin_seq": 0, "compacted": 0}
 
     def append_events(self, *, conversation_id: str, message_id: str, attempt_id: str,
-                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
+                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int,
+                      approvals: Sequence[dict] = ()) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
-        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6)."""
+        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6).
+
+        `approvals` (`add_approval`'s fields less the message, conversation and
+        attempt) are the batch's provider requests. Their rows, their
+        `approval.requested` events and the message's move to `approval-needed`
+        (while one is pending) commit together (C-27.1, design §8): whoever reads
+        the event finds the approval in `approval.list` and `conversation.open`,
+        so the app can answer the card it shows. Each request is published before
+        the transaction."""
+        staged = [s for approval in approvals
+                  if (s := self._stage_approval(message_id=message_id, conversation_id=conversation_id,
+                                                attempt_id=attempt_id, **approval)) is not None]
         now = utcnow()
         written = 0
         with self.transaction() as tx:
+            self._insert_approvals(tx, staged, now)
             mark = tx.execute("SELECT compacted FROM attempt_marks WHERE attempt_id=?", (attempt_id,)).fetchone()
             compacted = bool(mark and mark["compacted"])
             for source, position, ordinal, kind, data in events:
@@ -1162,6 +1206,13 @@ class ConversationStore:
                        "ON CONFLICT(attempt_id) DO UPDATE SET stdout_offset=MAX(stdout_offset,excluded.stdout_offset), "
                        "stdin_seq=MAX(stdin_seq,excluded.stdin_seq)",
                        (attempt_id, message_id, stdout_offset, stdin_seq))
+            asked = [a["provider_request_id"] for a in approvals]
+            if asked and tx.execute(
+                    "SELECT 1 FROM approvals WHERE attempt_id=? AND state='pending' "
+                    f"AND provider_request_id IN ({','.join('?' * len(asked))})", (attempt_id, *asked)).fetchone():
+                # Only a request still waiting: a replay meeting one a person already
+                # answered leaves the message as it is (C-27.3).
+                self._set_state(tx, message_id, APPROVAL_NEEDED, expect=(RUNNING, STARTING))
         return written
 
     def floor(self, conversation_id: str) -> int:

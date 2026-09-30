@@ -27,6 +27,13 @@ def core_probe(tmp_path_factory) -> Path:
     return compile_probe(tmp_path_factory.mktemp("subfleet-core") / "probe", CORE_PROBE, "SUBFLEET_MODEL_TEST")
 
 
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
+
+
 def run_probe(probe: Path, *args, env: dict | None = None, timeout: float = 60, raw: bool = False):
     environment = {key: value for key, value in os.environ.items() if not key.startswith("SUBFLEET_")}
     environment.update(env or {})

@@ -82,6 +82,14 @@ func runLive(_ arguments: [String]) throws -> Any {
         return nil
     }
 
+    /// An approval the probe cannot answer leaves its turn waiting and the
+    /// conversation blocked: every later step would wait out its timeouts (five
+    /// minutes) and fail for that reason alone. The run ends there instead.
+    func endRun(after step: String) -> Any {
+        run.check("the run stopped: an approval could not be answered", false, step)
+        return ["checks": run.checks, "notes": run.notes]
+    }
+
     func finalText(_ timeline: Timeline, _ messageID: String) -> String? {
         timeline.turn(messageID)?.items.reversed().compactMap { item -> String? in
             if case .text(let text, true) = item.content { return text }
@@ -145,38 +153,19 @@ func runLive(_ arguments: [String]) throws -> Any {
     run.check("served facts from events", timeline1?.turn(first.key)?.served.account != nil,
               timeline1.map { jsonObject($0.turn(first.key)?.served ?? Served()) } ?? NSNull())
 
-    // Another events poll from this app supersedes a waiting one (C-29.9). The
-    // daemon takes the waiting poll's slot when it reads that request, which
-    // this thread cannot see, so newer polls go out until the waiting one
-    // returns, for at most 10 s of its 20 s wait. No event can follow `after`,
-    // so only a newer poll can end it early, and it must come back superseded.
-    let waitingReturned = DispatchSemaphore(value: 0)
-    let waitingLock = NSLock()
-    var waitingPage: EventsPage?
+    // Another events poll from this app supersedes a waiting one (C-29.9).
+    var superseded: EventsPage?
     let background = Thread {
-        let page = try? engine.events(conversationID: cid, after: 1_000_000, wait: 20)
-        waitingLock.lock()
-        waitingPage = page
-        waitingLock.unlock()
-        waitingReturned.signal()
+        superseded = try? engine.events(conversationID: cid, after: 1_000_000, wait: 20)
     }
     background.start()
-    let supersedeStart = Date()
-    var newerPolls = 0
-    var returned = false
-    while !returned && Date().timeIntervalSince(supersedeStart) < 10 {
-        _ = try? engine.events(conversationID: cid, after: state.timelines[cid]?.cursor ?? 0, wait: 0)
-        newerPolls += 1
-        returned = waitingReturned.wait(timeout: .now() + 0.5) == .success
-    }
-    waitingLock.lock()
-    let superseded = waitingPage
-    waitingLock.unlock()
+    Thread.sleep(forTimeInterval: 1.0)
+    _ = try? engine.events(conversationID: cid, after: state.timelines[cid]?.cursor ?? 0, wait: 0)
+    let waitStart = Date()
+    while superseded == nil && Date().timeIntervalSince(waitStart) < 10 { Thread.sleep(forTimeInterval: 0.1) }
     var probe = Timeline(conversationID: cid)
-    run.check("a newer poll supersedes the waiting one",
-              returned && superseded.map { probe.apply(page: $0) } == .superseded,
-              ["returned": returned, "superseded": (superseded?.superseded).map { $0 as Any } ?? NSNull(),
-               "newer_polls": newerPolls, "seconds": Date().timeIntervalSince(supersedeStart)] as [String: Any])
+    run.check("a newer poll supersedes the waiting one", superseded.map { probe.apply(page: $0) } == .superseded,
+              superseded.map { $0.superseded ?? false } ?? NSNull())
 
     // 4. Stop the follow-up: it is running, so Stop interrupts it.
     refresh([slow.key])
@@ -220,7 +209,10 @@ func runLive(_ arguments: [String]) throws -> Any {
             run.check("a repeated answer is recognised", again.duplicate == true)
         } catch {
             run.check("approval.get and approval.respond as the app", false, describe(error))
+            return endRun(after: "5. approval.get or approval.respond failed")
         }
+    } else {
+        return endRun(after: "5. the tool approval has no approval id")
     }
     let approved = untilState(approvalMessage.key, ["complete", "failed"])
     run.check("the approved turn completes", approved?.state == "complete", approved?.state ?? "")
@@ -243,16 +235,27 @@ func runLive(_ arguments: [String]) throws -> Any {
     // 6. A question, answered with a chosen label.
     let question = try engine.send(conversation: cid, text: "[fake:question]", settings: settings)
     _ = engine.pump()
-    _ = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
-    state.apply(approvals: try engine.approvals(conversationID: cid), conversationID: cid)
-    if let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first, let id = questionCard.approvalID {
-        run.check("the question card lists its questions", questionCard.kind == "question"
-                  && questionCard.questions.first?.question == "Which color?"
-                  && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"])
+    let asked = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
+    // Read at once: the daemon commits an approval with its event (C-27.1), so the
+    // list read right after the card appears already has it.
+    let listed = try engine.approvals(conversationID: cid)
+    state.apply(approvals: listed, conversationID: cid)
+    let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
+    run.check("the question card joins its approval id from the first list", asked && questionCard?.approvalID != nil,
+              ["card_from_events": asked, "card": questionCard.map(project) ?? NSNull(),
+               "listed": listed.map { "\($0.message_id) \($0.approval_id) \($0.state)" }] as [String: Any])
+    guard let questionCard, let id = questionCard.approvalID else {
+        return endRun(after: "6. the question has no approval id")
+    }
+    run.check("the question card lists its questions", questionCard.kind == "question"
+              && questionCard.questions.first?.question == "Which color?"
+              && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"], project(questionCard))
+    do {
         let detail = try engine.approvalDetail(id)
         _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
-    } else {
-        run.check("the question card lists its questions", false)
+    } catch {
+        run.check("the question is answered as the app", false, describe(error))
+        return endRun(after: "6. approval.get or approval.respond failed")
     }
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }
