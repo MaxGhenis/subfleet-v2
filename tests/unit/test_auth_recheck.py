@@ -70,13 +70,49 @@ def test_c10_8_jitter_is_a_fixed_fraction_of_the_wait(lane_id, seconds):
     assert value == jitter_s(lane_id, seconds)
 
 
-def test_c10_8_policy_cannot_ask_for_more_than_one_recheck_an_hour():
+def test_c10_8_policy_cannot_ask_for_more_than_one_recheck_every_six_hours():
+    assert MIN_INTERVAL_S == 6 * 3600
     assert Settings.from_policy({"timers": {"auth_recheck_interval_s": 60}}).interval_s == MIN_INTERVAL_S
+    assert Settings.from_policy({"timers": {"auth_recheck_interval_s": 3600}}).interval_s == MIN_INTERVAL_S
     assert not Settings.from_policy({"timers": {"auth_recheck_interval_s": 0}}).enabled
-    clamped = Settings.from_policy({"timers": {"auth_recheck_interval_s": 7200,
+    clamped = Settings.from_policy({"timers": {"auth_recheck_interval_s": 43200,
                                                "auth_recheck_max_interval_s": 60}})
-    assert clamped.max_interval_s == 7200
+    assert clamped.max_interval_s == 43200
     assert Settings.from_policy({"timers": {"auth_recheck_interval_s": True}}) == Settings()
+
+
+def test_c10_8_custom_settings_reach_the_schedule():
+    custom = Settings.from_policy({"timers": {"auth_recheck_interval_s": 43200, "auth_recheck_max_interval_s": 172800,
+                                              "auth_recheck_spacing_s": 3600, "auth_recheck_tick_s": 120,
+                                              "auth_recheck_max_load_per_cpu": 0.5}})
+    assert (custom.interval_s, custom.max_interval_s, custom.spacing_s, custom.tick_s, custom.max_load_per_cpu) == \
+        (43200, 172800, 3600, 120, 0.5)
+    assert [backoff_s(k, custom) / 3600 for k in range(4)] == [12, 24, 48, 48]
+    current = judge([lane("claude-11"), lane("claude-12")], disabled=dead("claude-11") | dead("claude-12"),
+                    settings=custom)
+    now = T0 + timedelta(days=3)
+    assert choose(current, now=now, settings=custom, started=now - timedelta(seconds=1800)) == (None, "spacing")
+    assert choose(current, now=now, settings=custom, started=now - timedelta(seconds=3600))[0]
+    soon = min(recheck._instant(s.next_at) for s in current.values()) + timedelta(hours=1)
+    assert choose(current, now=soon, settings=custom, started=None, load_per_cpu=0.6)[1].startswith("host load")
+    assert choose(current, now=soon, settings=custom, started=None, load_per_cpu=0.4)[0]
+    # Overdue by the custom ceiling (48 h), load no longer holds it.
+    assert choose(current, now=soon + timedelta(hours=48), settings=custom, started=None, load_per_cpu=0.6)[0]
+
+
+def test_c10_8_each_lane_has_its_own_positive_jitter():
+    offsets = {lane_id: jitter_s(lane_id, 21600) for lane_id in ("claude-11", "claude-12", "claude-13", "codex-3")}
+    assert all(value > 0 for value in offsets.values())
+    assert len(set(offsets.values())) == len(offsets)
+
+
+def test_c10_8_a_legacy_lane_is_scheduled_from_its_disable_not_its_creation():
+    row = lane("claude-11")
+    row["updated_at"] = iso(T0 + timedelta(days=3))            # disabled three days after it was enrolled
+    current = judge([row], verdicts={"claude-11": {"verdict": "auth-dead"}})
+    wait = S.interval_s
+    assert current["claude-11"].disabled_at == iso(T0 + timedelta(days=3))
+    assert current["claude-11"].next_at == iso(T0 + timedelta(days=3, seconds=wait + jitter_s("claude-11", wait)))
 
 
 def test_c10_8_the_first_recheck_is_an_interval_after_the_disable():
@@ -197,6 +233,40 @@ def test_c10_8_only_a_lane_disabled_as_auth_dead_is_eligible(name):
     if not standing.eligible:
         assert choose({"claude-11": standing}, now=T0 + timedelta(days=365), settings=S,
                       started=None) == (None, None)
+
+
+def test_c10_8_a_verdict_history_that_ever_disqualified_a_lane_keeps_it_off():
+    """A duplicate turned off before reasons were recorded, whose running attempt
+    later finalized auth-dead, has an auth-dead verdict and an auth-dead event, and
+    stays excluded (review of ae3455a1)."""
+    standing = judge([lane("claude-11")], disabled=dead("claude-11"),
+                     verdicts={"claude-11": {"verdict": "auth-dead"}})["claude-11"]
+    assert standing.eligible
+    for reason in ("non-canonical", "identity-mismatch"):
+        standing = judge([lane("claude-11")], disabled=dead("claude-11"),
+                         verdicts={"claude-11": {"verdict": "auth-dead"}})
+        excluded = standings([lane("claude-11")], disabled=dead("claude-11"),
+                             verdicts={"claude-11": {"verdict": "auth-dead"}}, rechecks={}, roster_off=set(),
+                             settings=S, disqualified={"claude-11": reason})["claude-11"]
+        assert not excluded.eligible and excluded.why == reason
+
+
+def test_c10_8_a_restore_that_does_not_hold_carries_its_streak_to_the_successor():
+    """The schedule belongs to the credential: a successor disabled as auth-dead
+    within a day of its restore starts one failure further on."""
+    ref = "claude-quota-claude-11@example.test"
+    restored_at = T0 + timedelta(days=1)
+    rows = [lane("claude-11"), lane("claude-18", ref=ref, at=restored_at)]
+    rechecks = {"claude-11": {"at": iso(restored_at), "result": "restored", "failures": 0, "streak": 2,
+                              "successor": "claude-18"}}
+    for held, streak in ((timedelta(minutes=1), 3), (timedelta(hours=23), 3), (timedelta(days=1, minutes=1), 0)):
+        disabled_at = restored_at + held
+        current = judge(rows, disabled=dead("claude-11") | dead("claude-18", disabled_at), rechecks=rechecks)
+        standing = current["claude-18"]
+        assert standing.eligible and standing.failures == streak
+        wait = backoff_s(streak, S)
+        assert standing.next_at == iso(disabled_at + timedelta(seconds=wait + jitter_s("claude-18", wait)))
+        assert current["claude-11"].why == "superseded"
 
 
 def test_c10_8_enabled_lanes_have_no_standing():
@@ -356,12 +426,17 @@ def test_c10_8_the_roster_names_the_operators_choices(tmp_path):
     assert roster_disabled(tmp_path) == set()
     (tmp_path / "lanes.json").write_text(json.dumps({"lanes": [
         {"lane_id": "claude-15", "enabled": False}, {"lane_id": "claude-11", "enabled": True},
-        {"lane_id": "claude-12"}, "junk"]}))
-    assert roster_disabled(tmp_path) == {"claude-15"}
+        {"lane_id": "claude-12"}, {"lane_id": "claude-13", "enabled": 1}, {"lane_id": "claude-14", "enabled": 0},
+        {"lane_id": "claude-16", "enabled": None}, {"lane_id": "claude-17", "enabled": "false"}, "junk"]}))
+    # Anything but an explicit true, or no `enabled` at all, is the operator's "off".
+    assert roster_disabled(tmp_path) == {"claude-15", "claude-14", "claude-16", "claude-17"}
     (tmp_path / "lanes.json").write_text(json.dumps([{"lane_id": "claude-15", "enabled": False}]))
     assert roster_disabled(tmp_path) == {"claude-15"}
-    (tmp_path / "lanes.json").write_text("{not json")
-    assert roster_disabled(tmp_path) is None
+    (tmp_path / "lanes.json").write_text("[]")
+    assert roster_disabled(tmp_path) == set()
+    for unreadable in ("{not json", "", "  \n", json.dumps({"other": []}), json.dumps({"lanes": {}}), "7"):
+        (tmp_path / "lanes.json").write_text(unreadable)
+        assert roster_disabled(tmp_path) is None, unreadable
     (tmp_path / "lanes.json").unlink()
     (tmp_path / "lanes.json").mkdir()
     assert roster_disabled(tmp_path) is None

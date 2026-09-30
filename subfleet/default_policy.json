@@ -126,7 +126,7 @@
     "auth_recheck_max_interval_s": 86400,
     "auth_recheck_spacing_s": 900,
     "auth_recheck_tick_s": 300,
-    "auth_recheck_max_load_per_cpu": 2.0
+    "auth_recheck_max_load_per_cpu": 3.0
   },
   "alerts": {
     "realert_hours": 6,

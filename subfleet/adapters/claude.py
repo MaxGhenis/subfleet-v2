@@ -48,7 +48,7 @@ from zoneinfo import ZoneInfo
 from ..contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
     AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
-    IdentityStatus, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass, Reading,
+    IdentityStatus, JobSpec, Lane, LaneInfo, LaneOwner, Launch, Outcome, OutcomeClass, Reading,
     ReadingLabel, Sandbox,
 )
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
@@ -943,6 +943,22 @@ class ClaudeAdapter(Adapter):
                                else IdentityStatus.UNVERIFIED)
             account_key = f"{PROVIDER}:{account}"
 
+        # C-10.2, C-10.8: the probe cycle reads this lane's usage endpoint within a
+        # minute and disables it on a 401 (C-9.9). Ask it now, with this very token,
+        # so enrolment never accepts a credential that cycle disables, and say what
+        # it answered (`usage_status`). The profile answer above is cached for the
+        # identity check this read makes.
+        candidate = Lane("", PROVIDER, account_key, credential, home, LaneOwner.V2, False, True,
+                         identity, label)
+        usage = self.probe_usage(candidate, env_add)
+        if usage.status == "auth-dead":
+            raise AdapterError(
+                f"claude: the usage endpoint refused the credential ({usage.detail or 'HTTP 401'})",
+                code=5,
+                fix=("renew the account's subscription, or claude setup-token while signed into "
+                     f"the lane account and store it as the keychain item {credential.ref}"),
+            )
+
         # The lane does not exist yet, so its id is empty here; the daemon stamps the
         # id it assigns onto these readings when it inserts the lane row (C-10.1).
         readings = self.readings_from_summary(
@@ -955,6 +971,7 @@ class ClaudeAdapter(Adapter):
         return LaneInfo(
             account_key=account_key, plan=plan, home=home, readings=readings,
             identity=identity, identity_status=identity_status.value, label=label,
+            usage_status=usage.status, credential_fingerprint=credential_fingerprint(env_add),
         )
 
     # --- readings (C-9.1, C-9.8) --------------------------------------------
@@ -1928,6 +1945,14 @@ def _first_auth_phrase(corpus: str) -> str | None:
     return _first_line_containing(corpus, match) if match else None
 
 
+def credential_fingerprint(env: Mapping[str, str] | None) -> str | None:
+    """C-10.8: the first 16 hex digits of the SHA-256 of the token a lane's
+    reference names (a keychain item or an environment variable), never the token.
+    A home lane's token is the CLI's, which rotates it, so it has none."""
+    token = (env or {}).get("CLAUDE_CODE_OAUTH_TOKEN")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16] if token else None
+
+
 #: What `auth_dead_evidence` says answered an organisation block.
 ORG_BLOCK_ANSWER = "explicit organisation block"
 
@@ -2082,6 +2107,7 @@ __all__ = [
     "SCOPED_MODEL_IDS",
     "apply_headless_block",
     "auth_dead_evidence",
+    "credential_fingerprint",
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",

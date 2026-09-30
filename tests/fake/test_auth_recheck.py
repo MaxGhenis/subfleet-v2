@@ -14,6 +14,7 @@ would otherwise defer every re-check:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import threading
@@ -49,6 +50,7 @@ class Clock:
 class Account(FakeClaude):
     """A setup-token lane's enrolment (C-10.6 `enrolled`), switchable per test."""
     mode = "ok"            # ok | dead | unverified
+    token = "setup-token-A"  # what the keychain item holds (only its fingerprint is recorded)
     calls: list[str] = []
     gate: threading.Event | None = None
     entered: threading.Event | None = None
@@ -58,6 +60,7 @@ class Account(FakeClaude):
     @classmethod
     def reset(cls):
         cls.mode, cls.calls, cls.gate, cls.entered, cls.active, cls.most = "ok", [], None, None, 0, 0
+        cls.token = "setup-token-A"
 
     def enroll(self, credential):
         cls = type(self)
@@ -74,24 +77,31 @@ class Account(FakeClaude):
                                    "error oauth_org_not_allowed)", code=5, fix="renew the subscription")
             email = credential.ref.removeprefix("claude-quota-")
             status = "unverified" if cls.mode == "unverified" else "enrolled"
-            return LaneInfo(f"claude:{email}", "max", None, (), identity=None, identity_status=status, label=email)
+            fingerprint = hashlib.sha256(cls.token.encode()).hexdigest()[:16] if cls.token else None
+            return LaneInfo(f"claude:{email}", "max", None, (), identity=None, identity_status=status, label=email,
+                            usage_status="no-scope", credential_fingerprint=fingerprint)
         finally:
             cls.active -= 1
 
 
 class Codex:
-    """A Codex adapter whose enrolment, like the real one, succeeds whatever the
-    usage endpoint says; `usage` is what the endpoint says."""
-    usage: dict = {"status": "auth-dead"}
+    """A Codex adapter whose enrolment judges its own usage read as the real one
+    does (`CodexAdapter._usage_verdict`): `usage` is that read's verdict, and
+    `account` the account the home's `auth.json` names (None: the home's own)."""
+    usage = "auth-dead"
+    account: str | None = None
     enrolls: list[str] = []
+    timeouts: list[float] = []
+    timeout = 30
 
     def enroll(self, credential):
-        type(self).enrolls.append(credential.ref)
+        cls = type(self)
+        cls.enrolls.append(credential.ref)
+        cls.timeouts.append(self.timeout)
+        if cls.usage in ("auth-dead", "revoked"):
+            raise AdapterError("Codex usage endpoint refused the home's token (HTTP 401)", code=5)
         home = Path(credential.ref).resolve()
-        return LaneInfo(f"codex:acct-{home.name}", "plus", str(home), ())
-
-    def probe_status(self, lane, env):
-        return dict(type(self).usage)
+        return LaneInfo(cls.account or f"codex:acct-{home.name}", "plus", str(home), (), usage_status=cls.usage)
 
 
 @pytest.fixture
@@ -415,6 +425,7 @@ def test_c10_8_a_stop_mid_recheck_is_interrupted_not_a_failure(rig):
     record = events(daemon, recheck.RECHECK_EVENT, lane["lane_id"])[-1]
     assert record["result"] == "interrupted" and record["failures"] == 0
     assert "still does not authenticate" not in log(root)
+    assert f"{lane['lane_id']} (max@axiom.org) was interrupted by the daemon stopping" in log(root)
 
 
 # --- the identity it comes back as -----------------------------------------------------
@@ -457,27 +468,48 @@ def test_c10_8_a_verified_lane_must_come_back_as_its_identity(rig):
     assert daemon.timers.auth_recheck_cycle()["result"] == "restored"
 
 
-def test_c10_8_a_codex_lane_needs_its_usage_endpoint_to_accept_the_same_account(rig, tmp_path):
+@pytest.mark.parametrize("usage", ["network-error", "expired-token", "unknown", None])
+def test_c10_8_a_codex_lane_needs_proof_its_token_authenticates(rig, tmp_path, usage):
+    """Codex enrolment accepts a home whose usage read did not answer (an operator
+    may enrol offline); the automatic path demands `ok` or `limited`."""
     daemon, root, clock = rig
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text("{}")
-    Codex.usage, Codex.enrolls = {"status": "auth-dead"}, []
+    Codex.usage, Codex.account, Codex.enrolls = "ok", None, []
+    register("codex", Codex)
+    lane = enroll(daemon, home)
+    kill(daemon, lane["lane_id"], clock)
+    Codex.usage = usage
+    clock.advance(days=1)
+    record = daemon.timers.auth_recheck_cycle()
+    assert record["result"] == "failed" and record["code"] == 7
+    assert "does not show the token authenticates" in record["detail"]
+    assert not daemon.store.query("SELECT 1 FROM lanes WHERE enabled=1 AND provider='codex' AND lane_id!='codex-1'")
+
+
+def test_c10_8_a_codex_lane_comes_back_only_as_its_own_account(rig, tmp_path):
+    daemon, root, clock = rig
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text("{}")
+    Codex.usage, Codex.account, Codex.enrolls = "ok", None, []
     register("codex", Codex)
     lane = enroll(daemon, home)
     assert lane["provider"] == "codex"
     kill(daemon, lane["lane_id"], clock)
+    Codex.usage = "auth-dead"
     clock.advance(days=1)
     record = daemon.timers.auth_recheck_cycle()
-    assert record["result"] == "failed" and record["code"] == 5 and len(Codex.enrolls) == 1
-    Codex.usage = {"status": "ok", "account_key": "codex:someone-else", "readings": ()}
+    assert record["result"] == "failed" and record["code"] == 5 and len(Codex.enrolls) == 2
+    Codex.usage, Codex.account = "ok", "codex:someone-else"
     until_due(daemon, clock, lane["lane_id"])
     record = daemon.timers.auth_recheck_cycle()
-    assert record["result"] == "failed" and "someone-else" in record["detail"] and len(Codex.enrolls) == 1
-    Codex.usage = {"status": "limited", "account_key": lane["account_key"], "readings": ()}
+    assert record["result"] == "failed" and "different account" in record["detail"]
+    Codex.usage, Codex.account = "limited", None
     until_due(daemon, clock, lane["lane_id"])
     record = daemon.timers.auth_recheck_cycle()
-    assert record["result"] == "restored" and len(Codex.enrolls) == 2
+    assert record["result"] == "restored" and len(Codex.enrolls) == 4
     assert daemon.store.get_lane(record["successor"]).enabled
 
 

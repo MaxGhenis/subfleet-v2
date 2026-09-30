@@ -226,28 +226,6 @@ class CodexAdapter(Adapter):
         self._now = now
         self.timeout = timeout
 
-    def _payload(self, raw: dict) -> dict:
-        identity = _identity(raw)
-        if _api_key(raw) or not identity["token"]:
-            return {}
-        request = urllib.request.Request(WHAM_USAGE_URL, headers={
-            "Authorization": f"Bearer {identity['token']}",
-            "chatgpt-account-id": identity["account_id"] or "",
-            "User-Agent": USER_AGENT, "Accept": "application/json",
-        })
-        try:
-            if self._opener:
-                status, body = self._opener(request, self.timeout)
-            else:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    status, body = response.status, response.read()
-            if status != 200:
-                return {}
-            payload = json.loads(body)
-            return payload if isinstance(payload, dict) else {}
-        except (OSError, ValueError, urllib.error.URLError):
-            return {}
-
     def _readings(self, payload: dict, lane_id: str) -> tuple[Reading, ...]:
         limits = payload.get("rate_limit")
         if not isinstance(limits, dict):
@@ -288,7 +266,18 @@ class CodexAdapter(Adapter):
             raise AdapterError("Codex home has no readable subscription token", fix=fix)
         if str(identity["plan"]).strip().lower() == "free":
             raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
-        payload = self._payload(raw)
+        # C-10.2, C-10.8: the usage read the probe cycle makes, made now with this
+        # very auth.json and judged as that cycle judges it (`_usage_verdict`), so
+        # enrolment never accepts a token the next cycle disables, and says what it
+        # saw (`usage_status`): the automatic re-check demands `ok` or `limited`.
+        verdict = self._usage_verdict(identity, self._request(raw, WHAM_USAGE_URL))
+        status = verdict["status"]
+        if status in ("auth-dead", "revoked"):
+            raise AdapterError(
+                f"Codex usage endpoint refused the home's token "
+                f"({verdict.get('error_code') or verdict.get('detail') or status})", code=5, fix=fix)
+        payload = verdict.get("payload") if status in ("ok", "limited") else {}
+        payload = payload if isinstance(payload, dict) else {}
         plan = payload.get("plan_type") or identity["plan"]
         if str(plan).strip().lower() == "free":
             raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
@@ -296,7 +285,8 @@ class CodexAdapter(Adapter):
         if not account:
             raise AdapterError("Codex home has no account id or email", fix=fix)
         # Enrollment precedes lane allocation; the daemon rebinds these readings to its lane id.
-        return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""))
+        return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""),
+                        usage_status=status)
 
     def probe(self, lane: Lane, credential_env: dict[str, str]) -> tuple[Reading, ...]:
         return self.probe_status(lane, credential_env)["readings"]
@@ -312,26 +302,9 @@ class CodexAdapter(Adapter):
                 "email": identity["email"], "plan_type": identity["plan"]}
         if _api_key(raw) or not identity["token"]:
             return {**base, "status": "no-auth"}
-        result = self._request(raw, WHAM_USAGE_URL)
-        if result["status"] != "ok":
-            status = "network-error" if result["status"] == "timeout" else result["status"]
-            error = str(result.get("error_code", "")).lower()
-            message = str(result.get("detail", "")).lower()
-            if "revok" in error or "refresh token was revoked" in message:
-                status = "revoked"
-            elif re.search(r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)",
-                           error + " " + message, re.I):
-                status = "auth-dead"
-            elif result.get("http_status") == 401:
-                expires = _claims(identity["token"]).get("exp")
-                if "expir" in error or "expir" in message or (
-                    isinstance(expires, (int, float)) and not isinstance(expires, bool)
-                    and expires <= self._now().timestamp()
-                ):
-                    status = "expired-token"
-                else:
-                    status = "auth-dead"
-            return {**base, **result, "status": status}
+        result = self._usage_verdict(identity, self._request(raw, WHAM_USAGE_URL))
+        if result["status"] not in ("ok", "limited"):
+            return {**base, **result}
         payload = result["payload"]
         limits = payload.get("rate_limit")
         limits = limits if isinstance(limits, dict) else {}
@@ -345,6 +318,36 @@ class CodexAdapter(Adapter):
                 "readings": self._readings(payload, lane.lane_id),
                 "reset_credits": {"available": count("available_count"),
                                   "applicable": count("applicable_available_count")}}
+
+    def _usage_verdict(self, identity: dict, result: dict) -> dict:
+        """C-9.3, C-23.47: what one usage response says of the token that asked.
+
+        `ok` or `limited` (the payload's `limit_reached`) when it answered, else
+        `revoked`, `auth-dead` (an organisation block, or a 401 on a token not
+        past its expiry), `expired-token`, or the transport's own status. The
+        probe cycle and enrolment both judge a response here."""
+        if result["status"] == "ok":
+            limits = result["payload"].get("rate_limit")
+            limited = isinstance(limits, dict) and limits.get("limit_reached") is True
+            return {**result, "status": "limited" if limited else "ok"}
+        status = "network-error" if result["status"] == "timeout" else result["status"]
+        error = str(result.get("error_code", "")).lower()
+        message = str(result.get("detail", "")).lower()
+        if "revok" in error or "refresh token was revoked" in message:
+            status = "revoked"
+        elif re.search(r"(?:organi[sz]ation|organization_id).{0,60}(?:blocked|disabled|deactivated)",
+                       error + " " + message, re.I):
+            status = "auth-dead"
+        elif result.get("http_status") == 401:
+            expires = _claims(identity["token"]).get("exp")
+            if "expir" in error or "expir" in message or (
+                isinstance(expires, (int, float)) and not isinstance(expires, bool)
+                and expires <= self._now().timestamp()
+            ):
+                status = "expired-token"
+            else:
+                status = "auth-dead"
+        return {**result, "status": status}
 
     def _request(self, raw: dict, url: str, *, payload: dict | None = None,
                  timeout: float | None = None) -> dict:

@@ -93,13 +93,31 @@ class Timers:
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
                                      'retention', 'mirror', 'mirror_hot', 'auth_recheck')}
-        self.metadata = self._latest('timer.verdict')
+        self.metadata, self.disqualified = self._verdicts()
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
         for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
             data = json.loads(row['data_json'])
             if data.get('timer') in self._status and data.get('last_run'):
                 self._status[data['timer']].update({k: data.get(k) for k in ('last_run', 'next_due', 'last_error_type')})
+
+    #: C-10.8: verdicts that exclude a lane from the auth-dead re-check for good,
+    #: and the reason each stands for.
+    DISQUALIFYING = {'duplicate': 'non-canonical', 'identity-mismatch': 'identity-mismatch'}
+
+    def _verdicts(self):
+        """The latest verdict of each lane (`metadata`), and, from the same one pass
+        over the history, each lane any verdict ever disqualified from the auth-dead
+        re-check (C-10.8): a later verdict must not erase a duplicate or a mismatch."""
+        latest, disqualified = {}, {}
+        for row in self.store.query("SELECT lane_id,data_json FROM events WHERE kind='timer.verdict' ORDER BY event_id"):
+            data = json.loads(row['data_json'])
+            if row['lane_id'] and data:
+                latest[row['lane_id']] = data
+                reason = self.DISQUALIFYING.get(data.get('verdict'))
+                if reason:
+                    disqualified.setdefault(row['lane_id'], reason)
+        return latest, disqualified
 
     def _latest(self, kind):
         result = {}
@@ -330,6 +348,7 @@ class Timers:
                             'verdict': 'duplicate', 'home': row['home']}
                     self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
                 self.metadata[row['lane_id']] = data
+                self.disqualified.setdefault(row['lane_id'], 'non-canonical')
         # Desktop Codex identity is observed read-only; it is never a lane.
         try:
             from .adapters.codex import _identity, _read_auth
@@ -531,6 +550,8 @@ class Timers:
                         tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND scope='account' AND reason='provider-limit' AND released_at IS NULL", (at, lane.lane_id))
             self.store.add_event('timer.verdict', lane_id=lane.lane_id, data=meta)
         self.metadata[lane.lane_id] = meta
+        if meta['verdict'] in self.DISQUALIFYING:
+            self.disqualified.setdefault(lane.lane_id, self.DISQUALIFYING[meta['verdict']])
 
     def snapshot(self):
         # One committed state for the whole view. C-3.7: a read snapshot, not a
@@ -728,7 +749,7 @@ class Timers:
         lanes, disabled, rechecks = self.recheck_rows()
         current = recheck.standings(lanes, disabled=disabled, verdicts=dict(self.metadata),
                                     rechecks=rechecks, roster_off=recheck.roster_disabled(self.root),
-                                    settings=self.recheck)
+                                    settings=self.recheck, disqualified=dict(self.disqualified))
         return current, rechecks
 
     def recheck_busy(self):

@@ -1904,7 +1904,9 @@ def _recheck_cell(lane: dict[str, Any]) -> str:
         why = str(info.get("why") or "-")
         if why == "superseded":
             successor = info.get("successor") or lane.get("superseded_by") or "a later lane"
-            return f"back as {successor} ({last})" if result == "restored" else f"superseded by {successor}"
+            if result == "restored":
+                return f"back as {successor} ({last})"
+            return f"superseded by {successor}" + (f"; last re-check {last} {result}" if last else "")
         text = f"not re-checked: {RECHECK_EXCLUSIONS.get(why, why)}"
         return text + (f"; last {last} {result}" if last else "")
     if info.get("why") == "off":
@@ -2005,6 +2007,9 @@ def cmd_lanes(args: argparse.Namespace) -> int:
                         RESTART_DAEMON)
         out(f"{row.get('lane_id')}  {row.get('provider')}  {row.get('account_key')}  owner={row.get('owner')}"
             f"  label={row.get('label') or '-'}  home={row.get('home') or '-'}")
+        if result.get("roster_error"):
+            print(f"warning: {row.get('lane_id')} is enrolled, but lanes.json was not updated: "
+                  f"{result['roster_error']}", file=sys.stderr)
         return int(Exit.OK)
     if action in ("hold", "release"):
         if not (result.get("held") or result.get("released")):

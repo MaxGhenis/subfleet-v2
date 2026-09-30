@@ -124,3 +124,104 @@ def test_c10_2_enrolment_never_accepts_a_stream_classify_calls_auth_dead(init, k
         assert not dead
     if dead:
         assert not accepted
+
+
+# --- the usage read enrolment makes (C-10.8, review of ae3455a1) ----------------
+
+class Counting(Runner):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.turns: list[list[str]] = []
+
+    def __call__(self, argv, **kwargs):
+        if not (argv[0].endswith("security") or argv[1:2] == ["get"]):
+            self.turns.append(list(argv))
+        return super().__call__(argv, **kwargs)
+
+
+def enrolling(tmp_path, usage_status, *, runner=None, body=b"{}"):
+    return ClaudeAdapter(runner=runner or Runner(stream()), now=lambda: NOW, projects_dir=tmp_path,
+                         profile_opener=profile_opener(403, b"{}"),
+                         usage_opener=lambda request, timeout: (usage_status, body))
+
+
+def test_c10_2_enrolment_refuses_a_token_the_usage_endpoint_refuses(tmp_path):
+    """The probe cycle disables a lane whose usage read answers 401 (C-9.9). A
+    lapsed setup token can still finish a turn: enrolment asks the usage endpoint
+    with the same token and refuses, so a restore is never undone a minute later."""
+    with pytest.raises(AdapterError) as caught:
+        enrolling(tmp_path, 401).enroll(KEYCHAIN)
+    assert caught.value.code == 5 and "usage endpoint refused" in str(caught.value)
+
+
+@pytest.mark.parametrize("status,expected", [(403, "no-scope"), (429, "rate-limited"), (500, "unavailable")])
+def test_c10_2_other_usage_answers_do_not_stop_enrolment(tmp_path, status, expected):
+    info = enrolling(tmp_path, status).enroll(KEYCHAIN)
+    assert info.usage_status == expected and info.identity_status == "enrolled"
+
+
+def test_c10_8_enrolment_records_the_tokens_fingerprint_never_the_token(tmp_path):
+    import hashlib
+    info = enrolling(tmp_path, 403).enroll(KEYCHAIN)
+    assert info.credential_fingerprint == hashlib.sha256(b"sk-ant-oat01-REDACTED").hexdigest()[:16]
+    assert "REDACTED" not in json.dumps(info.__dict__, default=str)
+    from subfleet.adapters.claude import credential_fingerprint
+    assert credential_fingerprint({"CLAUDE_CONFIG_DIR": "/some/home"}) is None
+    assert credential_fingerprint(None) is None
+
+
+def test_c10_2_enrolment_is_one_haiku_turn(tmp_path):
+    runner = Counting(stream())
+    enrolling(tmp_path, 403, runner=runner).enroll(KEYCHAIN)
+    assert len(runner.turns) == 1
+    assert runner.turns[0][runner.turns[0].index("--model") + 1] == MODEL
+
+
+def test_c10_2_a_stream_that_never_initialised_is_refused(tmp_path):
+    with pytest.raises(AdapterError) as caught:
+        adapter(tmp_path, stream(init=False)).enroll(KEYCHAIN)
+    assert caught.value.code == 5
+
+
+def test_c10_2_an_authenticated_account_at_its_limit_enrols(tmp_path):
+    """A limit is not authentication: rc 1 with `system/init` and a usage-limit
+    result is an account that authenticates, so it enrols (its closure is the
+    probe cycle's to find)."""
+    info = adapter(tmp_path, stream(result_error="Claude AI usage limit reached|1788624000"), rc=1).enroll(KEYCHAIN)
+    assert info.account_key
+
+
+# An oracle written out by hand, not derived from `auth_dead_evidence`: what C-9.3
+# says each stream is. The differential above catches the two paths disagreeing;
+# this catches them agreeing on something wrong.
+ORACLE = [
+    (dict(init=False), "API Error: 401 Unauthorized", True),
+    (dict(init=False), "error: not logged in", True),
+    (dict(init=False, text="does not have access to Claude"), "", True),
+    (dict(init=True, text="Your organization has disabled Claude subscription access for Claude Code"), "", True),
+    (dict(init=False, text="Your organization has disabled Claude subscription access for Claude Code"), "", True),
+    (dict(init=True, error="oauth_org_not_allowed", text="x"), "", True),
+    (dict(init=True, error="account_on_hold", text="x"), "", True),
+    (dict(init=True, error="authentication_failed", text="x"), "", True),
+    (dict(init=True, text="the tool got 401 Unauthorized"), "", False),
+    (dict(init=True, error="overloaded", text="model at capacity"), "", False),
+    (dict(init=True, error="rate_limit", text="x"), "", False),
+    (dict(init=True, result_error="Claude AI usage limit reached|1788624000"), "", False),
+    (dict(init=True), "", False),
+]
+
+
+@pytest.mark.parametrize("shape,stderr,dead", ORACLE)
+def test_c9_3_classify_and_enrol_agree_with_the_written_oracle(tmp_path, shape, stderr, dead):
+    stdout = stream(**shape)
+    attempt = tmp_path / "a1"
+    attempt.mkdir()
+    (attempt / "stream.jsonl").write_text(stdout, encoding="utf-8")
+    (attempt / "stderr").write_text(stderr, encoding="utf-8")
+    launch = make_launch(attempt, session_id="s", model_id=MODEL)
+    outcome = adapter(tmp_path, stdout).classify(attempt, launch, exit_info(1))
+    assert (outcome.cls is OutcomeClass.AUTH_DEAD) is dead, outcome.detail
+    if dead:
+        with pytest.raises(AdapterError) as caught:
+            adapter(tmp_path, stdout, stderr, 1).enroll(KEYCHAIN)
+        assert caught.value.code == 5

@@ -12,9 +12,12 @@ due, and which one (at most one) runs now. It reads rows and event payloads the
 caller passes in and never touches the store, the network or the clock, so its
 bounds are properties a test can state for every input:
 
-- a lane is re-checked at most once per `interval_s` (never under one hour,
-  `MIN_INTERVAL_S`, whatever the policy says);
-- each failed re-check doubles the wait to the next, up to `max_interval_s`;
+- a credential is re-checked at most once per `interval_s` (never under six
+  hours, `MIN_INTERVAL_S`, whatever the policy says);
+- each failed re-check doubles the wait to the next, up to `max_interval_s`, and
+  a restore that does not hold (its successor disabled as auth-dead within
+  `max_interval_s`) counts as a failure, so a flapping credential cannot reset
+  its own backoff by being restored;
 - any two re-checks, of any lanes, start at least `spacing_s` apart;
 - nothing is chosen while the daemon has no free attempt slot, and, until a lane
   is overdue by `max_interval_s`, while the host is loaded.
@@ -55,11 +58,13 @@ DEFAULTS: dict[str, float] = {
     # How often the timer looks for a due lane.
     "auth_recheck_tick_s": 300,
     # A 1-minute load average per CPU above which a re-check waits (host load).
-    "auth_recheck_max_load_per_cpu": 2.0,
+    # 3.0 is 54 on the 18-CPU host this runs on, whose day ranges from about 37
+    # to 125 (review of ae3455a1): heavy use still waits, ordinary use does not.
+    "auth_recheck_max_load_per_cpu": 3.0,
 }
-#: The shortest per-lane interval: at most one re-check of a lane an hour, even
-#: under a policy that asks for more (C-10.8; the loader refuses less).
-MIN_INTERVAL_S = 3600
+#: The shortest interval: at most one re-check of a credential every six hours,
+#: whatever the policy asks (C-10.8; the loader refuses less, and 0 is off).
+MIN_INTERVAL_S = 21600
 #: Each lane's schedule is offset by up to this fraction of its interval, the
 #: same every time for the same lane, so lanes disabled together drift apart.
 JITTER_FRACTION = 0.1
@@ -137,9 +142,12 @@ class Standing:
     last: Mapping[str, Any] | None = None   # its latest re-check since that disable
     next_at: str | None = None      # when it is next due; only an eligible lane is
     successor: str | None = None    # the lane a re-check (or an operator) bound since
+    streak: int | None = None       # failures in a row, a predecessor's that did not hold included
 
     @property
     def failures(self) -> int:
+        if self.streak is not None:
+            return self.streak
         return int((self.last or {}).get("failures") or 0)
 
     def as_dict(self) -> dict[str, Any]:
@@ -151,7 +159,8 @@ class Standing:
 
 
 def disable_reason(lane_id: str, disabled: Mapping[str, Mapping[str, Any]],
-                   verdicts: Mapping[str, Mapping[str, Any]]) -> str | None:
+                   verdicts: Mapping[str, Mapping[str, Any]],
+                   disqualified: Mapping[str, str] | None = None) -> str | None:
     """Why the daemon turned `lane_id` off, as recorded when it did.
 
     The `lane.disabled` events (`Store.disable_lane`) name it. A lane id is never
@@ -161,9 +170,16 @@ def disable_reason(lane_id: str, disabled: Mapping[str, Mapping[str, Any]],
     disabled before those events existed is judged by the verdict every automatic
     disable wrote with it: `auth-dead` (`Timers.record_auth_dead`, the probe
     cycle's auth-dead), `duplicate` (non-canonical) or `identity-mismatch`. A
-    disabled lane is never probed again, so that verdict is still its latest. A
     lane with neither (seeded disabled from `lanes.json`, say) has no reason.
+
+    `disqualified` names the lanes whose verdict history ever held `duplicate`
+    or `identity-mismatch` (`Timers.disqualified`), and why: a duplicate turned
+    off before these events existed, whose running attempt then finalized
+    auth-dead, has an auth-dead latest verdict and even an auth-dead event, and
+    stays excluded all the same (review of ae3455a1).
     """
+    if disqualified and lane_id in disqualified:
+        return disqualified[lane_id]
     record = disabled.get(lane_id)
     if record is not None:
         reasons = [str(reason) for reason in record.get("reasons") or (record.get("reason"),) if reason]
@@ -191,12 +207,19 @@ def _identity_comparable(row: Mapping[str, Any]) -> str | None:
 
 def standings(lanes: Iterable[Mapping[str, Any]], *, disabled: Mapping[str, Mapping[str, Any]],
               verdicts: Mapping[str, Mapping[str, Any]], rechecks: Mapping[str, Mapping[str, Any]],
-              roster_off: set[str] | None, settings: Settings) -> dict[str, Standing]:
+              roster_off: set[str] | None, settings: Settings,
+              disqualified: Mapping[str, str] | None = None) -> dict[str, Standing]:
     """Every disabled lane's standing. `lanes` in binding order (`created_at`, rowid);
     `disabled` and `rechecks` the latest event payload per lane; `verdicts` the
     timers' latest verdict per lane; `roster_off` the lane ids `lanes.json` marks
     `enabled: false`, or None when the roster could not be read (then nothing is
-    eligible: the operator's choice is unknown)."""
+    eligible: the operator's choice is unknown); `disqualified` as `disable_reason`.
+
+    The schedule belongs to the credential, not the lane id: a lane an automatic
+    restore bound, disabled as auth-dead again within `max_interval_s` of that
+    restore, carries on its predecessor's failures plus one (the restore that did
+    not hold), so a credential that authenticates for the re-check and fails at
+    once afterwards backs off to a day like any other."""
     rows = [dict(row) for row in lanes]
     by_credential: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -220,7 +243,7 @@ def standings(lanes: Iterable[Mapping[str, Any]], *, disabled: Mapping[str, Mapp
         def left(why: str) -> Standing:
             return Standing(lane_id, False, why, disabled_at, last, None, successor)
 
-        reason = disable_reason(lane_id, disabled, verdicts)
+        reason = disable_reason(lane_id, disabled, verdicts, disqualified)
         if later or bound:
             result[lane_id] = left("superseded")
         elif row.get("owner") != "v2":
@@ -241,12 +264,27 @@ def standings(lanes: Iterable[Mapping[str, Any]], *, disabled: Mapping[str, Mapp
             result[lane_id] = Standing(lane_id, True, AUTH_DEAD, disabled_at, last, None, None)
         else:
             if last is None:
-                base, wait = _instant(disabled_at), settings.interval_s
+                streak = _inherited_streak(lane_id, disabled_at, rechecks, settings)
+                base, wait = _instant(disabled_at), backoff_s(streak, settings)
             else:
-                base, wait = _instant(last["at"]), backoff_s(int(last.get("failures") or 0), settings)
+                streak = int(last.get("failures") or 0)
+                base, wait = _instant(last["at"]), backoff_s(streak, settings)
             due = base + timedelta(seconds=wait + jitter_s(lane_id, wait))
-            result[lane_id] = Standing(lane_id, True, AUTH_DEAD, disabled_at, last, iso(due), None)
+            result[lane_id] = Standing(lane_id, True, AUTH_DEAD, disabled_at, last, iso(due), None, streak)
     return result
+
+
+def _inherited_streak(lane_id: str, disabled_at: str | None, rechecks: Mapping[str, Mapping[str, Any]],
+                      settings: Settings) -> int:
+    """The failures a lane an automatic restore bound starts with: its
+    predecessor's streak plus one when it was disabled again within
+    `max_interval_s` of that restore, else none."""
+    restore = next((data for data in rechecks.values()
+                    if data.get("result") == "restored" and data.get("successor") == lane_id), None)
+    if restore is None or not disabled_at or not restore.get("at"):
+        return 0
+    held = (_instant(disabled_at) - _instant(restore["at"])).total_seconds()
+    return int(restore.get("streak") or 0) + 1 if held < settings.max_interval_s else 0
 
 
 def last_started(rechecks: Mapping[str, Mapping[str, Any]]) -> datetime | None:
@@ -298,16 +336,25 @@ def roster_disabled(root: Path) -> set[str] | None:
     from .sessions.transcripts import read_regular
     path = Path(root) / "lanes.json"
     try:
-        roster = json.loads(read_regular(path, ROSTER_LIMIT) or b"[]")
+        data = read_regular(path, ROSTER_LIMIT)
     except FileNotFoundError:
-        return set()
-    except (OSError, ValueError):
+        return set()                    # no roster: no choice made (the daemon writes `[]`)
+    except OSError:
         return None
-    rows = roster.get("lanes", []) if isinstance(roster, dict) else roster
+    if not data.strip():
+        return None                     # an emptied file is not a roster
+    try:
+        roster = json.loads(data)
+    except ValueError:
+        return None
+    rows = roster.get("lanes") if isinstance(roster, dict) else roster
     if not isinstance(rows, list):
         return None
+    # `_seed_lanes` reads `enabled` as a truth value; here anything but an
+    # explicit true (or 1), or its absence, is the operator's "off".
     return {str(row["lane_id"]) for row in rows
-            if isinstance(row, dict) and row.get("lane_id") and row.get("enabled") is False}
+            if isinstance(row, dict) and row.get("lane_id")
+            and not (row.get("enabled", True) is True or row.get("enabled", True) == 1)}
 
 
 def disables_by_lane(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:

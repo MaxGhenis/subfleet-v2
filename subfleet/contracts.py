@@ -410,6 +410,13 @@ class LaneInfo:  # returned by enroll (C-10.2)
     identity: str | None = None             # C-10.6, from the profile endpoint
     identity_status: str | None = None      # an `IdentityStatus` value
     label: str | None = None                # the email the profile or the operator gave
+    # C-10.8: what the usage endpoint said to this very credential during the
+    # enrolment (a probe verdict: ok, limited, rate-limited, no-scope, ...), and a
+    # fingerprint of a token the lane's reference names (the first 16 hex digits
+    # of its SHA-256; never the token), so a later automatic re-enrolment can tell
+    # the same token from a replaced one.
+    usage_status: str | None = None
+    credential_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
