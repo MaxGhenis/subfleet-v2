@@ -4780,37 +4780,57 @@ class Daemon:
         Before, such a job's notice said "cancelled before launch" or gave only
         the retry's workspace error, and nothing of the failed salvage or the ref
         (review of ceacf18b, P2).
+
+        An attempt that never launched (`_unlaunched`: its guardian could not be
+        started, or the main/master re-check got no answer from git) changed
+        nothing in the worktree, so the attempt before it is named too, back to
+        one that ran: a retry reserved on a1's held snapshot and queued again at
+        launch, then cancelled, had named only itself, and nothing of a1's failed
+        salvage or of the ref that holds a1's work.
         """
         attempts = [dict(row) for row in tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq",
                                                     (job["job_id"],)).fetchall()]
         earlier = [attempt for attempt in attempts if before is None or attempt["seq"] < before]
         if not earlier:
             return ""
-        last = earlier[-1]
-        own = [dict(row) for row in tx.execute("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
-                                               (last["attempt_id"],)).fetchall()]
+        unlaunched = {row[0] for row in tx.execute(
+            "SELECT attempt_id FROM events WHERE job_id=? AND kind='attempt.no_launch'", (job["job_id"],)).fetchall()}
         recorded = {row[0] for row in tx.execute(
             "SELECT r.path FROM artifacts r JOIN attempts a USING(attempt_id) WHERE a.job_id=? AND r.role='salvage'",
             (job["job_id"],)).fetchall()}
-        held = []
+        events = []
         for (data,) in tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held' "
                                   "ORDER BY event_id", (job["job_id"],)).fetchall():
-            data = json.loads(data)
-            if (not isinstance(data, dict) or data.get("after") != last["attempt_id"]
-                    or not data.get("ref") or not data.get("commit") or not data.get("seq")):
-                continue            # never a reason a cancel or a failure cannot be recorded
-            artifact = {"role": "salvage", "path": data["ref"],
-                        "sha256": hashlib.sha256(data["commit"].encode()).hexdigest(), "bytes": 0}
-            if data["ref"] not in recorded:
-                self.store.add_artifact(attempts[-1]["attempt_id"], **artifact)
-                recorded.add(data["ref"])
-            held.append((data, artifact))
-        rc = "-" if last["rc"] is None else last["rc"]
-        return (f"\nattempt a{last['seq']}: {last['outcome_class'] or 'unknown'}, rc={rc}: "
-                f"{last['outcome_detail'] or '-'}"
-                + self._salvage_summary(job, own + [artifact for _, artifact in held],
-                                        json.loads(last["evidence_json"] or "{}"))
-                + "".join("\n" + self._held_line(job, data) for data, _ in held))
+            try:
+                data = json.loads(data)
+            except ValueError:
+                continue
+            if (isinstance(data, dict) and isinstance(data.get("ref"), str) and isinstance(data.get("commit"), str)
+                    and isinstance(data.get("seq"), int)):
+                events.append(data)     # anything else is never a reason a cancel or a failure cannot be recorded
+        lines = ""
+        for last in reversed(earlier):
+            own = [dict(row) for row in tx.execute("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
+                                                   (last["attempt_id"],)).fetchall()]
+            held = []
+            for data in events:
+                if data.get("after") != last["attempt_id"]:
+                    continue
+                artifact = {"role": "salvage", "path": data["ref"],
+                            "sha256": hashlib.sha256(data["commit"].encode()).hexdigest(), "bytes": 0}
+                if data["ref"] not in recorded:
+                    self.store.add_artifact(attempts[-1]["attempt_id"], **artifact)
+                    recorded.add(data["ref"])
+                held.append((data, artifact))
+            rc = "-" if last["rc"] is None else last["rc"]
+            lines += (f"\nattempt a{last['seq']}: {last['outcome_class'] or 'unknown'}, rc={rc}: "
+                      f"{last['outcome_detail'] or '-'}"
+                      + self._salvage_summary(job, own + [artifact for _, artifact in held],
+                                              json.loads(last["evidence_json"] or "{}"))
+                      + "".join("\n" + self._held_line(job, data) for data, _ in held))
+            if last["attempt_id"] not in unlaunched:
+                break
+        return lines
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.

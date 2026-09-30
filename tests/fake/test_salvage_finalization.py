@@ -764,6 +764,51 @@ def test_c13_1_a_quarantined_retry_names_the_attempt_before_it(state_daemon, mon
                          f"the worktree after attempt a1 is held under refs/subfleet-salvage/{job_id}-a2-baseline"]
 
 
+@pytest.mark.parametrize("ending", ["cancel", "refused-on-main"])
+def test_c13_1_a_retry_that_never_launched_names_the_attempt_that_ran_before_it(state_daemon, monkeypatch, ending):
+    """P2 with P3-5: a2 was reserved on a1's held start, and its launch-time main/master
+    re-check got no answer from git (a killed `symbolic-ref`), so a2 ended unlaunched and
+    the job was queued again. The job then ended between attempts, cancelled or refused
+    at a3's admission, and its notice named only a2, which changed nothing in the
+    worktree: nothing of a1's failed salvage or of the ref that holds a1's work."""
+    import signal
+    import subprocess
+    from subfleet.daemon import Daemon
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "symbolic-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, b"", b"")
+        return real_run(cmd, *args, **kwargs)
+    with monkeypatch.context() as killed:
+        killed.setattr(daemon_module.subprocess, "run", run)
+        Daemon._launch(daemon, daemon.store.get_attempt(a2["attempt_id"]))      # the fixture forbids scheduled launches
+    assert daemon._children == {} and daemon.store.get_job(job_id)["state"] == "queued"
+    if ending == "cancel":
+        daemon.dispatch("kill", {"job_id": job_id})
+        assert daemon.store.get_job(job_id)["state"] == "cancelled"
+    else:
+        git(workdir, "branch", "-m", "main")
+        daemon.store.update_job(job_id, next_check_at=None)
+        daemon._admit()
+        assert (daemon.store.get_job(job_id)["state"], daemon.store.get_job(job_id)["rc"]) == ("failed", 7)
+    [notice] = job_notices(daemon, job_id)
+    lines = notice.split("\n")[1:]
+    assert lines[0] == "cancelled while waiting to retry" if ending == "cancel" else \
+        lines[0].startswith("failed while preparing the retry: writable job refused on main; fix: ")
+    assert lines[1:] == ["attempt a2: unknown, rc=-: workdir-branch-check-unfinished: git symbolic-ref was "
+                         "killed by SIGKILL", A1_LINE, A1_SALVAGE, f"the worktree after attempt a1 is held under {ref}"]
+    assert len(daemon.store.list_attempts(job_id)) == 2
+    assert [row["path"] for row in daemon.store.list_artifacts(a2["attempt_id"])] == [ref]     # not twice
+    assert not [row for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"]
+    assert git(workdir, "show", f"{ref}:new-by-a1.txt") == "a1 work"
+
+
 def test_c13_1_a_job_cancelled_after_a_salvage_that_succeeded_names_only_the_attempt(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     workdir, job_id = retried(daemon, harness, monkeypatch, salvage_fails=False)
