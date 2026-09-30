@@ -44,6 +44,9 @@ class Timers:
         # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
         # in use, as a view without the signal does.
         self.desktop_in_use = None
+        # C-18.1: a probe holder's newest record (the daemon's), for the state
+        # status.json shows beside a lane that probe holds; None reads none.
+        self.probe_record = None
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -264,7 +267,11 @@ class Timers:
         adds what the snapshot lacks: batch labels for the displayed jobs, the
         conversation summary (read through its own read-only connection,
         `conversations.store.status_summary`), and the policy's short name for
-        each Claude model id, which labels model-scoped windows.
+        each Claude model id, which labels model-scoped windows. Last, and for
+        the menu alone, it lays the probe leases admission honours
+        (`fence_probes`): the reset-credit policy and the alerts judge the
+        snapshot as it was built, so the slot an admission probe or a keepalive
+        holds for its seconds neither triggers a credit nor raises an alert.
 
         The conversation reader never stops the file being written: it answers
         a store it cannot read with `available: false`, and anything it raises
@@ -280,7 +287,35 @@ class Timers:
             snapshot['conversations'] = {'available': False, 'error': type(exc).__name__}
         snapshot['model_names'] = {entry['id']: short for short, entry in self.policy.get('models', {}).items()
                                    if isinstance(entry, dict) and entry.get('id')}
+        self.fence_probes(snapshot)
         return write_status(self.root, snapshot, now=self.now())
+
+    def fence_probes(self, view):
+        """C-18.1: lay the probe leases admission honours over a view `enrich_view` judged.
+
+        `snapshot` reads rows, not leases, so a lane whose slot a probe holds (a
+        quarantined probe's for hours, C-5.7a) read as dispatchable in
+        status.json while admission refused it. The leases are laid as
+        `Daemon._capacity_view` lays them before `enrich_view`. They can only add
+        a lane to `unavailable_lanes` and probes to `reserved_probes`, and
+        `enrich_view` finds a lane dispatchable only while it is outside the one
+        and the fleet is below its cap, if it has one, with the other, so
+        clearing the verdict of each lane they reach is `enrich_view` judging
+        again.
+        """
+        capacity.mark_probe_leases(view, self.store.query(capacity.PROBE_LEASES), self.probe_record)
+        full = self.fleet_full(view)
+        for row in view['lanes']:
+            if full or row['lane_id'] in view['unavailable_lanes']:
+                row['dispatchable'] = False
+        return view
+
+    def fleet_full(self, view):
+        """C-6.4: every active attempt and every probe's reservation counts toward
+        `max_active_attempts`, when the policy sets one."""
+        fleet_cap = policy_cap(self.policy.get('caps', {}), 'max_active_attempts')
+        return (fleet_cap is not None and
+                sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) >= fleet_cap)
 
     def stop(self):
         with self._lock:
@@ -565,6 +600,7 @@ class Timers:
         for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
         overrides = rows['overrides']
+        full = self.fleet_full(view)
         for row in view['lanes']:
             self.merge_lane(row)
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
@@ -598,12 +634,11 @@ class Timers:
             # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
             # login's lane is dispatchable while Claude Code is not using it.
             slot_cap = lane_slot_cap(caps, bool(measured) and not override)
-            fleet_cap = policy_cap(caps, 'max_active_attempts')
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
                                        (slot_cap is None or row['in_flight'] < slot_cap) and
-                                       (fleet_cap is None or sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) < fleet_cap))
+                                       not full)
         return view
 
     def probe_cycle(self):
