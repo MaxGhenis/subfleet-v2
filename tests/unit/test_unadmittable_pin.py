@@ -343,9 +343,13 @@ def test_c11_8_each_standing_refusal_is_named():
     for status in ("revoked", "auth-revoked", "no-auth"):
         assert reasons(one_lane(lane_row("claude-9", probe_status=status), latched=True)) == ["credential-latched"]
     assert reasons(one_lane(lane_row("claude-9", revoked_epoch=3), latched=True)) == ["credential-latched"]
-    # Once the epoch's heal has run and left it expired, only a new login ends it.
+    # On a Codex lane, once the epoch's one heal has run and left it expired, only a new
+    # login ends it; a Claude lane's heal is retried, so the same mark there is not standing.
+    codex_job = pinned("codex-1", task=None, tier=None, pinned_model="astra")
+    assert reasons(one_lane(lane_row("codex-1", probe_status="expired-token", heal_spent=True), latched=True),
+                   codex_job) == ["credential-latched"]
     assert reasons(one_lane(lane_row("claude-9", probe_status="expired-token", heal_spent=True),
-                            latched=True)) == ["credential-latched"]
+                            latched=True)) is None
     assert reasons(one_lane(lane_row("claude-9")), pinned(exclusions=("claude-9",))) == ["excluded"]
     assert reasons(one_lane(lane_row("claude-9")), pinned("claude-99")) == ["unknown"]
     held = closure(10 ** 9)
@@ -407,7 +411,7 @@ def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     assert failure.startswith("no lane: its pinned lane claude-9 could never admit it from 2026-09-30T12:00:00Z on")
     assert "resubmit it unpinned" in failure
     spent = render.pin_refusals({"lane_id": "codex-1", "reasons": ["credential-latched"], "probe_status": "expired-token"})
-    assert "heal the timers allow for it ran" in spent and "only a new login" in spent
+    assert "one heal the timers allow a Codex login ran" in spent and "only a new login" in spent
     for reason in (*scheduler.STANDING_REFUSALS, "credential-latched", "unknown", "no-lanes"):
         text = render.pin_refusals({"lane_id": "claude-9", "reasons": [reason]})
         assert reason not in ("desktop",) or "desktop" in text

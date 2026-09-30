@@ -616,19 +616,26 @@ def test_c11_8_an_expired_token_the_heal_renews_or_has_not_tried_is_not_heal_spe
     assert "heal_spent" not in timer.metadata[other.lane_id]                # this epoch's heal is still to come
 
 
-def test_c11_8_a_claude_home_heal_that_misses_marks_the_verdict_heal_spent(rig, tmp_path):
-    """C-11.8, C-23.47: a Claude home lane's heal is retried every 20 minutes; between tries,
-    after one that left the token expired, the verdict is `heal_spent`."""
+def test_c11_8_a_claude_home_heal_is_retried_so_it_is_never_heal_spent(rig, tmp_path):
+    """C-11.8, C-23.47: a Claude home lane's heal is retried every 20 minutes, so a heal that
+    misses says nothing lasting: no `heal_spent`, and the next heal can land with no one
+    acting (round 3 of the review of PR #85: the lane had been called one only a login ends)."""
     timer, store, clock, adapter, enroll = rig
     home = tmp_path / "claude-home"
     home.mkdir()
     lane = Lane("claude-h", "claude", "claude:h", Credential("claude", str(home), "home"), str(home),
                 LaneOwner.V2, False, True)
     store.put_lane(lane)
+    outcomes = [Outcome(OutcomeClass.TRANSIENT, "claude exited 1"),      # the first heal misses
+                Outcome(OutcomeClass.OK, "refreshed")]                   # the retry works
     turns = []
-    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: (
-        turns.append(purpose) or Outcome(OutcomeClass.TRANSIENT, "claude exited 1"))
-    adapter.responses[lane.lane_id] = [{"status": "expired-token", "readings": ()},
-                                       {"status": "expired-token", "readings": ()}]
+    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: (turns.append(purpose) or outcomes.pop(0))
+    expired = {"status": "expired-token", "readings": ()}
+    adapter.responses[lane.lane_id] = [dict(expired), dict(expired)]
     timer.probe_cycle()
-    assert turns == ["heal"] and timer.metadata[lane.lane_id]["heal_spent"] is True
+    assert turns == ["heal"] and timer.metadata[lane.lane_id]["probe_status"] == "expired-token"
+    assert "heal_spent" not in timer.metadata[lane.lane_id]
+    clock.advance(1200)
+    adapter.responses[lane.lane_id] = [dict(expired)]                  # probe; the re-read is ok (default)
+    timer.probe_cycle()
+    assert turns == ["heal", "heal"] and timer.metadata[lane.lane_id]["probe_status"] == "ok"

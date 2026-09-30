@@ -436,15 +436,16 @@ def credential_latched(lane: Mapping[str, Any]) -> bool:
 
 def credential_gone(lane: Mapping[str, Any]) -> bool:
     """C-11.8: a latched credential only a person brings back, by logging in again or
-    re-enrolling (a new credential epoch): revoked, no login at all, or an expired
-    token whose heal for this epoch has run and left it expired (`heal_spent`, set
-    by the timers' probe, C-23.47: a Codex lane gets one heal an epoch, a Claude
-    home lane one every 20 minutes). An expired token no heal has been tried on
-    yet latches the lane's slot too (`credential_latched`), but the heal may still
-    renew it, so it is not this; nor is one on a lane the timers do not heal."""
+    re-enrolling (a new credential epoch): revoked, no login at all, or a Codex
+    lane's expired token whose one heal for this epoch has run and left it expired
+    (`heal_spent`, set by the timers' probe, C-23.47). Any other expired token
+    latches the lane's slot too (`credential_latched`) but may still come back by
+    itself: before its heal, or on a Claude home lane, whose heal the timers retry
+    every 20 minutes, so it is not this."""
     return (lane.get("revoked_epoch") is not None
             or lane.get("probe_status") in ("revoked", "auth-revoked", "no-auth")
-            or lane.get("probe_status") == "expired-token" and bool(lane.get("heal_spent")))
+            or lane.get("provider") == "codex" and lane.get("probe_status") == "expired-token"
+            and bool(lane.get("heal_spent")))
 
 
 def identity_blocked(lane: Mapping[str, Any]) -> bool:

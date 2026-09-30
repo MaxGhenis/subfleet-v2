@@ -210,8 +210,9 @@ _PIN_REFUSALS = {
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
-    "credential-latched:expired-token": "{lane}'s token expired and the heal the timers allow for it ran and "
-                                        "left it so (C-23.47): only a new login or a re-enrolment ends it",
+    "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "
+                                        "login ran and left it so (C-23.47): only a new login or a "
+                                        "re-enrolment ends it",
     "no-lanes": "no lane of the model's provider is enrolled",
 }
 

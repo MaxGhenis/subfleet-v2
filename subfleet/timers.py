@@ -457,11 +457,6 @@ class Timers:
                         if not quarantined:
                             self._pace_usage()
                             probe = self._read_probe(adapter, lane, env)
-                if probe.get('status') == 'expired-token' and lane.credential.kind == 'home' and \
-                        self._latest('timer.heal').get(lane.lane_id, {}).get('epoch') == epoch:
-                    # C-11.8: a heal turn has run this credential epoch and the token is
-                    # still expired; the next heal is 20 minutes off at best.
-                    probe['heal_spent'] = True
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
             return lane, {**probe, 'probed_at': iso(self.now())}
