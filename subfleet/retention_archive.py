@@ -44,6 +44,7 @@ from typing import Any
 
 from . import retention_fs as rfs
 from . import retention_git as rgit
+from . import retention_qos as rqos
 from .retention_holders import Watch
 
 SCHEMA = 1
@@ -475,7 +476,8 @@ class Retirement:
         """
         builder = _Builder(self, slice_end, self.root)
         try:
-            return builder.run()
+            with rqos.throttled_io():
+                return builder.run()
         finally:
             self.last_work = builder.work
 
@@ -494,6 +496,10 @@ class Retirement:
 
     def final_check(self) -> None:
         """Every archived entry is still there, unchanged, and nothing was added."""
+        with rqos.throttled_io():
+            self._final_check()
+
+    def _final_check(self) -> None:
         manifest = self.manifest()
         for label, path in self.trees():
             tree = manifest["trees"].get(label)
@@ -620,6 +626,10 @@ class Retirement:
         False while anything could not be removed or set aside; the journal
         keeps the retirement for the next pass.
         """
+        with rqos.throttled_io():
+            return self._reclaim()
+
+    def _reclaim(self) -> dict[str, Any]:
         j = self.journal
         assert j is not None
         self.save(state="reclaiming")
@@ -1610,7 +1620,7 @@ def _write_all(fd: int, data: bytes) -> None:
 class _BlobReader:
     def __init__(self, git_dir: Path):
         import subprocess
-        self.process = subprocess.Popen(["git", *rgit.GIT_CONFIG, f"--git-dir={git_dir}", "cat-file", "--batch"],
+        self.process = subprocess.Popen(rqos.argv(["git", *rgit.GIT_CONFIG, f"--git-dir={git_dir}", "cat-file", "--batch"]),
                                         env=rgit.environment(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL)
 

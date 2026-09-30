@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import retention_fs as rfs
+from . import retention_qos as rqos
 
 GIT_CONFIG = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
               "-c", "maintenance.auto=false", "-c", "core.untrackedCache=false")
@@ -79,7 +80,7 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
     argv.extend(args)
-    process = subprocess.Popen(argv, cwd=cwd, env=environment(env),
+    process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
                                stdin=stdin_file if stdin_file is not None else (subprocess.PIPE if stdin is not None else subprocess.DEVNULL),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     deadline = time.monotonic() + timeout
@@ -468,7 +469,7 @@ class ObjectReader:
         self.process = self._start()
 
     def _start(self) -> subprocess.Popen:
-        return subprocess.Popen(self.argv, env=environment(), stdin=subprocess.PIPE,
+        return subprocess.Popen(rqos.argv(self.argv), env=environment(), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def verify(self, oid: str, expect_type: str = "blob") -> bool:

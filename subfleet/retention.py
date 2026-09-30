@@ -42,6 +42,7 @@ from typing import Any
 
 from . import retention_archive as rarch
 from . import retention_git as rgit
+from . import retention_qos as rqos
 from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -658,6 +659,11 @@ class _Pass:
         """Sizes, lazily: cached ones are used; others are measured oldest first
         while a pool's byte total could still decide something and time remains.
         A pool already over its job count needs no sizes to act (design 7)."""
+        with rqos.throttled_io():
+            self._measure_sizes(jobs, in_flight, counts, protected)
+
+    def _measure_sizes(self, jobs: list[dict[str, Any]], in_flight: list[str], counts: dict[str, int],
+                       protected: set[str]) -> None:
         now = self.clock()
         budget = self.measure_s
         if budget is None and self.deadline is not None:
