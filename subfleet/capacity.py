@@ -345,14 +345,18 @@ def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int
 
 
 def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None,
-                 desktop_account: str | None = None) -> dict[str, Any]:
+                 desktop_account: str | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """C-10.3: set a lane row's `desktop` flag as a view does, and return the row.
 
     Only a Claude lane is the desktop app's. `desktop` (the profile endpoint's
     answer) decides when it can say anything; otherwise the recorded flag
     stands. `desktop_account` is the bare hint, for callers that have only it.
-    C-6.3's check inside a reservation marks the lane rows it reads with this,
-    so it sees each lane as the view the decision was made on did."""
+    `desktop_in_use` is whether Claude Code is using that login now
+    (`sessions.registry.desktop_login_in_use`): it is put on the desktop lane as
+    `desktop_in_use`, and a desktop lane without it is judged in use, as every
+    desktop lane was before 2026-09-27. C-6.3's check inside a reservation marks
+    the lane rows it reads with this, so it sees each lane as the view the
+    decision was made on did."""
     if lane["provider"] == "claude":
         if desktop is not None:
             if desktop.decisive:
@@ -360,14 +364,24 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
             lane["desktop_identity"] = desktop.status
         elif desktop_account is not None:
             lane["desktop"] = _account_matches(lane, desktop_account)
+        if lane.get("desktop") and desktop_in_use is not None:
+            lane["desktop_in_use"] = bool(desktop_in_use)
+        else:
+            lane.pop("desktop_in_use", None)
     return lane
+
+
+def desktop_excluded(lane: Mapping[str, Any]) -> bool:
+    """C-10.3: the desktop login's lane while Claude Code uses it (or while that is unknown)."""
+    return bool(lane.get("desktop")) and lane.get("desktop_in_use", True) is not False
 
 
 def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Iterable[Any] = (),
                attempts: Iterable[Any] = (), jobs: Iterable[Any] = (), *,
                now: str | datetime | None = None, reading_ttl_s: int = READING_TTL_S,
                desktop_account: str | None = None,
-               desktop: DesktopIdentity | None = None) -> dict[str, Any]:
+               desktop: DesktopIdentity | None = None,
+               desktop_in_use: bool | None = None) -> dict[str, Any]:
     """C-6.4, C-9.1, C-9.6, C-10.3–4: assemble an immutable-input snapshot.
 
     V1-owned and desktop lanes remain visible for status and rejection evidence.
@@ -393,7 +407,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     turn_counts = Counter(row["lane_id"] for row in active if row.get("job_id") in turn_jobs)
     roster = []
     for item in lanes:
-        lane = mark_desktop(_row(item), desktop=desktop, desktop_account=desktop_account)
+        lane = mark_desktop(_row(item), desktop=desktop, desktop_account=desktop_account,
+                            desktop_in_use=desktop_in_use)
         identity = lane["lane_id"]
         lane["readings"] = [row for row in evidence if row["lane_id"] == identity]
         lane["closures"] = [row for row in active_closures if row["lane_id"] == identity]
@@ -429,20 +444,22 @@ def identity_blocked(lane: Mapping[str, Any]) -> bool:
 def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
     """C-6.11: the lanes that could take some job now, whatever its model.
 
-    Owned by v2, enabled, not the desktop login, identity not mismatched, under
-    no account-wide closure, with a slot free and no probe holding it. A lane
-    closed for one model only is open: another model may still run there. A
+    Owned by v2, enabled, not the desktop login while Claude Code uses it
+    (C-10.3), identity not mismatched, under no account-wide closure, with a slot
+    free (always, while no per-lane cap is set, C-6.4) and no probe holding it. A
+    lane closed for one model only is open: another model may still run there. A
     job can still be refused an open lane (a model-scoped closure, the reserve,
     its own exclusions); the count says capacity exists, not that it fits.
     """
+    from .policy import lane_slot_cap
+
     found = []
     for lane in view["lanes"]:
-        slots = (caps["max_in_flight_per_lane"] if lane.get("measured") else
-                 min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
-        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not lane.get("desktop")
+        slots = lane_slot_cap(caps, bool(lane.get("measured")))
+        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not desktop_excluded(lane)
                 and not identity_blocked(lane)
                 and not any(row.get("scope") == "account" for row in lane.get("closures", ()))
-                and lane.get("in_flight", 0) < slots
+                and (slots is None or lane.get("in_flight", 0) < slots)
                 and lane["lane_id"] not in view.get("unavailable_lanes", {})):
             found.append(lane["lane_id"])
     return sorted(found)
@@ -466,7 +483,7 @@ def store_rows(store: Any) -> dict[str, list]:
 
 def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
-               desktop: DesktopIdentity | None = None) -> dict[str, Any]:
+               desktop: DesktopIdentity | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
     return build_view(**store_rows(store), now=now, reading_ttl_s=reading_ttl_s,
-                      desktop_account=desktop_account, desktop=desktop)
+                      desktop_account=desktop_account, desktop=desktop, desktop_in_use=desktop_in_use)

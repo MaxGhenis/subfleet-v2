@@ -29,6 +29,7 @@ from subfleet import daemon as daemon_module
 from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Exit, Lane, LaneOwner,
                                 Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
+from tests.caps import capped
 from tests.fake.test_admission_visibility import Inline
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
@@ -524,6 +525,7 @@ def test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again(rou
     and evaluate the whole route again): unmeasured, the lane has no second slot, and
     the decision now is no lane, as an evaluation now makes it."""
     service, harness = routing_state
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     busy_codex(service, harness)
     job_id = submit(service, harness, pinned_model="astra")
     real, early, stale = service._pick, [], []
@@ -1232,6 +1234,7 @@ def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_nex
 def test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane(fleet):
     """C-4.5 a slot ends a full lane's refusal: the retry waits for its own lane, not the open one."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     for _ in range(2):                                             # claude-a's two measured slots, taken
@@ -1276,6 +1279,7 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     """C-6.9 routed as submitted, a fallen-back retry competes as submitted: it does not pass an older
     waiter it competes with, and a younger job it competes with does not pass it."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
@@ -1320,6 +1324,7 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, mon
     the second pass, which then placed both, in order, and had no hold to assert on
     (review of d04b8b3, which reproduced the three cases under a controlled clock)."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
     monkeypatch.setattr(daemon_module, "datetime", HeldClock)
     monkeypatch.setattr(scheduler, "datetime", HeldClock)

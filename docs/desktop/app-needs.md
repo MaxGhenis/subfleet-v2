@@ -51,7 +51,9 @@ the others are read from the code cited.
    minus `request_id`, `kind`, `options` is the stored `display`), and creates a
    card from the view when the event has not arrived yet (`Timeline.attach`).
    Two identical requests in one turn would still pair in order. Ask: add
-   `approval_id` to the event's data and `request_id` to the view.
+   `approval_id` to the event's data and `request_id` to the view. The view
+   has carried `request_id` since C-27.5 (2026-09-28), and the app joins by it;
+   the display join remains for an older daemon.
 
 6. **A withdrawn approval has no event and no change row.** When a turn ends,
    the driver withdraws pending requests (`_end` returns them as `resolved`)

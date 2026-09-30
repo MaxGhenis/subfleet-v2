@@ -227,6 +227,19 @@ def no_desktop_store(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(base / "claude"))
 
 
+#: C-6.13: a machine with nothing to do, which no guard holds anything for.
+QUIET_MACHINE = {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0}
+
+
+@pytest.fixture(autouse=True)
+def quiet_machine(monkeypatch):
+    """The load average and memory pressure belong to whatever else the machine
+    running the tests is doing, and the shipped policy's machine guard holds
+    background jobs on them (C-6.13). No test reads them by accident: a test
+    about the guard patches `subfleet.machine.read` with the reading it means."""
+    monkeypatch.setattr("subfleet.machine.read", lambda: dict(QUIET_MACHINE))
+
+
 def profile_body(email: str = LANE_EMAIL, account_uuid: str = LANE_ACCOUNT_UUID,
                  org_uuid: str = LANE_ORG_UUID) -> bytes:
     """A profile payload shaped as Claude Code's own profile loader reads it."""
