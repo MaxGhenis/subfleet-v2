@@ -27,7 +27,7 @@ You are building the routing engine of subfleet v2 in the git worktree you were 
 - Codex: two lanes at 60% and 40% weekly, resets tomorrow and in six days: the fuller lane resetting tomorrow wins (C-11.3).
 - Codex above the floor on any window is ineligible even with a soon reset.
 - Claude: model-scoped closure on `claude-fable-5-1` leaves Opus eligible on the same lane; account-scoped closure removes both.
-- `owner: v1` lane never a candidate; `desktop` lane a candidate only with `allow_desktop`.
+- `owner: v1` lane never a candidate; `desktop` lane a candidate only with `allow_desktop` (superseded 2026-09-30: the desktop login is a candidate for every job, the chain's last resort, behind a reserve; C-10.3).
 - Unmeasured lane takes one slot; a second job waits with `wait_reason: capacity` and a `next_check_at`.
 - `retired: {"sol": "astra"}` resolves with a note; an unknown model is exit 2 naming the key.
 - Fable-only chains (`authored-prose`, `strategy`, `adjudication`) never leave the Claude provider.
