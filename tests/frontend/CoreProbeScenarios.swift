@@ -204,6 +204,7 @@ func project(_ options: ComposerOptions) -> [String: Any] {
     ["models": options.models.map { ["label": $0.label, "value": $0.value] },
      "selected": options.selectedModel?.short as Any? ?? NSNull(), "efforts": options.efforts,
      "efforts_observed": options.effortsObserved, "fast_supported": options.fastSupported as Any? ?? NSNull(),
+     "default_effort": options.defaultEffort as Any? ?? NSNull(),
      "fast_note": options.fastNote,
      "permissions": options.permissions.map { ["policy": $0.policy.rawValue, "enabled": $0.enabled, "widens": $0.widens,
                                                 "reason": $0.disabledReason as Any? ?? NSNull()] as [String: Any] }]
@@ -279,6 +280,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                                      "last_state": $0.last_message?.state as Any? ?? NSNull()] as [String: Any] },
     ]
     var composer: [String: Any] = [:]
+    var composerPicked: [String: Any] = [:]
     var banners: [String: Any] = [:]
     var chips: [String: Any] = [:]
     var stops: [String: Any] = [:]
@@ -286,6 +288,13 @@ func runStore(_ data: Data) throws -> [String: Any] {
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
+        // C-26.8 (review of 0eac67b4, P2): the composer's options follow a model
+        // picked but not yet saved, so its efforts and default are that model's.
+        var picked = conversation.settings
+        if let haiku = state.composerOptions(for: id)?.models.first(where: { $0.model.short == "haiku" }) {
+            picked.model = haiku.value
+            composerPicked[id] = state.composerOptions(for: id, settings: picked).map(project) ?? NSNull()
+        }
         banners[id] = state.blockedBanner(for: id).map(project) ?? NSNull()
         if let timeline = state.timelines[id] {
             for messageID in timeline.order {
@@ -300,6 +309,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
         }
     }
     out["composer"] = composer
+    out["composer_picked_haiku"] = composerPicked
     out["banners"] = banners
     out["chips"] = chips
     out["stops"] = stops

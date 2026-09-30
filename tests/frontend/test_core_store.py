@@ -146,6 +146,7 @@ def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_pat
     options = unobserved["composer"][claude["conversation_id"]]
     assert [m["label"] for m in options["models"]] == ["Fable", "Opus", "Sonnet", "Haiku"]
     assert options["selected"] is None and options["efforts_observed"] is False
+    assert options["default_effort"] is None                   # no catalog yet: no default is shown
     assert options["fast_note"] == "Bills usage credits"
     assert [(p["policy"], p["enabled"], p["widens"]) for p in options["permissions"]] == [
         ("read-only", True, False), ("ask", True, False), ("accept-edits", True, True), ("bypass", True, True)]
@@ -165,8 +166,13 @@ def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_pat
     ])
     options = observed["composer"][claude["conversation_id"]]
     assert {"label": "Opus", "value": "opus[1m]"} in options["models"]
-    assert options["selected"] == "opus" and options["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    # C-26.8: ultracode is offered wherever xhigh is.
+    assert options["selected"] == "opus" and options["efforts"] == ["low", "medium", "high", "xhigh", "max", "ultracode"]
     assert options["efforts_observed"] is True and options["fast_supported"] is True
+    assert options["default_effort"] == "ultracode"            # models.list names the Claude default
+    # Picking Haiku (not yet saved) shows Haiku's efforts and no default (review of 0eac67b4, P2).
+    picked = observed["composer_picked_haiku"][claude["conversation_id"]]
+    assert picked["selected"] == "haiku" and picked["efforts"] == [] and picked["default_effort"] is None
     assert all(p["enabled"] for p in observed["composer"][codex["conversation_id"]]["permissions"])
 
 
@@ -196,6 +202,9 @@ def test_c26_8_the_served_chip_shows_what_served_the_turn(core_probe, tmp_path, 
     turn = harness.attempt(cid, mid)
     turn.feed(claude_init(email="served@example.invalid"),
               {"type": "user", "uuid": mid, "isReplay": True, "message": {"role": "user", "content": "go"}},
+              # C-26.8: the provider's `get_settings` answer; it applied no effort.
+              {"type": "control_response", "response": {"subtype": "success", "request_id": "subfleet-settings",
+               "response": {"applied": {"model": "claude-opus-5-5", "effort": None, "ultracode": False}}}},
               {"type": "system", "subtype": "init", "model": "claude-opus-5-5", "permissionMode": "default",
                "fast_mode_state": "off"},
               claude_assistant("m1", [{"type": "text", "text": "ok"}]), claude_result())
@@ -210,9 +219,30 @@ def test_c26_8_the_served_chip_shows_what_served_the_turn(core_probe, tmp_path, 
     ])
     chip = out["chips"][mid]
     assert chip["account"] == "served@example.invalid" and chip["model"] == "claude-opus-5-5"
+    assert chip["effort"] == "default effort"                  # what the provider reported, not the request
     assert chip["fast"] == "off" and chip["warnings"] == ["Fast was asked for; this turn ran at standard speed"]
     assert out["stops"][queued] == {"action": "cancel", "message_id": queued}
     assert out["stops"][mid] == {"action": "none"}
+
+
+def test_c26_8_an_effort_the_provider_did_not_confirm_is_labelled_so(core_probe, tmp_path, harness):
+    """Review of b0b3f153, P2: with no `get_settings` answer the chip shows what was
+    asked for, marked unconfirmed, never as what served the turn."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.call("message.submit", conversation_id=cid, message_id=str(uuid.uuid4()), after_message_id=None,
+                       text="go", attachments=[], settings=harness.settings(effort="high"))["message_id"]
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(email="served@example.invalid"),
+              {"type": "user", "uuid": mid, "isReplay": True, "message": {"role": "user", "content": "go"}},
+              {"type": "system", "subtype": "init", "model": "claude-opus-5-5", "permissionMode": "default",
+               "fast_mode_state": "off"},
+              claude_assistant("m1", [{"type": "text", "text": "ok"}]), claude_result())
+    out = store(core_probe, tmp_path, [
+        {"list": harness.call("conversation.list")},
+        {"open": harness.call("conversation.open", conversation_id=cid)},
+        {"events": harness.call("conversation.events", conversation_id=cid, after=0), "conversation_id": cid},
+    ])
+    assert out["chips"][mid]["effort"] == "high (unconfirmed)"
 
 
 def test_c26_8_a_codex_chip_names_the_lane_account_from_status(core_probe, tmp_path, harness):

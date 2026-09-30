@@ -12,6 +12,7 @@ import pytest
 from subfleet import scheduler
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
+from tests.caps import capped
 from tests.fake.test_routing_end_to_end import routing_state
 
 
@@ -19,6 +20,9 @@ from tests.fake.test_routing_end_to_end import routing_state
 def fleet(routing_state):
     """One measured Codex lane that serves both astra and terra, two slots."""
     service, harness = routing_state
+    # C-6.9's hold-back needs a count to hold for: the caps of before 2026-09-27
+    # (tests/caps.py). With none, the default since, no job waits behind another.
+    capped(service.policy)
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
                                       ReadingLabel.PROVIDER, "fixture", utcnow()))
     return service, harness

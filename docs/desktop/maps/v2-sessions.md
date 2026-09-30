@@ -75,6 +75,8 @@ At this revision, then, a tickle or muster nudge does **not** start a turn in an
 
 So a cold, interrupted `bypassPermissions` session that has no desktop index copy (a tmux or CLI session), or whose copies lack `cwd`, gets a writable revive job from a bare `continue --scope cold`.
 
+> Update, 2026-09-27 (after this snapshot; C-23.35): a copy that names the session without a `cwd` now marks it desktop-owned, and a copy that cannot be read (a symlink, non-regular, over 1 MiB, unreadable or not JSON) or a store directory that cannot be listed makes ownership unknown (`desktop_owned` null) when no readable copy names the session. `admits` refuses unknown ownership as it refuses a desktop-owned session, naming what was skipped.
+
 **Related non-kit path.** `subfleet resume <job-id> [prompt]` is the only v2 path that sends an arbitrary prompt into an existing native session. It works only for sessions subfleet launched:
 - It takes the native id from the source job's attempt (daemon.py:1031-1063).
 - It pins the source lane and model and defaults to `RESUME_PROMPT` (cli.py:1422-1423, 1447-1500).

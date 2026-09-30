@@ -20,9 +20,10 @@ Invariants, for every input:
   again while asked for are a subset of the batch out.
 - Batches: at most `limit` ids, oldest first (the order the feed first named
   them), none while a batch is out; a failed batch waits again ahead of the rest.
-- Daemon order: every timeline is in sequence order, with the turns no receipt
-  numbered after them; an answered message has its receipt's sequence, origin,
-  continues and text.
+- Daemon order: every timeline's `order` is by sequence, with the turns no
+  receipt numbered after them; an answered message has its receipt's sequence,
+  origin, continues and text, which place it in the view (`displayOrder`,
+  C-27.5: the queue in the order the daemon sends it, a repair message first).
 - No regression: an answer for an id the feed named again while it was asked
   for never changes where a turn the timeline already has stands; the id is
   asked for again.
@@ -601,7 +602,9 @@ def fail_over(harness: ServiceHarness, cid: str, mid: str) -> str:
 def test_c29_9_the_feed_brings_in_messages_this_app_did_not_send(core_probe, harness):
     """The reported defect, on the daemon's JSON: a message the CLI submitted,
     an unblock note and a failover continuation. Each enters the focused
-    conversation's timeline in sequence order with its text or its notice; this
+    conversation's timeline with its text or its notice, and its origin and
+    continuation put it where the daemon sends it (C-27.5): the continuation
+    with the turn it continues, then the queue, the unblock note first. This
     app's own send, which has its receipt, is never asked for."""
     cid = harness.create(title="Queue")["conversation_id"]
     mine = harness.submit(cid, "my message")
@@ -627,8 +630,9 @@ def test_c29_9_the_feed_brings_in_messages_this_app_did_not_send(core_probe, har
                             "person_text": "from the CLI", "status_text": "Queued behind the current turn"}
     assert fetched[note]["origin"] == "unblock-note" and fetched[note]["state"] == "queued"
     assert fetched[continuation]["origin"] == "failover" and fetched[continuation]["continues"] == mine["message_id"]
-    assert shown(answered, cid) == [(mine["message_id"], "my message"), (cli, "from the CLI"), (note, NOTE),
-                                    (continuation, CONTINUED)]
+    assert answered["timelines"][cid]["display"] == [mine["message_id"], continuation, note, cli]
+    assert shown(answered, cid) == [(mine["message_id"], "my message"), (continuation, CONTINUED), (note, NOTE),
+                                    (cli, "from the CLI")]
 
 
 def test_c29_9_only_rows_a_timeline_lacks_a_receipt_for_ask(core_probe, harness):
@@ -793,9 +797,9 @@ def statuses(out: dict) -> list[list[str]]:
 def test_c29_9_end_to_end_a_second_client_submits_and_the_app_shows_it(served):
     """The app, focused on a conversation whose turn runs, sees a message the
     CLI submits, the note an unblock leaves and a failover continuation, each
-    in sequence order with its words, through `conversation.watch` and one
-    `message.status` per page; its own send and a conversation it never opened
-    ask for nothing."""
+    with its words where the daemon sends it (C-27.5), through
+    `conversation.watch` and one `message.status` per page; its own send and a
+    conversation it never opened ask for nothing."""
     harness, app, cli = served
     cid = harness.create(title="Watched")["conversation_id"]
     unopened = harness.create(title="Never opened")["conversation_id"]
@@ -813,6 +817,7 @@ def test_c29_9_end_to_end_a_second_client_submits_and_the_app_shows_it(served):
     assert [call["op"] for call in out["calls"]] == ["conversation.watch", "message.status"]
     assert statuses(out) == [[from_cli]]
     assert out["timelines"][cid]["order"] == [mine, from_cli]
+    assert out["timelines"][cid]["display"] == [mine, from_cli]              # the queue, below the running turn
     assert turns(out, cid)[from_cli] == {**turns(out, cid)[from_cli], "seq": 2, "origin": "person",
                                          "state": "queued", "person_text": "from the CLI",
                                          "status_text": "Queued behind the current turn"}
@@ -823,8 +828,9 @@ def test_c29_9_end_to_end_a_second_client_submits_and_the_app_shows_it(served):
     out = app("watch")
     assert statuses(out) == [[note, continuation]]
     assert out["timelines"][cid]["order"] == [mine, from_cli, note, continuation]
-    assert shown(out, cid) == [(mine, "my message"), (from_cli, "from the CLI"), (note, NOTE),
-                               (continuation, CONTINUED)]
+    assert out["timelines"][cid]["display"] == [mine, continuation, note, from_cli]
+    assert shown(out, cid) == [(mine, "my message"), (continuation, CONTINUED), (note, NOTE),
+                               (from_cli, "from the CLI")]
     assert out["fetches"] == {"wanted": [], "asked": [], "stale": []}
     quiet = app("watch")
     assert statuses(quiet) == []                                                 # nothing asked twice
@@ -852,7 +858,7 @@ def test_c29_9_end_to_end_a_turn_that_started_before_the_feed_was_read(served):
 
 def test_c29_9_end_to_end_many_messages_come_200_to_a_call(served):
     """450 messages from the second client: three `message.status` calls of at
-    most 200 ids, one after another, and every message in sequence order."""
+    most 200 ids, one after another, and every message in the daemon's order."""
     harness, app, cli = served
     cid = harness.create()["conversation_id"]
     app("connect")

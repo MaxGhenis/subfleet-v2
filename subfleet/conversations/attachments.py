@@ -19,6 +19,7 @@ import secrets
 import stat
 from pathlib import Path
 
+from ..state_files import read_state
 from .store import ConversationError, ConversationStore
 
 MAX_BYTES = 20 * 1024 * 1024
@@ -84,7 +85,7 @@ def _sync_directory(directory: Path) -> None:
         os.close(fd)
 
 
-def _copy(data: bytes, target: Path) -> None:
+def _copy(data: bytes, target: Path, *, mode: int = 0o600) -> None:
     """Write `data` to `target` through a temporary file of this call's own, renamed
     onto it. Two adds of the same bytes at once (the app resending after its request
     timed out while the first add still ran, or two clients) each rename a whole copy
@@ -108,6 +109,7 @@ def _copy(data: bytes, target: Path) -> None:
                 if not written:                           # never loop without progress
                     raise OSError(errno.EIO, "the attachment copy made no progress")
                 view = view[written:]
+            os.fchmod(out, mode)
             os.fsync(out)
         finally:
             os.close(out)
@@ -179,3 +181,19 @@ def check(store: ConversationStore, sha256: str) -> tuple[str, str]:
                                 f"attachment {sha256} is not the daemon's own stored copy (gone, changed, or not private)",
                                 fix="add the image again; that repairs the stored copy")
     return row["path"], row["media_type"]
+
+
+def read_verified(store: ConversationStore, sha256: str) -> tuple[bytes, str]:
+    """Resolve an image by content in the current root and verify its final read.
+
+    The caller uses these exact bytes, never a second open of the checked name.
+    An old manifest or attachment row may still name a previous state root.
+    """
+    row = store.attachment(sha256)
+    extensions = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+    if row is None or row["media_type"] not in extensions:
+        raise OSError("attachment is not stored")
+    ext = extensions[row["media_type"]]
+    path = store.root / "attachments" / f"{sha256}.{ext}"
+    data = read_state(path, limit=MAX_BYTES, digest=sha256, size=row["bytes"], private=True)
+    return data, ext

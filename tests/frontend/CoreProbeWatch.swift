@@ -30,7 +30,8 @@ func projectFetched(_ timeline: Timeline) -> [String: Any] {
             return nil
         }
     }
-    return ["order": timeline.order.filter { $0 != Timeline.conversationKey }, "turns": turns, "shown": shown]
+    return ["order": timeline.order.filter { $0 != Timeline.conversationKey }, "turns": turns, "shown": shown,
+            "display": timeline.displayOrder.filter { $0 != Timeline.conversationKey }]
 }
 
 func projectFetchState(_ state: ConversationStoreState) -> [String: Any] {
