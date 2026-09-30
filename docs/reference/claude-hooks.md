@@ -27,6 +27,11 @@ Three levels of nesting: **hook event** → **matcher group** → **hook handler
 }
 ```
 
+Matching hooks run in parallel: "All matching hooks run in
+parallel." (same page, fetched again 2026-09-28). So the position of an
+entry among an event's matcher groups changes nothing, and `daemon install
+--hooks` never treats position as drift (C-23.25).
+
 Settings files and precedence: `~/.claude/settings.json` (all projects, not
 shared), `.claude/settings.json` (one project, committable),
 `.claude/settings.local.json` (one project, gitignored), managed policy
