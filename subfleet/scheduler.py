@@ -15,7 +15,8 @@ from typing import Any
 
 from .capacity import desktop_reserve_readings, fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
-                        DESKTOP_EXCLUSION, DESKTOP_RESERVE_REPROBE_S, HEADROOM_FLOOR, Decision, Exit)
+                        DESKTOP_EVIDENCE_TTL_S, DESKTOP_EXCLUSION, DESKTOP_RESERVE_REPROBE_S, HEADROOM_FLOOR,
+                        Decision, Exit)
 from .policy import (DESKTOP_RESERVE_WINDOWS, MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap,
                      lane_slot_cap, resolve_model, turn_cap)
 
@@ -578,12 +579,18 @@ def pairs_contained(newer: tuple[frozenset[tuple[str, str]], bool] | None,
     return newer[0] <= older[0] and (not newer[1] or older[1])
 
 
-def could_take(older: tuple[frozenset[tuple[str, str]], bool] | None, target: tuple[str, str]) -> bool:
+def could_take(older: tuple[frozenset[tuple[str, str]], bool] | None, target: tuple[str, str], *,
+               newer_authorized: bool = False) -> bool:
     """C-6.9: whether the older job could run the model on the lane the newer job
     would take. The newer job's decision shows that lane admits that model now, and
-    every reason but the job's own facts is the same for both, so this is a
-    question of the older job's own facts alone (`usable_pairs`)."""
-    return older is None or tuple(target) in older[0]
+    every reason but the jobs' own facts is the same for both, so this is a question
+    of the older job's own facts (`usable_pairs`), and of one fact of the newer job's:
+    an unmeasured-reserve authorization (C-11.7a) the older lacks, which may be what
+    admits the newer there, so the older is not taken to be able to run there too
+    (review of this change: the authorized job is the one whose probe measures the lane)."""
+    if older is None:
+        return True
+    return tuple(target) in older[0] and (not newer_authorized or older[1])
 
 
 def desktop_reserve(setup: Mapping[str, Any], model_id: str, readings: Iterable[Mapping[str, Any]], *,
@@ -603,7 +610,9 @@ def desktop_reserve(setup: Mapping[str, Any], model_id: str, readings: Iterable[
     probes on it, and Claude Code's own use of the login between them shows in
     none, so the job's C-11.4 probe takes a fresh one first (`probe_required`)."""
     reserve, bound = setup["desktop_reserve"], setup["desktop_max_in_flight"]
-    now, ttl = setup["now"], setup["caps"]["reading_ttl_s"]
+    now = setup["now"]
+    # Fresh evidence is young by the shipped TTL whatever the policy's says (review of this change).
+    ttl = min(setup["caps"]["reading_ttl_s"], DESKTOP_EVIDENCE_TTL_S)
     counted = desktop_reserve_readings(readings, now=now, reading_ttl_s=ttl, scopes=("account", model_id))
     reasons: list[str] = []
     windows: dict[str, Any] = {}
@@ -622,7 +631,10 @@ def desktop_reserve(setup: Mapping[str, Any], model_id: str, readings: Iterable[
             windows[window if scope == "account" else f"{window}:{scope}"] = {
                 "utilization": row["utilization"], "ceiling": ceiling, "observed_at": row["observed_at"],
                 "resets_at": row.get("resets_at")}
-            refused = refused or (row["utilization"] >= ceiling and age <= DESKTOP_RESERVE_REPROBE_S)
+            over = row["utilization"] >= ceiling
+            refused = refused or (over and age <= DESKTOP_RESERVE_REPROBE_S)
+            # Past the hour a reading at the ceiling no longer refuses alone; it asks for a probe.
+            unproven = unproven or (over and age > DESKTOP_RESERVE_REPROBE_S)
         if refused:
             reasons.append(f"desktop-reserve:{window}")
             continue
@@ -1016,7 +1028,7 @@ def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
         rejections = []
         for row in evaluation.get("rejections", ()):
             reasons = list(row.get("reasons") or [row.get("reason")])
-            standing = [reason for reason in reasons if reason != "no-slot"]
+            standing = [reason for reason in reasons if reason not in ROOM_REASONS]
             rejections.append((str(row.get("lane_id")), tuple(standing or reasons)))
         rejections.sort()
         candidates = sorted(row if isinstance(row, str) else str(row.get("lane_id"))

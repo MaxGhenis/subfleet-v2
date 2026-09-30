@@ -63,6 +63,7 @@ def reference_desktop_reserve(policy: Mapping[str, Any], readings: list[dict[str
     its `resets_at`, or while fresh when it has none; one at or above the ceiling refuses
     for an hour after it was taken. A candidate needs a probe first unless each reserved
     window has an account reading younger than the TTL."""
+    ttl = min(ttl, 120)                     # fresh evidence is young by the shipped TTL, whatever the policy says
     admission = policy.get("admission") or {}
     reserve = {"five_hour": 0.3, "seven_day": 0.3}
     if "desktop_reserve" in admission:
@@ -106,8 +107,11 @@ def reference_desktop_reserve(policy: Mapping[str, Any], readings: list[dict[str
             windows[window if scope == "account" else f"{window}:{scope}"] = {
                 "utilization": row["utilization"], "ceiling": ceiling,
                 "observed_at": row["observed_at"], "resets_at": row.get("resets_at")}
-            if row["utilization"] >= ceiling and (now - _time(row["observed_at"])).total_seconds() <= 3600:
+            age = (now - _time(row["observed_at"])).total_seconds()
+            if row["utilization"] >= ceiling and age <= 3600:
                 hit = True
+            elif row["utilization"] >= ceiling:
+                needs_fresh = True          # past the hour it asks for a probe instead
         if hit:
             reasons.append(f"desktop-reserve:{window}")
             continue

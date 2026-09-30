@@ -261,6 +261,10 @@ DESKTOP_EXCLUSION = "@desktop"
 #: reset early (claude-10's seven-day went 0.98 to 0.08 inside one reset on
 #: 2026-09-24) is found out within this, not at its `resets_at` days later.
 DESKTOP_RESERVE_REPROBE_S = 3600
+#: C-10.3: how young a reading must be to count as fresh evidence for the desktop
+#: login's reserve, whatever `caps.reading_ttl_s` says (the live policy's is a week,
+#: an interim value; review of this change): the shipped TTL, or less.
+DESKTOP_EVIDENCE_TTL_S = 120
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300

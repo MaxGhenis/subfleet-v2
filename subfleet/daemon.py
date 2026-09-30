@@ -3612,7 +3612,9 @@ class Daemon:
                     return live[0][0], []          # no lane for this job now: it waits in its place
                 target = found
             pair = (target[1], target[0])
-            blocker = next((rival for rival in live if scheduler.could_take(usable_of(rival[4], view), pair)), None)
+            authorized = bool(mine and mine[1])
+            blocker = next((rival for rival in live if scheduler.could_take(usable_of(rival[4], view), pair,
+                                                                            newer_authorized=authorized)), None)
             return (blocker[0], []) if blocker is not None else (None, live)
         # C-26.9: turns and detached jobs fill separate pools, so one being full
         # holds back only its own kind. Neither pool has a cap unless the policy

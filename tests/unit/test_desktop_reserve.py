@@ -336,3 +336,53 @@ def test_c6_3_a_counted_reading_ending_its_hour_is_a_horizon():
     """C-6.3: a refusal by a stale reading ends `DESKTOP_RESERVE_REPROBE_S` after it was taken."""
     snapshot = desk_only([reading(DESK, "five_hour", .8, observed=-1800, resets=86400)])
     assert lane_horizons(snapshot)[DESK] == NOW + timedelta(seconds=1800)
+
+
+# --- the code review of 2026-09-30 --------------------------------------------------------------
+
+def test_c10_3_fresh_evidence_is_young_by_the_shipped_ttl_whatever_the_policys(policy):
+    """C-10.3: the live policy's interim `reading_ttl_s` is a week; evidence for the reserve is still at most
+    120 s old, so a four-hour-old 0.5 reading asks for a probe, and a two-hour-old 0.8 one does too."""
+    policy["caps"]["reading_ttl_s"] = 604800
+    for utilization, age in ((.5, -4 * 3600), (.8, -2 * 3600)):
+        rows = [reading(DESK, window, utilization, observed=age, resets=86400, reading_id=n)
+                for n, window in enumerate(("five_hour", "seven_day"))]
+        decision = evaluate(policy, desk_only(rows), job())
+        assert decision.chosen_lane == DESK and scheduler.probe_required(decision, job())
+
+
+def test_c10_3_a_stale_bucket_at_the_ceiling_asks_for_a_probe_beside_fresh_account_readings(policy):
+    """C-10.3: past its hour an Opus-bucket reading at 0.95 no longer refuses alone, but fresh account
+    readings do not waive the probe that would read the bucket again."""
+    rows = [reading(DESK, "five_hour", .2, reading_id=1), reading(DESK, "seven_day", .2, reading_id=2),
+            {**reading(DESK, "seven_day", .95, observed=-7200, resets=3 * 86400, reading_id=3),
+             "scope": "claude-opus-5-5"}]
+    decision = evaluate(policy, desk_only(rows), job())
+    assert decision.chosen_lane == DESK and scheduler.probe_required(decision, job())
+
+
+def test_c6_3_a_young_reading_labelled_stale_still_has_its_clock(policy):
+    """C-6.3: a reading the importer labelled `stale-provider` while young counts until its evidence age
+    ends, and that instant is the desktop lane's horizon, whatever its label."""
+    row = {**reading(DESK, "five_hour", .95, observed=-60, resets=None), "label": "stale-provider"}
+    snapshot = desk_only([row])
+    assert lane_horizons(snapshot)[DESK] == NOW + timedelta(seconds=60)
+
+
+def test_c6_10_the_desktop_bound_is_room_in_a_verdicts_signature(policy):
+    """C-6.10: a lane refused for its window keeps one verdict whether one or two attempts run there."""
+    row = reading(DESK, "five_hour", .8)
+    one = evaluate(policy, desk_only([row], attempts=[attempt(DESK, 1)]), job())
+    two = evaluate(policy, desk_only([row], attempts=[attempt(DESK, 1), attempt(DESK, 2)]), job())
+    assert refused(two) == ["desktop-reserve:five_hour", "desktop-reserve:in-flight"]
+    assert scheduler.verdict_signature(one) == scheduler.verdict_signature(two)
+
+
+def test_c6_9_c11_7a_an_authorized_job_is_not_held_behind_a_waiter_the_reserve_refuses():
+    """C-6.9, C-11.7a: the newer job's authorization may be what admits it on the lane; a waiter without one
+    is not taken to be able to run there. Without the authorization the pair decides alone."""
+    older = (frozenset({("opus", "claude-1")}), False)
+    assert not scheduler.could_take(older, ("opus", "claude-1"), newer_authorized=True)
+    assert scheduler.could_take(older, ("opus", "claude-1"))
+    assert scheduler.could_take((older[0], True), ("opus", "claude-1"), newer_authorized=True)
+    assert not scheduler.could_take(older, ("opus", "claude-2"))

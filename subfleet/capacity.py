@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import READING_TTL_S, IdentityStatus, DESKTOP_RESERVE_REPROBE_S
+from .contracts import READING_TTL_S, IdentityStatus, DESKTOP_EVIDENCE_TTL_S, DESKTOP_RESERVE_REPROBE_S
 from .sessions.transcripts import read_regular
 
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -317,12 +317,15 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     clock alone may change how `scheduler.evaluate` judges that lane on the
     view's rows; a lane with no such instant is left out.
 
-    `evaluate` reads the clock only through `fresh_provider` and a closure's
-    `until_at`, and a lane's verdict and detail (`scheduler.judge_lane`) read
-    only that lane's readings and closures. So before its horizon a lane is
-    judged as the view judged it: until one of its readings turns fresh (a
-    future `observed_at`) or stops being fresh (`fresh_until`), or one of its
-    closures ends (`until_at`). Either can close a lane, not only open one (a
+    `evaluate` reads the clock through `fresh_provider`, a closure's `until_at`,
+    and, on the desktop login's lane, its reserve (C-10.3): a counted reading's
+    `resets_at`, the end of its hour (`DESKTOP_RESERVE_REPROBE_S`) and of its time
+    as fresh evidence (`DESKTOP_EVIDENCE_TTL_S`, whatever its label); and a lane's
+    verdict and detail (`scheduler.judge_lane`) read only that lane's readings and
+    closures. So before its horizon a lane is judged as the view judged it: until
+    one of its readings turns fresh (a future `observed_at`) or stops being fresh
+    (`fresh_until`), one of its closures ends (`until_at`), or one of those
+    desktop instants passes. Either can close a lane, not only open one (a
     reported closure on a reserved model gives its lane slack behind a probe,
     C-11.7, that turns `unmeasured` when the closure ends; review of f48df54).
 
@@ -355,17 +358,22 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     # its window resets, and one at or above its ceiling refuses alone only for
     # `DESKTOP_RESERVE_REPROBE_S`: either instant may change how the lane is judged
     # with no row changing.
+    evidence = min(reading_ttl_s, DESKTOP_EVIDENCE_TTL_S)
     for lane in view.get("lanes", ()):
         if lane.get("desktop"):
             counted = desktop_reserve_readings([row for row in view.get("readings", ())
                                                 if _row(row)["lane_id"] == lane["lane_id"]],
-                                               now=instant, reading_ttl_s=reading_ttl_s)
+                                               now=instant, reading_ttl_s=evidence)
             for row in counted.values():
                 if row.get("resets_at"):
                     note(lane["lane_id"], _time(row["resets_at"]))
-                reprobe = _time(row["observed_at"]) + timedelta(seconds=DESKTOP_RESERVE_REPROBE_S)
-                if reprobe > instant:
-                    note(lane["lane_id"], reprobe)
+                observed = _time(row["observed_at"])
+                # Whatever its label: the instant it stops being fresh evidence (a probe
+                # is asked for, or one with no reset stops counting) and its hour ends.
+                for clock in (observed + timedelta(seconds=evidence),
+                              observed + timedelta(seconds=DESKTOP_RESERVE_REPROBE_S)):
+                    if clock > instant:
+                        note(lane["lane_id"], clock)
     return found
 
 
@@ -375,11 +383,11 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
     taken on the view's rows may change with no row changing; None when nothing
     in it waits on the clock.
 
-    `scheduler.evaluate` reads the clock only through `fresh_provider` and a
-    closure's `until_at`, so its decision on these rows is the same at every
-    instant before the earliest of: a reading turning fresh (its future
-    `observed_at`) or no longer fresh (`fresh_until`), a closure ending (its
-    `until_at`), and each of `ends` (a confirmed override's `weekly_reset_at`,
+    `scheduler.evaluate` reads the clock through `fresh_provider`, a closure's
+    `until_at` and the desktop reserve's instants (`lane_horizons`), so its decision
+    on these rows is the same at every instant before the earliest of: a reading
+    turning fresh (its future `observed_at`) or no longer fresh (`fresh_until`), a
+    closure ending (its `until_at`), a desktop instant, and each of `ends` (a confirmed override's `weekly_reset_at`,
     which puts the readings it held out back). Any of them can close a lane,
     not only open one: an override that ends shows a reading below the floor,
     and a reported closure on a reserved model gives its lane slack behind a
@@ -446,8 +454,8 @@ def desktop_reserved(lane: Mapping[str, Any], admission: Mapping[str, Any] | Non
     if bound is not None and lane.get("in_flight", 0) >= bound:
         return True
     instant = _time(now)
-    counted = desktop_reserve_readings(lane.get("readings", ()), now=instant, reading_ttl_s=reading_ttl_s,
-                                       scopes=("account",))
+    counted = desktop_reserve_readings(lane.get("readings", ()), now=instant,
+                                       reading_ttl_s=min(reading_ttl_s, DESKTOP_EVIDENCE_TTL_S), scopes=("account",))
     return any(reserve.get(window) is not None and row["utilization"] >= round(1 - reserve[window], 6)
                and (instant - _time(row["observed_at"])).total_seconds() <= DESKTOP_RESERVE_REPROBE_S
                for (_, window), row in counted.items())

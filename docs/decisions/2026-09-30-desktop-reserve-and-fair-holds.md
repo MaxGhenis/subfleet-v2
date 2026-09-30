@@ -51,7 +51,9 @@ findings are folded in; "Changes since revision 1" lists them.
     `DESKTOP_RESERVE_REPROBE_S` (3600 s) after it was taken. After that it asks for a probe instead, so a window the
     provider reset early is found out within the hour.
 - **Fresh evidence before placement.** Otherwise the lane is a candidate. `probe_required` makes detached work probe
-  it first unless each reserved window has an account reading younger than `reading_ttl_s`. The probe's
+  it first unless each reserved window has an account reading younger than `DESKTOP_EVIDENCE_TTL_S` (120 s, or
+  `reading_ttl_s` if shorter: the live policy's interim TTL is a week), and unless a counted reading at the ceiling is
+  older than the hour. The probe's
   `rate_limit_event` provides that reading. The reason is that the lane's readings come only from attempts and probes
   run there:
   - its setup token gets 403 from the usage endpoint;
