@@ -32,6 +32,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -348,6 +349,10 @@ def omission_map(common: Path, heads: Iterable[str], held: list[str], *, timeout
     return blobs, seen[:8]
 
 
+def _fold(path: str) -> str:
+    return unicodedata.normalize("NFC", path).casefold()
+
+
 class Ignored:
     """Which directories of a worktree git says hold only ignored, untracked
     files (d635 disk relief).
@@ -359,7 +364,11 @@ class Ignored:
     """
 
     def __init__(self, paths: Iterable[str]):
-        self.paths = sorted({p.rstrip("/") for p in paths if p})
+        # Compared folded: git prints the index's case and precomposed (NFC)
+        # names, the walk sees the disk's; APFS matches names regardless of
+        # case and normalization. Folding only merges names, so it can make a
+        # directory less clear, never more (when in doubt, archive the bytes).
+        self.paths = sorted({_fold(p.rstrip("/")) for p in paths if p})
         self.members = set(self.paths)
 
     @classmethod
@@ -370,6 +379,7 @@ class Ignored:
         return cls(os.fsdecode(p) for p in out.split(b"\0") if p)
 
     def clear(self, rel: str) -> bool:
+        rel = _fold(rel)
         if not rel or rel in self.members:
             return False
         parts = rel.split("/")
