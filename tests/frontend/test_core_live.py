@@ -91,7 +91,9 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
                      "the card resolves from approval.resolved", "the follow-up ends interrupted (stopped)",
                      "the resend returns the stored receipt", "resent after the right predecessor",
                      "a late copy of the withdrawn send cannot land", "the provider received the image",
-                     "an approval in an unfocused conversation notifies", "a message continues the native session",
+                     "an approval in an unfocused conversation notifies",
+                     "the focused conversation on screen does not notify",
+                     "the focused conversation off screen notifies its completion", "a message continues the native session",
                      "a newer poll supersedes the waiting one"):
         assert required in names, required
 

@@ -3,10 +3,12 @@
 A notification the app posts carries its conversation and its kind. Clicking it
 opens the main window on that conversation, and an approval's brings the
 conversation's oldest waiting card into view. One that arrives while the app is
-frontmost shows as it would in the background, unless its conversation is
-focused by then. Until 2026-09-28 no notification delegate was registered, so a
-click only brought the app forward, and a notification that arrived while the
-app was frontmost was never shown.
+frontmost shows as it would in the background, unless its conversation is on
+screen by then: focused, with the main window visible. Until 2026-09-28 no
+notification delegate was registered, so a click only brought the app forward,
+and a notification that arrived while the app was frontmost was never shown.
+Which notifications are posted at all is D-24's rule, tested in
+test_core_store.py.
 
 What the app's delegate reads from a delivered notification is Foundation code
 (`NotificationTarget`), probed here: through the real daemon's feed, for every
@@ -42,8 +44,8 @@ def targets(core_probe, cases: list[dict]) -> dict:
                          write_json(Path(scratch) / f"{uuid.uuid4().hex}.json", {"cases": cases}))
 
 
-def target(core_probe, request_id: str, user_info: dict, focused: str | None = None) -> dict | None:
-    return targets(core_probe, [{"request_id": request_id, "user_info": user_info, "focused": focused}])["cases"][0]
+def target(core_probe, request_id: str, user_info: dict, on_screen: str | None = None) -> dict | None:
+    return targets(core_probe, [{"request_id": request_id, "user_info": user_info, "on_screen": on_screen}])["cases"][0]
 
 
 @pytest.fixture
@@ -85,11 +87,16 @@ def test_c29_9_the_feeds_notifications_open_their_conversation_and_an_approval_i
                                    "shows_while_frontmost": True}
     assert clicked["completed"] == {"conversation": other, "kind": "completed", "reveals": False,
                                     "shows_while_frontmost": True}
-    # Once the person has opened that conversation, one arriving late shows nothing.
-    opened = store([{"focus": other}])["notifications"]
+    # Once the person has that conversation on screen, one arriving late shows nothing.
+    opened = store([{"focus": other}, {"on_screen": True}])["notifications"]
     assert [n["clicked"]["shows_while_frontmost"] for n in opened] == [False, False]
+    # Focused while the main window is closed or miniaturized (the app still
+    # frontmost): it is not on screen, so it shows.
+    closed = store([{"focus": other}, {"on_screen": False}])["notifications"]
+    assert [n["clicked"]["shows_while_frontmost"] for n in closed] == [True, True]
     # A locked page or no conversation focused: it shows.
-    assert all(n["clicked"]["shows_while_frontmost"] for n in store([{"focus": None}])["notifications"])
+    assert all(n["clicked"]["shows_while_frontmost"]
+               for n in store([{"focus": None}, {"on_screen": True}])["notifications"])
 
 
 def test_c29_9_every_kind_round_trips_through_delivery(core_probe):
@@ -143,10 +150,10 @@ def test_c29_9_a_notification_naming_no_conversation_opens_nothing(core_probe, u
     assert target(core_probe, "approval:1", user_info) is None
 
 
-def test_c29_9_frontmost_shows_unless_its_conversation_is_focused(core_probe):
+def test_c29_9_frontmost_shows_unless_its_conversation_is_on_screen(core_probe):
     shown = targets(core_probe, [
-        {"request_id": "complete:m", "user_info": {"conversation_id": "cv-1"}, "focused": focused}
-        for focused in ("cv-1", "cv-2", None, "")])["cases"]
+        {"request_id": "complete:m", "user_info": {"conversation_id": "cv-1"}, "on_screen": on_screen}
+        for on_screen in ("cv-1", "cv-2", None, "")])["cases"]
     assert [case["shows_while_frontmost"] for case in shown] == [False, True, True, True]
 
 
@@ -160,7 +167,7 @@ JUNK = st.text(alphabet=ALPHABET, max_size=12)
 TEXT = st.one_of(WORDS, JUNK)
 VALUES = st.one_of(st.none(), st.booleans(), st.integers(-3, 3), st.floats(allow_nan=False, allow_infinity=False),
                    TEXT, st.lists(TEXT, max_size=2), st.dictionaries(TEXT, TEXT, max_size=2))
-# Mostly the ids the daemon makes, so focus matches a notification's conversation often.
+# Mostly the ids the daemon makes, so the conversation on screen matches a notification's often.
 IDS = st.sampled_from(["cv-1", "cv-2", "cv-3"])
 HEADS = st.one_of(st.sampled_from([*PREFIXES, *KINDS]), TEXT)
 
@@ -191,7 +198,7 @@ CASES = st.fixed_dictionaries({
                            weighted((6, st.sampled_from(KINDS)), (4, st.one_of(WORDS, VALUES))),
                            st.fixed_dictionaries({}, optional={"message_id": TEXT, "other": VALUES}),
                            st.integers(0, 5)),
-    "focused": weighted((5, IDS), (2, st.none()), (3, TEXT)),
+    "on_screen": weighted((5, IDS), (2, st.none()), (3, TEXT)),
 })
 
 
@@ -206,7 +213,7 @@ def reference(case: dict) -> dict | None:
         head, colon, _ = case["request_id"].partition(":")
         kind = PREFIXES.get(head) if colon else None
     return {"conversation": cid, "kind": kind, "reveals": kind == "approval",
-            "shows_while_frontmost": cid != case["focused"]}
+            "shows_while_frontmost": cid != case["on_screen"]}
 
 
 @settings(max_examples=100, deadline=None, derandomize=True,
@@ -216,7 +223,7 @@ def test_property_a_clicked_notification_reads_back_as_the_rule_says(core_probe,
     """For every notification: a target exactly when it names a conversation; the
     userInfo's kind if this build knows it, or else the identifier's; a card
     revealed exactly for an approval; shown while frontmost exactly when its
-    conversation is not the focused one."""
+    conversation is not the one on screen."""
     assert all(unicodedata.is_normalized("NFC", json.dumps(c, ensure_ascii=False)) for c in cases)
     got = targets(core_probe, cases)["cases"]
     assert got == [reference(case) for case in cases]
@@ -297,7 +304,7 @@ def expected_openings(steps: list[dict]) -> tuple[list, str | None]:
     pending at the moment of opening."""
     def target(step):
         return reference({"request_id": step["click"]["request_id"], "user_info": step["click"]["user_info"],
-                          "focused": None})
+                          "on_screen": None})
 
     def opening(found, pending):
         return {"conversation": found["conversation"],

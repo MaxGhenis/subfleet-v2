@@ -67,8 +67,41 @@ struct MainWindow: View {
             }
         }
         .sheet(isPresented: $showNew) { NewConversationSheet(model: model, isPresented: $showNew) }
+        .background(MainWindowReader(model: model))
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in showNew = true }
+    }
+}
+
+/// Tells the model which window is the main one, so it can tell whether the
+/// focused conversation is on screen (D-24): the window this view moves into.
+/// Nothing is cleared when it leaves: a closed window reads as not visible,
+/// and the model's weak reference ends with the window.
+struct MainWindowReader: NSViewRepresentable {
+    let model: UIModel
+
+    func makeNSView(context: Context) -> NSView { Reader(model: model) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Reader: NSView {
+        private weak var model: UIModel?
+
+        init(model: UIModel) {
+            self.model = model
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        // Told later, outside SwiftUI's update of the view tree: the model's
+        // state is published.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak model, weak window] in
+                if let window { model?.mainWindow = window }
+            }
+        }
     }
 }
 

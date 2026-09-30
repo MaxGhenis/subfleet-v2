@@ -71,6 +71,7 @@ final class UIModel: ObservableObject {
         guard !started, engine != nil else { return }
         started = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        observeOnScreen()
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pump() }
@@ -100,6 +101,8 @@ final class UIModel: ObservableObject {
         _ = try? await onOutbox { try engine.drainWatch(&baseline) }
         state = baseline
         state.watchBaselined = true
+        // The copy was taken before the drain; read what is on screen now.
+        noteOnScreen()
         startWatchLoop()
         // A notification clicked before now (the click that launched the app).
         let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
@@ -137,6 +140,8 @@ final class UIModel: ObservableObject {
 
     private func fold(watch page: WatchPage) {
         let known = Set(state.conversations.map(\.conversation_id))
+        // Whether the focused conversation notifies depends on what is on screen as the page lands.
+        noteOnScreen()
         state.apply(watch: page)
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
@@ -347,6 +352,96 @@ final class UIModel: ObservableObject {
         navigation += 1
         let token = navigation
         Task { await open(.conversation(opening.conversationID), token: token) }
+    }
+
+    // MARK: On screen (D-24)
+
+    /// The main window, as its content last reported it (`MainWindowReader`).
+    /// A closed window reads as not visible, and the reference ends with it.
+    weak var mainWindow: NSWindow? {
+        didSet { noteOnScreen() }
+    }
+    private var onScreenObservers: [NSObjectProtocol] = []
+    /// The displays sleep, or the login session is switched away (NSWorkspace
+    /// says so): nothing is on screen, whatever the window reports.
+    private var screensAsleep = false
+    private var sessionInactive = false
+
+    /// Reads from AppKit whether the focused conversation is on screen: the
+    /// app is active, the main window is visible (neither closed nor
+    /// miniaturized nor wholly covered: `occlusionState`) and the key window
+    /// is it or a window attached to it, and the displays are awake in an
+    /// active session. The focus alone stays set while the person works in
+    /// another app or has closed the window, where its conversation's turns
+    /// must notify like any other's.
+    private func noteOnScreen() {
+        let visible = mainWindow.map {
+            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0)
+        } ?? false
+        let onScreen = NSApp?.isActive == true && visible && !screensAsleep && !sessionInactive
+        if state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
+    }
+
+    /// Whether the key window is `window` or one attached to it (a sheet, or a
+    /// child window). The menu bar panel makes `NSApp.isActive` true while it is
+    /// key, without raising the main window, which may be all but covered by
+    /// another app's (seen 2026-09-30 in a probe app with the same scenes).
+    private func holdsKey(_ window: NSWindow) -> Bool {
+        var key = NSApp?.keyWindow
+        while let current = key {
+            if current === window { return true }
+            key = current.sheetParent ?? current.parent
+        }
+        return false
+    }
+
+    /// The conversation on screen now, read again from AppKit: the
+    /// notification center's delegate asks as a notification arrives while
+    /// the app is frontmost.
+    func onScreenConversationID() -> String? {
+        noteOnScreen()
+        return state.onScreenConversationID
+    }
+
+    /// Keeps `focusedOnScreen` current as the app is activated or left, as a
+    /// window becomes or stops being key or is miniaturized, restored, closed,
+    /// covered or uncovered, and as the displays sleep or wake and the session
+    /// is switched away or back. The two decisions that use it (`fold(watch:)`
+    /// and the delegate's `willPresent`) read AppKit again as well, so a
+    /// window change these do not report cannot make them wrong.
+    private func observeOnScreen() {
+        let names: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
+        ]
+        onScreenObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Read after the change lands: a closing window is still visible while it is told.
+                Task { @MainActor in self?.noteOnScreen() }
+            }
+        }
+        let workspace: [Notification.Name] = [
+            NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+            NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification,
+        ]
+        onScreenObservers += workspace.map { name in
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.noteSession(name) }
+            }
+        }
+    }
+
+    private func noteSession(_ name: Notification.Name) {
+        switch name {
+        case NSWorkspace.screensDidSleepNotification: screensAsleep = true
+        case NSWorkspace.screensDidWakeNotification: screensAsleep = false
+        case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
+        case NSWorkspace.sessionDidBecomeActiveNotification: sessionInactive = false
+        default: break
+        }
+        noteOnScreen()
     }
 
     // MARK: Changes

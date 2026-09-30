@@ -4,7 +4,7 @@
 // app's own engine, outbox and store state, the way the UI will: create a
 // conversation with a queued follow-up, follow its events, stop a turn, answer
 // a tool approval and a question as the development app, retry and withdraw
-// through the outbox, send an image, notify for an unfocused conversation, and
+// through the outbox, send an image, notify for a conversation not on screen, and
 // continue a native session from the catalog. Every exchange is written to
 // the exchanges file for the test to check against the daemon's own JSON.
 import Foundation
@@ -125,6 +125,8 @@ func runLive(_ arguments: [String]) throws -> Any {
               && outbox.entry(first.key)?.lastAfterMessageID == nil)
 
     state.focus(cid)
+    // The person is looking at it: the app is active and its window visible (D-24).
+    state.focusedOnScreen = true
     let open = try engine.open(.conversation(cid))
     state.apply(open: open)
     for key in [first.key, slow.key] {
@@ -315,7 +317,7 @@ func runLive(_ arguments: [String]) throws -> Any {
     } ?? []
     run.check("the person's messages read in order", Array(people.prefix(2)) == ["hello there", "count [fake:slow]"], people)
 
-    // 12. Notifications for a conversation that is not focused.
+    // 12. Notifications for a conversation that is not on screen.
     try engine.drainWatch(&state)
     _ = state.drainNotifications()
     let otherRequest = "app-" + UUID().uuidString.lowercased()
@@ -345,8 +347,32 @@ func runLive(_ arguments: [String]) throws -> Any {
     }
     run.check("its completion notifies", intents.contains { $0.kind == .completed && $0.messageID == otherFirst.key },
               intents.map { $0.id })
-    run.check("the focused conversation never notified", !intents.contains { $0.conversationID == cid })
+    run.check("the conversation on screen never notified", !intents.contains { $0.conversationID == cid })
     run.check("the badge clears", (state.pendingApprovals[otherID] ?? 0) == 0)
+
+    // The focused conversation's own turns (P-13): silent while it is on screen,
+    // and its completion notifies once the person has left the window.
+    let watched = try engine.send(conversation: cid, text: "while you watch", settings: settings)
+    state.apply(outbox: engine.pump(), outbox: outbox)
+    let watchedDone = untilState(watched.key, ["complete", "failed"])
+    try engine.drainWatch(&state)
+    let onScreen = state.drainNotifications()
+    run.check("the focused conversation on screen does not notify",
+              watchedDone?.state == "complete" && !onScreen.contains { $0.conversationID == cid },
+              ["state": watchedDone?.state ?? "none", "posted": onScreen.map { $0.id }] as [String: Any])
+    state.focusedOnScreen = false
+    let away = try engine.send(conversation: cid, text: "after you left", settings: settings)
+    state.apply(outbox: engine.pump(), outbox: outbox)
+    var offScreen: [NotificationIntent] = []
+    let awayDeadline = Date().addingTimeInterval(60)
+    while Date() < awayDeadline && !offScreen.contains(where: { $0.messageID == away.key }) {
+        if let page = try? engine.watch(after: state.watchCursor, wait: 2) { state.apply(watch: page) }
+        offScreen += state.drainNotifications()
+    }
+    run.check("the focused conversation off screen notifies its completion",
+              offScreen.contains { $0.kind == .completed && $0.conversationID == cid && $0.messageID == away.key },
+              offScreen.map { $0.id })
+    state.focusedOnScreen = true
 
     // 13. The catalog: a native Claude session appears under its prompt and continues here.
     _ = try? engine.refreshCatalog()
