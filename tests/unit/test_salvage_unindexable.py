@@ -514,9 +514,9 @@ def test_an_index_git_crashes_reading_seeds_nothing_and_the_snapshot_reads_the_b
     (["read-tree", "-m"], -11),                                  # SIGSEGV, as git 2.55 on the corrupt index
     (["read-tree", "-m"], -9),                                   # SIGKILL: the kernel's memory-pressure kill
     (["ls-files", "-v"], -11),                                   # clearing the copy's skip bits
-    (["rev-parse", "--git-path"], subprocess.TimeoutExpired(["git"], 60)),     # finding the real index
+    (["rev-parse", "--git-path"], 128),                          # finding the real index
     (["read-tree", "-m"], OSError(errno.EMFILE, "Too many open files")),
-], ids=["read-tree-segv", "read-tree-killed", "ls-files-segv", "git-path-timeout", "read-tree-emfile"])
+], ids=["read-tree-segv", "read-tree-killed", "ls-files-segv", "git-path-exit-128", "read-tree-emfile"])
 def test_any_failure_of_a_seeding_step_is_no_seed(repository, monkeypatch, step, outcome):
     """P3-1 on any git: a seeding step that fails, transient or not, leaves the snapshot
     unseeded, never failed. The fallback reads the baseline in a directory of its own, so
@@ -525,6 +525,36 @@ def test_any_failure_of_a_seeding_step_is_no_seed(repository, monkeypatch, step,
     baseline = git_head(repository)
     (repository / "tracked.txt").write_text("provider progress\n")
     expected = snapshot_tree(repository, baseline)
+    seeds, reads = seeding_fails(monkeypatch, step, outcome)
+    assert snapshot_tree(repository, baseline) == expected
+    assert len(reads) == 1 and reads[0] not in seeds
+    assert not list((repository / ".git").glob("subfleet-salvage-*"))
+
+
+@pytest.mark.parametrize("step", [["rev-parse", "--git-path"], ["read-tree", "-m"], ["ls-files", "-v"]],
+                         ids=["git-path", "read-tree", "ls-files"])
+def test_a_seeding_step_stopped_at_its_cap_is_no_answer_and_reads_nothing_unseeded(repository, monkeypatch,
+                                                                                   step):
+    """Review of the P3-1 fix: a seeding step that reached its cap did not fail, it did not
+    finish. Under the load that stops the fast seeded read, the unseeded one, which hashes
+    every tracked file, is slower still (C-6.8's incident: 0.5 s seeded, 39 to 51 s and
+    then past the cap unseeded), so falling back spent a second cap on each try before the
+    same failure. The snapshot raises as a timeout did before the fix: transient, retried
+    under C-6.8's backoff or `SALVAGE_TRIES`."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    seeds, reads = seeding_fails(monkeypatch, step, subprocess.TimeoutExpired(["git"], 60))
+    with pytest.raises(SalvageError, match="timed out after") as raised:
+        snapshot_tree(repository, baseline)
+    assert raised.value.transient and raised.value.timed_out
+    assert reads == [] and len(seeds) == 1
+    assert not list((repository / ".git").glob("subfleet-salvage-*"))
+
+
+def seeding_fails(monkeypatch, step, outcome):
+    """Make git's `step` in a snapshot end with `outcome` (a return code or an exception to
+    raise), leaving an `index.lock` beside a temporary index as a git that died does.
+    Returns the directories the failing step ran in and those an unseeded read ran in."""
     real, seeds, reads = subprocess.run, [], []
 
     def run(argv, *args, **kwargs):
@@ -532,7 +562,7 @@ def test_any_failure_of_a_seeding_step_is_no_seed(repository, monkeypatch, step,
         if list(argv[3:3 + len(step)]) == step:
             if index:
                 Path(index + ".lock").write_bytes(b"")               # what a git that died leaves
-                seeds.append(Path(index).parent)
+            seeds.append(Path(index).parent if index else None)
             if isinstance(outcome, BaseException):
                 raise outcome
             return subprocess.CompletedProcess(argv, outcome, b"", b"")
@@ -540,9 +570,7 @@ def test_any_failure_of_a_seeding_step_is_no_seed(repository, monkeypatch, step,
             reads.append(Path(index).parent)                        # the unseeded read
         return real(argv, *args, **kwargs)
     monkeypatch.setattr(salvage_module.subprocess, "run", run)
-    assert snapshot_tree(repository, baseline) == expected
-    assert len(reads) == 1 and reads[0] not in seeds
-    assert not list((repository / ".git").glob("subfleet-salvage-*"))
+    return seeds, reads
 
 
 # --- the locale (F3) --------------------------------------------------------------

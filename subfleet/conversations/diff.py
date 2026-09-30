@@ -437,7 +437,7 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
             timer.cancel()
             process.stdout.close()
         if expired.is_set():
-            raise SalvageError(f"git {verb} timed out after {cap:g} s", transient=True)
+            raise SalvageError(f"git {verb} timed out after {cap:g} s", timed_out=True)
         if not cut and process.returncode:
             errors.seek(0)
             message = errors.read(2000).decode("utf-8", errors="replace").strip()
