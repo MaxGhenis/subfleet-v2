@@ -4150,9 +4150,18 @@ class Daemon:
             return
         except SalvageError as exc:
             # C-6.8: the main/master re-check did not finish. Launching anyway
-            # would skip it, so the attempt ends with the cause recorded.
+            # would skip it, so nothing is launched. A transient failure (a
+            # timeout, EMFILE or ENOMEM, a git killed by a signal) says nothing
+            # about the checkout, so the attempt ends as one whose guardian could
+            # not be started does, and the job is queued again while it has
+            # attempts left: its next admission asks again, under C-6.8's backoff.
+            # As a spawn error it was classified `unknown`, which is never
+            # retried, and ended the job (review of ceacf18b, P3-5).
             self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
-            self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
+            if exc.transient:
+                self._unlaunched(a, f"workdir-branch-check-unfinished: {exc}")
+            else:
+                self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)

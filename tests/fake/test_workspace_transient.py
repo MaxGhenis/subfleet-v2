@@ -439,3 +439,54 @@ def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+@pytest.mark.parametrize("max_attempts", [3, 1])
+def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_launched(
+        state_daemon, monkeypatch, max_attempts):
+    """Review of ceacf18b, P3-5: the main/master re-check at launch ran a git that was killed
+    (a memory-pressure kill; EMFILE and ENOMEM read the same). The attempt ended as a spawn
+    error, which both adapters classify `unknown`, never retried, so the job failed for good.
+    Now nothing launches (C-13.2 fails closed) and the attempt ends as one whose guardian
+    could not be started: the job is queued again while it has attempts left. Its next
+    admission asks again, waiting under C-6.8's backoff while git gives no answer, and
+    refuses the checkout, switched to `main` meanwhile, once git answers."""
+    import subfleet.daemon as daemon_module
+    from subfleet.daemon import Daemon
+    from tests.fake.test_state_contract import reserve
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True,
+                                 max_attempts=max_attempts)
+    git(workdir, "branch", "-m", "main")                  # what a git that answered would refuse
+    real_run, killed = subprocess.run, [True]
+
+    def run(cmd, *args, **kwargs):
+        if killed[0] and "symbolic-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, b"", b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    Daemon._launch(daemon, attempt)                       # the fixture forbids scheduled launches
+    assert daemon._children == {} and not (daemon.root / "jobs" / job_id / "a1" / "launch.json").exists()
+    a1 = daemon.store.get_attempt(attempt["attempt_id"])
+    detail = "workdir-branch-check-unfinished: git symbolic-ref was killed by SIGKILL"
+    assert (a1["state"], a1["outcome_detail"]) == ("failed", detail)
+    assert daemon.store.list_leases() == []
+    job = daemon.store.get_job(job_id)
+    if max_attempts == 1:
+        assert (job["state"], job["rc"]) == ("failed", 1)
+        assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [detail]
+        return
+    assert (job["state"], job["rc"]) == ("queued", None)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+    assert len(daemon.store.list_attempts(job_id)) == 1
+    killed[0] = False
+    due(daemon, job_id)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7) and len(daemon.store.list_attempts(job_id)) == 1
+    lines = daemon.store.list_notices()[-1]["text"].split("\n")[1:]
+    assert lines[0].startswith("failed while preparing the retry: writable job refused on main")
+    assert lines[1:] == [f"attempt a1: unknown, rc=-: {detail}"]
