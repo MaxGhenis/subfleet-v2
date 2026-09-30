@@ -247,10 +247,13 @@ def test_native_api_lane_check_is_silent_for_subscription_and_unknown(tmp_path, 
     assert capsys.readouterr() == ("", "")
 
 
-@pytest.mark.parametrize("retired,successor,family", [("fable", "opus", "claude"), ("sol", "astra", "codex")])
+@pytest.mark.parametrize("retired,successor,family", [("fable", "opus", "claude"), ("sol", "astra", "codex"),
+                                                      ("claude-fable-5", "opus", "claude"),
+                                                      ("claude-fable-5-1", "opus", "claude")])
 def test_cli_pick_model_asks_the_daemon_about_the_successor(monkeypatch, capsys, retired, successor, family):
     """C-17.2: `pick --model fable` is a person naming a model, so it is remapped like
-    `-m`, even when the daemon's policy still lists Fable."""
+    `-m`, even when the daemon's policy still lists Fable. `--model` is free text, so
+    Fable's exact ids are remapped too (review of 4763b38c)."""
     calls = []
 
     class Client:
