@@ -189,3 +189,24 @@ def test_c26_14_the_pane_says_who_else_wrote_in_the_folder(core_probe, tmp_path,
     whole = harness.call("conversation.diff", conversation_id=cid)
     assert words(whole)["shared"].endswith("since this conversation's first turn began; the diff may include "
                                            "their edits.")
+
+
+def test_c26_14_the_pane_quotes_a_long_title_cut_to_one_short_line(core_probe, tmp_path):
+    """Review of 5e9f2fbd (P3-7): a conversation's title is whatever a person or a native
+    session gave it, so the note above a diff quotes at most 60 characters of it, on one
+    line, with an ellipsis where it was cut; a title of 60 is quoted whole, and a blank
+    one reads as untitled."""
+    long = "Refactor the admission path " * 20
+    sixty = "x" * 60
+    result = {"available": True, "conversation_id": "cv-1", "message_id": "m-1", "files": [],
+              "files_truncated": False, "stats": {"files": 0, "additions": 0, "deletions": 0, "complete": True},
+              "diff": "", "truncated": False, "scrubbed": 0,
+              "shared": [{"conversation_id": f"cv-{n}", "title": title, "message_ids": [f"m-{n}"],
+                          "from": "2026-09-29T12:00:00.000Z", "to": "2026-09-29T12:01:00.000Z"}
+                         for n, title in enumerate((long, "two\nlines", sixty, " \n "), start=2)]}
+    words = run_probe(core_probe, "diff-words", write_json(tmp_path / "r.json", result))["shared"]
+    cut = long[:59]
+    assert words == (f"This folder was also changed by “{cut}…”, “two lines”, "
+                     f"“{sixty}” and an untitled conversation during this turn; the diff may include "
+                     "their edits.")
+    assert len(words) < 300

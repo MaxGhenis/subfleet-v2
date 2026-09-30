@@ -232,7 +232,7 @@ func diffUnavailableWords(_ result: DiffResult) -> String {
 func diffSharedWords(_ result: DiffResult) -> String? {
     guard let shared = result.shared, !shared.isEmpty else { return nil }
     let names = shared.map { sharer -> String in
-        let name = sharer.title.map { "\u{201C}\($0)\u{201D}" } ?? "an untitled conversation"
+        let name = sharer.title.flatMap(sharedTitleWords) ?? "an untitled conversation"
         return sharer.to == nil ? "\(name) (still running)" : name
     }
     let who: String
@@ -244,6 +244,19 @@ func diffSharedWords(_ result: DiffResult) -> String? {
     let when = result.message_id == nil ? "since this conversation's first turn began" : "during this turn"
     let whose = shared.count == 1 ? "its" : "their"
     return "This folder was also changed by \(who) \(when); the diff may include \(whose) edits."
+}
+
+/// The most of a title the note above a diff quotes, in characters.
+let sharedTitleLimit = 60
+
+/// A title as that note quotes it: one line, at most `sharedTitleLimit` characters
+/// with an ellipsis where it was cut (a title is whatever a person or a native
+/// session gave it, of any length); nil for a blank one, which reads as untitled.
+func sharedTitleWords(_ title: String) -> String? {
+    let line = title.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+    if line.isEmpty { return nil }
+    let short = line.count > sharedTitleLimit ? line.prefix(sharedTitleLimit - 1) + "\u{2026}" : Substring(line)
+    return "\u{201C}\(short)\u{201D}"
 }
 
 /// What the Changes pane shows: a whole conversation, or one turn of it.
