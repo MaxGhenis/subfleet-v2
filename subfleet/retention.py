@@ -287,8 +287,11 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
 #: What a pass reports about the disk, apart from the pools' live-tree bytes
 #: (d635 accounting): deleted without a copy (`freed_bytes`: omitted tracked
 #: files and regenerable output; `freed_disk_bytes`: their blocks no clone
-#: shares) versus moved into the archive (`archived_bytes`).
-FREED_KEYS = ("freed_bytes", "freed_disk_bytes", "archived_bytes")
+#: shares) versus moved into the archive (`archived_bytes`), and the space the
+#: archives added (`added_bytes`: bundles, manifests, rows and byte copies;
+#: final review of e50716e8, N1). The net on disk is `freed_disk_bytes -
+#: added_bytes`.
+FREED_KEYS = ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes")
 
 
 @dataclass
@@ -818,8 +821,9 @@ class _Pass:
         # Truthful accounting (d635 disk relief): what the deletion gave back
         # (tracked files a remote holds and regenerable output, deleted without
         # a copy) apart from what it moved into the archive (clones: deleting
-        # the originals frees nothing). `unlinked_bytes` is every file removed.
-        moved = rarch.accounting(report.get("totals") or {})
+        # the originals frees nothing) and what the archive itself added (its
+        # bundle and metadata, N1). `unlinked_bytes` is every file removed.
+        moved = rarch.accounting(report.get("totals") or {}, report.get("added_bytes") or 0)
         by_pool = self.freed_by_pool.setdefault(pool or "unknown", dict.fromkeys(FREED_KEYS, 0))
         for key in FREED_KEYS:
             self.progress[key] += moved[key]

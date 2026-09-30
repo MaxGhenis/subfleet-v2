@@ -593,3 +593,34 @@ def test_a_directory_whose_case_changed_on_disk_keeps_its_tracked_edits(world):
     assert run(w)["pruned"] == ["job-case"]
     listed = entries(manifest_of(w, "job-case"))
     assert listed["pkg/node_modules/left/index.js"].get("store"), "a tracked file's uncommitted edit was dropped"
+
+
+def test_the_sampled_estimate_nets_what_the_archive_adds(world):
+    """N1 (final review of e50716e8): `survey --sample` estimates what each
+    archive adds (bundle, manifest, rows, summary) and reports the net on
+    disk; its bundle figure is git's measure of the history the bundle then
+    carries, and its manifest figure is close to the manifest then written."""
+    from subfleet.retention_survey import sample
+    w = world
+    git(w.repo, "remote", "remove", "origin")
+    (w.repo / "history.bin").write_bytes(os.urandom(80_000))
+    git(w.repo, "add", ".")
+    git(w.repo, "commit", "--quiet", "-m", "history")
+    wt = w.job("s-net")
+    regenerable_tree(wt)
+    report = sample(w.root, 3)
+    (job,) = report["jobs"]
+    assert job["bundle_estimate"] > 80_000
+    assert job["added_bytes"] == (job["bundle_estimate"] + job["manifest_bytes"] + job["rows_bytes"]
+                                  + 1024)
+    assert job["net_disk_bytes"] == job["freed_disk_bytes"] - job["added_bytes"]
+    totals = report["sample_totals"]
+    assert totals["net_disk_bytes"] == totals["freed_disk_bytes"] - totals["added_bytes"]
+    assert report["extrapolated"]["added_bytes"] == totals["added_bytes"]
+    assert run(w)["pruned"] == ["s-net"]
+    archive = w.root / "archive" / "s-net"
+    bundle = (archive / "commits.bundle").stat().st_size
+    assert 0.5 * job["bundle_estimate"] <= bundle <= 1.5 * job["bundle_estimate"], (bundle, job["bundle_estimate"])
+    manifest = (archive / "manifest.json").stat().st_size
+    assert abs(job["manifest_bytes"] - manifest) <= 0.1 * manifest + 4096, (job["manifest_bytes"], manifest)
+    assert job["rows_bytes"] == (archive / "rows.json").stat().st_size
