@@ -377,7 +377,7 @@ def this_machine(host: str) -> bool:
 def _own_names() -> set[str]:
     """This machine's own host names, with and without `.local`."""
     name = socket.gethostname().lower().rstrip(".")
-    short = name[:-len(".local")] if name.endswith(".local") else name
+    short = name.partition(".")[0]
     return {name, short, f"{short}.local"} - {""}
 
 

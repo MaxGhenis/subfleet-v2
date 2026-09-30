@@ -356,9 +356,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     processes holding a batch's trees (default: `lsof`). `pins` is asked again
     inside every delete transaction. `salvage_referenced_elsewhere` is kept for
     callers of the old API: an artifact it vouches for does not pin. A job
-    whose source repository has no network remote, and whose bundle would
-    carry more than `remote_less_history_bytes` of history, is kept
-    (`remote-less-history`; None: no limit).
+    whose baseline no network remote holds, and whose bundle would carry more
+    than `remote_less_history_bytes` of history, is kept (`remote-less-history`;
+    None: no limit).
     """
     budgets = {"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)}
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:

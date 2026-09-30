@@ -279,16 +279,16 @@ def network_remotes(common: Path, cancel: threading.Event | None = None) -> dict
     return remotes
 
 
-def baseline_held(common: Path, baseline: str | None, held: list[str], *,
+def baseline_held(common: Path, baseline: str | None, held: list[str], *, timeout: float = 600,
                   cancel: threading.Event | None = None) -> bool:
     """Whether a network remote's refs reach the commit a job started from.
     Then its bundle carries only what the job itself added; otherwise it
     carries the shared history too, paid again by every job of the
     repository (no network remote, a remote never fetched or fetched only
     for `gh-pages`, or refs from long ago: review of the revision-4 build)."""
-    if not baseline or not held or not classify(common, [baseline], cancel=cancel)["commit"]:
+    if not baseline or not held or not classify(common, [baseline], timeout=timeout, cancel=cancel)["commit"]:
         return False
-    return held_commit(common, baseline, held, cancel=cancel)
+    return held_commit(common, baseline, held, timeout=timeout, cancel=cancel)
 
 
 def held_arguments(remotes: dict[str, str]) -> list[str]:
@@ -311,12 +311,14 @@ def is_ancestor(git_dir: Path, ancestor: str, descendant: str, *, cancel: thread
                timeout=600, cancel=cancel).returncode == 0
 
 
-def held_commit(git_dir: Path, commit: str, held: list[str], *, cancel: threading.Event | None = None) -> bool:
+def held_commit(git_dir: Path, commit: str, held: list[str], *, timeout: float = 600,
+                cancel: threading.Event | None = None) -> bool:
     """Whether the held remote-tracking refs reach `commit` (then so do they
     every commit it reaches, and a bundle of it would be empty)."""
     if not held:
         return False
-    out = run(["rev-list", "-n", "1", commit, "--not", *held], git_dir=git_dir, timeout=600, cancel=cancel).stdout
+    out = run(["rev-list", "-n", "1", commit, "--not", *held], git_dir=git_dir, timeout=timeout,
+              cancel=cancel).stdout
     return not out.strip()
 
 

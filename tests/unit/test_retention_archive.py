@@ -1917,6 +1917,36 @@ def test_this_machine_by_any_of_its_names():
         assert not rfs.this_machine(host), host
 
 
+def test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now(world):
+    """Final check of the review: a bundle an earlier attempt made and kept is
+    held to the limit as it stands when it is used (lowered since, here)."""
+    w = world
+    _remote_less(w)
+    w.job("job-reuse")
+    measured = rgit.history_bytes(w.repo / ".git", [w.head()], [])
+    checks = []
+
+    def busy_at_second_check(watches, **_):
+        checks.append(1)
+        return {"job-reuse": ["pid 1 (python): open for writing"]} if len(checks) == 2 else {}
+
+    clock = Clock()
+    state = retention.RetentionState()
+    first = run(w, holders=busy_at_second_check, clock=clock, state=state, remote_less_history_bytes=10 ** 9)
+    assert first["pruned"] == [] and "busy" in first["deferred"]["job-reuse"], first["deferred"]
+    assert (w.root / "retention" / "job-reuse" / "archive" / "commits.bundle").exists()
+    clock.advance(rarch.DEFER_BUSY_S + 1)
+    second = run(w, clock=clock, state=state, remote_less_history_bytes=measured + 1)
+    assert second["pruned"] == [] and second["deferred"]["job-reuse"].startswith("remote-less-history: a "), second
+
+
+def test_this_machine_by_its_short_name(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "gethostname", lambda: "mbp.lan")
+    assert rfs.this_machine("mbp") and rfs.this_machine("git@mbp.lan") and rfs.this_machine("mbp.local")
+    assert not rfs.this_machine("other.lan")
+
+
 def test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does(world):
     """Review of the revision-4 build: for a job whose tree is gone, the survey
     runs the pass's checks too (here the history limit)."""
