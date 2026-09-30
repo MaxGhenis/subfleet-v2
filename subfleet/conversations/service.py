@@ -453,7 +453,9 @@ class ConversationService:
             if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
                 raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
         self._check_codex_policy(provider, settings)
-        workspace = os.path.realpath(os.path.expanduser(str(args.get("workspace") or "")))
+        # One spelling per folder, as the daemon's write target (`folders.canonical`,
+        # C-6.5): symlinks resolved and each name in the case the volume stores.
+        workspace = folders.canonical(str(args.get("workspace") or ""))
         if not os.path.isdir(workspace):
             raise ConversationError("bad-workspace", "workspace must be an existing directory")
         kind = args.get("workspace_kind") or "in-place"
@@ -1149,8 +1151,9 @@ class ConversationService:
 
     @staticmethod
     def _handoff_workspace(requested: Any, source_cwd: str | None) -> str:
-        """D-18: the source's workspace unless the request names another."""
-        workspace = os.path.realpath(os.path.expanduser(str(requested or source_cwd or "")))
+        """D-18: the source's workspace unless the request names another, spelled one way
+        (`folders.canonical`, as `conversation.create` spells it)."""
+        workspace = folders.canonical(str(requested or source_cwd or ""))
         if not os.path.isdir(workspace):
             raise ConversationError("bad-workspace", "the handoff's workspace must be an existing directory",
                                     fix="pass to.workspace")

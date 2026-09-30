@@ -14,16 +14,61 @@ release site frees a turn's row with the job's other leases.
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
 has no colon. Rows are found by a range on the primary key and that check.
+
+Keys compare folders as strings, so one folder must have one spelling:
+`canonical` gives it, symlinks resolved and each name in the case the file
+system stores it (review of 5e9f2fbd, P3-4). A git checkout's folder is its
+top level, which git already spells so; a folder outside git (a scratch folder
+a conversation works in) was kept as typed, and APFS is case-insensitive, so
+`~/Scratch` and `~/scratch` were two keys for one folder and two conversations
+there were never marked as sharing it.
 """
 
 from __future__ import annotations
 
+import os
+import unicodedata
 from typing import Any, Callable, Iterable
 
 EXCLUSIVE = "worktree:"
 TURN = "worktree-turn:"
 READER = "worktree-read:"
 SHARED = (TURN, READER)
+
+
+def canonical(path: str | os.PathLike[str]) -> str:
+    """`path`'s one spelling: `~` expanded, symlinks, `.` and `..` resolved, and each
+    name as its directory lists it, so every case (and Unicode normalization) a
+    case-insensitive volume accepts for a folder gives the same string. A name its
+    directory does not list as given is matched case-insensitively and confirmed to
+    be the same file; one that cannot be read or does not exist stays as given, with
+    everything after it."""
+    real = os.path.realpath(os.path.expanduser(os.fspath(path)))
+    names = [name for name in real.split(os.sep) if name]
+    out = os.sep
+    for index, name in enumerate(names):
+        given = os.path.join(out, name)
+        try:
+            listed = os.listdir(out)
+        except OSError:
+            return os.path.join(given, *names[index + 1:])
+        if name not in listed:
+            want = _fold(name)
+            given = next((os.path.join(out, entry) for entry in listed
+                          if _fold(entry) == want and _same(os.path.join(out, entry), given)), given)
+        out = given
+    return out
+
+
+def _fold(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def _same(a: str, b: str) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 def exclusive_key(folder: str) -> str:

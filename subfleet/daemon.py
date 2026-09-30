@@ -1264,12 +1264,15 @@ class Daemon:
                                                "to run it here without writing")
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
-                # named by -C, so `/repo` and `/repo/sub` are one place to write.
-                write_target = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
+                # spelled one way (`folders.canonical`, as a conversation's workspace
+                # is): a folder outside git kept the case it was typed in, so
+                # `~/Scratch` and `~/scratch` were two keys for one folder.
+                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
                 # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
                 # target is, so retention can tell it is in use (`folders.READER`).
-                read_folder = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                if turn is not None and write_target is None else None)
                 model = args.pinned_model
                 if model:
