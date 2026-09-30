@@ -11,6 +11,7 @@ decides: under one that still lists Fable, a Fable conversation stays on Fable.
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 
 import hypothesis
@@ -239,3 +240,43 @@ def test_runnable_turn_rewrites_only_a_retired_model_routed_to_its_successor(svc
     assert turn["settings"]["model"] == stored                   # the manifest's copy is never changed
     if runs == stored:
         assert result is turn
+
+
+def test_a_turn_adopted_after_a_restart_runs_on_opus_under_a_retiring_policy(svc, tmp_path, monkeypatch):  # noqa: F811
+    """`_adopt` rebuilds a running turn's spec from its manifest after a daemon restart.
+    A manifest written before the retirement names Fable; the runner must expect the
+    successor it was launched on (launch notes' `model_id`), or its model check (C-26.8)
+    would fail an Opus turn as a mismatch."""
+    from subfleet.conversations import service as service_module
+    job, turn = persisted_turn(svc, "claude-fable-5-1[1m]")
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(RETIRING))}
+    catalog(svc, {"claude-opus-5-5": ["opus"]})
+    adir = svc.root / "jobs" / job["job_id"] / "a1"
+    (adir / "start.json").write_text(json.dumps({"control_socket": str(tmp_path / "control.sock")}))
+    (adir / "launch.json").write_text(json.dumps({"notes": {"model_id": "claude-opus-5-5"}}))
+    specs = []
+
+    class RecordingRunner:
+        """Records the spec it is built with; starts nothing."""
+        def __init__(self, **kwargs):
+            specs.append(kwargs["spec"])
+            self.finished = threading.Event()
+            self.finished.set()
+
+        def start(self):
+            pass
+
+        def withhold(self, *args):
+            pass
+
+        def stop(self):
+            pass
+
+        def join(self, timeout):
+            return True
+
+    monkeypatch.setattr(service_module, "TurnRunner", RecordingRunner)
+    monkeypatch.setattr(svc, "_record_start", lambda *args: None)
+    attempt = {"attempt_id": f"{job['job_id']}/a1", "job_id": job["job_id"], "seq": 1, "lane_id": "claude-1"}
+    assert svc._adopt(attempt) is True
+    assert [(spec.model_id, spec.model_ref) for spec in specs] == [("opus", "claude-opus-5-5")]
