@@ -50,7 +50,8 @@ final class SubfleetAppDelegate: NSObject, NSApplicationDelegate, UNUserNotifica
 
     /// One that arrives while the app is frontmost shows as it would in the
     /// background (without this the system shows nothing), unless its
-    /// conversation is the one open by now.
+    /// conversation is on screen by now: the focused one, with the main window
+    /// visible (D-24).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let request = notification.request
@@ -72,7 +73,7 @@ final class SubfleetAppDelegate: NSObject, NSApplicationDelegate, UNUserNotifica
     }
 
     private func showsWhileFrontmost(_ target: NotificationTarget?) -> Bool {
-        target?.showsWhileFrontmost(focusedConversationID: model.state.focusedConversationID) ?? true
+        target?.showsWhileFrontmost(onScreenConversationID: model.onScreenConversationID()) ?? true
     }
 }
 

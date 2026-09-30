@@ -1,5 +1,15 @@
 """The store's state, fed with the daemon's own results (design §12, D-19, D-24;
-C-26.8, C-29.6, C-29.9, C-29.11)."""
+C-26.8, C-29.6, C-29.9, C-29.11).
+
+Notifications (D-24, C-29.9, ledger P-13): a turn that completes, fails, needs
+approval or becomes delivery-unknown posts one once the feed has its baseline,
+unless its conversation is on screen: focused, with the app active and its main
+window visible. Until 2026-09-30 the rule was "not focused", and the focus
+stays set while the app is in the background or its window is closed, so the
+commonest case (send a message, switch to another app, wait) never notified.
+The on-screen flag is UIModel's reading of AppKit; the probe sets it with an
+`on_screen` step.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +20,7 @@ import tempfile
 import time
 import uuid
 
+from hypothesis import HealthCheck, event, given, settings, strategies as st
 import pytest
 
 from subfleet.conversations.claude_turn import observed_catalog
@@ -78,7 +89,7 @@ def watch(harness, after: int) -> dict:
     return harness.call("conversation.watch", after=after)
 
 
-def test_d24_the_watch_feed_notifies_for_unfocused_conversations(core_probe, tmp_path, harness):
+def test_d24_the_watch_feed_notifies_for_conversations_not_on_screen(core_probe, tmp_path, harness):
     focused = harness.create(title="Focused")["conversation_id"]
     other = harness.create(title="Elsewhere")["conversation_id"]
     listed = harness.call("conversation.list")
@@ -99,7 +110,7 @@ def test_d24_the_watch_feed_notifies_for_unfocused_conversations(core_probe, tmp
     ask.respond("perm-1", "deny", "no")
     ask.feed(claude_assistant("m3", [{"type": "text", "text": "Not run."}]), claude_result())
     finished = watch(harness, asked["next"])
-    steps = [{"list": listed}, {"focus": focused}, {"watch": baseline}, {"watch": quiet}]
+    steps = [{"list": listed}, {"focus": focused}, {"on_screen": True}, {"watch": baseline}, {"watch": quiet}]
     during = store(core_probe, tmp_path, steps + [{"watch": asked}])
     after = store(core_probe, tmp_path, steps + [{"watch": asked}, {"watch": finished}])
     silent = store(core_probe, tmp_path, [{"list": listed}, {"focus": focused}, {"watch": asked}])
@@ -111,9 +122,241 @@ def test_d24_the_watch_feed_notifies_for_unfocused_conversations(core_probe, tmp
     assert conversations[other]["pending"] == 1 and conversations[other]["active"] is True
     assert conversations[focused]["last_state"] == "complete" and conversations[focused]["active"] is False
     kinds = [(n["kind"], n["conversation"]) for n in after["notifications"]]
-    assert kinds == [("approval", other), ("completed", other)]        # the focused one never notifies
+    assert kinds == [("approval", other), ("completed", other)]        # the one on screen never notifies
     assert after["badge"] == 0
-    assert silent["notifications"] == []                                # nothing before the baseline
+    # Nothing before the baseline, although nothing is on screen (the flag's default).
+    assert silent["notifications"] == []
+    # Off screen, the focused conversation's own completion notifies too.
+    away = store(core_probe, tmp_path, [*steps[:2], {"on_screen": False}, *steps[3:], {"watch": asked},
+                                        {"watch": finished}])
+    assert [(n["kind"], n["conversation"]) for n in away["notifications"]] == [
+        ("completed", focused), ("approval", other), ("completed", other)]
+
+
+def test_p13_the_focused_conversation_notifies_while_it_is_not_on_screen(core_probe, tmp_path, harness):
+    """P-13: the person sends a message in X, switches to another app and waits.
+    X stays focused but is not on screen, so its completion, its next turn's
+    approval and that turn's completion each notify; with X on screen none do.
+    What is on screen as each feed page lands decides."""
+    x = harness.create(title="Mine")["conversation_id"]
+    listed = harness.call("conversation.list")
+    baseline = watch(harness, 0)
+    quiet = watch(harness, baseline["next"])
+    first = harness.submit(x, "build it")["message_id"]
+    turn = harness.attempt(x, first)
+    turn.feed(claude_init(), {"type": "user", "uuid": first, "isReplay": True, "message": {"role": "user", "content": "x"}},
+              claude_assistant("m1", [{"type": "text", "text": "built"}]), claude_result())
+    done = watch(harness, quiet["next"])
+    second = harness.submit(x, "now run it", after=first)["message_id"]
+    ask = harness.attempt(x, second)
+    ask.feed(claude_init(), {"type": "user", "uuid": second, "isReplay": True, "message": {"role": "user", "content": "x"}},
+             claude_assistant("m2", [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}]),
+             {"type": "control_request", "request_id": "perm-1", "request": {
+                 "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "toolu_1", "input": {"command": "ls"}}})
+    asked = watch(harness, done["next"])
+    ask.respond("perm-1", "deny", "no")
+    ask.feed(claude_assistant("m3", [{"type": "text", "text": "Not run."}]), claude_result())
+    finished = watch(harness, asked["next"])
+    head = [{"list": listed}, {"focus": x}, {"watch": baseline}, {"watch": quiet}]
+
+    def run(on_screen: list, tail: list | None = None) -> dict:
+        """Each page after the baseline, with what is on screen as it lands (None: nothing said)."""
+        steps = list(head)
+        for page, flag in zip([done, asked, finished], on_screen):
+            steps += ([] if flag is None else [{"on_screen": flag}]) + [{"watch": page}]
+        return store(core_probe, tmp_path, steps + (tail or []))
+
+    every = [("completed", x, f"complete:{first}", "Turn completed", "Mine"),
+             ("approval", x, next(n["id"] for n in run([False] * 3)["notifications"] if n["kind"] == "approval"),
+              "Approval needed", "Mine"),
+             ("completed", x, f"complete:{second}", "Turn completed", "Mine")]
+
+    def posted(out: dict) -> list:
+        return [(n["kind"], n["conversation"], n["id"], n["title"], n["body"]) for n in out["notifications"]]
+
+    away = run([False] * 3)
+    assert posted(away) == every
+    assert every[1][2].startswith("approval:")
+    assert posted(run([None] * 3)) == every             # never said: not known to be on screen, so it notifies
+    assert posted(run([True] * 3)) == []                # watched throughout: nothing
+    # Back for the approval only: its card is on screen (C-27.5), and the count
+    # it raised is not raised again when the turn ends.
+    assert posted(run([False, True, False])) == [every[0], every[2]]
+    assert posted(run([True, False, True])) == [every[1]]
+    # Frontmost with the window closed or miniaturized, each shows (C-29.9)...
+    assert [n["clicked"]["shows_while_frontmost"] for n in away["notifications"]] == [True] * 3
+    assert away["focused"] == x and away["on_screen"] is None
+    # ...and once X is on screen again, one arriving late shows nothing.
+    back = run([False] * 3, [{"on_screen": True}])
+    assert [n["clicked"]["shows_while_frontmost"] for n in back["notifications"]] == [False] * 3
+    assert back["on_screen"] == x
+
+
+def test_p13_a_failure_and_an_unknown_delivery_notify_for_the_focused_conversation_off_screen(
+        core_probe, tmp_path, harness):
+    x = harness.create(title="Mine")["conversation_id"]
+    listed = harness.call("conversation.list")
+    baseline = watch(harness, 0)
+    quiet = watch(harness, baseline["next"])
+    failing = harness.submit(x, "one")["message_id"]
+    assert harness.store.set_state(failing, "failed", reason="provider-error")
+    unknown = harness.submit(x, "two", after=failing)["message_id"]
+    assert harness.store.set_state(unknown, "delivery-unknown", reason="no-evidence")
+    page = watch(harness, quiet["next"])
+    head = [{"list": listed}, {"focus": x}, {"watch": baseline}, {"watch": quiet}]
+    away = store(core_probe, tmp_path, head + [{"on_screen": False}, {"watch": page}])
+    assert [(n["kind"], n["id"], n["title"]) for n in away["notifications"]] == [
+        ("failed", f"failed:{failing}", "Turn failed"),
+        ("delivery-unknown", f"delivery-unknown:{unknown}", "Delivery unknown")]
+    assert store(core_probe, tmp_path, head + [{"on_screen": True}, {"watch": page}])["notifications"] == []
+    # On screen, but another conversation focused: X is not on screen.
+    other = harness.create(title="Other")["conversation_id"]
+    elsewhere = store(core_probe, tmp_path, head + [{"focus": other}, {"on_screen": True}, {"watch": page}])
+    assert [n["conversation"] for n in elsewhere["notifications"]] == [x, x]
+
+
+# The posting rule over generated feeds. Rows are made up (the daemon's feed
+# carries no more than these fields), so any interleaving of pages, focus and
+# the window coming and going can be tried.
+
+FEED_CIDS = ("cv-1", "cv-2", "cv-3")
+FEED_MIDS = tuple(f"m-{n}" for n in range(1, 9))
+# Each state as often as its weight: the three that notify more often than the rest.
+FEED_STATES = tuple(state for state, weight in [
+    (None, 2), ("queued", 1), ("waiting", 1), ("running", 1), ("approval-needed", 1), ("complete", 3), ("failed", 2),
+    ("interrupted", 1), ("cancelled", 1), ("delivery-unknown", 2), ("unknown", 1)] for _ in range(weight))
+# A state that notifies: its kind, the prefix of its identifier, its title.
+NOTIFYING = {"complete": ("completed", "complete", "Turn completed"), "failed": ("failed", "failed", "Turn failed"),
+             "delivery-unknown": ("delivery-unknown", "delivery-unknown", "Delivery unknown")}
+
+
+@st.composite
+def feeds(draw) -> list[dict]:
+    """Steps as the app meets them: pages whose rows mostly move the cursor on
+    (some repeat an old sequence number or fall behind it), empty pages (the
+    first is the baseline), a superseded page now and then, and changes of focus
+    and of what is on screen."""
+    steps: list[dict] = []
+    top = 0
+    # A conversation's count mostly stays as it was, so a row also announces its
+    # message's state (a rise in the count announces an approval instead).
+    counts: dict[str, int] = {}
+
+    def row(seq: int) -> dict:
+        cid = draw(st.sampled_from(FEED_CIDS))
+        was = counts.get(cid, 0)
+        counts[cid] = draw(st.sampled_from([was] * 6 + [was + 1] * 2 + [max(0, was - 1)] * 2))
+        return {"seq": seq, "conversation_id": cid,
+                "message_id": draw(st.sampled_from([None, *FEED_MIDS])), "state": draw(st.sampled_from(FEED_STATES)),
+                "pending_approvals": counts[cid], "ts": None, "state_reason": None}
+
+    def rows(n: int) -> list[dict]:
+        offsets = draw(st.permutations(range(-3, 6)))[:n]
+        return [row(top + o) for o in offsets if top + o > 0]
+
+    # Mostly a conversation open from the start, on screen or not.
+    steps.append({"focus": draw(st.sampled_from([*FEED_CIDS, None]))})
+    steps.append({"on_screen": draw(st.booleans())})
+    for _ in range(draw(st.integers(0, 16))):
+        kind = draw(st.sampled_from(["page"] * 6 + ["empty"] * 3 + ["superseded"] + ["focus"] * 2 + ["screen"] * 3))
+        if kind == "page":
+            changes = rows(draw(st.integers(1, 4)))
+            top = max([top, *(c["seq"] for c in changes)]) + draw(st.sampled_from([0, 0, 0, 1]))
+            steps.append({"watch": {"changes": changes, "next": top}})
+        elif kind == "empty":
+            steps.append({"watch": {"changes": [], "next": top}})
+        elif kind == "superseded":
+            # Answered after a newer poll took its place: it changes nothing, and
+            # an empty one is no baseline.
+            steps.append({"watch": {"changes": rows(draw(st.integers(0, 2))), "next": top + 3, "superseded": True}})
+        elif kind == "focus":
+            steps.append({"focus": draw(st.sampled_from([*FEED_CIDS, None]))})
+        else:
+            steps.append({"on_screen": draw(st.booleans())})
+    return steps
+
+
+def expected_notifications(steps: list[dict]) -> dict:
+    """The rule, written apart from the Swift: every row past the cursor that
+    announces something (the conversation's pending approvals rose, or its
+    message completed, failed or became delivery-unknown) is posted, once per
+    identifier, if and only if the feed had its baseline and the row's
+    conversation was not on screen as the row was read. Returns what is posted,
+    the conversation on screen at the end, and for the statistics how many were
+    posted for the focused conversation and how many held back because it was on
+    screen."""
+    cursor, baselined, focused, on_screen = 0, False, None, False
+    pending: dict[str, int] = {}
+    posted: list[tuple] = []
+    focused_posted = held_back = 0
+    for step in steps:
+        focused = step["focus"] if "focus" in step else focused
+        on_screen = step["on_screen"] if "on_screen" in step else on_screen
+        page = step.get("watch")
+        if page is None or page.get("superseded"):
+            continue
+        for row in sorted(page["changes"], key=lambda r: r["seq"]):
+            if row["seq"] <= cursor:
+                continue
+            cid = row["conversation_id"]
+            before, pending[cid] = pending.get(cid, 0), row["pending_approvals"]
+            cursor = row["seq"]
+            if row["pending_approvals"] > before:
+                announced = ("approval", f"approval:{row['seq']}", "Approval needed")
+            elif row["message_id"] is not None and row["state"] in NOTIFYING:
+                kind, prefix, title = NOTIFYING[row["state"]]
+                announced = (kind, f"{prefix}:{row['message_id']}", title)
+            else:
+                continue
+            if not baselined or announced[1] in {p[1] for p in posted}:
+                continue
+            if cid == (focused if on_screen else None):
+                held_back += 1
+                continue
+            posted.append((announced[0], announced[1], cid, announced[2]))
+            focused_posted += cid == focused
+        cursor = max(cursor, page["next"])
+        baselined = baselined or not page["changes"]
+    return {"posted": posted, "on_screen": focused if on_screen else None, "focused_posted": focused_posted,
+            "held_back": held_back}
+
+
+def posted_by(out: dict) -> list[tuple]:
+    return [(n["kind"], n["id"], n["conversation"], n["title"]) for n in out["notifications"]]
+
+
+PROPERTY = settings(max_examples=150, deadline=None, derandomize=True,
+                    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
+
+
+@PROPERTY
+@given(steps=feeds())
+def test_property_a_notification_is_posted_iff_its_conversation_is_not_on_screen_after_the_baseline(
+        core_probe, tmp_path, steps):
+    out = store(core_probe, tmp_path, steps)
+    want = expected_notifications(steps)
+    assert posted_by(out) == want["posted"]
+    assert out["on_screen"] == want["on_screen"]
+    # A notification arriving while the app is frontmost shows unless its
+    # conversation is the one on screen now (C-29.9).
+    assert [n["clicked"]["shows_while_frontmost"] for n in out["notifications"]] == [
+        cid != want["on_screen"] for _, _, cid, _ in want["posted"]]
+    for kind in sorted({p[0] for p in want["posted"]}):
+        event(f"posted {kind}")
+    event(f"posted for the focused conversation off screen: {want['focused_posted'] > 0}")
+    event(f"held back because on screen: {want['held_back'] > 0}")
+    event(f"baselined: {out['watch_baselined']}")
+
+
+@PROPERTY
+@given(steps=feeds())
+def test_property_off_screen_the_focus_changes_nothing(core_probe, tmp_path, steps):
+    """With the window never on screen, where the focus is (or whether there is
+    one) cannot change what is posted: every conversation notifies alike."""
+    away = [s for s in steps if "on_screen" not in s]
+    unfocused = [s for s in away if "focus" not in s]
+    assert posted_by(store(core_probe, tmp_path, away)) == posted_by(store(core_probe, tmp_path, unfocused))
+    event(f"focus changes: {min(len(away) - len(unfocused), 3)}")
 
 
 def test_d24_a_list_refresh_keeps_a_conversation_with_a_running_turn_active(core_probe, tmp_path, harness):

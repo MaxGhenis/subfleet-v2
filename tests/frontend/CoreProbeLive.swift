@@ -4,7 +4,7 @@
 // app's own engine, outbox and store state, the way the UI will: create a
 // conversation with a queued follow-up, follow its events, stop a turn, answer
 // a tool approval and a question as the development app, retry and withdraw
-// through the outbox, send an image, notify for an unfocused conversation, and
+// through the outbox, send an image, notify for a conversation not on screen, and
 // continue a native session from the catalog. Every exchange is written to
 // the exchanges file for the test to check against the daemon's own JSON.
 import Foundation
@@ -125,6 +125,8 @@ func runLive(_ arguments: [String]) throws -> Any {
               && outbox.entry(first.key)?.lastAfterMessageID == nil)
 
     state.focus(cid)
+    // The person is looking at it: the app is active and its window visible (D-24).
+    state.focusedOnScreen = true
     let open = try engine.open(.conversation(cid))
     state.apply(open: open)
     for key in [first.key, slow.key] {
@@ -315,7 +317,7 @@ func runLive(_ arguments: [String]) throws -> Any {
     } ?? []
     run.check("the person's messages read in order", Array(people.prefix(2)) == ["hello there", "count [fake:slow]"], people)
 
-    // 12. Notifications for a conversation that is not focused.
+    // 12. Notifications for a conversation that is not on screen.
     try engine.drainWatch(&state)
     _ = state.drainNotifications()
     let otherRequest = "app-" + UUID().uuidString.lowercased()
@@ -345,7 +347,7 @@ func runLive(_ arguments: [String]) throws -> Any {
     }
     run.check("its completion notifies", intents.contains { $0.kind == .completed && $0.messageID == otherFirst.key },
               intents.map { $0.id })
-    run.check("the focused conversation never notified", !intents.contains { $0.conversationID == cid })
+    run.check("the conversation on screen never notified", !intents.contains { $0.conversationID == cid })
     run.check("the badge clears", (state.pendingApprovals[otherID] ?? 0) == 0)
 
     // 13. The catalog: a native Claude session appears under its prompt and continues here.

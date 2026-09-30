@@ -243,15 +243,16 @@ func clicked(_ intent: NotificationIntent) -> NotificationTarget? {
     NotificationTarget(requestID: intent.id, userInfo: delivered(intent.userInfo))
 }
 
-func project(_ target: NotificationTarget?, focused: String?) -> Any {
+func project(_ target: NotificationTarget?, onScreen: String?) -> Any {
     guard let target else { return NSNull() }
     return ["conversation": target.conversationID, "kind": target.kind?.rawValue as Any? ?? NSNull(),
             "reveals": target.revealsApproval,
-            "shows_while_frontmost": target.showsWhileFrontmost(focusedConversationID: focused)]
+            "shows_while_frontmost": target.showsWhileFrontmost(onScreenConversationID: onScreen)]
 }
 
-/// `notification-targets <input.json>`: `{"cases": [{"request_id", "user_info", "focused"}]}`, each
-/// read back as a clicked notification is, and one intent of every kind made,
+/// `notification-targets <input.json>`: `{"cases": [{"request_id", "user_info", "on_screen"}]}`, each
+/// read back as a clicked notification is (`on_screen`: the conversation on screen, or null), and one
+/// intent of every kind made,
 /// round-tripped and read back; `before_kind` is its notification as a build that
 /// put only `conversation_id` in the userInfo posted it.
 func runNotificationTargets(_ data: Data) throws -> [String: Any] {
@@ -261,16 +262,16 @@ func runNotificationTargets(_ data: Data) throws -> [String: Any] {
     let cases = (input["cases"] as? [[String: Any]] ?? []).map { item -> Any in
         project(NotificationTarget(requestID: item["request_id"] as? String ?? "",
                                    userInfo: item["user_info"] as? [AnyHashable: Any] ?? [:]),
-                focused: item["focused"] as? String)
+                onScreen: item["on_screen"] as? String)
     }
     let intents = NotificationIntent.Kind.allCases.map { kind -> Any in
         let intent = NotificationIntent(kind: kind, subject: "42", conversationID: "cv-\(kind.rawValue)", messageID: "m-42",
                                         title: "Title", body: "Body")
         return ["kind": kind.rawValue, "id": intent.id, "user_info": intent.userInfo,
-                "clicked": project(clicked(intent), focused: nil),
+                "clicked": project(clicked(intent), onScreen: nil),
                 "before_kind": project(NotificationTarget(requestID: intent.id,
                                                           userInfo: delivered(["conversation_id": intent.conversationID])),
-                                       focused: nil)]
+                                       onScreen: nil)]
     }
     return ["cases": cases, "intents": intents]
 }
@@ -312,7 +313,9 @@ func runClicks(_ data: Data) throws -> [String: Any] {
     return ["opened": opened, "held": clicks.held?.conversationID as Any? ?? NSNull()]
 }
 
-/// `store <input.json>`: fold a sequence of daemon answers into the store state.
+/// `store <input.json>`: fold a sequence of daemon answers into the store state. Besides the
+/// daemon's answers, a step can focus a conversation (`{"focus": id | null}`) or say whether the
+/// focused one is on screen (`{"on_screen": bool}`, as UIModel reads it from AppKit; false until one says).
 func runStore(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
     var state = ConversationStoreState()
@@ -342,6 +345,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
             log.append("status")
         }
         if step["focus"] != nil { state.focus(step["focus"]?.string); log.append("focus") }
+        if let onScreen = step["on_screen"]?.bool { state.focusedOnScreen = onScreen; log.append("on_screen") }
         if let query = step["search"]?.string { state.searchQuery = query }
         if step["provider_filter"] != nil { state.providerFilter = step["provider_filter"]?.string }
         if let grouping = step["grouping"]?.string { state.grouping = SidebarGrouping(rawValue: grouping) ?? .recency }
@@ -355,10 +359,11 @@ func runStore(_ data: Data) throws -> [String: Any] {
         "badge": state.pendingApprovalCount,
         "notifications": state.notifications.map { ["id": $0.id, "kind": $0.kind.rawValue, "conversation": $0.conversationID,
                                                      "title": $0.title, "body": $0.body,
-                                                     // Read back as its click would be, with the focus as it is now (C-29.9).
-                                                     "clicked": project(clicked($0), focused: state.focusedConversationID)] },
+                                                     // Read back as its click would be, with what is on screen now (C-29.9).
+                                                     "clicked": project(clicked($0), onScreen: state.onScreenConversationID)] },
         "watch_cursor": state.watchCursor, "watch_baselined": state.watchBaselined,
         "focused": state.focusedConversationID as Any? ?? NSNull(),
+        "on_screen": state.onScreenConversationID as Any? ?? NSNull(),
         "conversations": state.conversations.map { ["id": $0.conversation_id, "active": $0.active,
                                                      "pending": $0.pending_approvals,
                                                      "last_state": $0.last_message?.state as Any? ?? NSNull()] as [String: Any] },

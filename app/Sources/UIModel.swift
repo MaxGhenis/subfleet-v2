@@ -71,6 +71,7 @@ final class UIModel: ObservableObject {
         guard !started, engine != nil else { return }
         started = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        observeOnScreen()
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pump() }
@@ -100,6 +101,8 @@ final class UIModel: ObservableObject {
         _ = try? await onOutbox { try engine.drainWatch(&baseline) }
         state = baseline
         state.watchBaselined = true
+        // The copy was taken before the drain; read what is on screen now.
+        noteOnScreen()
         startWatchLoop()
         // A notification clicked before now (the click that launched the app).
         let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
@@ -137,6 +140,8 @@ final class UIModel: ObservableObject {
 
     private func fold(watch page: WatchPage) {
         let known = Set(state.conversations.map(\.conversation_id))
+        // Whether the focused conversation notifies depends on what is on screen as the page lands.
+        noteOnScreen()
         state.apply(watch: page)
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
@@ -347,6 +352,53 @@ final class UIModel: ObservableObject {
         navigation += 1
         let token = navigation
         Task { await open(.conversation(opening.conversationID), token: token) }
+    }
+
+    // MARK: On screen (D-24)
+
+    /// The main window, as its content reports it (`MainWindowReader`); nil
+    /// once that content has left it.
+    weak var mainWindow: NSWindow? {
+        didSet { noteOnScreen() }
+    }
+    private var onScreenObservers: [NSObjectProtocol] = []
+
+    /// Reads from AppKit whether the focused conversation is on screen: the
+    /// app is active and the main window is visible, neither closed nor
+    /// miniaturized nor wholly covered (`occlusionState`). The focus alone
+    /// stays set while the person works in another app or has closed the
+    /// window, where its conversation's turns must notify like any other's.
+    private func noteOnScreen() {
+        let visible = mainWindow.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
+        let onScreen = NSApp?.isActive == true && visible
+        if state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
+    }
+
+    /// The conversation on screen now, read again from AppKit: the
+    /// notification center's delegate asks as a notification arrives while
+    /// the app is frontmost.
+    func onScreenConversationID() -> String? {
+        noteOnScreen()
+        return state.onScreenConversationID
+    }
+
+    /// Keeps `focusedOnScreen` current as the app is activated or left and as
+    /// a window is miniaturized, restored, closed, covered or uncovered. The
+    /// two decisions that use it (`fold(watch:)` and the delegate's
+    /// `willPresent`) read AppKit again as well, so a change these do not
+    /// report cannot make them wrong.
+    private func observeOnScreen() {
+        let names: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+            NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
+        ]
+        onScreenObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Read after the change lands: a closing window is still visible while it is told.
+                Task { @MainActor in self?.noteOnScreen() }
+            }
+        }
     }
 
     // MARK: Changes
