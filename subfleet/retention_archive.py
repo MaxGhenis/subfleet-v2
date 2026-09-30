@@ -111,6 +111,8 @@ class Context:
     remote_less_history_bytes: int | None = None
     #: (repository, heads) -> history bytes, measured once per pass.
     history: dict[tuple[str, tuple[str, ...]], int] = field(default_factory=dict)
+    #: (repository, baseline, held refs) -> whether a network remote holds the baseline, once a pass.
+    baselines: dict[tuple[str, str | None, tuple[str, ...]], bool] = field(default_factory=dict)
     #: repository -> the history bytes that put one of its jobs over the limit
     #: this pass: the others are kept on it, not measured again each (their
     #: histories are the same one, give or take their own commits).
@@ -353,7 +355,7 @@ class Retirement:
             return
         try:
             held = rgit.held_arguments(rgit.network_remotes(common, cancel=self.ctx.cancel))
-            if rgit.baseline_held(common, baseline, held, cancel=self.ctx.cancel):
+            if self.baseline_held(common, baseline, held):
                 return
             if reg is not None:
                 heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
@@ -373,6 +375,14 @@ class Retirement:
             raise Defer("remote-less-history", DEFER_PERMANENT_S,
                         f"{size} bytes of history no network remote holds, over {limit} "
                         "(retention.remote_less_history_bytes)")
+
+    def baseline_held(self, common: Path, baseline: str | None, held: list[str]) -> bool:
+        """`rgit.baseline_held`, once a pass for each repository, baseline and held refs."""
+        key = (str(common), baseline, tuple(held))
+        if key not in self.ctx.baselines:
+            self.ctx.baselines[key] = rgit.baseline_held(common, baseline, held, timeout=self.ctx.git_timeout_s,
+                                                         cancel=self.ctx.cancel)
+        return self.ctx.baselines[key]
 
     def _not_without_host(self, where: Path | None, worktree: Path) -> None:
         found = host_absent(self.root, where, worktree, lambda host: _host_live(self.ctx.store, self.root, host))
@@ -1360,8 +1370,12 @@ class _Builder:
             return info
         bundle = self.dir / "commits.bundle"
         cached = self.progress.get("bundle", {})
-        if not (cached.get("expected") == expected and cached.get("held") == held and bundle.exists()
-                and cached.get("state") == state and cached.get("size") == bundle.stat().st_size):
+        if cached.get("expected") == expected and cached.get("held") == held and bundle.exists() \
+                and cached.get("state") == state and cached.get("size") == bundle.stat().st_size:
+            # A bundle an earlier slice or attempt made is checked against the
+            # limit as it stands now (it may have been lowered since).
+            self._over_the_limit(bundle, common, held)
+        else:
             temporary = self.dir / "commits.bundle.tmp"
             temporary.unlink(missing_ok=True)
             fd = os.open(self.dir, rfs.O_DIR)
@@ -1372,17 +1386,7 @@ class _Builder:
                 os.close(fd)
             rgit.create_bundle(common, temporary, [ref], held, timeout=self.ctx.git_timeout_s * 6,
                                cancel=self.ctx.cancel)
-            limit = self.ctx.remote_less_history_bytes
-            size = temporary.stat().st_size
-            if limit is not None and size > limit and not rgit.baseline_held(common, j.get("baseline"), held,
-                                                                              cancel=self.ctx.cancel):
-                # git's measure before the bundle said less; the bundle decides,
-                # and the next attempt's check remembers it (N1).
-                temporary.unlink()
-                self.r.save(history_bytes=size)
-                raise Defer("remote-less-history", DEFER_PERMANENT_S,
-                            f"a {size}-byte bundle no network remote holds, over {limit} "
-                            "(retention.remote_less_history_bytes)")
+            self._over_the_limit(temporary, common, held)
             rgit.verify_bundle(common, temporary, expected, fmt, self.r.work / "verify.git",
                                timeout=self.ctx.git_timeout_s * 6, cancel=self.ctx.cancel)
             os.replace(temporary, bundle)
@@ -1391,6 +1395,22 @@ class _Builder:
                         "size": bundle.stat().st_size})
         info.update(bundle="commits.bundle", bundle_heads=expected, bundle_bytes=bundle.stat().st_size)
         return info
+
+    def _over_the_limit(self, bundle: Path, common: Path, held: list[str]) -> None:
+        """The bundle decides (N1): one over `remote_less_history_bytes` for a
+        job whose baseline no network remote holds is dropped, the job put
+        back, and its size kept for the next attempt's check, although git's
+        measure before the bundle said less (the bundle also carries the anchor
+        and a pack's own overhead) or the limit was lowered since it was made."""
+        limit = self.ctx.remote_less_history_bytes
+        size = bundle.stat().st_size
+        if limit is None or size <= limit or self.r.baseline_held(common, self.j.get("baseline"), held):
+            return
+        bundle.unlink()
+        self.r.save(history_bytes=size)
+        raise Defer("remote-less-history", DEFER_PERMANENT_S,
+                    f"a {size}-byte bundle no network remote holds, over {limit} "
+                    "(retention.remote_less_history_bytes)")
 
     def _verify_store(self, trees: dict[str, dict[str, Any]]) -> None:
         """Read every stored file back and check its size and sha256. Every copy
