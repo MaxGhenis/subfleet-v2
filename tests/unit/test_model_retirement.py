@@ -10,6 +10,7 @@ daemon a live successor.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 
 import pytest
@@ -18,9 +19,11 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 from subfleet import cli
 from subfleet.capacity import build_view
 from subfleet.gate import service as gate_service
-from subfleet.policy import DEFAULT_POLICY_PATH, RETIRED_MODELS, load_policy, resolve_model
+from subfleet.policy import (DEFAULT_POLICY_PATH, RETIRED_MODEL_IDS, RETIRED_MODELS, load_policy, resolve_model,
+                             retired_successor)
 from subfleet.scheduler import evaluate
 from subfleet.sessions import cli as sessions_cli
+from tests.fable_reserve import load_fable_reserve_policy
 
 NOW = "2026-09-27T12:00:00Z"
 LATER = "2026-09-28T12:00:00Z"
@@ -62,6 +65,9 @@ def test_code_and_policy_retirements_agree():
     and every successor is a current, unretired model (no retirement chains)."""
     for alias, successor in RETIRED_MODELS.items():
         assert SHIPPED["retired"][alias] == successor
+    # The code's short names and exact ids are the shipped `retired` map, exactly.
+    assert {**RETIRED_MODELS, **RETIRED_MODEL_IDS} == SHIPPED["retired"]
+    assert not RETIRED_MODELS.keys() & RETIRED_MODEL_IDS.keys()
     for successor in {*RETIRED_MODELS.values(), *SHIPPED["retired"].values()}:
         assert successor in CURRENT and successor not in RETIRED
 
@@ -163,3 +169,111 @@ def test_the_shipped_json_is_what_load_policy_validated():
     text = DEFAULT_POLICY_PATH.read_text()
     data = json.loads(text)
     assert "fable" not in json.dumps({key: value for key, value in data.items() if key != "retired"})
+
+
+@settings(max_examples=200, **QUIET)
+@given(name=st.one_of(st.none(), st.sampled_from(SPELLINGS), st.text(max_size=20)))
+def test_retired_successor_names_a_live_model_exactly_for_retired_spellings(name):
+    """`retired_successor` (the free-text remap `pick --model` uses) returns a current,
+    unretired model for every retired short name or exact id, and None otherwise."""
+    successor = retired_successor(name)
+    if name in SHIPPED["retired"]:
+        assert successor == SHIPPED["retired"][name] and successor in CURRENT and successor not in RETIRED
+    else:
+        assert successor is None
+
+
+@pytest.mark.parametrize("pin", ["fable", "claude-fable-5", "claude-fable-5-1", "opus"])
+def test_an_authorized_probe_pinned_to_a_retired_model_runs_on_its_successor(pin, capsys):
+    """C-11.7's explicit authorization (`unmeasured_reserve_reason`) pins a lane and a model.
+    A job queued with a Fable pin before the retirement is evaluated on Opus, the pin's
+    resolution; `probe_required` used to compare the raw pin with the chosen model and
+    raise `RouteError` (found on the release line by its route-check property under the
+    shipped policy, PR #66)."""
+    from subfleet.scheduler import RouteError, probe_required
+    lanes = [_lane("claude-1")]
+    job = {"sandbox": "read-only", "task": None, "tier": None, "pinned_model": pin, "pinned_lane": "claude-1",
+           "unmeasured_reserve_reason": "fixture authorization"}
+    decision = evaluate(SHIPPED, build_view(lanes, [], [], (), (), now=NOW), job)
+    capsys.readouterr()
+    assert decision.chain == ("opus",) and decision.chosen_model == "opus"
+    assert probe_required(decision, job) is True          # the promised same-model probe, on Opus
+    # The authorization still binds the lane: a decision for another lane is refused.
+    moved = dataclasses.replace(decision, chosen_lane="claude-2")
+    with pytest.raises(RouteError, match="authorized lane and model"):
+        probe_required(moved, job)
+
+
+#: The live `~/.subfleet/policy.json` of 2026-09-30, while d574 is open: Fable still a
+#: model, and a `retired` map that sends only its older id there, not to Opus.
+LIVE_SHAPE = load_fable_reserve_policy()
+
+
+@settings(max_examples=150, **QUIET)
+@given(pin=st.sampled_from(SPELLINGS), live=st.booleans())
+def test_an_authorized_probe_runs_exactly_on_its_pins_resolution(pin, live, capsys):
+    """C-11.7a for every pin spelling, under the shipped policy and the live one's shape:
+    an authorized job is evaluated on one model, its pin as the running policy resolves
+    it, and `probe_required` authorizes exactly that model on exactly the pinned lane."""
+    from subfleet.scheduler import RouteError, probe_required
+    policy = LIVE_SHAPE if live else SHIPPED
+    short = resolve_model(policy, pin, note=False)
+    lane = f"{policy['models'][short]['provider']}-1"
+    job = {"sandbox": "read-only", "task": None, "tier": None, "pinned_model": pin, "pinned_lane": lane,
+           "unmeasured_reserve_reason": "fixture authorization"}
+    decision = evaluate(policy, build_view([_lane(lane)], [], [], (), (), now=NOW), job)
+    capsys.readouterr()
+    assert decision.chain == (short,)
+    if decision.chosen_lane is None:
+        return
+    assert decision.chosen_model == short
+    assert probe_required(decision, job) is True
+    with pytest.raises(RouteError, match="authorized lane and model"):
+        probe_required(dataclasses.replace(decision, chosen_lane=f"{lane}-other"), job)
+
+
+@pytest.mark.parametrize("unpinned", [None, ""])
+def test_an_authorization_without_a_model_pin_is_refused_on_a_one_model_chain(unpinned, capsys):
+    """The successor rule rests on the pin. A lane pin with a task and no model pin also
+    evaluates one model (`chain[:1]`), so a one-model chain alone proves nothing; the rule
+    is sound because `probe_required` refuses an authorization without an explicit
+    `pinned_model` before it looks at the chain. Submit refuses such a job first; this
+    keeps the scheduler's own check (C-11.7a) from being loosened under the rule."""
+    from subfleet.scheduler import RouteError, probe_required
+    routed = {"sandbox": "read-only", "task": "review", "tier": "standard", "pinned_model": unpinned,
+              "pinned_lane": "claude-1"}
+    decision = evaluate(SHIPPED, build_view([_lane("claude-1")], [], [], (), (), now=NOW), routed)
+    capsys.readouterr()
+    assert decision.chain == ("opus",) and decision.chosen_model == "opus" and decision.chosen_lane == "claude-1"
+    with pytest.raises(RouteError, match="explicit pinned_lane and pinned_model are required"):
+        probe_required(decision, {**routed, "unmeasured_reserve_reason": "fixture authorization"})
+
+
+RESUME_SOURCES = st.one_of(st.sampled_from(sorted(RETIRED | CURRENT_IDS | {"claude-fable-5-1"})),
+                           st.text(max_size=24))
+
+
+@settings(max_examples=300, **QUIET)
+@given(recorded=RESUME_SOURCES, live=st.booleans(), data=st.data())
+def test_a_resume_launches_only_on_its_source_model_or_that_models_successor(recorded, live, data):
+    """C-12.4 for every recorded source model and every model admission could pick, under
+    the shipped policy and the live one's shape: the launch accepts the source's own id,
+    or the one model the running policy resolves that id to, and nothing else."""
+    from types import SimpleNamespace
+    from subfleet.daemon import Daemon
+    from subfleet.policy import PolicyError
+    policy = LIVE_SHAPE if live else SHIPPED
+    model = policy["models"][data.draw(st.sampled_from(sorted(policy["models"])))]
+    try:
+        successor = policy["models"][resolve_model(policy, recorded, note=False)]["id"]
+    except PolicyError:
+        successor = None
+    accepted = Daemon._resume_model(SimpleNamespace(policy=policy), recorded, model)
+    assert accepted == (model["id"] in {recorded, successor})
+    # Specific cases, not a restatement: a current id is never moved, and a retired
+    # Fable id moves to Opus under the shipped policy and stays on Fable under the live one.
+    if recorded in CURRENT_IDS:
+        assert accepted == (model["id"] == recorded)
+    if recorded in ("claude-fable-5", "claude-fable-5-1"):
+        expected = "claude-fable-5-1" if live else SHIPPED["models"]["opus"]["id"]
+        assert accepted == (model["id"] == expected)
