@@ -1240,6 +1240,87 @@ def test_a_swapped_directory_sends_nothing_outside(world, tmp_path):
     assert os.path.islink(w.root / "retention-conflicts" / "job-swap" / "worktree" / "sub")
 
 
+def _nested_host(w: World) -> tuple[Path, Path, str]:
+    """Job A's tree holds a clone; job B's worktree is registered in it, with a
+    commit only B's HEAD holds (live: four job worktrees registered in
+    `decide-d051/policyengine-core/.git`)."""
+    a_wt = w.job("job-a", created="2026-09-01T00:00:00Z")
+    nested = a_wt / "core"
+    git(w.base, "clone", "--quiet", str(w.remote), str(nested))
+    git(nested, "remote", "set-url", "origin", "https://git.example.invalid/project.git")
+    b_wt = w.root / "worktrees" / "job-b"
+    git(nested, "worktree", "add", "--quiet", "--detach", str(b_wt), "HEAD")
+    (b_wt / "b-work.txt").write_text("B's committed work\n")
+    git(b_wt, "add", "b-work.txt")
+    git(b_wt, "commit", "--quiet", "-m", "only B's HEAD")
+    w.store.add_job(job_id="job-b", request_id="req-b", payload_digest="d", kind="dispatch", workdir=str(nested),
+                    workdir_head=git(nested, "rev-parse", "HEAD"), worktree=str(b_wt), prompt_path="/p",
+                    sandbox="workspace-write", state="succeeded", created_at="2026-09-02T00:00:00Z")
+    (w.root / "jobs" / "job-b").mkdir()
+    (w.root / "jobs" / "job-b" / "stdout").write_text("b\n")
+    return a_wt, b_wt, git(b_wt, "rev-parse", "HEAD")
+
+
+def _in_own_bundle(w: World, job_id: str, commit: str) -> bool:
+    """Whether a fresh clone of the remote plus the job's own bundle holds `commit`."""
+    fresh = w.base / f"fresh-{job_id}"
+    git(w.base, "clone", "--quiet", str(w.remote), str(fresh))
+    git(fresh, "fetch", "--quiet", str(w.root / "archive" / job_id / "commits.bundle"), "+refs/*:refs/restored/*")
+    return subprocess.run(["git", "-C", str(fresh), "cat-file", "-e", commit]).returncode == 0
+
+
+def test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor(world):
+    """N4 (final review of e50716e8): the host is pinned while the job
+    registered inside its tree has rows, so the two never retire in one pass
+    and the hosted job's archive has its own anchor and bundle."""
+    w = world
+    a_wt, b_wt, b_commit = _nested_host(w)
+    assert retention.nested_hosts(w.store.list_jobs(), w.root.resolve()) == {"job-a": {"job-b"}}
+    first = run(w)
+    assert first["pruned"] == ["job-b"], first["deferred"]
+    assert first["pin_reasons"]["job-a"] == "nested-host" and a_wt.is_dir()
+    manifest = json.loads((w.root / "archive" / "job-b" / "manifest.json").read_text())
+    assert manifest["git"]["anchor"] and manifest["git"]["bundle"] == "commits.bundle"
+    assert manifest["git"]["head"] == b_commit
+    assert _in_own_bundle(w, "job-b", b_commit)
+    second = run(w)
+    assert second["pruned"] == ["job-a"], second["deferred"]
+
+
+def test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it(world, monkeypatch):
+    """N4: a host already in flight when the job inside it is seen (a pass
+    before this rule) is refused at commit and put back; the hosted job, whose
+    registration was away with the host, is kept meanwhile rather than retired
+    without its anchor; then it retires first, and the host after it."""
+    w = world
+    a_wt, b_wt, b_commit = _nested_host(w)
+    clock = Clock()
+    state = retention.RetentionState()
+    real_hosts, real_read = retention.nested_hosts, rfs.read_hashes
+
+    def slow(fd, size, fmt, check=None):
+        clock.advance(40)
+        return real_read(fd, size, fmt, check)
+
+    monkeypatch.setattr(retention, "nested_hosts", lambda jobs, root: {})
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    first = run(w, clock=clock, state=state, slice_s=60)
+    assert first["in_flight"] == ["job-a"], first
+    assert first["deferred"]["job-b"].startswith("nested-host"), first["deferred"]
+    assert b_wt.is_dir() and w.store.get_job("job-b") and not a_wt.exists()
+    monkeypatch.setattr(retention, "nested_hosts", real_hosts)
+    monkeypatch.setattr(rfs, "read_hashes", real_read)
+    second = run(w, clock=clock, state=state, slice_s=60)
+    assert second["pruned"] == [] and second["deferred"]["job-a"].startswith("pinned: nested-host"), second
+    assert a_wt.is_dir() and (a_wt / "core" / ".git" / "worktrees" / "job-b").is_dir()
+    clock.advance(rarch.DEFER_PINNED_S + 1)
+    third = run(w, clock=clock, state=state)
+    assert third["pruned"] == ["job-b"], third["deferred"]
+    assert _in_own_bundle(w, "job-b", b_commit)
+    fourth = run(w, clock=clock, state=state)
+    assert fourth["pruned"] == ["job-a"], fourth["deferred"]
+
+
 def test_nested_linked_worktree_keeps_the_job(world):
     """A linked worktree inside the job's tree has its admin directory in another
     repository, which retention does not archive: the job is kept."""

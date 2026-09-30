@@ -262,10 +262,14 @@ class Retirement:
                     # there is none, and its bytes go into the archive with the
                     # tree instead of keeping the job for ever (N5).
                     remnant = rgit.gitfile_admin(worktree)[0]
-                elif reg is None and why not in ("no-gitfile", "admin-missing"):
+                elif why == "admin-missing":
+                    self._not_without_host(rgit.gitfile_admin(worktree)[0], worktree)
+                elif reg is None and why != "no-gitfile":
                     raise Defer("registration", DEFER_PERMANENT_S, why or "")
             elif job.get("workdir"):
                 reg = rgit.find_registration(Path(job["workdir"]), worktree, cancel=self.ctx.cancel)
+                if reg is None and not os.path.isdir(job["workdir"]):
+                    self._not_without_host(Path(os.path.realpath(job["workdir"])), worktree)
             if reg is not None:
                 common = reg.common
             elif job.get("workdir") and os.path.isdir(job["workdir"]):
@@ -310,6 +314,20 @@ class Retirement:
             "check1": False,
         }
         self.save()
+
+    def _not_without_host(self, where: Path | None, worktree: Path) -> None:
+        """A job registered in a repository inside another job's tree is kept
+        while that tree is not there (in quarantine, or gone): retired now, it
+        would have no anchor and no bundle of its own, its commits only in the
+        host's archive (final review of e50716e8, N4). The host is pinned while
+        this job has rows, so normally it is always there."""
+        allocated = Path(os.path.realpath(self.root / "worktrees"))
+        if where is None or allocated not in where.parents:
+            return
+        if where == worktree or worktree in where.parents:
+            return
+        raise Defer("nested-host", DEFER_CHANGED_S,
+                    f"its registration ({where}) is inside another job's tree, which is not there")
 
     # --- step 2: lock the registration ---------------------------------------------------
 
