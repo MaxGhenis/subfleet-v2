@@ -135,6 +135,52 @@ def _identity(raw: dict) -> dict:
     }
 
 
+# One record of Codex's tracing output on stderr: `<ts> LEVEL target: message`,
+# always timestamped and in time order. A message with newlines continues on
+# lines that carry no header of their own.
+_TRACE_HEAD_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z\s+"
+    r"(?:ERROR|WARN|INFO|DEBUG|TRACE)\s+([A-Za-z_]\w*(?:::\w+)*):"
+)
+# Tool-call failures echo what the model sent, word for word: the command a hook
+# blocked, the patch that did not apply, a whole heredoc (C-9.2). Never lane evidence.
+_MODEL_ECHO_TARGET = "codex_core::tools"
+
+
+def _trace_time(head: re.Match[str]) -> tuple[str, float]:
+    """A tracing record's timestamp, in order: its second, then the fraction."""
+    return head.group(1), float(f"0.{head.group(2) or 0}")
+
+
+def _stderr_lines(stderr: str) -> list[str]:
+    """The stderr lines that are Codex's own words, not an echo of the model's.
+
+    A tracing record from `codex_core::tools` (the tool router and handlers) and
+    every line of it are dropped: across 784 real ok attempts they carried 240
+    echoes of blocked commands, failed patches and scripts, none of them about
+    the lane. An echo is the model's text verbatim, so any line may look like a
+    header: only a tracing record timestamped no earlier than the echo's own ends
+    it, as Codex's next record always is. A plain `ERROR:` line or a quoted older
+    log line inside it stays the model's. Codex's own plain lines ("Reading prompt
+    from stdin...") come before its first tool call, and are kept.
+    """
+    kept: list[str] = []
+    echo: tuple[str, float] | None = None       # when the echo being skipped began
+    for line in stderr.splitlines():
+        if not line.strip():
+            continue
+        head = _TRACE_HEAD_RE.match(line)
+        if head:
+            at = _trace_time(head)
+            if echo is None or at >= echo:
+                target = head.group(3)
+                is_echo = target == _MODEL_ECHO_TARGET or target.startswith(_MODEL_ECHO_TARGET + "::")
+                echo = at if is_echo else None
+        if echo is None:
+            kept.append(line)
+    return kept
+
+
 def _events(path: Path) -> Iterator[dict]:
     """Stream complete JSONL records, tolerating truncated/malformed lines."""
     try:
@@ -497,23 +543,36 @@ class CodexAdapter(Adapter):
                 failures.append(event)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
-        signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
+        signals.extend(({}, line) for line in _stderr_lines(stderr))
         evidence = {"rc": exit_info.rc, "signal": exit_info.signal,
                     "authentication": None, "admission": None, "quota": None}
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+        # C-9.2, C-9.3: a credential failure in Codex's own words outranks even a
+        # finished turn. "Your access token could not be refreshed" says the lane
+        # dies when its current token lapses, not that this turn could not finish.
         for event, text in signals:
             if AUTH_RE.search(text):
                 evidence["authentication"] = event or text
                 return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
+        # C-9.2: past that, a turn that finished and delivered is `ok` whatever
+        # Codex's words around it say.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
         if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
             if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
                 evidence["admission"] = "deliverable with exit 0"
+                # Kept as evidence, acted on by nothing.
+                unheeded = {}
+                for name, regex in (("cli", OLD_CLI_RE), ("content", CONTENT_RE), ("limit", LIMIT_RE)):
+                    hit = next((text for _event, text in signals if regex.search(text)), None)
+                    if hit is not None:
+                        unheeded[name] = hit[:300]
+                if unheeded:
+                    evidence["words_after_delivery"] = unheeded
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
                                    (CONTENT_RE, OutcomeClass.CONTENT_FILTER, "Content-filter rejection; prompt reconciliation required")):
