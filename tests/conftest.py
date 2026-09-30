@@ -152,6 +152,19 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 
 
 @pytest.fixture(autouse=True)
+def no_process_listing(request, monkeypatch):
+    """Retention lists every process on the machine (`lsof`, design d635) before
+    it deletes; under load one listing takes seconds to minutes, and what it
+    finds belongs to whoever runs the tests. Every test gets a listing that finds
+    no holder; a test about holders passes `holders=` to `maintenance`, and one
+    marked `real_lsof` gets the real listing."""
+    if request.node.get_closest_marker("real_lsof"):
+        return
+    from subfleet import retention
+    monkeypatch.setattr(retention, "lsof_holders", lambda watches, **_: {})
+
+
+@pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """The profile endpoint (C-10.6) is the one network call subfleet makes, and
     no test may make it.
