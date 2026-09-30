@@ -945,7 +945,9 @@ class Daemon:
         The source's own model, or, when the running policy retires it (C-11.1),
         the successor admission resolved the resume's pin to: a session last
         served by Fable continues on Opus, as a revive does (C-23.39), rather than
-        failing every attempt against its own pin.
+        failing every attempt against its own pin. Only a Claude resume passes the
+        model (`--resume` with `--model`, C-12.4); `codex exec resume` continues a
+        thread on its own model (C-12.3), and no policy retires a Codex id today.
         """
         if recorded == model["id"]:
             return True

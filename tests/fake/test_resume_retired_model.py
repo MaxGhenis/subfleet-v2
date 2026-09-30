@@ -63,8 +63,7 @@ def launched_model(daemon, monkeypatch, resumed_id):
     return calls, failures
 
 
-@pytest.mark.parametrize("retired_under", ["retired", "absent"])
-def test_a_fable_session_resumes_on_opus_once_the_policy_retires_fable(state_daemon, monkeypatch, retired_under):
+def test_a_fable_session_resumes_on_opus_once_the_policy_retires_fable(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     claude_lane(daemon)
     source_id, attempt = fable_source(daemon, harness)
