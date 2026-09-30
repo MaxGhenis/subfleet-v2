@@ -543,6 +543,7 @@ class Daemon:
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
                              deliver=self._timer_notice)
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
+        self.timers.desktop_identity = lambda: self._last_desktop  # C-10.3: and the lane admission marks
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -580,6 +581,7 @@ class Daemon:
         self._hold_view_cache: tuple[float, Any, Any, dict] | None = None     # C-6.9, `_hold_view`
         self._hold_targets: tuple[dict | None, dict] = (None, {})             # C-6.9, per shared view
         self._last_desktop_hint: str | None = None                          # C-10.3, `_desktop_identity`
+        self._last_desktop: capacity.DesktopIdentity | None = None          # C-10.3, the last one judged by
         self._hold_checks: dict[str, Callable[[Any, Any], str | None]] = {}  # C-6.9, `_prepare_route`
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass:
@@ -1129,6 +1131,7 @@ class Daemon:
         last_label = last.get("label") or (None if hint else self._last_desktop_hint)
         desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
                                             cached_label=hint, last_label=last_label)
+        self._last_desktop = desktop                             # replaced whole: the timer thread reads it
         if desktop.verified and (last.get("identity") != desktop.identity
                                  or last.get("label") != desktop.label):
             self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
@@ -2598,7 +2601,7 @@ class Daemon:
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
-    def _notice(self, tx, job: dict, summary: str) -> None:
+    def _notice(self, tx, job: dict, summary: str, *, final: str | None = None) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
 
         The header is read here, from the job row as this transaction left it,
@@ -2620,6 +2623,14 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
+        # C-23.44: a lane an attempt of this job found auth-dead was disabled and the job
+        # moved on from it; its caller hears of it here, whatever the end (a cancel while
+        # the retry waited included). `final` is the attempt `summary` already names.
+        dead = tx.execute("SELECT seq,lane_id FROM attempts WHERE job_id=? AND attempt_id IS NOT ? "
+                          "AND outcome_class='auth-dead' ORDER BY seq", (job["job_id"], final)).fetchall()
+        if dead:
+            summary += "\nearlier: " + ", ".join(f"a{seq} auth-dead on {lane}" for seq, lane in dead) \
+                + " (disabled; subfleet lanes enroll)"
         text = render.notice_header(dict(row), self.root) + "\n" + summary
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
@@ -3747,9 +3758,21 @@ class Daemon:
                     behind, rivals = older_blocker(rivals, demand, mine_family=mine_family,
                                                    due=not (job["next_check_at"] and job["next_check_at"] > utcnow()))
             if saturated.get(pool) or behind:
-                holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
-                                        {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                earlier = (self._capacity_waits.get(job["job_id"]) or {}).get("hold") or {}
+                clocked = bool(job["next_check_at"] and job["next_check_at"] > utcnow())
+                if (behind and not saturated.get(pool) and job["wait_reason"] not in NOT_ADMISSIONS_TO_PLACE
+                        and clocked and earlier.get("reason") == "behind-older-job" and earlier.get("behind") == behind):
+                    # C-6.11: the last look's finding in full (its `lane`), until the job is due again.
+                    holds[job["job_id"]] = {**earlier, "next_check_at": job["next_check_at"]}
+                else:
+                    holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
+                                            {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
+                                            {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                if behind and not saturated.get(pool):
+                    # C-6.9: still a waiter, so a later job it could run where is held behind it too:
+                    # with the rule of 2026-09-30 an oldest job that cannot take a later one's lane
+                    # no longer holds it for the jobs between (code review of this change).
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -3843,6 +3866,7 @@ class Daemon:
                                        "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                                        (next_check, job["job_id"]))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                        waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                         continue
             def held_before_probe(decision, view) -> str | None:
                 """C-6.9: the rival that could run where this decision would, checked
@@ -3862,6 +3886,7 @@ class Daemon:
                                "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                                (next_check, job["job_id"]))
                 holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                 continue
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
@@ -3975,6 +4000,7 @@ class Daemon:
                                 tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
                                            "WHERE job_id=?", (next_check, job["job_id"]))
                                 holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(), demand))
                                 status = "held"
                                 break
                         if extra_exclusions:
@@ -5284,9 +5310,14 @@ class Daemon:
             # authenticated, so its auth-dead is the text's, not the credential's
             # (C-9.2, #84); and a job already auth-dead on another lane ends there,
             # since two credentials failing one job points at the job.
-            dead_elsewhere = outcome.cls == OutcomeClass.AUTH_DEAD and tx.execute(
-                "SELECT 1 FROM attempts WHERE job_id=? AND attempt_id<>? AND outcome_class='auth-dead' "
-                "AND lane_id<>? LIMIT 1", (job["job_id"], a["attempt_id"], a["lane_id"])).fetchone()
+            dead_elsewhere = False
+            if outcome.cls == OutcomeClass.AUTH_DEAD:
+                # A lane and its re-enrolled successor are one lane here, as for retries (C-11.2).
+                roster = self._pin_roster()
+                here = scheduler.current_lane_id(roster, a["lane_id"])
+                dead_elsewhere = any(scheduler.current_lane_id(roster, lane_id) != here for (lane_id,) in tx.execute(
+                    "SELECT lane_id FROM attempts WHERE job_id=? AND attempt_id<>? AND outcome_class='auth-dead'",
+                    (job["job_id"], a["attempt_id"])))
             moves_on = (outcome.cls == OutcomeClass.LIMITED
                         or (outcome.cls == OutcomeClass.AUTH_DEAD and rc != 0 and not dead_elsewhere))
             retry = (not cancel and a["seq"] < job["max_attempts"] and
@@ -5337,15 +5368,7 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
-                # C-23.44: a lane an earlier attempt found auth-dead was disabled, and the
-                # job moved on from it; its caller hears of it here, whatever the end.
-                dead = tx.execute("SELECT seq,lane_id FROM attempts WHERE job_id=? AND attempt_id<>? "
-                                  "AND outcome_class='auth-dead' ORDER BY seq",
-                                  (job["job_id"], a["attempt_id"])).fetchall()
-                if dead:
-                    summary += "\nearlier: " + ", ".join(f"a{seq} auth-dead on {lane}" for seq, lane in dead) \
-                        + " (disabled; subfleet lanes enroll)"
-                self._notice(tx, job, summary)
+                self._notice(tx, job, summary, final=a["attempt_id"])
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
             self._boundary("notice", a["job_id"], a["attempt_id"])

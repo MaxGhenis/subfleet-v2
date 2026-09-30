@@ -37,10 +37,20 @@ def finish(daemon, attempt, adir, rc=1):
     return daemon.store.get_attempt(attempt["attempt_id"])
 
 
-def second_lane(daemon, lane_id="codex-2"):
+def second_lane(daemon, lane_id="codex-2", *, same_credential=False):
+    """Another lane: another account on its own home, or (`same_credential`) codex-1's
+    credential re-enrolled under a new id, its successor (C-11.2)."""
     from dataclasses import replace
+    from subfleet.contracts import Credential
     lane = daemon.store.get_lane("codex-1")
-    daemon.store.put_lane(replace(lane, lane_id=lane_id, account_key=f"codex:fake-{lane_id}"))
+    if same_credential:
+        daemon.store.put_lane(replace(lane, lane_id=lane_id, enabled=True))
+        daemon.store.update_lane("codex-1", enabled=0)
+        return
+    home = daemon.root / f"home-{lane_id}"
+    home.mkdir(exist_ok=True)
+    daemon.store.put_lane(replace(lane, lane_id=lane_id, account_key=f"codex:fake-{lane_id}",
+                                  credential=Credential("codex", str(home), "home"), home=str(home)))
 
 
 def test_c4_5_an_unpinned_job_whose_attempt_is_auth_dead_is_retried_and_its_lane_closed(state_daemon, auth_dead):
@@ -127,3 +137,30 @@ def test_c6_11_why_says_where_a_retried_job_moved_on_from(state_daemon, auth_dea
     finish(daemon, attempt, adir)
     text = daemon.dispatch("why", {"job_id": job_id})["text"]
     assert f"Earlier attempts: a1 auth-dead on {attempt['lane_id']} (that lane is disabled; subfleet lanes enroll)" in text
+
+
+def test_c11_2_a_re_enrolled_successor_is_the_same_lane_for_the_guard(state_daemon, auth_dead):
+    """C-11.2, C-4.5: a1 dead on codex-1; the operator re-enrols its credential as codex-2 and a2 is dead
+    there too. One account failed twice, not two: the job still has an attempt and moves on."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=3)
+    finish(daemon, attempt, adir)
+    second_lane(daemon, same_credential=True)
+    daemon._admit()
+    retried = daemon.store.list_attempts(job_id)[-1]
+    assert (retried["seq"], retried["lane_id"]) == (2, "codex-2")
+    daemon._pending_launches.discard(retried["attempt_id"])
+    retried_dir = daemon.root / "jobs" / job_id / "a2"
+    retried_dir.mkdir(mode=0o700)
+    finish(daemon, retried, retried_dir)
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c23_44_a_retry_cancelled_while_it_waits_still_says_where_it_moved_on_from(state_daemon, auth_dead):
+    """C-23.44: every terminal notice names the dead lane, whatever the end: here a kill while the retry waits."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=3)
+    finish(daemon, attempt, adir)
+    daemon.dispatch("kill", {"job_id": job_id})
+    notice, = daemon.store.list_notices()
+    assert f"earlier: a1 auth-dead on {attempt['lane_id']} (disabled; subfleet lanes enroll)" in notice["text"]

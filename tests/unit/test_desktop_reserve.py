@@ -107,13 +107,10 @@ def test_c10_3_no_desktop_keeps_a_job_off_whichever_lane_is_the_desktop_login(po
     assert evaluate(policy, moved, job(exclusions=[DESKTOP_EXCLUSION])).chosen_lane == DESK
 
 
-def test_c10_3_no_lane_identity_can_be_the_desktop_token(policy):
-    """C-10.3: a lane labelled like the token is not excluded by it unless it is the desktop login."""
+def test_c10_3_the_desktop_token_matches_only_the_lane_marked_desktop(policy):
+    """C-10.3: `@desktop` never matches a lane's own names, even one labelled with the token itself."""
     snapshot = view([lane("claude-1", label=DESKTOP_EXCLUSION, account_key="claude:@desktop")])
-    assert evaluate(policy, snapshot, job(exclusions=[DESKTOP_EXCLUSION])).chosen_lane == "claude-1" or \
-        refused(evaluate(policy, snapshot, job(exclusions=[DESKTOP_EXCLUSION])), "claude-1") == ["excluded"]
-    assert scheduler.job_refusals(scheduler.prepare(policy, snapshot, job(exclusions=[DESKTOP_EXCLUSION])), "opus",
-                                  {**snapshot["lanes"][0], "label": None, "account_key": "claude:x"}) == []
+    assert evaluate(policy, snapshot, job(exclusions=[DESKTOP_EXCLUSION])).chosen_lane == "claude-1"
 
 
 # --- the reserve: readings --------------------------------------------------------------------
@@ -202,10 +199,15 @@ def test_c10_3_a_turn_on_the_desktop_lane_takes_no_detached_room(policy):
 
 @pytest.mark.parametrize("bound,running,placed", [(None, 9, True), (0, 0, False), (1, 0, True), (1, 1, False)])
 def test_c10_3_the_bound_is_policy(policy, bound, running, placed):
-    """C-10.3: null is no bound; 0 keeps detached work off the login entirely."""
+    """C-10.3: null is no bound; 0 keeps detached work off the login entirely, a standing refusal
+    (`desktop-reserve:off`), not room a slot would end."""
     policy["admission"]["desktop_max_in_flight"] = bound
     decision = evaluate(policy, desk_only(attempts=[attempt(DESK, n) for n in range(running)]), job())
     assert (decision.chosen_lane == DESK) is placed
+    if bound == 0:
+        assert refused(decision) == ["desktop-reserve:off"]
+        assert scheduler.dominant_rejection(decision) == "desktop-reserve:off"
+        assert "desktop-reserve:off" not in scheduler.ROOM_REASONS
 
 
 def test_c10_3_a_turn_is_never_refused_by_the_reserve(policy):

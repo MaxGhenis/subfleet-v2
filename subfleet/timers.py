@@ -44,6 +44,9 @@ class Timers:
         # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
         # in use, as a view without the signal does.
         self.desktop_in_use = None
+        # C-10.3: the desktop identity admission last judged by (`Daemon._last_desktop`),
+        # a callable; None leaves the recorded flags, as a view without it does.
+        self.desktop_identity = None
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -534,8 +537,11 @@ class Timers:
         # admission does (review of PR #72's plan: without the signal it read the
         # lane excluded while admission placed work there).
         in_use = self.desktop_in_use() if self.desktop_in_use is not None else None
+        # C-10.3: and marks the lane admission marks, not a recorded flag (the live store's
+        # sits on claude-1, from the import): the reserve and the bound are that lane's.
+        desktop = self.desktop_identity() if self.desktop_identity is not None else None
         view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
-                                   desktop_in_use=in_use)
+                                   desktop_in_use=in_use, desktop=desktop)
         return self.enrich_view(view, extra)
 
     def view_rows(self, lanes=()):

@@ -416,3 +416,41 @@ def test_c6_9_c11_4_a_job_is_held_before_its_probe_where_a_waiter_could_run(thre
     assert probes == [] and not service.store.list_attempts(newer)
     assert (service._holds[newer]["reason"], service._holds[newer]["lane"]) == ("behind-older-job", "codex-2")
     assert not service.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-2:slot:0'")
+
+
+# --- the code review of 2026-09-30 --------------------------------------------------------------
+
+def test_c6_9_a_job_held_behind_an_older_one_still_holds_a_newer_one(three_codex):
+    """C-6.9: W1 (oldest) can use only codex-1, closed; W2 may use codex-2; N, submitted as W2 was, would
+    take codex-2. N does not pass W2 because W1 cannot take codex-2: W2, held behind W1, is still a waiter."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    w1 = submit(service, harness, pinned_model="astra", exclusions=["codex-2", "codex-3"])
+    w2 = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    newer = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    wait_on_capacity(service, w1)
+    wait_on_capacity(service, w2)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    assert service._holds[newer]["behind"] == w2
+
+
+def test_c6_11_a_hold_found_on_a_lane_keeps_its_lane_between_looks(three_codex, monkeypatch):
+    """C-6.11: the reservation's hold names codex-2; the next pass, which does not look (the job is on its
+    clock), reports the same hold in full, and `why` says the older job could run there."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    close_astra(service, "codex-2")
+    stale = service._route_view(service._desktop_identity())[2]
+    with service.store.transaction("fixture.reopen") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-2'", (utcnow(),))
+    monkeypatch.setattr(service, "_hold_view", lambda desktop: stale)
+    older = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert service._holds[newer]["lane"] == "codex-2"
+    service._admit()
+    assert service._holds[newer]["lane"] == "codex-2"
+    text = service.dispatch("why", {"job_id": newer})["text"]
+    assert f"held behind {older}, an older standard job that is waiting and could run on codex-2, where this one would" in text

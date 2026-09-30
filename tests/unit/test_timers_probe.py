@@ -570,3 +570,18 @@ def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_us
     timer.desktop_in_use = None if in_use is None else (lambda: in_use)
     row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
     assert row["dispatchable"] is dispatchable
+
+
+def test_c10_3_published_capacity_marks_the_lane_admission_marks(rig):
+    """C-10.3: the recorded flag sits on claude-1 (the live store's, from the import) while the identity
+    admission judged by names claude-9; status.json applies the reserve to claude-9."""
+    from subfleet import capacity
+    timer, store, _, _, _ = rig
+    for lane_id, email, flag in (("claude-1", "a@example.invalid", True), ("claude-9", "desk@example.invalid", False)):
+        store.put_lane(Lane(lane_id, "claude", f"claude:{email}", Credential("claude", lane_id, "keychain-token"),
+                            None, LaneOwner.V2, flag, label=email))
+    timer.policy["admission"] = {**(timer.policy.get("admission") or {}), "desktop_max_in_flight": 0}
+    timer.desktop_identity = lambda: capacity.desktop_identity(None, cached_label="desk@example.invalid")
+    rows = {lane["lane_id"]: lane for lane in timer.snapshot()["lanes"]}
+    assert rows["claude-9"]["desktop"] and not rows["claude-9"]["dispatchable"]
+    assert not rows["claude-1"]["desktop"]

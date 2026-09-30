@@ -531,7 +531,8 @@ def job_refusals(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any]) 
     desktop login now) and, for a turn, a home lane's other config directory."""
     job, model = setup["job"], setup["policy"]["models"][short]
     reasons = []
-    if _identities(lane) & setup["excluded"] or (lane.get("desktop") and DESKTOP_EXCLUSION in setup["excluded"]):
+    if ((_identities(lane) - {DESKTOP_EXCLUSION}) & setup["excluded"]
+            or (lane.get("desktop") and DESKTOP_EXCLUSION in setup["excluded"])):
         reasons.append("excluded")
     if (job.get("kind") == "turn" and model["provider"] == "claude"
             and lane.get("credential_kind") == "home"):
@@ -641,7 +642,9 @@ def desktop_reserve(setup: Mapping[str, Any], model_id: str, readings: Iterable[
         account = counted.get(("account", window))
         if account is None or (now - _time(account["observed_at"])).total_seconds() > ttl:
             unproven = True
-    if bound is not None and in_flight >= bound:
+    if bound == 0:
+        reasons.append("desktop-reserve:off")          # no detached work at all: standing, not room
+    elif bound is not None and in_flight >= bound:
         reasons.append("desktop-reserve:in-flight")
     return reasons, {"in_flight": in_flight, "max_in_flight": bound, "windows": windows,
                      "requires_probe": unproven and not reasons}

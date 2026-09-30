@@ -118,7 +118,9 @@ def reference_desktop_reserve(policy: Mapping[str, Any], readings: list[dict[str
         account = newest("account", window)
         if account is None or (now - _time(account["observed_at"])).total_seconds() > ttl:
             needs_fresh = True
-    if bound is not None and in_flight >= bound:
+    if bound == 0:
+        reasons.append("desktop-reserve:off")
+    elif bound is not None and in_flight >= bound:
         reasons.append("desktop-reserve:in-flight")
     detail["desktop_reserve"] = {"in_flight": in_flight, "max_in_flight": bound, "windows": windows,
                                  "requires_probe": needs_fresh and not reasons}
@@ -235,7 +237,7 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                 detail["desktop"] = True
             # C-10.3 (2026-09-30): whether Claude Code uses the desktop login refuses
             # nothing; `@desktop` in a job's exclusions keeps it off that lane.
-            if _identities(lane) & excluded or (lane.get("desktop") and "@desktop" in excluded):
+            if (_identities(lane) - {"@desktop"}) & excluded or (lane.get("desktop") and "@desktop" in excluded):
                 reasons.append("excluded")
             if (job.get("kind") == "turn" and model["provider"] == "claude"
                     and lane.get("credential_kind") == "home"):
