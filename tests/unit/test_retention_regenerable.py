@@ -545,3 +545,51 @@ def test_the_command_line_samples_and_lists_what_was_freed(world, monkeypatch, c
     totals = manifest_of(w, "cli-regen")["totals"]
     assert f"{totals['freed_bytes']:,} bytes deleted without a copy" in text
     assert f"{totals['archived_bytes']:,} bytes kept in them" in text
+
+
+# --- names as git prints them and as the disk spells them (final review of e50716e8, N2) ---------
+
+def test_ignored_compares_names_folded_as_apfs_matches_them():
+    """`git ls-files` prints the index's case and precomposed (NFC) names; the
+    walk sees the disk's. APFS matches names regardless of case and
+    normalization, so `clear` folds both sides: folding only merges names, so
+    it can answer "not clear" more often, never less."""
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "projét")
+    nfc = unicodedata.normalize("NFC", "projét")
+    listed = rgit.Ignored([f"{nfc}/.venv/lib/work.py", "Pkg/node_modules/left/index.js", "Top.txt"])
+    assert not listed.clear(f"{nfd}/.venv")                  # git lists work inside it
+    assert not listed.clear(f"{nfd}/.venv/lib")
+    assert not listed.clear("pkg/node_modules")               # tracked under another case
+    assert not listed.clear("PKG/NODE_MODULES/left")
+    assert not listed.clear("top.txt")
+    assert listed.clear(f"{nfd}/other") and listed.clear("pkg/elsewhere")
+
+
+def test_an_nfd_named_parent_does_not_make_a_visible_venv_ignored(world):
+    import unicodedata
+    w = world
+    wt = w.job("job-nfd")
+    parent = unicodedata.normalize("NFD", "projét")
+    write(wt / parent / ".venv" / "pyvenv.cfg", "home = /usr/bin\n")
+    write(wt / parent / ".venv" / "lib" / "work.py", "untracked and not ignored\n")
+    assert "work.py" in git(wt, "status", "--porcelain", "--untracked-files=all")
+    assert run(w)["pruned"] == ["job-nfd"]
+    listed = entries(manifest_of(w, "job-nfd"))
+    assert listed[f"{parent}/.venv/lib/work.py"].get("store"), "untracked, visible work was dropped"
+
+
+def test_a_directory_whose_case_changed_on_disk_keeps_its_tracked_edits(world):
+    w = world
+    wt = w.job("job-case")
+    write(wt / "Pkg" / "package.json", "{}\n")
+    write(wt / "Pkg" / "node_modules" / "left" / "package.json", "{}\n")
+    write(wt / "Pkg" / "node_modules" / "left" / "index.js", "committed\n")
+    git(wt, "add", "-f", "Pkg")
+    git(wt, "commit", "-q", "-m", "vendored node_modules")
+    os.rename(wt / "Pkg", wt / "tmpname")
+    os.rename(wt / "tmpname", wt / "pkg")                      # index says Pkg/, disk says pkg/
+    write(wt / "pkg" / "node_modules" / "left" / "index.js", "uncommitted edit\n")
+    assert run(w)["pruned"] == ["job-case"]
+    listed = entries(manifest_of(w, "job-case"))
+    assert listed["pkg/node_modules/left/index.js"].get("store"), "a tracked file's uncommitted edit was dropped"
