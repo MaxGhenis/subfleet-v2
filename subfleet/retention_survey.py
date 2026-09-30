@@ -115,7 +115,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s)
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
+                                   hosted=ret.nested_hosts(jobs, root))
         journals = rarch.journals(root)
         salvage = defaultdict(list)
         for row in store.query("SELECT r.artifact_id,r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
@@ -272,6 +273,13 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
     if reg is None:
         if why not in ("no-gitfile", "admin-missing", "admin-remnant"):
             info["issue"] = f"registration: {why}"
+        elif why == "admin-missing":
+            # As `Retirement._not_without_host`: registered inside another
+            # job's tree, which is not there (N4).
+            where = rgit.gitfile_admin(worktree)[0]
+            allocated = Path(os.path.realpath(root / "worktrees"))
+            if where is not None and allocated in where.parents and worktree not in where.parents:
+                info["issue"] = f"nested-host: {where}"
         info["git"] = why
         if salvage_refs and not info.get("issue"):
             # As `Retirement.begin`: the source repository anchors the salvage commits.
@@ -408,7 +416,7 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0)
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root))
         salvage = defaultdict(list)
         for row in store.query("SELECT r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage'"):
