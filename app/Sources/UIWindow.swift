@@ -74,8 +74,9 @@ struct MainWindow: View {
 }
 
 /// Tells the model which window is the main one, so it can tell whether the
-/// focused conversation is on screen (D-24): the window this view moves into,
-/// and none once it leaves the window it reported.
+/// focused conversation is on screen (D-24): the window this view moves into.
+/// Nothing is cleared when it leaves: a closed window reads as not visible,
+/// and the model's weak reference ends with the window.
 struct MainWindowReader: NSViewRepresentable {
     let model: UIModel
 
@@ -92,21 +93,13 @@ struct MainWindowReader: NSViewRepresentable {
 
         required init?(coder: NSCoder) { nil }
 
-        // Both tell the model later, outside SwiftUI's update of the view tree:
-        // the model's state is published.
+        // Told later, outside SwiftUI's update of the view tree: the model's
+        // state is published.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
             DispatchQueue.main.async { [weak model, weak window] in
                 if let window { model?.mainWindow = window }
-            }
-        }
-
-        override func viewWillMove(toWindow newWindow: NSWindow?) {
-            super.viewWillMove(toWindow: newWindow)
-            guard newWindow == nil, let old = window else { return }
-            DispatchQueue.main.async { [weak model, weak old] in
-                if let model, model.mainWindow === old { model.mainWindow = nil }
             }
         }
     }

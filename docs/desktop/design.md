@@ -536,14 +536,18 @@ the `requests` pool that `message.submit` and the session hooks use is never
 held by a poll (review U-F3). A turn that completes, fails, needs approval, or
 becomes `delivery-unknown` while its conversation is not on screen posts a local
 notification, once the app has its feed baseline; the Dock badge counts pending
-approvals. The focused conversation is on screen only while the app is active
-and its main window is visible (neither closed nor miniaturized nor wholly
-covered). Focus alone is not enough: it stays set while the person works in
-another app or has closed the window, the commonest wait (send, switch away,
-wait for the outcome). `UIModel` reads that flag from AppKit as the app is
-activated or left and as a window changes, and again before it folds each feed
-page and before a notification arriving while the app is frontmost is shown;
-until it knows, a conversation counts as not on screen. A notification carries
+approvals. The focused conversation is on screen only while the app is active,
+its main window is visible (neither closed nor miniaturized nor wholly covered)
+and holds the key window (itself, or a sheet or child window of it), and
+the displays are awake in an active login session. Focus alone is not enough:
+it stays set while the person works in another app or has closed the window,
+the commonest wait (send, switch away, wait for the outcome). The key window
+matters because the menu bar panel, while it is key, makes the app active
+without raising the main window. `UIModel` reads that flag from AppKit as the
+app is activated or left and as a window or the session changes, and reads
+the app and the window again before it folds each feed page and before a
+notification arriving while the app is frontmost is shown; until it knows, a
+conversation counts as not on screen. A notification carries
 its conversation and its kind. Clicking it opens the main window on that
 conversation, and an approval's brings the conversation's oldest waiting card
 into view (C-27.5) while one still waits. A click that comes before the app

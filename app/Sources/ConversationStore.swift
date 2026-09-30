@@ -366,9 +366,9 @@ struct ConversationStoreState: Equatable {
     /// `models.list` per provider.
     var models: [String: [ModelEntry]] = [:]
     var focusedConversationID: String?
-    /// Whether the focused conversation is on screen: the app is active and its
-    /// main window is visible (not closed, miniaturized or covered). UIModel
-    /// keeps it from AppKit. The focus stays set while the app is in the
+    /// Whether the focused conversation is on screen: the app is active, its
+    /// main window is visible (not closed, miniaturized or covered) and holds
+    /// the key window, and the displays are awake. UIModel keeps it from AppKit. The focus stays set while the app is in the
     /// background or its window is closed, so it alone does not say what the
     /// person can see (D-24). False until UIModel says otherwise: a conversation
     /// not known to be on screen notifies.

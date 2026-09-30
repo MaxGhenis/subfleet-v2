@@ -20,7 +20,7 @@ import tempfile
 import time
 import uuid
 
-from hypothesis import HealthCheck, event, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, settings, strategies as st
 import pytest
 
 from subfleet.conversations.claude_turn import observed_catalog
@@ -290,12 +290,9 @@ def expected_notifications(steps: list[dict]) -> dict:
     posted: list[tuple] = []
     focused_posted = held_back = 0
     for step in steps:
-        focused = step["focus"] if "focus" in step else focused
-        on_screen = step["on_screen"] if "on_screen" in step else on_screen
         page = step.get("watch")
-        if page is None or page.get("superseded"):
-            continue
-        for row in sorted(page["changes"], key=lambda r: r["seq"]):
+        live = page is not None and not page.get("superseded")
+        for row in sorted(page["changes"], key=lambda r: r["seq"]) if live else []:
             if row["seq"] <= cursor:
                 continue
             cid = row["conversation_id"]
@@ -315,8 +312,12 @@ def expected_notifications(steps: list[dict]) -> dict:
                 continue
             posted.append((announced[0], announced[1], cid, announced[2]))
             focused_posted += cid == focused
-        cursor = max(cursor, page["next"])
-        baselined = baselined or not page["changes"]
+        if live:
+            cursor = max(cursor, page["next"])
+            baselined = baselined or not page["changes"]
+        # The probe applies a step's focus and on-screen change after its page.
+        focused = step["focus"] if "focus" in step else focused
+        on_screen = step["on_screen"] if "on_screen" in step else on_screen
     return {"posted": posted, "on_screen": focused if on_screen else None, "focused_posted": focused_posted,
             "held_back": held_back}
 
@@ -329,8 +330,42 @@ PROPERTY = settings(max_examples=150, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 
+def feed_row(seq: int, cid: str, mid: str | None, state: str | None, pending: int = 0) -> dict:
+    return {"seq": seq, "conversation_id": cid, "message_id": mid, "state": state, "pending_approvals": pending,
+            "ts": None, "state_reason": None}
+
+
+def feed_page(*rows: dict, superseded: bool = False) -> dict:
+    out = {"changes": list(rows), "next": max([0, *(r["seq"] for r in rows)])}
+    return {"watch": {**out, "superseded": True} if superseded else out}
+
+
+# Cases the derandomized examples do not reach (review of 9becda40): the same
+# event twice posts once; a superseded empty page is no baseline; the focused
+# conversation off screen posts every kind, not only approvals; and a focus
+# change while on screen moves what is held back to the new focus.
+PINNED = [
+    [{"focus": None}, {"on_screen": False}, feed_page(), feed_page(feed_row(1, "cv-1", "m-1", "complete")),
+     feed_page(feed_row(2, "cv-1", "m-1", "complete"))],
+    [{"focus": None}, {"on_screen": False}, feed_page(superseded=True),
+     feed_page(feed_row(1, "cv-1", "m-1", "complete")), feed_page(), feed_page(feed_row(2, "cv-1", "m-2", "failed"))],
+    [{"focus": "cv-1"}, {"on_screen": False}, feed_page(),
+     feed_page(feed_row(1, "cv-1", "m-1", "complete"), feed_row(2, "cv-1", "m-2", "failed"),
+          feed_row(3, "cv-1", "m-3", "delivery-unknown"), feed_row(4, "cv-1", None, None, 1))],
+    [{"focus": "cv-1"}, {"on_screen": True}, feed_page(), {"focus": "cv-2"},
+     feed_page(feed_row(1, "cv-2", "m-1", "complete"), feed_row(2, "cv-1", "m-2", "complete"))],
+]
+
+
+def pinned(test):
+    for steps in reversed(PINNED):
+        test = example(steps=steps)(test)
+    return test
+
+
 @PROPERTY
 @given(steps=feeds())
+@pinned
 def test_property_a_notification_is_posted_iff_its_conversation_is_not_on_screen_after_the_baseline(
         core_probe, tmp_path, steps):
     out = store(core_probe, tmp_path, steps)

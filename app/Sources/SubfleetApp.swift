@@ -51,7 +51,7 @@ final class SubfleetAppDelegate: NSObject, NSApplicationDelegate, UNUserNotifica
     /// One that arrives while the app is frontmost shows as it would in the
     /// background (without this the system shows nothing), unless its
     /// conversation is on screen by now: the focused one, with the main window
-    /// visible (D-24).
+    /// visible and holding the key window (D-24).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let request = notification.request

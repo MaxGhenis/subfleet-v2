@@ -350,6 +350,30 @@ func runLive(_ arguments: [String]) throws -> Any {
     run.check("the conversation on screen never notified", !intents.contains { $0.conversationID == cid })
     run.check("the badge clears", (state.pendingApprovals[otherID] ?? 0) == 0)
 
+    // The focused conversation's own turns (P-13): silent while it is on screen,
+    // and its completion notifies once the person has left the window.
+    let watched = try engine.send(conversation: cid, text: "while you watch", settings: settings)
+    state.apply(outbox: engine.pump(), outbox: outbox)
+    let watchedDone = untilState(watched.key, ["complete", "failed"])
+    try engine.drainWatch(&state)
+    let onScreen = state.drainNotifications()
+    run.check("the focused conversation on screen does not notify",
+              watchedDone?.state == "complete" && !onScreen.contains { $0.conversationID == cid },
+              ["state": watchedDone?.state ?? "none", "posted": onScreen.map { $0.id }] as [String: Any])
+    state.focusedOnScreen = false
+    let away = try engine.send(conversation: cid, text: "after you left", settings: settings)
+    state.apply(outbox: engine.pump(), outbox: outbox)
+    var offScreen: [NotificationIntent] = []
+    let awayDeadline = Date().addingTimeInterval(60)
+    while Date() < awayDeadline && !offScreen.contains(where: { $0.messageID == away.key }) {
+        if let page = try? engine.watch(after: state.watchCursor, wait: 2) { state.apply(watch: page) }
+        offScreen += state.drainNotifications()
+    }
+    run.check("the focused conversation off screen notifies its completion",
+              offScreen.contains { $0.kind == .completed && $0.conversationID == cid && $0.messageID == away.key },
+              offScreen.map { $0.id })
+    state.focusedOnScreen = true
+
     // 13. The catalog: a native Claude session appears under its prompt and continues here.
     _ = try? engine.refreshCatalog()
     var nativeEntry: SidebarEntry?
