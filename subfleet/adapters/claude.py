@@ -1485,11 +1485,14 @@ class ClaudeAdapter(Adapter):
         corpus = "\n".join([stderr, *summary.error_texts()])
         scrubbed = _scrub_non_limit(corpus)
         # C-9.2, C-12.6: a turn that ended cleanly and delivered text finished.
-        # No wording unfinishes it; only the structured verdicts below can.
+        # No wording unfinishes it; only the structured verdicts below can. The
+        # provider's own error words are never the delivery, even when they are
+        # the last text the stream holds.
         finished = (exit_info.rc == 0 and summary.result is not None
                     and not summary.result.is_error)
         text = self._final_text(summary, transcript, notes, session_id) if finished else ""
-        delivered = finished and bool(text.strip())
+        delivered = finished and bool(text.strip()) and text.strip() not in {
+            error.strip() for error in summary.error_texts()}
 
         evidence: dict[str, Any] = {
             "rc": exit_info.rc,
