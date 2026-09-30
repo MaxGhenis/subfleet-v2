@@ -319,3 +319,77 @@ def test_c26_14_i4_a_turn_s_changes_name_the_conversation_that_wrote_beside_it(s
     whole = service.op_conversation_diff({"conversation_id": a_cid}, None)
     assert [s["title"] for s in whole["shared"]] == ["Beta", "Gamma"]
     assert service.op_conversation_diff({"conversation_id": c_cid}, None)["shared"] == []
+
+
+def started(daemon, attempt: dict, adir) -> dict:
+    """What `service._adopt` does for a turn attempt in `starting`: its runner records the
+    start (C-26.14), from the attempt joined with its job's sandbox."""
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE attempts SET state='starting' WHERE attempt_id=?", (attempt["attempt_id"],))
+        tx.execute("UPDATE jobs SET max_attempts=1 WHERE job_id=?", (attempt["job_id"],))   # as a turn job is
+    turn = json.loads((daemon.root / "jobs" / attempt["job_id"] / "manifest.json").read_text())["turn"]
+    daemon.conversations._record_start(turn, {**daemon.store.get_attempt(attempt["attempt_id"]),
+                                              "job_sandbox": "workspace-write"})
+    return daemon.store.get_attempt(attempt["attempt_id"])
+
+
+def test_c26_14_i4_a_turn_that_ended_unrecorded_stops_sharing_its_folder(state_daemon, monkeypatch):
+    """Review P3-5 of 5e9f2fbd, through the daemon's own paths: Alpha's runner recorded
+    its start, then its guardian never answered and nothing was there, so the attempt
+    ended `failed` (`starting-no-receipt`, `_unlaunched`) with no end recorded. Beta,
+    begun seconds after it ended, was marked as sharing the folder with Alpha "still
+    running". The service's tick closes Alpha's window at its attempt's `finished_at`
+    and unmarks Beta; Gamma, begun while Alpha was starting, keeps its mark; Alpha's
+    `turn.diff` says why it has no end snapshot. A quarantined turn's window stays open
+    (its writers may be live), and a row whose job retention has removed is closed now.
+    The step is one of the tick's."""
+    from datetime import datetime, timedelta
+    from subfleet.daemon import utcnow_ms
+    daemon, harness = state_daemon
+    service = daemon.conversations
+    alpha_began = utcnow_ms()
+    a_cid, a_mid, a_attempt, a_dir = turn_of(daemon, harness, "Alpha", alpha_began, first=True)
+    a_attempt = started(daemon, a_attempt, a_dir)
+    g_cid, g_mid, g_attempt, g_dir = turn_of(daemon, harness, "Gamma", alpha_began)
+    started(daemon, g_attempt, g_dir)
+    daemon._unlaunched(a_attempt, "starting-no-receipt")
+    ended = daemon.store.get_attempt(a_attempt["attempt_id"])
+    assert ended["state"] == "failed" and ended["finished_at"]
+    assert service.store.turn_trees(a_mid)["ended_at"] is None             # nothing recorded its end
+    later = (datetime.fromisoformat(ended["finished_at"].replace("Z", "+00:00")) + timedelta(seconds=2)
+             ).isoformat(timespec="milliseconds").replace("+00:00", "Z")        # past the second it ended in
+    b_cid, b_mid, b_attempt, b_dir = turn_of(daemon, harness, "Beta", later)
+    started(daemon, b_attempt, b_dir)
+    assert [s["title"] for s in service.op_turn_diff({"message_id": b_mid}, None)["shared"]] == ["Alpha", "Gamma"]
+    assert service.op_turn_diff({"message_id": b_mid}, None)["shared"][0]["to"] is None      # "still running"
+
+    q_cid, q_mid, q_attempt, q_dir = turn_of(daemon, harness, "Held", later)
+    q_attempt = started(daemon, q_attempt, q_dir)
+    daemon._quarantine(q_attempt, Containment(marker_pids=frozenset({42099})), "fixture")
+    service.store.record_trees(attempt_id="20260901-000000-pruned/a1", message_id="pruned", conversation_id="gone",
+                               workspace=str(harness.workdir), writable=True, started_at="2026-09-01T00:00:00Z",
+                               start_tree="t", target="/a/folder/of/its/own")
+    feed = service.store.changes_after(0)["next"]
+    swept: list[str] = []
+    real = service._close_ended_windows
+    for name in ("_lift_stale_fences", "_catalog_tick", "_dispatch", "_adopt_runners", "_replay_unsettled",
+                 "_settle_unstarted", "_reap_runners", "_compact"):
+        monkeypatch.setattr(service, name, lambda: None)
+    monkeypatch.setattr(service, "_close_ended_windows", lambda: (swept.append("tick"), real()))
+    service.tick()
+    assert swept == ["tick"]
+
+    alpha = service.store.turn_trees(a_mid)
+    assert alpha["ended_at"] == ended["finished_at"].replace("Z", ".999Z")
+    assert alpha["error"] == "the turn's attempt ended (failed) with no end recorded; no end snapshot"
+    a_diff = service.op_turn_diff({"message_id": a_mid}, None)
+    assert (a_diff["available"], a_diff["reason"]) == (False, "snapshot-failed")
+    assert [s["title"] for s in a_diff["shared"]] == ["Gamma"]
+    assert [s["title"] for s in service.op_turn_diff({"message_id": b_mid}, None)["shared"]] == ["Gamma", "Held"]
+    assert "Alpha" in [s["title"] for s in service.op_turn_diff({"message_id": g_mid}, None)["shared"]]
+    assert service.store.turn_trees(q_mid)["ended_at"] is None                 # quarantined: not ended
+    pruned = service.store.turn_trees("pruned")
+    assert pruned["ended_at"] and "no longer in the job store" in pruned["error"]
+    assert {a_mid, b_mid, "pruned"} <= {c["message_id"] for c in service.store.changes_after(feed)["changes"]}
+    assert service.store.open_windows() == [g_attempt["attempt_id"], b_attempt["attempt_id"],
+                                            q_attempt["attempt_id"]]

@@ -189,3 +189,134 @@ def test_i4_a_conversation_s_rows_from_before_the_windows_take_its_folder(tmp_pa
             first["target"], first["started_at"], besides_conversation="sub")] == ["top"]
     finally:
         store.close()
+
+
+@st.composite
+def schedules_with_lost_ends(draw):
+    """Turns whose start is recorded and whose end is recorded, lost, or not yet come.
+    A lost end is an attempt that ended (`finished_at`, whole seconds) with no end
+    recorded; the service notices it some ticks later and closes the window then."""
+    turns = []
+    for index in range(draw(st.integers(1, 6))):
+        start = draw(st.integers(0, 60))
+        recorded = start + draw(st.integers(0, 6))
+        fate = draw(st.sampled_from(["recorded", "lost", "open"]))
+        end = recorded + draw(st.integers(0, 12)) if fate != "open" else None
+        # Mostly writable turns in one folder, and closes noticed late, so that closes
+        # often drop marks that later turns' records made.
+        turns.append({"index": index, "folder": draw(st.sampled_from(["/repo", "/repo", "/repo", "/other"])),
+                      "writable": draw(st.sampled_from([True, True, True, False])), "legacy": False,
+                      "start": start, "recorded": recorded, "fate": fate, "end": end,
+                      "noticed": end + draw(st.integers(0, 60)) if fate == "lost" else None})
+    events = [(turn["recorded"], 0, "start", turn["index"]) for turn in turns]
+    events += [(turn["end"], 1, "end", turn["index"]) for turn in turns if turn["fate"] == "recorded"]
+    events += [(turn["noticed"], 2, "close", turn["index"]) for turn in turns if turn["fate"] == "lost"]
+    order = draw(st.permutations(range(len(events))))
+    events = [events[i] for i in order]
+    # One turn's own events keep their order (a close follows the start it closes);
+    # different turns' events at one instant come in any order.
+    events.sort(key=lambda event: (event[0], event[1]))
+    return turns, events
+
+
+def ms_window(turn: dict) -> tuple[int, float]:
+    """The oracle's window in milliseconds: a lost end is the last millisecond of the
+    second the job store stamped it in."""
+    start = turn["start"] * 250
+    if turn["fate"] == "recorded":
+        return start, turn["end"] * 250
+    if turn["fate"] == "lost":
+        return start, (turn["end"] * 250 // 1000) * 1000 + 999
+    return start, float("inf")
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(schedule=schedules_with_lost_ends())
+def test_i4_an_unrecorded_end_closed_later_leaves_exactly_the_marks_its_window_meets(tmp_path_factory, schedule):
+    """Review P3-5 of 5e9f2fbd: a turn whose attempt ended with no end recorded kept its
+    window open, so every later turn in its folder was marked as sharing it. Closed at
+    its attempt's end whenever that is noticed, before or after the others' records,
+    the marks are exactly the meetings of the windows the turns really had."""
+    turns, events = schedule
+    root = tmp_path_factory.mktemp("lost")
+    store = ConversationStore(root)
+    clock = {"now": ms(0)}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(store_module, "utcnow", lambda: clock["now"])
+        try:
+            for when, _, kind, index in events:
+                clock["now"] = ms(when)
+                turn = turns[index]
+                if kind == "close":
+                    assert store.end_unrecorded(f"20260929-120000-turn-{index}/a1", ended_at=seconds(turn["end"]),
+                                                error="ended unrecorded")
+                else:
+                    record(store, turn, ended=kind == "end")
+            dropped = 0
+            for turn in turns:
+                row = store_module._decode_trees(store.one("SELECT * FROM turn_trees WHERE attempt_id=?",
+                                                           (f"20260929-120000-turn-{turn['index']}/a1",)))
+                a_start, a_end = ms_window(turn)
+                want = sorted(f"20260929-120000-turn-{other['index']}/a1" for other in turns
+                              if other is not turn and turn["writable"] and other["writable"]
+                              and other["folder"] == turn["folder"]
+                              and a_start <= ms_window(other)[1] and ms_window(other)[0] <= a_end)
+                assert row["shared"] == want, (turn, turns, events)
+                if turn["fate"] == "lost":
+                    assert row["error"] == "ended unrecorded" and row["ended_at"]
+                    # Marks the open window made that its close had to drop: a turn begun
+                    # after the end, whose start was recorded before the close.
+                    dropped += sum(other["start"] * 250 > a_end and other["recorded"] <= turn["noticed"]
+                                   and other["writable"] and turn["writable"] and other["folder"] == turn["folder"]
+                                   for other in turns)
+            event(f"marks a close dropped: {min(dropped, 3)}{'+' if dropped >= 3 else ''}")
+        finally:
+            store.close()
+
+
+def test_i4_closing_an_unrecorded_end_unmarks_later_turns_and_tells_the_app(tmp_path):
+    """The reviewer's case: a turn with no end, and one of another conversation a day
+    later marked as sharing its folder with it "still running". Closing the first at its
+    attempt's end drops the mark on both sides and writes a change-feed row for each
+    message, so the app fetches their changes again; a turn that did meet it keeps its
+    mark, and a second close changes nothing."""
+    store = ConversationStore(tmp_path / "state")
+    try:
+        common = {"workspace": "/repo", "writable": True, "start_tree": "t", "target": "/repo"}
+        store.record_trees(attempt_id="20260928-120000-lost/a1", message_id="lost", conversation_id="a",
+                           started_at="2026-09-28T12:00:00Z", window_start="2026-09-28T12:00:00.000Z", **common)
+        store.record_trees(attempt_id="20260928-120002-beside/a1", message_id="beside", conversation_id="b",
+                           started_at="2026-09-28T12:00:02Z", window_start="2026-09-28T12:00:02.000Z", **common)
+        store.record_trees(attempt_id="20260929-120000-later/a1", message_id="later", conversation_id="c",
+                           started_at="2026-09-29T12:00:00Z", window_start="2026-09-29T12:00:00.000Z", **common)
+        assert store.turn_trees("later")["shared"] == ["20260928-120000-lost/a1", "20260928-120002-beside/a1"]
+        feed = store.changes_after(0)["next"]
+        assert store.open_windows() == ["20260928-120000-lost/a1", "20260928-120002-beside/a1",
+                                        "20260929-120000-later/a1"]
+        assert store.end_unrecorded("20260928-120000-lost/a1", ended_at="2026-09-28T12:05:00Z",
+                                    error="the turn's attempt ended (failed) with no end recorded; no end snapshot")
+        lost = store.turn_trees("lost")
+        assert lost["ended_at"] == "2026-09-28T12:05:00.999Z" and lost["shared"] == ["20260928-120002-beside/a1"]
+        assert store.turn_trees("later")["shared"] == ["20260928-120002-beside/a1"]
+        assert store.turn_trees("beside")["shared"] == ["20260928-120000-lost/a1", "20260929-120000-later/a1"]
+        assert {change["message_id"] for change in store.changes_after(feed)["changes"]} == {"lost", "later"}
+        assert all(change["state"] is None for change in store.changes_after(feed)["changes"])
+        assert store.open_windows() == ["20260928-120002-beside/a1", "20260929-120000-later/a1"]
+        after = store.changes_after(feed)["next"]
+        assert not store.end_unrecorded("20260928-120000-lost/a1", ended_at="2026-09-28T12:06:00Z", error="again")
+        assert store.turn_trees("lost")["ended_at"] == "2026-09-28T12:05:00.999Z"
+        assert store.changes_after(after)["changes"] == []
+        assert not store.end_unrecorded("20260101-000000-never/a1", ended_at="2026-09-28T12:06:00Z", error="none")
+        # A recorded end that arrives afterwards keeps the first end and the error that explained it.
+        store.record_trees(attempt_id="20260928-120000-lost/a1", message_id="lost", conversation_id="a",
+                           started_at="2026-09-28T12:00:00Z", ended=True, **common)
+        assert store.turn_trees("lost")["ended_at"] == "2026-09-28T12:05:00.999Z"
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("stamp,end", [("2026-09-28T12:05:00Z", "2026-09-28T12:05:00.999Z"),
+                                       ("2026-09-28T12:05:00.250Z", "2026-09-28T12:05:00.250Z"),
+                                       ("2026-09-28T08:05:00-04:00", "2026-09-28T12:05:00.999Z")])
+def test_i4_an_end_in_whole_seconds_reaches_the_second_s_last_millisecond(stamp, end):
+    assert store_module._last_millisecond(stamp) == end

@@ -979,6 +979,38 @@ class ConversationService:
             start_tree=attempt.get("baseline_tree") if writable else None,
             target=evidence.get("folder"), window_start=evidence.get("baseline_at"))
 
+    def _close_ended_windows(self) -> None:
+        """C-26.14, I4: a turn whose attempt has ended has an end (review P3-5 of 5e9f2fbd).
+
+        Finalization and a quarantine's release record a turn's end. An attempt can
+        end by another path (one never launched, `daemon._unlaunched`, after its
+        runner recorded the start), and a row from an earlier build may have lost
+        its end. Its window stayed open for good, so every later writable turn of
+        another conversation in its folder read as sharing it with a turn "still
+        running". Each tick closes such a window at the attempt's `finished_at`
+        and drops the marks it no longer meets (`store.end_unrecorded`); the first
+        tick after the daemon starts does it for the rows it finds. A quarantined
+        attempt has not ended: its writers may still be live, and its folder is
+        still held, so its window stays open until its release records the end.
+        One whose job retention has since removed is closed now, which keeps every
+        mark its open window made, as its end is not known."""
+        open_ids = self.store.open_windows()
+        attempts: dict[str, dict] = {}
+        for first in range(0, len(open_ids), 500):
+            chunk = open_ids[first:first + 500]
+            attempts.update((row["attempt_id"], row) for row in self.daemon.store.query(
+                f"SELECT attempt_id, state, finished_at FROM attempts WHERE attempt_id IN ({','.join('?' * len(chunk))})",
+                tuple(chunk)))
+        for aid in open_ids:
+            attempt = attempts.get(aid)
+            if attempt is None:
+                self.store.end_unrecorded(aid, ended_at=utcnow(), error="the turn's end was never recorded, and "
+                                          "its job is no longer in the job store; no end snapshot")
+            elif attempt["state"] in ATTEMPT_ENDED:
+                self.store.end_unrecorded(aid, ended_at=attempt["finished_at"] or utcnow(),
+                                          error=f"the turn's attempt ended ({attempt['state']}) with no end "
+                                                "recorded; no end snapshot")
+
     def _shared_view(self, rows: list[dict]) -> list[dict]:
         """C-26.14: the turns another conversation ran in the folder, one entry per
         conversation, oldest first: its title now, its messages, and when it wrote
@@ -1418,7 +1450,8 @@ class ConversationService:
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
         for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
-                     self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
+                     self._replay_unsettled, self._settle_unstarted, self._close_ended_windows, self._reap_runners,
+                     self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
             try:

@@ -20,7 +20,7 @@ import stat
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -347,6 +347,8 @@ class ConversationStore:
             if column not in columns:
                 self._db.execute(f"ALTER TABLE turn_trees ADD COLUMN {column} TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS turn_trees_by_target ON turn_trees(target, ended_at)")
+        # The rows with no end yet, which the service looks at on every tick (`open_windows`).
+        self._db.execute("CREATE INDEX IF NOT EXISTS turn_trees_open ON turn_trees(attempt_id) WHERE ended_at IS NULL")
         # Every open, not only the one that added the column: an open cut short
         # between the two statements leaves no row without its folder for long.
         self._db.execute("UPDATE turn_trees SET target=workspace WHERE target IS NULL")
@@ -1313,9 +1315,10 @@ class ConversationStore:
         recording transaction, so whichever of two turns is recorded second sees
         the first: a pair is marked when its later row is written, whatever order
         the starts and ends arrive in (a start is recorded when its runner is
-        adopted, possibly after another turn has ended). Marks are only ever
-        added, since a window only ever gains its end. Returns the messages whose
-        marks grew."""
+        adopted, possibly after another turn has ended). Here marks are only ever
+        added, since a recorded window only ever gains its end; a window closed
+        after the fact at an earlier end drops the marks it no longer meets
+        (`end_unrecorded`). Returns the messages whose marks grew."""
         row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
         if row is None or not row["writable"]:
             return set()
@@ -1344,6 +1347,58 @@ class ConversationStore:
         if (row["conversation_id"], row["message_id"]) in grown:
             tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?", (json.dumps(sorted(mine)), attempt_id))
         return grown
+
+    def open_windows(self) -> list[str]:
+        """The attempts whose turn has no recorded end, oldest first."""
+        return [row["attempt_id"] for row in
+                self.query("SELECT attempt_id FROM turn_trees WHERE ended_at IS NULL ORDER BY rowid")]
+
+    def end_unrecorded(self, attempt_id: str, *, ended_at: str, error: str) -> bool:
+        """C-26.14, I4: close the window of a turn whose attempt ended with no end
+        recorded, at the end the job store gave the attempt (`finished_at`), with
+        `error` as why it has no end snapshot. The window had been open, so every
+        writable turn of another conversation in its folder that began after it
+        was marked as sharing it; the marks the closed window no longer meets are
+        dropped, on both sides (review P3-5 of 5e9f2fbd: a turn a day later read
+        as sharing the folder with one "still running"). One change-feed row goes
+        to its message and to each message whose marks changed, `state` null, as
+        a recorded end's does. A stamp in whole seconds (the job store's) is taken
+        to its last millisecond, so no turn that met the attempt goes unmarked.
+        False when the row has an end already (it was recorded meanwhile) or none."""
+        with self.transaction() as tx:
+            row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if row is None or row["ended_at"]:
+                return False
+            tx.execute("UPDATE turn_trees SET ended_at=?, error=COALESCE(error, ?) WHERE attempt_id=?",
+                       (_last_millisecond(ended_at), error, attempt_id))
+            changed = self._drop_unmet(tx, attempt_id)
+            changed.discard((row["conversation_id"], row["message_id"]))
+            self._change(tx, row["conversation_id"], row["message_id"], None)
+            for other_conversation, other_message in sorted(changed):
+                self._change(tx, other_conversation, other_message, None)
+        return True
+
+    def _drop_unmet(self, tx: sqlite3.Connection, attempt_id: str) -> set[tuple[str, str]]:
+        """Unmark this turn and each turn marked as sharing its folder whose window
+        no longer meets its own; the messages whose marks changed."""
+        row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+        mine = set(json.loads(row["shared_json"] or "[]"))
+        if not mine:
+            return set()
+        start, end = _window(row)
+        changed: set[tuple[str, str]] = set()
+        for other in tx.execute(f"SELECT * FROM turn_trees WHERE attempt_id IN ({','.join('?' * len(mine))})",
+                                tuple(mine)).fetchall():
+            if overlaps(start, end, *_window(other)):
+                continue
+            mine.discard(other["attempt_id"])
+            theirs = set(json.loads(other["shared_json"] or "[]")) - {attempt_id}
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?",
+                       (json.dumps(sorted(theirs)), other["attempt_id"]))
+            changed |= {(other["conversation_id"], other["message_id"]), (row["conversation_id"], row["message_id"])}
+        if changed:
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?", (json.dumps(sorted(mine)), attempt_id))
+        return changed
 
     def overlapping(self, target: str, start: str, *, besides_conversation: str) -> list[dict]:
         """The writable turns of other conversations in `target` whose windows reach
@@ -1576,6 +1631,19 @@ def _stamp(value: str | datetime | None) -> str | None:
         return _instant(value).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     except (TypeError, ValueError):
         return None
+
+
+def _last_millisecond(value: str) -> str:
+    """This store's stamp for an end the job store stamped: one in whole seconds fell
+    somewhere in that second, so it is taken to the second's last millisecond. One that
+    does not parse is now, which drops no mark the open window made."""
+    try:
+        instant = _instant(value)
+    except (TypeError, ValueError):
+        return utcnow()
+    if "." not in value:
+        instant += timedelta(milliseconds=999)
+    return _stamp(instant)
 
 
 def _window(row) -> tuple[datetime, datetime | None]:
