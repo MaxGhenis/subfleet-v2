@@ -22,10 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "Linux 3.12 serial", os: ubuntu-24.04, python: "3.12", xdist: "" }
-          - { name: "Linux 3.14 serial", os: ubuntu-24.04, python: "3.14", xdist: "" }
-          - { name: "Linux 3.14 xdist", os: ubuntu-24.04, python: "3.14", xdist: "-n auto" }
-          - { name: "macOS 3.14 xdist", os: macos-15, python: "3.14", xdist: "-n auto" }
+          # Round 2: Linux with pytest's temp root outside /tmp (the product refuses
+          # /tmp workdirs, C-2.4, and macOS's temp root is /private/var/folders), and
+          # repeat macOS xdist samples on both interpreters for flakiness.
+          - { name: "Linux 3.14 xdist, basetemp off /tmp", os: ubuntu-24.04, python: "3.14", xdist: "-n auto", basetemp: true }
+          - { name: "macOS 3.14 xdist, sample 2", os: macos-15, python: "3.14", xdist: "-n auto", basetemp: false }
+          - { name: "macOS 3.12 xdist, sample 1", os: macos-15, python: "3.12", xdist: "-n auto", basetemp: false }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -46,10 +48,8 @@ jobs:
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
       - name: Suite
         run: |
-          if [ -n "${{ matrix.xdist }}" ]; then
-            uv run --no-sync --with 'pytest-xdist==3.8.0' pytest -q -rfEs --durations=60 ${{ matrix.xdist }}
-          else
-            uv run --no-sync pytest -q -rfEs --durations=60
-          fi
+          extra=""
+          if [ "${{ matrix.basetemp }}" = true ]; then extra="--basetemp=$RUNNER_TEMP/pytest"; fi
+          uv run --no-sync --with 'pytest-xdist==3.8.0' pytest -q -rfEs --durations=60 ${{ matrix.xdist }} $extra
         env:
           SUBFLEET_LIVE: "0"
