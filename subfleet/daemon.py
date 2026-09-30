@@ -583,6 +583,7 @@ class Daemon:
         self._last_desktop_hint: str | None = None                          # C-10.3, `_desktop_identity`
         self._last_desktop: capacity.DesktopIdentity | None = None          # C-10.3, the last one judged by
         self._hold_checks: dict[str, Callable[[Any, Any], str | None]] = {}  # C-6.9, `_prepare_route`
+        self._notice_final: dict[str, str] = {}                             # C-23.44, `_notice`
         # C-6.11: why the last pass did not place each job it left, and when
         # admission last placed anything. Replaced whole at the end of a pass:
         # C-26.9's turn pass and the detached pass each replace their own, and
@@ -2601,7 +2602,7 @@ class Daemon:
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
-    def _notice(self, tx, job: dict, summary: str, *, final: str | None = None) -> None:
+    def _notice(self, tx, job: dict, summary: str) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
 
         The header is read here, from the job row as this transaction left it,
@@ -2625,7 +2626,9 @@ class Daemon:
             return
         # C-23.44: a lane an attempt of this job found auth-dead was disabled and the job
         # moved on from it; its caller hears of it here, whatever the end (a cancel while
-        # the retry waited included). `final` is the attempt `summary` already names.
+        # the retry waited included). `_notice_final` names the attempt `summary` already
+        # names (`_finalize` sets it; the signature stays the one callers and tests patch).
+        final = self._notice_final.pop(job["job_id"], None)
         dead = tx.execute("SELECT seq,lane_id FROM attempts WHERE job_id=? AND attempt_id IS NOT ? "
                           "AND outcome_class='auth-dead' ORDER BY seq", (job["job_id"], final)).fetchall()
         if dead:
@@ -5368,7 +5371,8 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
-                self._notice(tx, job, summary, final=a["attempt_id"])
+                self._notice_final[job["job_id"]] = a["attempt_id"]
+                self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
             self._boundary("notice", a["job_id"], a["attempt_id"])
