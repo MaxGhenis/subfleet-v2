@@ -62,6 +62,22 @@ make it again.
 | N6: every published archive kept its progress log | About 357 bytes per stored file, redundant with the manifest | Removed at publish (section 3) |
 | N9: retention's children ran at the operator's priority | `lsof`, git and the object readers spawned directly by a default-QoS daemon | Each starts under `taskpolicy -c utility`; the in-process steps lower their thread's disk I/O policy (section 12) |
 
+The build was then reviewed (`~/reviews/retention-2026-09-28/r4-evidence/review-opus.md`,
+REQUEST CHANGES), and these followed:
+
+| Finding | As first built | Now |
+|---|---|---|
+| 1: a wheel built from a patched source and installed with `--find-links` vouched for its patched files | No `direct_url.json` meant "from an index" | Only uv's installs from an index or a network URL vouch: `INSTALLER` uv, no `uv_cache.json` (uv's mark of a local source), no local `direct_url.json`; pip's installs vouch for nothing (section 7) |
+| 2: a job submitted from another job's tree root was deferred hourly for ever once that job was gone | `nested_hosts` used strict containment, `begin` did not | One host check (`host_absent`), strict; a host tree that is there holds nothing up; a gone host keeps the job a day at a time with a reason that says what brings the registration back (section 4) |
+| 3: a network remote with no remote-tracking ref skipped the history limit | Any network remote did | A remote holding no ref counts as none (section 4) |
+| 4: an over-limit repository was measured again for each of its jobs | Measured per job and heads | Once a pass per repository once over |
+| 6: the survey diverged from a pass | No idle journal size, no host check for a tree that is gone | Both, through the same host check |
+| 7: the `nested-host` pin did not say what it waited for | `nested-host` | `nested-host: <jobs>` |
+
+Finding 5 (a remnant's `index` and `logs/` name objects that are not
+anchored) is left as it is: the remnant's repository has lost its `HEAD` and
+`config` in every live case, and the bytes are archived.
+
 ### Revision 3 (review of a9a6cbf4 and the disk-relief correction)
 
 | Finding | Revision 2 | Revision 3 |
@@ -140,14 +156,23 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
      what a temporary directory's cleaner leaves of a clone whose files it
      deleted) is no registration: the job goes on without one, and the
      remnant's bytes are archived as the admin tree and removed with it.
-   - A job whose registration is inside another job's tree, which is not
-     there (in quarantine, or gone), is kept (`nested-host`, 1 hour): retired
-     now it would have no anchor and no bundle of its own. Section 10 pins
-     the host so that this does not happen.
-   - With no network remote, the bundle is the whole history HEAD, the
+   - A job whose registration (its gitfile's admin directory, or, when its
+     tree is gone, its source directory) is strictly inside another job's
+     tree, which is not there, is kept (`nested-host`): retired now it would
+     have no anchor and no bundle of its own. While that job is retiring (it
+     has rows or a journal) the wait is an hour; once it is gone for good, a
+     day at a time, with a reason naming the tree and saying that restoring
+     its archive brings the registration back. A source directory that is a
+     tree's root registers its worktrees in its own repository, outside the
+     tree, and a host tree that is there but lacks the registration has
+     nothing to wait for: both go on. Section 10 pins the host so that this
+     does not happen in the ordinary course.
+   - With no network remote, or none with a remote-tracking ref (a remote
+     added but never fetched), the bundle is the whole history HEAD, the
      baseline and the salvage commits reach, paid again by every job. Its
-     size is measured first (`rev-list --objects --disk-usage`, once per
-     repository and heads in a pass); above `retention.remote_less_history_bytes`
+     size is measured first (`rev-list --objects --disk-usage`; once a
+     repository is over the limit in a pass, its other jobs are kept on that
+     measure); above `retention.remote_less_history_bytes`
      (default 64 MiB; 0 keeps every such job with history) the job is kept for
      a day, `remote-less-history <size>`, before anything moves. A bundle that
      comes out over the limit although the measure said less (it also carries
@@ -294,7 +319,7 @@ path for the archive and the survey):
 
   | Kind | A file is dropped only if |
   |---|---|
-  | virtualenv, and each `.tox` environment | an installed distribution's `*.dist-info/RECORD` lists it (paths relative to `site-packages`, `../../../bin/<script>` included) with a sha256 its bytes match, and a size, if listed, equal to its own. The archive reads the file to check (`Verify`, recorded in the manifest with the sha256). A distribution installed from a local path vouches for nothing: PEP 610's `direct_url.json` naming no network URL (an editable install, a local wheel or directory), since its source may be the only copy. A path two distributions list differently is left out. A `RECORD`, listed without a hash as the wheel format requires, goes only when every other file of its `dist-info` directory verifies, so a restore never leaves a distribution half there (pip and uv read a `dist-info` holding only a RECORD as broken). Or it is bytecode, as below |
+  | virtualenv, and each `.tox` environment | an installed distribution's `*.dist-info/RECORD` lists it (paths relative to `site-packages`, `../../../bin/<script>` included) with a sha256 its bytes match, and a size, if listed, equal to its own. The archive reads the file to check (`Verify`, recorded in the manifest with the sha256). Only a distribution uv installed from a package index or a network URL vouches: its `INSTALLER` is `uv`, it has no `uv_cache.json` (uv writes one for a local source: a path, a directory, a local `--find-links` wheel; none of 3,415 live index installs has one, all 74 live editable installs do) and no `direct_url.json` naming a local URL (PEP 610). One from a local source, whose source may be the only copy (a wheel built from a patched checkout in /tmp and installed with `--find-links`), vouches for nothing; nor does one pip installed, since pip marks a local `--find-links` no differently from an index. A path two distributions list differently is left out. A `RECORD`, listed without a hash as the wheel format requires, goes only when every other file of its `dist-info` directory verifies, so a restore never leaves a distribution half there (pip and uv read a `dist-info` holding only a RECORD as broken). Or it is bytecode, as below |
   | `__pycache__` (anywhere a directory by that name is, and inside a virtualenv) | it is a `.pyc` or `.pyo` whose first four bytes are a magic number (two bytes, then CR LF) and whose source, `<module>.py`, is a regular file beside the `__pycache__` folder (pytest's rewritten `<module>.cpython-314-pytest-9.1.1.pyc` included) |
   | `node_modules` | it is a regular file inside one of the tool's entries (a package, a scope, `.bin`, `.pnpm`), and neither its mtime nor its ctime is later than the package manager's install marker (`.package-lock.json`, `.modules.yaml`, `.yarn-integrity`, `.yarn-state.yml`, the earliest of their mtimes and ctimes). Without a marker, nothing there is dropped |
   | `.pytest_cache` | it is `v/cache/nodeids`, `v/cache/lastfailed` or `v/cache/stepwise` |
@@ -396,7 +421,7 @@ cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
 inside the commit transaction); a turn job within `turn_keep_days`; an
 explicit reference; another job's worktree is registered in a repository
-inside its tree and that job still has rows (`nested-host`: which job each
+inside its tree and that job still has rows (`nested-host: <those jobs>`: which job each
 owned worktree's gitfile names is read once per pass, and a job whose tree is
 gone counts as hosted by the tree its source directory is in; asked again
 inside the commit transaction, so a host already in flight is put back). The
@@ -586,6 +611,9 @@ descriptors, and deliberately adversarial same-user tricks):
   its mtime and ctime are then before the install marker (section 7). No live
   job tree holds a `node_modules` (2026-09-30); without a marker nothing there
   is dropped.
+- Not tested: a distribution uv installs from a package index on this machine
+  (a `file://` index). If uv marks it no differently from a remote index, its
+  RECORD vouches for files whose only source is that local index.
 - A remote-tracking ref whose commit the remote itself later dropped (a
   force-push, then the server's gc): omission counted such a commit as held.
   The source repository keeps its objects while it exists.
@@ -641,6 +669,7 @@ finding:
 | N6, no progress log published | `test_a_published_archive_keeps_no_progress_log` |
 | N9, below the operator's apps | `test_every_child_retention_starts_is_clamped`, `test_the_clamp_follows_its_setting[4]`, `test_a_clamped_git_runs`, `test_the_threads_disk_io_is_lowered_and_put_back`, `test_the_archive_and_the_deletion_run_throttled` |
 
+| Review of the revision-4 build | `test_installed_files_are_dropped_only_as_their_record_says` (a local `--find-links` install, a pip install), the property test's `findlinks` and `pip` cases, `test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that`, `test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went`, `test_a_host_that_is_there_without_the_registration_holds_nothing_up`, `test_a_remote_that_holds_nothing_counts_as_none`, `test_a_repositorys_history_is_measured_once_a_pass`, `test_the_survey_remembers_a_bundle_that_came_out_over_the_limit` |
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each
