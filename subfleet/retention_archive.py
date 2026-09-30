@@ -337,7 +337,8 @@ class Retirement:
     def _remote_less_history(self, common: Path, reg: rgit.Registration | None, heads: list[str | None],
                              seen: int = 0) -> None:
         """Keep a job whose source repository has no network remote (or none
-        with a remote-tracking ref: a remote added but never fetched) when its
+        whose remote-tracking refs reach any of the job's history: a remote
+        added but never fetched, or fetched only for `gh-pages`) when its
         bundle would carry more than `remote_less_history_bytes` of history:
         nothing holds any of it elsewhere, so the bundle is every object HEAD,
         the baseline and the salvage commits reach, paid again by each job
@@ -350,12 +351,13 @@ class Retirement:
             return
         try:
             remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
-            if rgit.holds_anything(common, remotes, cancel=self.ctx.cancel):
+            if reg is not None:
+                heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
+            if remotes and rgit.holds_history(common, remotes, heads, timeout=self.ctx.git_timeout_s,
+                                              cancel=self.ctx.cancel):
                 return
             size = self.ctx.history_over.get(str(common))
             if size is None:
-                if reg is not None:
-                    heads = [rgit.resolve(reg.admin, "HEAD", cancel=self.ctx.cancel), *heads]
                 key = (str(common), tuple(sorted({h for h in heads if h})))
                 if key not in self.ctx.history:
                     self.ctx.history[key] = rgit.history_bytes(common, key[1], [], timeout=self.ctx.git_timeout_s,
@@ -1371,8 +1373,8 @@ class _Builder:
                                cancel=self.ctx.cancel)
             limit = self.ctx.remote_less_history_bytes
             size = temporary.stat().st_size
-            if limit is not None and size > limit and not rgit.holds_anything(common, remotes,
-                                                                              cancel=self.ctx.cancel):
+            if limit is not None and size > limit and not (remotes and rgit.holds_history(
+                    common, remotes, [anchor], timeout=self.ctx.git_timeout_s, cancel=self.ctx.cancel)):
                 # git's measure before the bundle said less; the bundle decides,
                 # and the next attempt's check remembers it (N1).
                 temporary.unlink()

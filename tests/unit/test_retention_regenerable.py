@@ -159,8 +159,6 @@ def regenerable_tree(wt: Path) -> dict[str, tuple[str, set[str]]]:
     sp = ".venv/lib/python3.14/site-packages"
     return {
         ".venv": ("venv", {".venv/bin/pkg-tool", f"{sp}/pkg", f"{sp}/pkg-1.0.dist-info"}),
-        "web/node_modules": ("node_modules", {"web/node_modules/left-pad", "web/node_modules/@types",
-                                              "web/node_modules/.bin"}),
         "src/__pycache__": ("pycache", {"src/__pycache__"}),
         ".pytest_cache": ("pytest_cache", {".pytest_cache/v"}),
         ".ruff_cache": ("ruff_cache", {".ruff_cache/0.16.9"}),
@@ -393,7 +391,7 @@ def test_installed_files_are_dropped_only_as_their_record_says(world):
     assert manifest_fates == {f"{sp}/local/b.py": "stored", f"{sp}/local-1.0.dist-info/RECORD": "stored",
                               f"{sp}/touched/c.py": "dropped", f"{sp}/touched-1.0.dist-info/METADATA": "stored",
                               f"{sp}/touched-1.0.dist-info/RECORD": "stored",
-                              f"{sp}/touched-1.0.dist-info/WHEEL": "dropped"}, manifest_fates
+                              f"{sp}/touched-1.0.dist-info/WHEEL": "stored"}, manifest_fates   # whole or not at all
 
 
 def test_bytecode_needs_its_magic_number_and_its_source(tmp_path):
@@ -415,33 +413,61 @@ def test_bytecode_needs_its_magic_number_and_its_source(tmp_path):
                         "gone.cpython-314.pyc": False, "data.cpython-314.pyc": False}
 
 
-def test_a_package_file_changed_after_the_install_is_archived(world):
-    """`node_modules`: a file inside a package goes only if neither its
-    content nor its inode changed after the package manager's install marker
-    (mtime and ctime), so an edit is archived even with its mtime put back;
-    without a marker nothing there goes."""
+def test_nothing_under_node_modules_is_dropped(world):
+    """`node_modules`: no package manager keeps a hash of each file it
+    unpacks, and a rule by time (nothing written or changed after the install
+    marker) drops an agent's edit to an installed package once a later install
+    rewrites the marker and leaves the package in place (review of the
+    revision-4 build). So nothing there is dropped, marker or not; no live job
+    tree holds a `node_modules`."""
     w = world
     wt = w.job("job-node")
-    ignore(wt, "node_modules/", "other/node_modules/")
+    ignore(wt, "node_modules/")
     write(wt / "package.json", "{}\n")
-    write(wt / "node_modules" / "lib" / "package.json", "{}\n")
-    write(wt / "node_modules" / "lib" / "index.js", "installed\n")
-    write(wt / "node_modules" / "lib" / "edited.js", "installed\n")
-    write(wt / "node_modules" / ".package-lock.json", "{}\n")
+    write(wt / "node_modules" / "foo" / "package.json", "{}\n")
+    write(wt / "node_modules" / "foo" / "index.js", "hand-patched before a later install\n")
     time.sleep(0.05)
-    edited = wt / "node_modules" / "lib" / "edited.js"
-    st = edited.stat()
-    edited.write_text("edited after the install\n")
-    os.utime(edited, ns=(st.st_atime_ns, st.st_mtime_ns))                       # mtime put back; ctime moves
-    write(wt / "other" / "package.json", "{}\n")
-    write(wt / "other" / "node_modules" / "lib" / "package.json", "{}\n")      # no install marker
+    write(wt / "node_modules" / "left-pad" / "package.json", "{}\n")        # `npm install left-pad`
+    write(wt / "node_modules" / ".package-lock.json", "{}\n")
     assert run(w)["pruned"] == ["job-node"]
-    fates = _fates(manifest_of(w, "job-node"), ["node_modules/lib/index.js", "node_modules/lib/edited.js",
-                                                "node_modules/.package-lock.json",
-                                                "other/node_modules/lib/package.json"])
-    assert fates == {"node_modules/lib/index.js": "dropped", "node_modules/lib/edited.js": "stored",
-                     "node_modules/.package-lock.json": "stored",
-                     "other/node_modules/lib/package.json": "stored"}, fates
+    manifest = manifest_of(w, "job-node")
+    assert not any(e.get("regen") for p, e in entries(manifest).items() if p.startswith("node_modules"))
+    assert _fates(manifest, ["node_modules/foo/index.js"]) == {"node_modules/foo/index.js": "stored"}
+
+
+def test_a_dist_info_goes_whole_or_not_at_all(world):
+    """Review of the revision-4 build: a dist-info holding one file its RECORD
+    does not list keeps all of its files, so a restore never yields a
+    distribution half there; the distribution's own files still go."""
+    w = world
+    wt = w.job("job-distinfo")
+    ignore(wt, ".venv/")
+    write(wt / ".venv" / "pyvenv.cfg", "home = /usr/bin\n")
+    info = install(wt / ".venv", "dep", {"dep/a.py": b"a\n"})
+    write(wt / ".venv" / info / "extra.txt", "not in the RECORD\n")
+    assert run(w)["pruned"] == ["job-distinfo"]
+    listed = entries(manifest_of(w, "job-distinfo"))
+    sp = ".venv/lib/python3.14/site-packages"
+    assert listed[f"{sp}/dep/a.py"].get("regen")
+    for name in ("METADATA", "WHEEL", "INSTALLER", "RECORD", "extra.txt"):
+        assert listed[f".venv/{info}/{name}"].get("store"), name
+
+
+def test_an_install_from_a_server_on_this_machine_vouches_for_nothing(world):
+    """Review of the revision-4 build: a wheel served from /tmp by a server on
+    this machine is no copy elsewhere."""
+    w = world
+    wt = w.job("job-loopback")
+    ignore(wt, ".venv/")
+    write(wt / ".venv" / "pyvenv.cfg", "home = /usr/bin\n")
+    sp = ".venv/lib/python3.14/site-packages"
+    for n, url in enumerate(["http://127.0.0.1:8000/foo-1.0-py3-none-any.whl", "http://localhost/x.whl",
+                             "https://mac.local/y.whl"]):
+        install(wt / ".venv", f"served{n}", {f"served{n}/m.py": b"patched\n"}, url=url)
+    install(wt / ".venv", "pypi", {"pypi/m.py": b"x\n"}, url="https://files.pythonhosted.org/p/pypi-1.0.whl")
+    assert run(w)["pruned"] == ["job-loopback"]
+    fates = _fates(manifest_of(w, "job-loopback"), [f"{sp}/served{n}/m.py" for n in range(3)] + [f"{sp}/pypi/m.py"])
+    assert fates == {**{f"{sp}/served{n}/m.py": "stored" for n in range(3)}, f"{sp}/pypi/m.py": "dropped"}, fates
 
 
 def test_a_tool_caches_own_files_are_dropped_and_nothing_else(world):

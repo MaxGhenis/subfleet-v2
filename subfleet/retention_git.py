@@ -254,13 +254,17 @@ def object_format(common: Path, cancel: threading.Event | None = None) -> str:
 
 # --- what is held elsewhere --------------------------------------------------------
 
-_SCP = re.compile(r"^[A-Za-z0-9._~-]+@[A-Za-z0-9.-]+:(?!/)")
-_URL = re.compile(r"^(https?|ssh|git|git\+ssh|ssh\+git)://[^/]+/", re.IGNORECASE)
+_SCP = re.compile(r"^[A-Za-z0-9._~-]+@([A-Za-z0-9.-]+):(?!/)")
+_URL = re.compile(r"^(?:https?|ssh|git|git\+ssh|ssh\+git)://([^/]+)/", re.IGNORECASE)
 
 
 def network_url(url: str) -> bool:
-    """A remote on another machine: a URL with a host, or scp-like ``user@host:path``."""
-    return bool(_URL.match(url) or _SCP.match(url))
+    """A remote on another machine: a URL with a host, or scp-like
+    ``user@host:path``, whose host is not this one (`localhost`, a loopback
+    address, a `.local` name: a clone on the same disk holds nothing
+    elsewhere; review of the revision-4 build)."""
+    match = _URL.match(url) or _SCP.match(url)
+    return match is not None and not rfs.this_machine(match.group(1))
 
 
 def network_remotes(common: Path, cancel: threading.Event | None = None) -> dict[str, str]:
@@ -275,14 +279,27 @@ def network_remotes(common: Path, cancel: threading.Event | None = None) -> dict
     return remotes
 
 
-def holds_anything(common: Path, remotes: dict[str, str], cancel: threading.Event | None = None) -> bool:
-    """Whether any remote-tracking ref of `remotes` exists: a remote added but
-    never fetched holds nothing, and a bundle against it is the whole history."""
+def holds_history(common: Path, remotes: dict[str, str], heads: Iterable[str | None], *,
+                  timeout: float = 600, cancel: threading.Event | None = None) -> bool:
+    """Whether the remote-tracking refs of `remotes` reach any commit of the
+    heads' history (`merge-base` of a head and every tip finds one). A remote
+    added but never fetched, or fetched only for an unrelated branch
+    (`gh-pages`), holds none of it, and a bundle against it is the whole
+    history (review of the revision-4 build)."""
     if not remotes:
         return False
-    out = run(["for-each-ref", "--count=1", "--format=%(refname)",
-               *[f"refs/remotes/{name}/" for name in sorted(remotes)]], git_dir=common, cancel=cancel).stdout
-    return bool(out.strip())
+    tips = sorted(set(run(["for-each-ref", "--format=%(objectname)",
+                           *[f"refs/remotes/{name}/" for name in sorted(remotes)]], git_dir=common, timeout=timeout,
+                          cancel=cancel).stdout.decode().split()))
+    commits = sorted(classify(common, [h for h in heads if h], timeout=timeout, cancel=cancel)["commit"])
+    if not tips or not commits:
+        return False
+    for i in range(0, len(tips), 256):
+        for commit in commits:
+            if run(["merge-base", commit, *tips[i:i + 256]], git_dir=common, ok=(0, 1), timeout=timeout,
+                   cancel=cancel).returncode == 0:
+                return True
+    return False
 
 
 def held_arguments(remotes: dict[str, str]) -> list[str]:
