@@ -812,8 +812,11 @@ def probe_required(decision: Decision, job: Any) -> bool:
     if authorization_reason:
         evaluation = next((row for row in decision.evaluations
                            if row["model"] == decision.chosen_model), None)
+        # A pinned job walks one model, its pin as the policy resolves it (C-11.2), so a
+        # retired pin (`fable`, C-11.1) is authorized on its successor, the model it runs.
+        pin_route = tuple(decision.chain) == (decision.chosen_model,)
         if (decision.chosen_lane != job["pinned_lane"] or evaluation is None
-                or job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])):
+                or (job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"]) and not pin_route)):
             raise RouteError("unmeasured_reserve_reason: the probe must use the authorized lane and model",
                              policy_dependent=True)
         # An admission observation or a newly measured window cannot remove

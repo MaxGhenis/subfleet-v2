@@ -530,8 +530,8 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
 def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
     """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor."""
     value = getattr(args, attr, None)
-    if value in RETIRED_MODELS:
-        replacement = RETIRED_MODELS[value]
+    replacement = policy.retired_successor(value)
+    if replacement is not None:
         note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
         setattr(args, attr, replacement)
 

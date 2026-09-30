@@ -10,6 +10,7 @@ daemon a live successor.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 
 import pytest
@@ -18,7 +19,8 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 from subfleet import cli
 from subfleet.capacity import build_view
 from subfleet.gate import service as gate_service
-from subfleet.policy import DEFAULT_POLICY_PATH, RETIRED_MODELS, load_policy, resolve_model
+from subfleet.policy import (DEFAULT_POLICY_PATH, RETIRED_MODEL_IDS, RETIRED_MODELS, load_policy, resolve_model,
+                             retired_successor)
 from subfleet.scheduler import evaluate
 from subfleet.sessions import cli as sessions_cli
 
@@ -62,6 +64,9 @@ def test_code_and_policy_retirements_agree():
     and every successor is a current, unretired model (no retirement chains)."""
     for alias, successor in RETIRED_MODELS.items():
         assert SHIPPED["retired"][alias] == successor
+    # The code's short names and exact ids are the shipped `retired` map, exactly.
+    assert {**RETIRED_MODELS, **RETIRED_MODEL_IDS} == SHIPPED["retired"]
+    assert not RETIRED_MODELS.keys() & RETIRED_MODEL_IDS.keys()
     for successor in {*RETIRED_MODELS.values(), *SHIPPED["retired"].values()}:
         assert successor in CURRENT and successor not in RETIRED
 
@@ -163,3 +168,35 @@ def test_the_shipped_json_is_what_load_policy_validated():
     text = DEFAULT_POLICY_PATH.read_text()
     data = json.loads(text)
     assert "fable" not in json.dumps({key: value for key, value in data.items() if key != "retired"})
+
+
+@settings(max_examples=200, **QUIET)
+@given(name=st.one_of(st.none(), st.sampled_from(SPELLINGS), st.text(max_size=20)))
+def test_retired_successor_names_a_live_model_exactly_for_retired_spellings(name):
+    """`retired_successor` (the free-text remap `pick --model` uses) returns a current,
+    unretired model for every retired short name or exact id, and None otherwise."""
+    successor = retired_successor(name)
+    if name in SHIPPED["retired"]:
+        assert successor == SHIPPED["retired"][name] and successor in CURRENT and successor not in RETIRED
+    else:
+        assert successor is None
+
+
+@pytest.mark.parametrize("pin", ["fable", "claude-fable-5", "claude-fable-5-1", "opus"])
+def test_an_authorized_probe_pinned_to_a_retired_model_runs_on_its_successor(pin, capsys):
+    """C-11.7's explicit authorization (`unmeasured_reserve_reason`) pins a lane and a model.
+    A job queued with a Fable pin before the retirement is evaluated on Opus, the pin's
+    resolution; `probe_required` used to compare the raw pin with the chosen model and
+    raise `RouteError` (found by the route-check property under the shipped policy)."""
+    from subfleet.scheduler import RouteError, probe_required
+    lanes = [_lane("claude-1")]
+    job = {"sandbox": "read-only", "task": None, "tier": None, "pinned_model": pin, "pinned_lane": "claude-1",
+           "unmeasured_reserve_reason": "fixture authorization"}
+    decision = evaluate(SHIPPED, build_view(lanes, [], [], (), (), now=NOW), job)
+    capsys.readouterr()
+    assert decision.chain == ("opus",) and decision.chosen_model == "opus"
+    assert probe_required(decision, job) is True          # the promised same-model probe, on Opus
+    # The authorization still binds the lane: a decision for another lane is refused.
+    moved = dataclasses.replace(decision, chosen_lane="claude-2")
+    with pytest.raises(RouteError, match="authorized lane and model"):
+        probe_required(moved, job)

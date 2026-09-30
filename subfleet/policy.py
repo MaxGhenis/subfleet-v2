@@ -30,6 +30,18 @@ DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 #: than fable").
 RETIRED_MODELS: dict[str, str] = {"sol": "astra", "fable": "opus"}
 
+#: Exact ids of those models, for the one surface that takes free text (`pick
+#: --model`); every other flag takes short names only. The shipped policy's
+#: `retired` map is exactly RETIRED_MODELS plus these (a tested invariant).
+RETIRED_MODEL_IDS: dict[str, str] = {"claude-fable-5": "opus", "claude-fable-5-1": "opus"}
+
+
+def retired_successor(name: str | None) -> str | None:
+    """The current model a retired short name or exact id is replaced by, else None."""
+    if name is None:
+        return None
+    return RETIRED_MODELS.get(name) or RETIRED_MODEL_IDS.get(name)
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not

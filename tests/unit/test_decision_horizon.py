@@ -31,14 +31,15 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-import subfleet
 from subfleet import capacity, scheduler
 from subfleet.contracts import Credential, Lane, LaneOwner
-from subfleet.policy import load_policy
+from tests.fable_reserve import load_fable_reserve_policy
 
-POLICY = load_policy(Path(subfleet.__file__).parent / "default_policy.json")
+#: The reserve's clocks (C-11.7) are part of the property, and the shipped policy has
+#: reserved no model since Fable's retirement (2026-09-27), so the cases run against
+#: the shipped policy with Fable still reserved (`tests/fable_reserve.py`).
+POLICY = load_fable_reserve_policy()
 TTL = POLICY["caps"]["reading_ttl_s"]
 T0 = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
 MODEL_IDS = {name: model["id"] for name, model in POLICY["models"].items()}

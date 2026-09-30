@@ -56,6 +56,7 @@ def test_the_shipped_policy_retires_every_fable_spelling_to_opus():
 
 
 @pytest.mark.parametrize("policy", [SHIPPED, RETIRING, LISTING_FABLE], ids=["shipped", "retiring", "listing-fable"])
+@hypothesis.settings(deadline=None, max_examples=300)   # pure lookups; a loaded host must not time them out
 @hypothesis.given(value=st.one_of(st.sampled_from(sorted({*FABLE_SPELLINGS, "sol", "opus", "haiku", "astra",
                                                           "claude-opus-5-5", "gpt-6-astra", "gpt-5.6-sol",
                                                           "default", "gpt-9", ""})),
@@ -175,3 +176,66 @@ def test_under_a_policy_that_still_lists_fable_a_fable_conversation_stays_on_fab
     svc._dispatch()
     assert [a.pinned_model for a in svc.daemon.submits] == [pinned]
     assert [t["settings"]["model"] for t in turns] == [runs]
+
+
+# --- a turn persisted before the retirement, launched or adopted after it ----------
+
+
+def persisted_turn(svc, stored: str) -> tuple[dict, dict]:  # noqa: F811
+    """A turn job whose manifest was written while its model was current: the
+    conversation's value as picked, before any retirement rewrote it."""
+    from subfleet.conversations.launch import TURN_MANIFEST_KEY
+    job_id = f"turn-job-{uuid.uuid4().hex[:8]}"
+    turn = {"conversation_id": "conv-1", "message_id": str(uuid.uuid4()), "provider": "claude", "text": "hello",
+            "settings": {**SETTINGS, "model": stored}, "native_session_id": None,
+            "new_session_id": str(uuid.uuid4()), "images": [], "cwd": svc.test_workspace, "allow_main": False,
+            "affinity_lane": None, "digest": "d", "effort_default": None, "network": False}
+    job_dir = svc.root / "jobs" / job_id
+    (job_dir / "a1").mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
+    return {"job_id": job_id}, turn
+
+
+def launched_model(svc, job: dict, model_id: str, tmp_path) -> str:  # noqa: F811
+    lane = svc.daemon.store.get_lane("claude-1")
+    launch = svc.launch(job, {"attempt_id": f"{job['job_id']}/a1"}, lane, {"CLAUDE_CONFIG_DIR": str(tmp_path / "cfg")},
+                        svc.root / "jobs" / job["job_id"] / "a1", model_id)
+    argv = list(launch.argv)
+    return argv[argv.index("--model") + 1]
+
+
+@pytest.mark.parametrize("stored", ["claude-fable-5-1[1m]", "claude-fable-5-1", "fable"])
+def test_a_turn_queued_on_fable_launches_on_opus_once_the_policy_retires_fable(svc, tmp_path, stored):  # noqa: F811
+    """Review of 4763b38c (both reviewers): the manifest of a turn submitted before the
+    retirement still names Fable, admission resolves its `fable` pin to Opus, and the
+    launch used to ask the provider for Fable anyway."""
+    job, _ = persisted_turn(svc, stored)
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(RETIRING))}
+    catalog(svc, {"claude-opus-5-5": ["opus"]})
+    assert launched_model(svc, job, "claude-opus-5-5", tmp_path) == "opus"
+
+
+def test_a_turn_queued_on_fable_launches_on_fable_under_a_policy_that_lists_it(svc, tmp_path):  # noqa: F811
+    job, _ = persisted_turn(svc, "claude-fable-5-1[1m]")
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(LISTING_FABLE))}
+    assert launched_model(svc, job, "claude-fable-5-1", tmp_path) == "claude-fable-5-1[1m]"
+
+
+@pytest.mark.parametrize("stored, model_id, runs", [
+    ("claude-fable-5-1[1m]", "claude-opus-5-5", "opus"),          # retired, routed to its successor
+    ("claude-fable-5-1[1m]", "gpt-6-astra", "claude-fable-5-1[1m]"),  # routed elsewhere: the model check decides
+    ("opus", "claude-opus-5-5", "opus"),                           # current: untouched
+    ("claude-opus-5-5[1m]", "claude-opus-5-5", "claude-opus-5-5[1m]"),
+    ("gpt-9", "claude-opus-5-5", "gpt-9"),                         # no longer routes at all: untouched
+    ("claude-fable-5-1", None, "claude-fable-5-1"),                # no routed model recorded (an old launch)
+])
+def test_runnable_turn_rewrites_only_a_retired_model_routed_to_its_successor(svc, stored, model_id, runs):  # noqa: F811
+    """`_runnable_turn` is what `launch` and a runner's adoption after a restart (`_adopt`) both apply."""
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(RETIRING))}
+    catalog(svc, {"claude-opus-5-5": ["opus"]})
+    _, turn = persisted_turn(svc, stored)
+    result = svc._runnable_turn(turn, model_id)
+    assert result["settings"]["model"] == runs
+    assert turn["settings"]["model"] == stored                   # the manifest's copy is never changed
+    if runs == stored:
+        assert result is turn
