@@ -145,19 +145,38 @@ func runLive(_ arguments: [String]) throws -> Any {
     run.check("served facts from events", timeline1?.turn(first.key)?.served.account != nil,
               timeline1.map { jsonObject($0.turn(first.key)?.served ?? Served()) } ?? NSNull())
 
-    // Another events poll from this app supersedes a waiting one (C-29.9).
-    var superseded: EventsPage?
+    // Another events poll from this app supersedes a waiting one (C-29.9). The
+    // daemon takes the waiting poll's slot when it reads that request, which
+    // this thread cannot see, so newer polls go out until the waiting one
+    // returns, for at most 10 s of its 20 s wait. No event can follow `after`,
+    // so only a newer poll can end it early, and it must come back superseded.
+    let waitingReturned = DispatchSemaphore(value: 0)
+    let waitingLock = NSLock()
+    var waitingPage: EventsPage?
     let background = Thread {
-        superseded = try? engine.events(conversationID: cid, after: 1_000_000, wait: 20)
+        let page = try? engine.events(conversationID: cid, after: 1_000_000, wait: 20)
+        waitingLock.lock()
+        waitingPage = page
+        waitingLock.unlock()
+        waitingReturned.signal()
     }
     background.start()
-    Thread.sleep(forTimeInterval: 1.0)
-    _ = try? engine.events(conversationID: cid, after: state.timelines[cid]?.cursor ?? 0, wait: 0)
-    let waitStart = Date()
-    while superseded == nil && Date().timeIntervalSince(waitStart) < 10 { Thread.sleep(forTimeInterval: 0.1) }
+    let supersedeStart = Date()
+    var newerPolls = 0
+    var returned = false
+    while !returned && Date().timeIntervalSince(supersedeStart) < 10 {
+        _ = try? engine.events(conversationID: cid, after: state.timelines[cid]?.cursor ?? 0, wait: 0)
+        newerPolls += 1
+        returned = waitingReturned.wait(timeout: .now() + 0.5) == .success
+    }
+    waitingLock.lock()
+    let superseded = waitingPage
+    waitingLock.unlock()
     var probe = Timeline(conversationID: cid)
-    run.check("a newer poll supersedes the waiting one", superseded.map { probe.apply(page: $0) } == .superseded,
-              superseded.map { $0.superseded ?? false } ?? NSNull())
+    run.check("a newer poll supersedes the waiting one",
+              returned && superseded.map { probe.apply(page: $0) } == .superseded,
+              ["returned": returned, "superseded": (superseded?.superseded).map { $0 as Any } ?? NSNull(),
+               "newer_polls": newerPolls, "seconds": Date().timeIntervalSince(supersedeStart)] as [String: Any])
 
     // 4. Stop the follow-up: it is running, so Stop interrupts it.
     refresh([slow.key])
