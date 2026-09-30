@@ -846,6 +846,39 @@ def test_a_crash_at_any_step_is_recovered_by_the_next_pass(world, monkeypatch, s
     assert snapshot(job["worktree"]) == before
 
 
+def test_a_published_archive_keeps_no_progress_log(world, monkeypatch):
+    """N6 (final review of e50716e8): the progress log only makes a build
+    resumable, and a published archive never resumes; it goes at publish, also
+    when a crash came between the rename and its removal."""
+    w = world
+    make_dirty_detached(w, "job-log")
+    w.job("job-log-2")
+    real = rfs.sync_path
+    crashed = []
+
+    class Crash(BaseException):
+        pass
+
+    def crash_after_the_rename(path):
+        real(path)
+        if Path(path) == w.root / "archive" and not crashed:
+            crashed.append(path)
+            raise Crash()
+
+    monkeypatch.setattr(rfs, "sync_path", crash_after_the_rename)
+    with pytest.raises(Crash):
+        run(w)
+    monkeypatch.setattr(rfs, "sync_path", real)
+    published = [p for p in (w.root / "archive").iterdir()]
+    assert len(published) == 1 and (published[0] / rarch.PROGRESS).exists()   # renamed, not yet cleaned
+    run(w)
+    for job_id in ("job-log", "job-log-2"):
+        archive = w.root / "archive" / job_id
+        assert (archive / "manifest.json").exists() and not (archive / rarch.PROGRESS).exists(), job_id
+        assert rarch.check_archive(w.root, job_id)["ok"]
+    rarch.restore(w.root, "job-log", to=w.base / "back")
+
+
 # --- no repository-wide prune ------------------------------------------------------------
 
 def test_retention_never_prunes_other_registrations(world):

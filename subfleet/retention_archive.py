@@ -70,6 +70,8 @@ CACHE_KEEP_S = 2 * 86400
 #: shares (a virtualenv cloned from uv's cache frees little).
 TOTALS = ("entries", "archived_bytes", "omitted_bytes", "stored_files", "clones", "copies",
           "regenerable_bytes", "regenerable_entries", "freed_disk_bytes")
+#: The archive's resumable progress log while it is built; removed at publish.
+PROGRESS = "progress.jsonl"
 
 
 class Defer(Exception):
@@ -518,6 +520,9 @@ class Retirement:
     # --- step 7: publish ---------------------------------------------------------------
 
     def publish(self) -> None:
+        """Move the verified archive into place. Its progress log goes: a
+        published archive never resumes, and the manifest says everything the
+        log did (final review of e50716e8, N6: about 357 bytes per stored file)."""
         j = self.journal
         assert j is not None and j.get("archive")
         target = self.root / "archive" / j["archive"]
@@ -526,6 +531,11 @@ class Retirement:
             os.rename(self.building, target)
             rfs.sync_path(self.root / "archive")
             rfs.sync_path(self.work)
+        try:
+            (target / PROGRESS).unlink()
+            rfs.sync_path(target)
+        except FileNotFoundError:
+            pass
         self.save(state="published")
 
     # --- step 8: verified deletion ---------------------------------------------------------
@@ -752,7 +762,7 @@ class _Builder:
         self.j = retirement.journal
         self.dir = retirement.building
         self.files = self.dir / "files"
-        self.progress_path = self.dir / "progress.jsonl"
+        self.progress_path = self.dir / PROGRESS
         self.progress: dict[str, dict[str, Any]] = {}
         self.pending: list[dict[str, Any]] = []
         #: New progress records this call: a slice parks only after at least one,
