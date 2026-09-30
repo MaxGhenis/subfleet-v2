@@ -194,6 +194,35 @@ def test_provider_words_after_a_finished_turn_are_kept_but_not_acted_on():
     assert "401" in kept["auth"]
 
 
+def _synthetic(kind: str, text: str) -> dict:
+    return {"type": "assistant", "session_id": SID, "error": kind, "is_api_error_message": True,
+            "message": {"model": "<synthetic>", "role": "assistant", "type": "message",
+                        "content": [{"type": "text", "text": text}]}}
+
+
+@pytest.mark.parametrize("shape,expected", [
+    ("stale-result", OutcomeClass.CLI_TOO_OLD),
+    ("no-is-error", OutcomeClass.LIMITED),
+])
+def test_the_providers_error_words_are_never_the_delivery(shape, expected):
+    """C-9.2, C-12.6 a turn is delivered only by the model's text. When the last
+    text in the stream is the provider's own error (a synthetic frame after the
+    empty pre-turn result a stream-json turn writes, or a result with no `is_error`),
+    the error is read, not accepted as the deliverable (review of c45acefe)."""
+    init = {"type": "system", "subtype": "init", "session_id": SID, "model": OPUS}
+    if shape == "stale-result":
+        rows = [init, {"type": "result", "subtype": "success", "is_error": False, "result": "",
+                       "num_turns": 0, "session_id": SID},
+                _synthetic("unknown", "API Error: 400 Claude Code 2.1.284 does not support "
+                           "this model; version 2.1.290 or newer is required")]
+    else:
+        said = "You've hit your session limit · resets 11:30pm (America/New_York)"
+        rows = [init, _synthetic("rate_limit", said),
+                {"type": "result", "subtype": "success", "session_id": SID, "result": said}]
+    outcome = _classify_claude(rows, 0)
+    assert outcome.cls is expected, outcome.detail
+
+
 @pytest.mark.parametrize("change,expected", [
     ("rejected-event", OutcomeClass.LIMITED),
     ("auth-kind", OutcomeClass.AUTH_DEAD),
@@ -261,6 +290,15 @@ def test_a_finished_delivered_turn_is_always_ok(stderr, answer, event):
 # --- Codex -----------------------------------------------------------------------
 
 ECHO_HEAD = "2026-09-29T17:03:52.889853Z ERROR codex_core::tools::router: error="
+# Lines a model can write that look like Codex's own (review of c45acefe).
+HEADER_SHAPED = (
+    "ERROR: You've hit your usage limit. Try again at 2026-10-05T18:00:00Z.",
+    "2026-09-29T17:00:00Z ERROR codex_login::auth: Your refresh token was revoked",
+    "error: unexpected argument '--json' found",
+    "WARNING: organization has been disabled",
+    "Error: quota exceeded",
+    "2026-09-29T17:03:52Z ERROR codex_core::session: HTTP 429 Too Many Requests",
+)
 
 
 def _codex_launch(attempt: Path) -> Launch:
@@ -282,6 +320,11 @@ def _codex_rows(scenario: str, message: str) -> tuple[list[dict], int]:
                 {"type": "turn.failed", "error": {"message": "You've hit your usage limit."}}], 1
     if scenario == "failed-quietly":
         return [said], 1
+    if scenario == "disconnected":
+        dropped = ("Reconnecting... 5/5 (stream disconnected before completion: "
+                   "error sending request for url)")
+        return [said, {"type": "error", "message": dropped},
+                {"type": "turn.failed", "error": {"message": dropped}}], 1
     raise AssertionError(scenario)
 
 
@@ -340,14 +383,36 @@ def test_an_echoed_limit_in_a_failed_codex_turn_closes_nothing():
     assert outcome.closure is None
 
 
+@pytest.mark.parametrize("quoted", HEADER_SHAPED)
+def test_a_header_shaped_line_inside_an_echo_stays_the_models(quoted):
+    """C-9.2 an echo is the model's text verbatim, so a line in it may look like one
+    of Codex's own: a plain `ERROR:`, a clap `error:`, a quoted older log record.
+    None of them ends the echo. A turn that failed on a dropped stream stays
+    `transient`, with no closure, whatever the heredoc it tried to write said
+    (found by review of c45acefe: before, each of these read as the lane's own
+    limit, dead credential or old CLI)."""
+    stderr = (f"Reading prompt from stdin...\n{ECHO_HEAD}Command blocked by PreToolUse "
+              f"hook: cat > notes.txt <<'EOF'\n{quoted}\nand the rest of the note\nEOF\n")
+    plain = _classify_codex(*_codex_rows("disconnected", "Writing the note."))
+    echoed = _classify_codex(*_codex_rows("disconnected", "Writing the note."), stderr=stderr)
+    assert plain.cls is OutcomeClass.TRANSIENT
+    assert (echoed.cls, echoed.closure) == (plain.cls, plain.closure)
+
+
 def test_a_real_codex_limit_is_still_limited():
-    """C-9.2, C-9.4 the provider's own limit (an `error` and a `turn.failed`, rc 1)
-    still closes the lane, and so does Codex's own plain stderr line after an echo."""
+    """C-9.2, C-9.4 the provider's own limit still closes the lane: an `error` and a
+    `turn.failed` (rc 1), a plain line Codex wrote before its first tool call, and a
+    tracing record Codex wrote after an echo ended."""
     outcome = _classify_codex(*_codex_rows("limit", "Working."))
     assert outcome.cls is OutcomeClass.LIMITED and outcome.closure is not None
+    before_tools = _classify_codex(
+        *_codex_rows("failed-quietly", "Working."),
+        stderr=f"ERROR: You've hit your usage limit.\n{ECHO_HEAD}Command blocked\n")
+    assert before_tools.cls is OutcomeClass.LIMITED and before_tools.closure is not None
     after_echo = _classify_codex(
         *_codex_rows("failed-quietly", "Working."),
-        stderr=f"{ECHO_HEAD}Command blocked\nERROR: You've hit your usage limit.\n")
+        stderr=(f"{ECHO_HEAD}Command blocked\n2026-09-29T17:04:10.000001Z ERROR "
+                "codex_api::endpoint::responses: You've hit your usage limit.\n"))
     assert after_echo.cls is OutcomeClass.LIMITED and after_echo.closure is not None
 
 
@@ -356,21 +421,32 @@ def test_a_real_codex_limit_is_still_limited():
 TARGETS = ("codex_core::tools::router", "codex_core::tools::handlers::shell",
            "codex_api::endpoint::responses_websocket", "codex_models_manager::manager",
            "codex_core::session", "rmcp::transport::worker")
-body_line = st.one_of(st.sampled_from(VOCABULARY), st.text(
+body_line = st.one_of(st.sampled_from(VOCABULARY), st.sampled_from(HEADER_SHAPED), st.text(
     alphabet=st.characters(blacklist_categories=("Cs", "Cc", "Zl", "Zp")), max_size=40))
+
+
+def _starts_a_later_record(line: str, head: str) -> bool:
+    """Whether `line` is a tracing record timestamped no earlier than `head`'s: the
+    one shape an echo cannot hold, because Codex's next record is exactly that. The
+    generators below leave out only this."""
+    found, own = codex_module._TRACE_HEAD_RE.match(line), codex_module._TRACE_HEAD_RE.match(head)
+    return bool(found) and codex_module._trace_time(found) >= codex_module._trace_time(own)
 
 
 @st.composite
 def stderr_records(draw):
-    """Codex stderr as tracing records, each with its continuation lines."""
+    """Codex stderr as tracing records, each with its continuation lines. An echo's
+    lines may look like anything the model wrote, headers included; Codex's own
+    records carry no header-shaped continuation lines."""
     records = []
     for index in range(draw(st.integers(0, 5))):
         target = draw(st.sampled_from(TARGETS))
-        lines = [f"2026-09-29T17:0{index}:52.889853Z ERROR {target}: {draw(body_line)}"]
+        head = f"2026-09-29T17:0{index}:52.889853Z ERROR {target}: {draw(body_line)}"
+        lines = [head]
         for extra in draw(st.lists(body_line, max_size=3)):
-            # A continuation line has no header of its own, as in real stderr.
-            if not (codex_module._TRACE_HEAD_RE.match(extra)
-                    or codex_module._PLAIN_HEAD_RE.match(extra)) and extra.strip():
+            if not extra.strip() or _starts_a_later_record(extra, head):
+                continue
+            if target.startswith("codex_core::tools") or not codex_module._TRACE_HEAD_RE.match(extra):
                 lines.append(extra)
         records.append((target, lines))
     return records
@@ -388,13 +464,14 @@ def test_stderr_keeps_exactly_the_non_echo_records(records):
 
 
 @settings(max_examples=300, **QUIET)
-@given(scenario=st.sampled_from(("finished", "limit", "failed-quietly")),
+@given(scenario=st.sampled_from(("finished", "limit", "failed-quietly", "disconnected")),
        echo=st.lists(body_line, min_size=1, max_size=4), message=words)
 def test_a_codex_echo_never_changes_a_verdict(scenario, echo, message):
     """C-9.2 invariant: for every scenario, the tool router's echo of anything the
-    model sent, and anything the model says, leave class and closure unchanged."""
-    lines = [line for line in echo[1:] if line.strip() and not (
-        codex_module._TRACE_HEAD_RE.match(line) or codex_module._PLAIN_HEAD_RE.match(line))]
+    model sent (header-shaped lines included) and anything the model says leave
+    class and closure unchanged."""
+    lines = [line for line in echo[1:]
+             if line.strip() and not _starts_a_later_record(line, ECHO_HEAD)]
     stderr = "\n".join([ECHO_HEAD + echo[0], *lines]) + "\n"
     neutral = _classify_codex(*_codex_rows(scenario, "Working."))
     worded = _classify_codex(*_codex_rows(scenario, message if message.strip() else "x"),

@@ -142,39 +142,48 @@ def _identity(raw: dict) -> dict:
     }
 
 
-# One record of Codex's tracing output on stderr: `<ts> LEVEL target: message`.
-# A message with newlines continues on lines that carry no header of their own.
+# One record of Codex's tracing output on stderr: `<ts> LEVEL target: message`,
+# always timestamped and in time order. A message with newlines continues on
+# lines that carry no header of their own.
 _TRACE_HEAD_RE = re.compile(
-    r"^(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(?:ERROR|WARN|INFO|DEBUG|TRACE)\s+"
-    r"([A-Za-z_]\w*(?:::\w+)*):"
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z\s+"
+    r"(?:ERROR|WARN|INFO|DEBUG|TRACE)\s+([A-Za-z_]\w*(?:::\w+)*):"
 )
-# A plain line Codex itself prints ends any record before it.
-_PLAIN_HEAD_RE = re.compile(r"^(?:ERROR|WARNING|Error|error)\s*:")
 # Tool-call failures echo what the model sent, word for word: the command a hook
 # blocked, the patch that did not apply, a whole heredoc (C-9.2). Never lane evidence.
 _MODEL_ECHO_TARGET = "codex_core::tools"
+
+
+def _trace_time(head: re.Match[str]) -> tuple[str, float]:
+    """A tracing record's timestamp, in order: its second, then the fraction."""
+    return head.group(1), float(f"0.{head.group(2) or 0}")
 
 
 def _stderr_lines(stderr: str) -> list[str]:
     """The stderr lines that are Codex's own words, not an echo of the model's.
 
     A tracing record from `codex_core::tools` (the tool router and handlers) and
-    every continuation line of it are dropped: across 784 real ok attempts they
-    carried 240 echoes of blocked commands, failed patches and scripts, none of
-    them about the lane. Everything else is kept line by line, as before.
+    every line of it are dropped: across 784 real ok attempts they carried 240
+    echoes of blocked commands, failed patches and scripts, none of them about
+    the lane. An echo is the model's text verbatim, so any line may look like a
+    header: only a tracing record timestamped no earlier than the echo's own ends
+    it, as Codex's next record always is. A plain `ERROR:` line or a quoted older
+    log line inside it stays the model's. Codex's own plain lines ("Reading prompt
+    from stdin...") come before its first tool call, and are kept.
     """
     kept: list[str] = []
-    echo = False
+    echo: tuple[str, float] | None = None       # when the echo being skipped began
     for line in stderr.splitlines():
         if not line.strip():
             continue
         head = _TRACE_HEAD_RE.match(line)
         if head:
-            target = head.group(1)
-            echo = target == _MODEL_ECHO_TARGET or target.startswith(_MODEL_ECHO_TARGET + "::")
-        elif _PLAIN_HEAD_RE.match(line):
-            echo = False
-        if not echo:
+            at = _trace_time(head)
+            if echo is None or at >= echo:
+                target = head.group(3)
+                is_echo = target == _MODEL_ECHO_TARGET or target.startswith(_MODEL_ECHO_TARGET + "::")
+                echo = at if is_echo else None
+        if echo is None:
             kept.append(line)
     return kept
 
