@@ -300,8 +300,12 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                 fail(f"{key}[{index}]", f"unknown model {model!r}; expected a models key")
     if value["fallback"] != "upward-only":
         fail("fallback", 'must be "upward-only"')
-    if value["desktop_login"] != "never":
-        fail("desktop_login", 'must be "never"')
+    # C-10.3, C-11.1 (2026-09-30): the desktop login is a lane behind its reserve
+    # (`admission.desktop_reserve`, `desktop_max_in_flight`: 0 keeps detached work
+    # off it). "never" was the only value until then, and it had decided nothing
+    # since #72 made the lane a candidate; it is still read, as "reserve".
+    if value["desktop_login"] not in ("reserve", "never"):
+        fail("desktop_login", 'must be "reserve" (or the older spelling "never", read the same)')
 
     permissions = value["permissions"]
     if not isinstance(permissions, dict):

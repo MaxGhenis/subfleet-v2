@@ -21,12 +21,12 @@ predates #72.
   capped, so C-6.9's hold-back applied. `scheduler.competes` compares models and lane *pins* only.
   An unpinned job "could run on every lane", so the older job held the newer one back from a lane it
   could not use itself.
-- **auth-dead.** Between 15:43:20Z and 15:44:00Z, 45 attempts were reserved on claude-5 (no caps; it was the
-  only open Claude lane once its five-hour closure ended). All 45 finished `auth-dead: Your organization has
+- **auth-dead.** Between 15:43:20Z and 15:44:00Z, 37 attempts (37 jobs, 24 read-only and 13 writable) were reserved on claude-5 (no caps; it was the
+  only open Claude lane once its five-hour closure ended). All 37 finished `auth-dead: Your organization has
   disabled Claude subscription access for Claude Code`. The classification is right: `ORG_BLOCK_RE`
   matches, the fixture `tests/fixtures/claude/org-block` covers it, and the lane was disabled at the first finish
   (15:44:53Z), with no reservation on claude-5 after that. But `_finalize` retries only `limited`
-  (unpinned), `transient` and a lost read-only attempt. So each of the 45 jobs **failed with rc 5**, although only
+  (unpinned), `transient` and a lost read-only attempt. So each of the 37 jobs **failed with rc 5**, although only
   the lane's credential was dead.
 
 ## Decisions
@@ -55,7 +55,7 @@ predates #72.
   At the bound the lane is refused `desktop-reserve:in-flight`. `null` means no bound, and 0 keeps detached work off
   the login entirely. This is part of the reserve, not a queueing cap. Readings arrive only when an attempt ends,
   so without a bound one admission pass could put the whole queue on the login before any reading showed it:
-  45 attempts reached claude-5 within 40 s today. 2 is the per-lane default before the uncap
+  37 attempts reached claude-5 within 40 s today. 2 is the per-lane default before the uncap
   (`docs/plan-b-rev4.md`: `max_in_flight_per_lane` 2). It is not one of C-6.9's pool caps, so it creates no hold-back.
 - **`--no-desktop`** (and `-x @desktop`, which it spells) keeps a job off whichever lane is the desktop login when
   the job is placed. `@desktop` is a reserved exclusion token that no lane identity can equal. It rides

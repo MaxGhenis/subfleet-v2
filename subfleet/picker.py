@@ -16,6 +16,7 @@ from typing import Any
 from .capacity import fresh_provider
 from .policy import resolve_model
 from .scheduler import _earliest_reset, evaluate
+from .contracts import DESKTOP_EXCLUSION
 
 
 def _email(lane: dict) -> str | None:
@@ -53,8 +54,10 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
     # Legacy --min-headroom can demand more capacity, never waive policy floors.
     rules = {**policy, "headroom_floor": max(policy.get("headroom_floor", .05),
                                             (min_headroom or 0) / 100)}
+    # C-10.3: a pick's caller runs outside supervision, where neither the desktop
+    # login's reserve nor its bound on attempts can count it: never the desktop lane.
     evaluations = [evaluate(rules, view, {"pinned_model": name,
-                    "sandbox": "read-only", "exclusions": exclusions or []}).evaluations[0]
+                    "sandbox": "read-only", "exclusions": [*(exclusions or []), DESKTOP_EXCLUSION]}).evaluations[0]
                    for name in models]
     timestamp = view.get("now") or datetime.now(timezone.utc).isoformat()
     now = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))

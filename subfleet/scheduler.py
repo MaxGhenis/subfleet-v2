@@ -541,6 +541,9 @@ def job_refusals(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any]) 
 
 
 _PREPARE_ERRORS = (RouteError, PolicyError, ValueError, KeyError, TypeError)
+#: C-6.11, C-10.3: reasons that say a lane lacks room, not that it refuses the job:
+#: a slot (`no-slot`) and the desktop login's bound on detached attempts.
+ROOM_REASONS = frozenset({"no-slot", "desktop-reserve:in-flight"})
 
 
 def usable_pairs(policy: Mapping[str, Any], lanes: Iterable[Any], job: Any) -> tuple[frozenset[tuple[str, str]], bool] | None:
@@ -1041,17 +1044,21 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
               for block in evaluation.get("capacity_blocks", ())]
     counts: dict[str, int] = {}
     room_only = False
+    slot = False
     for evaluation in value.get("evaluations", ()):
         for row in evaluation.get("rejections", ()):
             reasons = [str(reason) for reason in (row.get("reasons") or [row.get("reason") or "unknown"])]
-            standing = [reason for reason in reasons if reason != "no-slot"]
+            standing = [reason for reason in reasons if reason not in ROOM_REASONS]
             if not standing:
                 room_only = True
+                slot = slot or "no-slot" in reasons
                 continue
             # A closure's reason carries its own expiry; the label groups them.
             label = ":".join(standing[0].split(":")[:2]) if standing[0].startswith("closed:") else standing[0]
             counts[label] = counts.get(label, 0) + 1
     if room_only:
+        if not slot:
+            return "desktop-reserve:in-flight"          # C-10.3: only the desktop login's bound
         if "fleet" in blocks:
             return "fleet-full"
         return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"

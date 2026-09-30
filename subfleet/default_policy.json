@@ -99,7 +99,7 @@
     "sol": "astra",
     "claude-fable-5": "fable"
   },
-  "desktop_login": "never",
+  "desktop_login": "reserve",
   "caps": {
     "max_active_attempts": null,
     "max_in_flight_per_lane": null,

@@ -132,12 +132,15 @@ def test_c10_3_a_window_at_or_above_its_ceiling_refuses_detached_work(policy, wi
         assert decision.chosen_lane == DESK
 
 
-def test_c10_3_a_reading_past_its_freshness_counts_until_its_window_resets(policy):
-    """C-10.3: two hours old (reading_ttl_s is 120) and labelled stale, a 0.8 five-hour reading still refuses."""
-    stale = reading(DESK, "five_hour", .8, observed=-7200, resets=600)
-    snapshot = desk_only([stale])
+def test_c10_3_a_reading_past_its_freshness_refuses_for_an_hour_then_asks_for_a_probe(policy):
+    """C-10.3: half an hour old (reading_ttl_s is 120) and labelled stale, a 0.8 five-hour reading still
+    refuses; two hours old it no longer refuses alone, and the job's probe takes a fresh one first
+    (`DESKTOP_RESERVE_REPROBE_S`: a window the provider reset early is found out within the hour)."""
+    snapshot = desk_only([reading(DESK, "five_hour", .8, observed=-1800, resets=600)])
     assert snapshot["readings"][0]["label"] == "stale-provider"
     assert refused(evaluate(policy, snapshot, job())) == ["desktop-reserve:five_hour"]
+    older = evaluate(policy, desk_only([reading(DESK, "five_hour", .8, observed=-7200, resets=600)]), job())
+    assert older.chosen_lane == DESK and scheduler.probe_required(older, job())
 
 
 @pytest.mark.parametrize("row", [
@@ -145,13 +148,13 @@ def test_c10_3_a_reading_past_its_freshness_counts_until_its_window_resets(polic
     reading(DESK, "five_hour", .8, observed=-7200, resets=None),        # no reset time, and not fresh
     reading(DESK, "five_hour", .8, label="admission-observed"),         # not a provider reading
     reading(DESK, "admission", .8),                                     # not an account window
-    {**reading(DESK, "five_hour", .8), "scope": "claude-opus-5-5"},     # not the account's window
+    {**reading(DESK, "five_hour", .8), "scope": "claude-fable-5-1"},    # another model's bucket
     reading(DESK, "five_hour", .8, observed=60),                        # observed after now
 ])
 def test_c10_3_what_the_reserve_does_not_count(policy, row):
     """C-10.3: none of these is a counted reading, so none refuses the lane."""
     assert evaluate(policy, desk_only([row]), job()).chosen_lane == DESK
-    assert desktop_reserve_readings([row], now=NOW) == {}
+    assert desktop_reserve_readings([row], now=NOW, scopes=("account", "claude-opus-5-5")) == {}
 
 
 def test_c10_3_a_fresh_reading_without_a_reset_counts_while_fresh(policy):
@@ -164,7 +167,7 @@ def test_c10_3_the_newest_counted_reading_decides(policy):
     """C-10.3: a newer, lower reading in the same window replaces an older, higher one."""
     rows = [reading(DESK, "five_hour", .9, observed=-300, reading_id=1),
             reading(DESK, "five_hour", .2, observed=-30, reading_id=2)]
-    assert desktop_reserve_readings(rows, now=NOW)["five_hour"]["utilization"] == .2
+    assert desktop_reserve_readings(rows, now=NOW)[("account", "five_hour")]["utilization"] == .2
     assert evaluate(policy, desk_only(rows), job()).chosen_lane == DESK
 
 
@@ -285,9 +288,11 @@ def test_c10_3_properties_of_the_reserve(case):
     decision = decide(reserve, bound, in_use)
     for other in (None, True, False):
         assert decide(reserve, bound, other) == decision
-    counted = desktop_reserve_readings(view([lane(DESK, desktop=True)], rows)["readings"], now=NOW)
+    counted = desktop_reserve_readings(view([lane(DESK, desktop=True)], rows)["readings"], now=NOW,
+                                       scopes=("account", "claude-opus-5-5"))
     over = any(reserve.get(window) is not None and row["utilization"] >= round(1 - reserve[window], 6)
-               for window, row in counted.items())
+               and (NOW - datetime.fromisoformat(row["observed_at"].replace("Z", "+00:00"))).total_seconds() <= 3600
+               for (_, window), row in counted.items())
     detached = sum(1 for row in attempts if not row["job_id"].startswith("turn-"))
     full = bound is not None and detached >= bound
     assert (decision.chosen_lane == DESK) is (kind == "turn" or not (over or full))
@@ -295,3 +300,39 @@ def test_c10_3_properties_of_the_reserve(case):
         stricter = {window: (None if keep is None else min(1.0, keep + .2)) for window, keep in reserve.items()}
         assert decide(stricter, bound, in_use).chosen_lane is None
         assert decide(reserve, None if bound is None else max(0, bound - 1), in_use).chosen_lane is None
+
+
+# --- fresh evidence before detached work lands on the login (design review, 2026-09-30) -------
+
+def test_c10_3_c11_4_detached_work_on_the_desktop_login_is_probed_first_without_a_fresh_reading(policy):
+    """C-10.3, C-11.4: the lane's readings come only from attempts and probes there, and Claude Code's own
+    use of the login shows in none, so a read-only standard job is probed first unless each reserved
+    window has an account reading younger than reading_ttl_s. A turn never is."""
+    for rows in ([], [reading(DESK, "five_hour", .2, observed=-600), reading(DESK, "seven_day", .2, observed=-600,
+                                                                          reading_id=2)]):
+        decision = evaluate(policy, desk_only(rows), job())
+        assert decision.chosen_lane == DESK and scheduler.probe_required(decision, job())
+    fresh = [reading(DESK, "five_hour", .2), reading(DESK, "seven_day", .2, reading_id=2)]
+    decision = evaluate(policy, desk_only(fresh), job())
+    assert decision.chosen_lane == DESK and not scheduler.probe_required(decision, job())
+    only_one = evaluate(policy, desk_only(fresh[:1]), job())
+    assert scheduler.probe_required(only_one, job())             # the seven-day window has no fresh reading
+    policy["admission"]["desktop_reserve"] = {"five_hour": .3, "seven_day": None}
+    assert not scheduler.probe_required(evaluate(policy, desk_only(fresh[:1]), job()), job())
+    turn = job(kind="turn")
+    assert not scheduler.probe_required(evaluate(policy, desk_only(), turn), turn)
+
+
+def test_c10_3_the_jobs_own_models_bucket_counts_and_another_models_does_not(policy):
+    """C-10.3: an Opus-scoped weekly bucket at the ceiling refuses an Opus job; a Fable bucket does not."""
+    opus = {**reading(DESK, "seven_day", .75), "scope": "claude-opus-5-5"}
+    fable = {**reading(DESK, "seven_day", 1.0, reading_id=2), "scope": "claude-fable-5-1"}
+    assert refused(evaluate(policy, desk_only([opus]), job())) == ["desktop-reserve:seven_day"]
+    decision = evaluate(policy, desk_only([fable]), job())
+    assert decision.chosen_lane == DESK
+
+
+def test_c6_3_a_counted_reading_ending_its_hour_is_a_horizon():
+    """C-6.3: a refusal by a stale reading ends `DESKTOP_RESERVE_REPROBE_S` after it was taken."""
+    snapshot = desk_only([reading(DESK, "five_hour", .8, observed=-1800, resets=86400)])
+    assert lane_horizons(snapshot)[DESK] == NOW + timedelta(seconds=1800)

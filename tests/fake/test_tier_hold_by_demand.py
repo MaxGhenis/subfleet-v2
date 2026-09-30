@@ -318,3 +318,101 @@ def test_c6_9_a_newer_job_runs_on_the_desktop_login_an_older_no_desktop_job_keep
     service._admit()
     assert lane_of(service, newer) == ["claude-9"]
     assert not service.store.list_attempts(older)
+
+
+# --- the design review of 2026-09-30 --------------------------------------------------------------
+
+def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_free_job_that_would_take_another(pinned_fleet):
+    """C-6.9: the older job may only use claude-b; the newer, free, would take claude-a (it ranks first)."""
+    service, harness = pinned_fleet
+    older = submit(service, harness, pinned_model="fable", pinned_lane="claude-b")
+    newer = submit(service, harness, pinned_model="fable")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer) == ["claude-a"]
+
+
+def test_c6_9_a_waiter_for_another_providers_model_does_not_hold_a_job_on_a_claude_lane(pinned_fleet):
+    """C-6.9: the older job runs astra only (Codex); the newer research job would take Opus on a Claude
+    lane, which the older could never take, although their chains share astra."""
+    service, harness = pinned_fleet
+    older = submit(service, harness, pinned_model="astra")
+    newer = submit(service, harness, pinned_model=None, task="research", tier="standard")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer)[0] in ("claude-a", "claude-b")
+
+
+def test_c6_9_a_lane_a_waiters_retry_excludes_is_one_it_cannot_take(three_codex):
+    """C-4.5, C-6.9: the older job's attempt was limited on codex-2, so its retry never runs there; with
+    codex-1 closed and codex-3 excluded by it, the newer job takes codex-2."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra", exclusions=["codex-3"])
+    service.store.add_attempt(attempt_id=older + "/a1", job_id=older, seq=1, lane_id="codex-2",
+                              model_requested="gpt-6-astra", state="failed")
+    with service.store.transaction("fixture.limited") as tx:
+        tx.execute("UPDATE attempts SET outcome_class='limited' WHERE attempt_id=?", (older + "/a1",))
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer) == ["codex-2"]
+
+
+def family(service, harness, parent, **changes):
+    return submit(service, harness, pinned_model="astra", parent_job_id=parent, **changes)
+
+
+def test_c6_4_c6_9_a_sibling_holds_a_sibling_wherever_it_would_run_while_the_parent_cap_is_set(three_codex):
+    """C-6.4, C-6.9: with a parent cap, two children of one parent share its count wherever each runs, so
+    the older holds the newer even on a lane it could not use itself."""
+    service, harness = three_codex
+    service.policy["caps"]["max_active_attempts_per_parent"] = 2
+    close_astra(service, "codex-1")
+    parent = submit(service, harness, pinned_model="terra")
+    older = family(service, harness, parent, exclusions=["codex-2", "codex-3"])
+    newer = family(service, harness, parent)
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    assert service._holds[newer]["behind"] == older
+
+
+def test_c6_4_c6_9_a_waiter_whose_own_family_is_full_holds_no_other_familys_job(three_codex):
+    """C-6.4, C-6.9: the older job waits for its parent's only slot, which a sibling holds; it could not be
+    placed on any lane, so a job of no family is not held behind it, submitted the same way or not."""
+    service, harness = three_codex
+    service.policy["caps"]["max_active_attempts_per_parent"] = 1
+    parent = submit(service, harness, pinned_model="terra")
+    running = family(service, harness, parent)
+    service._admit()
+    assert lane_of(service, running)
+    older = family(service, harness, parent)
+    newer = submit(service, harness, pinned_model="astra")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert lane_of(service, newer)
+
+
+def test_c6_9_c11_4_a_job_is_held_before_its_probe_where_a_waiter_could_run(three_codex, monkeypatch):
+    """C-6.9, C-11.4: the shared view said codex-3 (closed since); the job's own decision chose codex-2,
+    which needs a probe (hard, unmeasured). The older job could run there, so no probe runs and the job
+    waits behind it."""
+    service, harness = three_codex
+    close_astra(service, "codex-1")
+    close_astra(service, "codex-2")
+    stale = service._route_view(service._desktop_identity())[2]
+    with service.store.transaction("fixture.reopen") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-2'", (utcnow(),))
+        tx.execute("DELETE FROM readings WHERE lane_id='codex-2'")          # unmeasured: a hard job probes first
+    close_astra(service, "codex-3")
+    monkeypatch.setattr(service, "_hold_view", lambda desktop: stale)
+    probes = []
+    monkeypatch.setattr(service, "_execute_probe", lambda *args: probes.append(args) or pytest.fail("probed"))
+    older = submit(service, harness, pinned_model="astra", tier="hard", exclusions=["codex-3"])
+    newer = submit(service, harness, pinned_model="astra", tier="hard")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert probes == [] and not service.store.list_attempts(newer)
+    assert (service._holds[newer]["reason"], service._holds[newer]["lane"]) == ("behind-older-job", "codex-2")
+    assert not service.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-2:slot:0'")
