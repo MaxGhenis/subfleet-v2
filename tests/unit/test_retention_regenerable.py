@@ -79,17 +79,21 @@ def record_hash(data: bytes) -> str:
 
 
 def install(venv: Path, dist: str, files: dict[str, bytes], scripts: dict[str, bytes] | None = None,
-            url: str | None = None, python: str = "python3.14") -> str:
-    """What pip or uv writes into a virtualenv: the distribution's files, a
-    dist-info (METADATA, INSTALLER, WHEEL, and direct_url.json for an install
-    from a URL) and a RECORD listing them all with their sha256, console
-    scripts in bin/ included. Returns the dist-info's venv-relative path."""
+            url: str | None = None, python: str = "python3.14", installer: str = "uv",
+            local: bool = False) -> str:
+    """What uv (or pip) writes into a virtualenv: the distribution's files, a
+    dist-info (METADATA, INSTALLER, WHEEL, direct_url.json for an install from
+    a URL, and uv_cache.json, which uv writes for a local source) and a RECORD
+    listing them all with their sha256, console scripts in bin/ included.
+    Returns the dist-info's venv-relative path."""
     sp = venv / "lib" / python / "site-packages"
     info = f"{dist}-1.0.dist-info"
-    listed = {**files, f"{info}/METADATA": f"Name: {dist}\n".encode(), f"{info}/INSTALLER": b"uv\n",
-              f"{info}/WHEEL": b"Wheel-Version: 1.0\n"}
+    listed = {**files, f"{info}/METADATA": f"Name: {dist}\n".encode(),
+              f"{info}/INSTALLER": f"{installer}\n".encode(), f"{info}/WHEEL": b"Wheel-Version: 1.0\n"}
     if url is not None:
         listed[f"{info}/direct_url.json"] = json.dumps({"url": url, "dir_info": {}}).encode()
+    if local:
+        listed[f"{info}/uv_cache.json"] = b'{"timestamp": {"secs_since_epoch": 1}, "commit": null}\n'
     rows = []
     for rel, data in listed.items():
         write(sp / rel, data)
@@ -367,6 +371,12 @@ def test_installed_files_are_dropped_only_as_their_record_says(world):
     install(venv, "net", {"net/a.py": b"a\n"}, scripts={"net-cli": b"#!/bin/sh\n"},
             url="https://files.example.invalid/net-1.0.whl")
     install(venv, "local", {"local/b.py": b"b\n"}, url=f"file://{w.base}/local-src")
+    # A wheel built from a patched source in /tmp and installed with
+    # `--find-links`: no direct_url.json, but uv marks the local source
+    # (final review of e50716e8, N3 follow-up). pip marks nothing, so its
+    # installs vouch for nothing.
+    install(venv, "findlinks", {"findlinks/d.py": b"patched\n"}, local=True)
+    install(venv, "bypip", {"bypip/e.py": b"e\n"}, installer="pip")
     info = install(venv, "touched", {"touched/c.py": b"c\n"})
     write(venv / info / "METADATA", "Name: touched\nedited by hand\n")
     assert run(w)["pruned"] == ["job-record"]
@@ -375,6 +385,8 @@ def test_installed_files_are_dropped_only_as_their_record_says(world):
     assert listed[f"{sp}/net/a.py"].get("regen") and listed[f"{sp}/net-1.0.dist-info"].get("regen")
     assert listed[".venv/bin/net-cli"].get("regen") and listed[".venv/bin"].get("regen")
     assert listed[f"{sp}/net/a.py"]["sha256"] == hashlib.sha256(b"a\n").hexdigest()
+    assert _fates(manifest, [f"{sp}/findlinks/d.py", f"{sp}/bypip/e.py"]) == \
+        {f"{sp}/findlinks/d.py": "stored", f"{sp}/bypip/e.py": "stored"}
     manifest_fates = _fates(manifest, [f"{sp}/local/b.py", f"{sp}/local-1.0.dist-info/RECORD",
                                        f"{sp}/touched/c.py", f"{sp}/touched-1.0.dist-info/METADATA",
                                        f"{sp}/touched-1.0.dist-info/RECORD", f"{sp}/touched-1.0.dist-info/WHEEL"])
