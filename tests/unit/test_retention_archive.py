@@ -1655,3 +1655,51 @@ def test_a_row_that_changes_before_the_commit_is_in_rows_json(world, monkeypatch
     assert run(w)["pruned"] == ["job-rows"]
     saved = json.loads((w.root / "archive" / "job-rows" / "rows.json").read_text())["rows"]
     assert [n["text"] for n in saved["notices"]] == ["late notice"]
+
+
+# --- what the archive adds (final review of e50716e8, N1) ---------------------------------------
+
+def test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are(world, monkeypatch, capsys):
+    """The pass result, each pool, both events and `retention archives` report
+    `added_bytes`: the bundle, manifest, summary and rows of the published
+    archive (and byte copies). In a repository with no network remote the
+    bundle carries the whole history, and that is where it shows."""
+    from subfleet import cli
+    w = world
+    git(w.repo, "remote", "remove", "origin")
+    for n in range(3):
+        (w.repo / f"history{n}.bin").write_bytes(os.urandom(50_000))
+        git(w.repo, "add", ".")
+        git(w.repo, "commit", "--quiet", "-m", f"history {n}")
+    w.job("job-added")
+    result = run(w)
+    assert result["pruned"] == ["job-added"], result["deferred"]
+    archive = w.root / "archive" / "job-added"
+    sizes = {name: (archive / name).stat().st_size for name in rarch.ADDED if (archive / name).exists()}
+    assert set(sizes) == set(rarch.ADDED) and sizes["commits.bundle"] > 150_000     # the whole history
+    added = sum(sizes.values())
+    assert result["added_bytes"] == added and result["pools"]["detached"]["added_bytes"] == added
+    for kind in ("retention.pruned", "retention.reclaimed"):
+        events = [json.loads(e["data_json"]) for e in w.store.list_events("job-added") if e["kind"] == kind]
+        assert [e["added_bytes"] for e in events if e] == [added], kind
+    (listed,) = rarch.list_archives(w.root)
+    assert listed["added_bytes"] == added
+    monkeypatch.setenv("SUBFLEET_HOME", str(w.root))
+    assert cli.main(["retention", "archives"]) == 0
+    text = capsys.readouterr().out
+    assert f"added {added:,} B" in text and f"{added:,} bytes the archives added" in text
+
+
+def test_byte_copies_count_as_added(world, monkeypatch):
+    """A volume without clones: every stored file is a byte copy, new space."""
+    monkeypatch.setattr(rfs, "FORCE_COPY", True)
+    w = world
+    wt = w.job("job-copy")
+    (wt / "notes.bin").write_bytes(os.urandom(30_000))
+    result = run(w)
+    assert result["pruned"] == ["job-copy"]
+    totals = json.loads((w.root / "archive" / "job-copy" / "manifest.json").read_text())["totals"]
+    assert totals["copies"] == totals["stored_files"] > 0 and totals["copied_bytes"] == totals["archived_bytes"]
+    archive = w.root / "archive" / "job-copy"
+    metadata = sum((archive / n).stat().st_size for n in rarch.ADDED if (archive / n).exists())
+    assert result["added_bytes"] == metadata + totals["copied_bytes"]

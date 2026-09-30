@@ -48,15 +48,17 @@ def cmd_retention(args: argparse.Namespace) -> int:
             return int(Exit.OK)
         total = sum(a.get("archived_bytes", 0) for a in archives if "error" not in a)
         freed = sum(rarch.accounting(a)["freed_bytes"] for a in archives if "error" not in a)
+        added = sum(a.get("added_bytes", 0) for a in archives if "error" not in a)
         for a in archives:
             if "error" in a:
                 out(f"{a['archive']}  {a['error']}")
                 continue
             out(f"{a['archive']}  {a.get('created_at', '?')}  archived {a.get('archived_bytes', 0):,} B  "
                 f"omitted {a.get('omitted_bytes', 0):,} B  regenerable {a.get('regenerable_bytes', 0):,} B  "
-                f"{a.get('worktree') or a.get('job_dir') or ''}")
+                f"added {a.get('added_bytes', 0):,} B  {a.get('worktree') or a.get('job_dir') or ''}")
         out(f"{len(archives)} archives: {total:,} bytes kept in them; {freed:,} bytes deleted without a copy "
-            "(tracked files a remote holds, regenerable output)")
+            f"(tracked files a remote holds, regenerable output); {added:,} bytes the archives added "
+            "(bundles, manifests, rows, byte copies)")
         return int(Exit.OK)
     if command == "restore":
         try:

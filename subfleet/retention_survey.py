@@ -33,10 +33,43 @@ from .retention_holders import ScanFailed, Watch, lsof_holders
 from .store import Store
 
 
+#: The manifest's bytes besides its entries (the git section, totals, salvage,
+#: the restore line) and a summary's: estimates, from archives made in tests
+#: (1 to 3 KiB of git section with remotes and held refs).
+MANIFEST_FIXED = 4096
+SUMMARY_BYTES = 1024
+_HASH = "0" * 64
+
+
+def _entry_bytes(rel: str, st: os.stat_result, parent: int, name: str | None, how: str,
+                 fmt: str | None = None) -> int:
+    """What the manifest spends on this entry, as `_Builder` writes it (`how`:
+    "store", "omit", "regen" or "dir"); a hash not read here stands in with
+    one of the same length."""
+    entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
+    t = entry["sig"]["t"]
+    if how == "regen":
+        entry["regen"] = True
+    if t == "l" and name is not None:
+        try:
+            entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+        except OSError:
+            entry["link"] = ""
+    elif t == "f" and rel:
+        entry["size"] = st.st_size
+        if how == "omit":
+            entry.update(blob="0" * (64 if fmt == "sha256" else 40), sha256=_HASH)
+        elif how == "store":
+            entry.update(store=rfs.sig_key(st), sha256=_HASH)
+    return rarch.entry_bytes(entry)
+
+
 def _walk_sizes(path: Path, omit: dict[str, dict[str, int]] | None) -> dict[str, Any]:
     """Bytes, file count, the tracked bytes omission could leave out (an upper
-    bound: same path and size as a held blob), and nested gitfiles."""
-    out = {"bytes": 0, "files": 0, "omittable_upper": 0, "nested_gitfiles": [], "error": None}
+    bound: same path and size as a held blob), nested gitfiles, and the bytes
+    the manifest would spend on the tree's entries (every file as stored)."""
+    out = {"bytes": 0, "files": 0, "omittable_upper": 0, "nested_gitfiles": [], "error": None,
+           "manifest_bytes": 0}
     try:
         fd = rfs.open_dir(path)
     except FileNotFoundError:
@@ -46,6 +79,7 @@ def _walk_sizes(path: Path, omit: dict[str, dict[str, int]] | None) -> dict[str,
         return out
     try:
         for rel, st, parent, name in rfs.walk(fd):
+            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
             if not rel or stat.S_ISDIR(st.st_mode):
                 continue
             out["bytes"] += st.st_size
@@ -143,6 +177,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             jobdir = _walk_sizes(root / "jobs" / job_id, None)
             info["job_dir_bytes"] = jobdir["bytes"]
             info["bytes"] = jobdir["bytes"]
+            info["manifest_bytes"] = jobdir["manifest_bytes"]
         if worktree is not None and info["worktree_exists"] and not info.get("pin"):
             _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache)
         if worktree is not None and info["worktree_exists"] and sizes:
@@ -150,6 +185,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
                         omittable_upper=wt["omittable_upper"] if not info.get("scratch") else 0)
             info["bytes"] = info.get("bytes", 0) + wt["bytes"]
+            info["manifest_bytes"] = info.get("manifest_bytes", 0) + wt["manifest_bytes"]
             if wt["error"]:
                 info.setdefault("issue", f"walk: {wt['error']}")
             if wt["nested_gitfiles"] and not info.get("issue"):
@@ -208,6 +244,16 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
                 kept_worktrees[r["kept"]] += 1
     retiring = [rows[j] for j in retire]
     wt_retiring = [r for r in retiring if r.get("worktree_exists")]
+    if retire:
+        # What the archives would add (N1): bundles, manifests (every file as
+        # stored, an upper bound), rows and summaries.
+        store = Store(root / "state.sqlite3", read_only=True)
+        try:
+            for r in retiring:
+                r["added_estimate"] = (int(r.get("bundle_estimate") or 0) + MANIFEST_FIXED + SUMMARY_BYTES
+                                       + r.get("manifest_bytes", 0) + rarch.rows_bytes(store, r["job_id"]))
+        finally:
+            store.close()
     omittable = sum(r.get("omittable_upper", 0) for r in wt_retiring)
     worktree_bytes = sum(r.get("worktree_bytes", 0) for r in wt_retiring)
     archived = sum(r.get("bytes", 0) for r in retiring) - omittable
@@ -219,6 +265,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         "scratch_sources": sum(1 for r in wt_retiring if r.get("scratch")),
         "scratch_reasons": dict(Counter(r["scratch"] for r in wt_retiring if r.get("scratch"))),
         "with_unpushed_commits": sum(1 for r in wt_retiring if r.get("unpushed")),
+        "bundle_bytes_estimate": sum(int(r.get("bundle_estimate") or 0) for r in retiring),
+        "added_bytes_estimate": sum(r.get("added_estimate", 0) for r in retiring),
     }
     report["kept"] = {"jobs_by_reason": dict(kept.most_common()),
                       "worktrees_by_reason": dict(kept_worktrees.most_common()),
@@ -267,9 +315,25 @@ def _into_admin(gitfile: Path, admin: str | None) -> bool:
     return resolved == admin or resolved.startswith(admin.rstrip("/") + "/")
 
 
+def _source_common(job: dict[str, Any]) -> Path | None:
+    """As `Retirement.begin` without a registration: the job's source
+    repository, from its workdir."""
+    workdir = job.get("workdir")
+    if not workdir or not os.path.isdir(workdir):
+        return None
+    try:
+        out = rgit.run(["rev-parse", "--git-common-dir"], cwd=Path(workdir), timeout=60).stdout
+    except (rgit.GitError, OSError):
+        return None
+    return Path(os.path.realpath(Path(workdir) / out.decode("utf-8", "surrogateescape").strip()))
+
+
 def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: list[str],
-               cache: dict[str, tuple[dict[str, str], str | None, str | None]]) -> None:
+               cache: dict[Any, Any]) -> None:
+    """The per-job checks of `Retirement.begin`, read-only, and what the
+    retirement's bundle would carry (`bundle_estimate`, N1)."""
     reg, why = rgit.registration(worktree)
+    head = None
     if reg is None:
         if why not in ("no-gitfile", "admin-missing", "admin-remnant"):
             info["issue"] = f"registration: {why}"
@@ -281,49 +345,59 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             if where is not None and allocated in where.parents and worktree not in where.parents:
                 info["issue"] = f"nested-host: {where}"
         info["git"] = why
-        if salvage_refs and not info.get("issue"):
-            # As `Retirement.begin`: the source repository anchors the salvage commits.
-            common = None
-            workdir = job.get("workdir")
-            if workdir and os.path.isdir(workdir):
-                try:
-                    out = rgit.run(["rev-parse", "--git-common-dir"], cwd=Path(workdir), timeout=60).stdout
-                    common = Path(os.path.realpath(Path(workdir) / out.decode("utf-8", "surrogateescape").strip()))
-                except (rgit.GitError, OSError):
-                    common = None
-            if common is None or not all(isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/")
-                                         and rgit.resolve(common, ref) for ref in salvage_refs):
+        common = _source_common(job)
+        if common is None:
+            if salvage_refs and not info.get("issue"):
                 info["issue"] = "salvage not archivable"
-        return
-    info["admin"] = str(reg.admin)
-    lock = reg.admin / "locked"
-    if lock.exists():
-        try:
-            text = lock.read_text()
-        except OSError:
-            text = "?"
-        if not text.startswith(rgit.LOCK_MARKER):
-            info["issue"] = "registration locked by someone else"
-    key = str(reg.common)
+            return
+    else:
+        info["admin"] = str(reg.admin)
+        lock = reg.admin / "locked"
+        if lock.exists():
+            try:
+                text = lock.read_text()
+            except OSError:
+                text = "?"
+            if not text.startswith(rgit.LOCK_MARKER):
+                info["issue"] = "registration locked by someone else"
+        common = reg.common
+    key = str(common)
     try:
         if key not in cache:
-            remotes = rgit.network_remotes(reg.common)
-            cache[key] = (remotes, rgit.scratch_reason(reg.common, root, remotes), rgit.object_format(reg.common))
+            remotes = rgit.network_remotes(common)
+            cache[key] = (remotes, rgit.scratch_reason(common, root, remotes), rgit.object_format(common))
         remotes, scratch, fmt = cache[key]
         info["scratch"] = scratch
         info["remotes"] = sorted(remotes)
-        head = rgit.resolve(reg.admin, "HEAD")
         held = rgit.held_arguments(remotes)
+        if reg is not None:
+            head = rgit.resolve(reg.admin, "HEAD")
         if head:
             out = rgit.run(["rev-list", "--count", head, *(["--not", *held] if held else [])],
-                           git_dir=reg.common, timeout=120).stdout.decode().strip()
+                           git_dir=common, timeout=120).stdout.decode().strip()
             info["unpushed"] = int(out or 0)
+        commits = []
         for ref in salvage_refs:
-            if not (isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/") and rgit.resolve(reg.common, ref)):
-                info["issue"] = "salvage not archivable"
+            commit = rgit.resolve(common, ref) if isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/") \
+                else None
+            if commit is None:
+                info.setdefault("issue", "salvage not archivable")
                 break
-        if scratch is None and head:
-            omit, _ = rgit.omission_map(reg.common, [head, job.get("workdir_head")], held, timeout=120)
+            commits.append(commit)
+        # What the anchor's bundle carries: every commit HEAD, the baseline and
+        # the salvage commits reach that no network remote holds (the whole
+        # history when there is none), as `rgit.history_bytes` measures it.
+        heads = tuple(sorted({h for h in (head, job.get("workdir_head"), *commits) if h}))
+        hkey = ("history", key, heads, tuple(held))
+        if hkey not in cache:
+            try:
+                cache[hkey] = rgit.history_bytes(common, heads, held, timeout=600)
+            except rgit.GitError as exc:
+                cache[hkey] = None
+                info["bundle_estimate_error"] = str(exc)[:200]
+        info["bundle_estimate"] = cache[hkey]
+        if reg is not None and scratch is None and head:
+            omit, _ = rgit.omission_map(common, [head, job.get("workdir_head")], held, timeout=120)
             info["_omit"] = omit
     except (rgit.GitError, OSError, ValueError) as exc:
         info["issue"] = f"git: {str(exc)[:200]}"
@@ -351,7 +425,7 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
                       fmt: str | None, hash_budget: int, denied: set[str]) -> dict[str, Any]:
     out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
                            "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
-                           "omission_exact": True, "error": None}
+                           "omission_exact": True, "error": None, "manifest_bytes": 0}
     try:
         fd = rfs.open_dir(path)
     except FileNotFoundError:
@@ -363,15 +437,18 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
     try:
         for rel, st, parent, name in rfs.walk(fd):
             if regen is not None and regen.classify(rel, st, parent, name):
+                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
                 if stat.S_ISREG(st.st_mode):
                     out["bytes"] += st.st_size
                     out["files"] += 1
                 continue
             if not rel or stat.S_ISDIR(st.st_mode):
+                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "dir")
                 continue
             out["bytes"] += st.st_size
             out["files"] += 1
             if not stat.S_ISREG(st.st_mode):
+                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
                 continue
             size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
                            and st.st_nlink == 1 and fmt is not None)
@@ -393,11 +470,13 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
                 out["omitted_disk"] += rfs.private_bytes(parent, name, st)
             else:
                 out["archived_bytes"] += st.st_size
+            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "omit" if size_ok else "store", fmt)
     except rfs.TreeError as exc:
         out["error"] = str(exc)
     finally:
         os.close(fd)
     records = regen.summary() if regen is not None else []
+    out["manifest_bytes"] += sum(rarch.entry_bytes(r) for r in records)
     out["regenerable_bytes"] = sum(r["bytes"] for r in records)
     out["regenerable_disk"] = sum(r["freed_disk_bytes"] for r in records)
     out["regenerable"] = [{k: r[k] for k in ("p", "kind", "bytes", "freed_disk_bytes", "kept")} for r in records]
@@ -435,7 +514,12 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
             candidates.append((job, worktree))
     picked = [candidates[round(i * (len(candidates) - 1) / max(1, n - 1))] for i in range(min(n, len(candidates)))]
     picked = list({job["job_id"]: (job, wt) for job, wt in picked}.values())
-    cache: dict[str, tuple[dict[str, str], str | None, str | None]] = {}
+    store = Store(root / "state.sqlite3", read_only=True)
+    try:
+        rows = {job["job_id"]: rarch.rows_bytes(store, job["job_id"]) for job, _ in picked}
+    finally:
+        store.close()
+    cache: dict[Any, Any] = {}
     results: list[dict[str, Any]] = []
     for job, worktree in picked:
         t0 = time.monotonic()
@@ -452,16 +536,28 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
                 info["regenerable_off"] = str(exc)[:200]
         wt = _sample_walk(worktree, None if info.get("scratch") else omit, ignored, fmt, hash_budget)
         jd = _sample_walk(root / "jobs" / job["job_id"], None, None, None, 0)
+        admin = _sample_walk(Path(info["admin"]), None, None, None, 0) if info.get("admin") else None
         info.update(worktree_walk=wt, job_dir_bytes=jd["bytes"], seconds=round(time.monotonic() - t0, 1))
         info["freed_bytes"] = wt["omitted_bytes"] + wt["regenerable_bytes"]
         info["freed_disk_bytes"] = wt["omitted_disk"] + wt["regenerable_disk"]
         info["archived_bytes"] = wt["archived_bytes"] + jd["bytes"]
+        # What the archive adds (N1): the bundle (git's measure of the history
+        # it carries), the manifest (its entries as the builder writes them,
+        # plus a fixed part), the rows and the summary.
+        info["manifest_bytes"] = (MANIFEST_FIXED + wt["manifest_bytes"] + jd["manifest_bytes"]
+                                  + (admin["manifest_bytes"] if admin else 0))
+        info["rows_bytes"] = rows[job["job_id"]]
+        info["added_bytes"] = (int(info.get("bundle_estimate") or 0) + info["manifest_bytes"] + info["rows_bytes"]
+                               + SUMMARY_BYTES)
+        info["net_disk_bytes"] = info["freed_disk_bytes"] - info["added_bytes"]
         results.append(info)
         if progress is not None:
             progress(info)
     retirable = [r for r in results if not r.get("issue")]
     scale = len(candidates) * (len(retirable) / len(results)) if results else 0
-    total = {k: sum(r[k] for r in retirable) for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes")}
+    total = {k: sum(r[k] for r in retirable) for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes",
+                                                        "added_bytes", "net_disk_bytes", "manifest_bytes")}
+    total["bundle_bytes"] = sum(int(r.get("bundle_estimate") or 0) for r in retirable)
     total.update(bytes=sum(r["worktree_walk"]["bytes"] + r["job_dir_bytes"] for r in retirable),
                  omitted_bytes=sum(r["worktree_walk"]["omitted_bytes"] for r in retirable),
                  regenerable_bytes=sum(r["worktree_walk"]["regenerable_bytes"] for r in retirable),
@@ -486,5 +582,8 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
                       "bytes are apparent sizes; *_disk figures are blocks no clone or other link shares, "
                       "measured now (getattrlist ATTR_CMNEXT_PRIVATESIZE)",
                       "archived bytes are APFS clones: they stay on disk until the archive is removed",
+                      "added_bytes is what the archives add: the bundle (git's disk usage of the history it "
+                      "carries), the manifest (its entries as written, plus about 4 KiB), rows.json and "
+                      "summary.json; net_disk_bytes = freed_disk_bytes - added_bytes",
                       "APFS snapshots (Time Machine) keep deleted blocks until they expire"],
             "jobs": results, "elapsed_s": round(time.monotonic() - started, 1)}

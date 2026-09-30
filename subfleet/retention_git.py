@@ -303,6 +303,27 @@ def held_commit(git_dir: Path, commit: str, held: list[str], *, cancel: threadin
     return not out.strip()
 
 
+def history_bytes(git_dir: Path, heads: Iterable[str], held: list[str], *, timeout: float = 600,
+                  cancel: threading.Event | None = None) -> int:
+    """What a bundle of `heads` against `held` would carry, measured as the
+    bytes the objects take on disk here (`rev-list --objects --disk-usage`):
+    every object reachable from the heads that the held refs do not reach.
+    With no network remote, `held` is empty and this is the whole history
+    (final review of e50716e8, N1). Heads that are not commits here are
+    skipped. An estimate: `git bundle` packs the objects again."""
+    wanted = sorted({h for h in heads if h})
+    if not wanted:
+        return 0
+    commits = sorted(classify(git_dir, wanted, timeout=timeout, cancel=cancel)["commit"])
+    if not commits:
+        return 0
+    args = ["rev-list", "--objects", "--disk-usage", *commits]
+    if held:
+        args += ["--not", *held]
+    out = run(args, git_dir=git_dir, timeout=timeout, cancel=cancel).stdout.decode().strip()
+    return int(out or 0)
+
+
 def temp_roots() -> set[str]:
     """Directories whose contents the system or a person may delete at any time."""
     return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(), os.environ.get("TMPDIR") or "/tmp")}

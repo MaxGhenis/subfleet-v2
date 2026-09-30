@@ -68,10 +68,15 @@ CACHE_KEEP_S = 2 * 86400
 #: `freed_bytes` is their sum. `freed_disk_bytes` is what deleting those two
 #: gives back on disk, measured at archive time: blocks no clone or other link
 #: shares (a virtualenv cloned from uv's cache frees little).
+#: `copied_bytes` are the stored files the archive holds as byte copies (a
+#: volume without clones): new space, counted in `added_bytes`.
 TOTALS = ("entries", "archived_bytes", "omitted_bytes", "stored_files", "clones", "copies",
-          "regenerable_bytes", "regenerable_entries", "freed_disk_bytes")
+          "regenerable_bytes", "regenerable_entries", "freed_disk_bytes", "copied_bytes")
 #: The archive's resumable progress log while it is built; removed at publish.
 PROGRESS = "progress.jsonl"
+#: The files a published archive adds on disk besides its stored files
+#: (final review of e50716e8, N1): the bundle and the metadata.
+ADDED = ("commits.bundle", "manifest.json", "summary.json", "rows.json")
 
 
 class Defer(Exception):
@@ -494,10 +499,11 @@ class Retirement:
             if rfs.read_regular(self.building / "rows.json") != data:
                 raise Defer("rows.json did not read back", DEFER_ERROR_S)
             digest = hashlib.sha256(data).hexdigest()
-            self.save(state="committing", rows_sha256=digest, archive=name)
+            added = added_bytes(self.building, manifest["totals"])
+            self.save(state="committing", rows_sha256=digest, archive=name, added_bytes=added)
             landed = landed_salvage(manifest, j["salvage"])
             data_event = {"pool": j["pool"], "pool_bytes": pool_bytes, "archive": str(self.root / "archive" / name),
-                          **accounting(manifest["totals"]),
+                          **accounting(manifest["totals"], added),
                           "entries": manifest["totals"]["entries"], "anchor": manifest.get("git", {}).get("anchor")}
             outcome = None
             with self.ctx.store.transaction("retention.pruned", job_id=self.job_id, data=data_event) as conn:
@@ -583,7 +589,8 @@ class Retirement:
         manifest = self.manifest()
         trees = manifest["trees"]
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
-                                  "admin_kept": False, "done": False, "totals": manifest["totals"]}
+                                  "admin_kept": False, "done": False, "totals": manifest["totals"],
+                                  "added_bytes": added_bytes(self.published_dir(), manifest["totals"])}
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
@@ -745,14 +752,43 @@ class Retirement:
             pass
 
 
-def accounting(totals: dict[str, Any]) -> dict[str, int]:
-    """What a retirement frees and what it moves into the archive (TOTALS).
-    An archive of an earlier layout lacks the regenerable figures (0)."""
+def added_bytes(directory: Path, totals: dict[str, Any]) -> int:
+    """The space an archive adds on disk (final review of e50716e8, N1): its
+    bundle, manifest, summary and rows (`ADDED`, apparent sizes, as found in
+    `directory`) and its byte copies (`copied_bytes`). Clones add nothing
+    until the files they replace are gone, which is `archived_bytes`. What
+    deleting a byte copy's original gives back is not in `freed_disk_bytes`,
+    so the net (`freed_disk_bytes - added_bytes`) errs low."""
+    total = int(totals.get("copied_bytes") or 0)
+    for name in ADDED:
+        try:
+            st = os.lstat(directory / name)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            total += st.st_size
+    return total
+
+
+def entry_bytes(entry: dict[str, Any]) -> int:
+    """The bytes one entry takes in `manifest.json` (with its separator)."""
+    return len(_canonical(entry)) + 1
+
+
+def rows_bytes(store: Any, job_id: str) -> int:
+    """The size `rows.json` would have for the job's rows now."""
+    return len(_canonical({"schema": SCHEMA, "job_id": job_id, "rows": job_rows(store, job_id)}))
+
+
+def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
+    """What a retirement frees, moves into the archive, and adds to it
+    (TOTALS, `added_bytes`). An archive of an earlier layout lacks the
+    regenerable figures (0)."""
     omitted = int(totals.get("omitted_bytes") or 0)
     regenerable = int(totals.get("regenerable_bytes") or 0)
     return {"archived_bytes": int(totals.get("archived_bytes") or 0), "omitted_bytes": omitted,
             "regenerable_bytes": regenerable, "freed_bytes": omitted + regenerable,
-            "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0)}
+            "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
 
 
 def landed_salvage(manifest: dict[str, Any], salvage: list[dict[str, Any]]) -> set[int]:
@@ -1079,6 +1115,8 @@ class _Builder:
         totals["archived_bytes"] += st.st_size
         totals["stored_files"] += 1
         totals["clones" if method == "clone" else "copies"] += 1
+        if method != "clone":
+            totals["copied_bytes"] += st.st_size
         if st.st_nlink > 1:
             links[(st.st_dev, st.st_ino)] = key
 
@@ -1282,7 +1320,7 @@ def list_archives(root: Path) -> list[dict[str, Any]]:
         except (OSError, ValueError):
             out.append({"archive": name, "error": "summary unreadable"})
             continue
-        out.append({"archive": name, **summary})
+        out.append({"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)})
     return out
 
 
@@ -1504,7 +1542,7 @@ class _BlobReader:
 
 
 def total_archive_bytes(root: Path) -> int:
-    return sum(a.get("archived_bytes", 0) + a.get("bundle_bytes", 0) for a in list_archives(root) if "error" not in a)
+    return sum(a.get("archived_bytes", 0) + a.get("added_bytes", 0) for a in list_archives(root) if "error" not in a)
 
 
 def iter_entries(manifest: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any]]]:
