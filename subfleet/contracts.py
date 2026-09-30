@@ -207,6 +207,13 @@ DEFAULT_CAPS: dict[str, int | None] = {
     # the refusals of a second writer in one checkout and of a second live
     # instance of one session are not counts and stay).
     "max_writable_per_session": None,
+    # C-6.14: a writable job's own worktree is a sparse (cone-mode) checkout when a
+    # full one of the caller's head would write more than this many bytes (2 GiB;
+    # null: always full), and a sparse checkout holds at most this many bytes of
+    # what the brief names and the smallest directories (1 GiB). Explicit
+    # `run --paths` and the top-level files are checked out whatever they cost.
+    "sparse_checkout_min_bytes": 2 * 1024 ** 3,
+    "sparse_cone_budget_bytes": 1024 ** 3,
 }
 # C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
 WORKSPACE_RETRY_BASE_S = 5

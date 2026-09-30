@@ -291,6 +291,9 @@ class Offline:
                                for item in job.get("artifacts") or [])
                 if not recorded and candidate.exists():
                     job[f"{role}_path"] = str(candidate)
+        # C-6.14: the job's own worktree and its size, from the files the daemon wrote.
+        from .checkout import report
+        job["worktree_report"] = report(self.root / "jobs" / job_id)
         job["offline"] = True
         return job
 

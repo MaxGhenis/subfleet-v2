@@ -119,6 +119,17 @@ bin/sf2 runs show JOB_ID --out
 bin/sf2 resume JOB_ID 'Continue with these additional instructions.'
 ```
 
+A writable job that is not `--in-place` gets a worktree of its own. When a full
+checkout of the caller's head would write more than `caps.sparse_checkout_min_bytes`
+(2 GiB by default), that worktree is a sparse checkout in git's cone mode
+(contract C-6.14): the caller's directory, the directories the brief names or
+`run --paths` gives, and the smallest directories, within
+`caps.sparse_cone_budget_bytes` (1 GiB). The job is told what is checked out and
+reads the rest with `git show HEAD:<path>` or adds it with
+`git sparse-checkout add <dir>`. `runs show JOB_ID` reports the plan and the
+worktree's size on disk as `worktree_report`, and `daemon.log` has one
+`worktree …` line when it is cut and one after each attempt.
+
 Resume binds to the source attempt's provider session, lane, model, and workspace.
 It refuses unavailable native sessions and active or quarantined source jobs.
 For new work, routing only promotes along the task's configured chain. Claude

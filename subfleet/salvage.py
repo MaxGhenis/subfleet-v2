@@ -148,20 +148,107 @@ def working_tree(workdir: str | Path, baseline_commit: str, *,
     Trusting stat data is git's own model (``git status`` does the same): a
     file rewritten with the same size, mtime and inode is read as unchanged,
     where the empty-index read would hash it.
+
+    A sparse checkout (C-6.14: ``core.sparseCheckout`` is on in this worktree)
+    keeps the files outside its cone off disk, their real index entries marked
+    skip-worktree. Such an entry whose file is absent is not a deletion: git
+    reports it unchanged, with the entry's content, and so does the snapshot.
+    Each is written into the temporary index as the real index holds it, bit
+    set, which ``add -A`` honours (`_outside_cone`, `_overlay`); every other
+    bit is cleared as above, so a file written outside the cone is read from
+    disk, and ``add -A --sparse`` records it (plain ``add -A`` refuses a path
+    outside the cone and exits 1, which failed the snapshot). The snapshot is
+    therefore the one a full checkout with the same edits gives, and a sparse
+    worktree no one changed snapshots to its baseline. Both reads, seeded and
+    empty, take those entries from the real index, so they still agree.
     """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
+    sparse = sparse_checkout(workdir, timeout_s=timeout_s)
+    outside = _outside_cone(workdir, timeout_s=timeout_s) if sparse else []
+    keep = frozenset(path for _, _, path in outside)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
         seeded = (_seed_index(workdir, index, timeout_s=timeout_s)
                   and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
                            optional=True, timeout_s=timeout_s) is not None
-                  and _clear_skip_bits(workdir, env, timeout_s=timeout_s))
+                  and _overlay(workdir, env, outside, timeout_s=timeout_s)
+                  and _clear_skip_bits(workdir, env, keep=keep, timeout_s=timeout_s))
         if not seeded:
             index.unlink(missing_ok=True)
             _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
-        _git(workdir, "add", "-A", env=env, timeout_s=timeout_s)
+            if not _overlay(workdir, env, outside, timeout_s=timeout_s):
+                raise SalvageError("could not record the files outside the sparse checkout's cone")
+        _git(workdir, "add", "-A", *(("--sparse",) if sparse and _add_takes_sparse() else ()),
+             env=env, timeout_s=timeout_s)
         return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
+
+
+def sparse_checkout(workdir: str | Path, *, timeout_s: float | None = None) -> bool:
+    """Whether ``core.sparseCheckout`` is on for this worktree (C-6.14)."""
+    return _git(workdir, "config", "--type=bool", "--get", "core.sparseCheckout",
+                optional=True, timeout_s=timeout_s) == "true"
+
+
+def _add_takes_sparse() -> bool:
+    """``add --sparse`` is git 2.34's; an older git's own sparse checkouts are
+    snapshotted as before (C-6.14 cuts none with it)."""
+    from .checkout import git_version
+    version = git_version()
+    return version is not None and version[:2] >= (2, 34)
+
+
+def _outside_cone(workdir: str | Path, *,
+                  timeout_s: float | None = None) -> list[tuple[bytes, bytes, bytes]]:
+    """``(mode, object, path)`` for each real index entry marked skip-worktree
+    (``S``, or ``s`` when also assume-unchanged) at stage 0 whose file is absent,
+    paths relative to the top level. Raises when the index cannot be read: in a
+    sparse checkout, a snapshot without these entries would read every file
+    outside the cone as deleted."""
+    raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=timeout_s)
+    top = raw[:-1] if raw and raw.endswith(b"\n") else raw
+    if not top:
+        raise SalvageError("could not find the sparse checkout's top level")
+    real = {key: value for key, value in os.environ.items() if key != "GIT_INDEX_FILE"}
+    index = _git(workdir, "rev-parse", "--git-path", "index", env=real, timeout_s=timeout_s)
+    if not os.path.isfile(index if os.path.isabs(index) else os.path.join(workdir, index)):
+        # With no index, git itself reads every file off disk as deleted; the
+        # snapshot refuses rather than record that outside the cone.
+        raise SalvageError("the sparse checkout has no index to read its cone from")
+    listed = _git_bytes(os.fsdecode(top), "ls-files", "-s", "-v", "-z", env=real, timeout_s=timeout_s)
+    if listed is None:
+        raise SalvageError("could not read the sparse checkout's index")
+    outside: list[tuple[bytes, bytes, bytes]] = []
+    for record in listed.split(b"\0"):
+        if record[:2] not in (b"S ", b"s "):
+            continue
+        meta, _, path = record[2:].partition(b"\t")
+        fields = meta.split()
+        if len(fields) == 3 and fields[2] == b"0" and path and not os.path.lexists(os.path.join(top, path)):
+            outside.append((fields[0], fields[1], path))
+    return outside
+
+
+def _overlay(workdir: str | Path, env: dict[str, str], entries: list[tuple[bytes, bytes, bytes]], *,
+             timeout_s: float | None = None) -> bool:
+    """Write `_outside_cone`'s entries into the temporary index with their
+    skip-worktree bit; False when git refuses. ``--replace`` lets an entry
+    displace a baseline path it conflicts with (a file where the real index has
+    a directory, or the reverse): the real index is the job's state."""
+    if not entries:
+        return True
+    top = _git_bytes(workdir, "rev-parse", "--show-toplevel", env=env, timeout_s=timeout_s)
+    top = top[:-1] if top and top.endswith(b"\n") else top
+    if not top:
+        return False
+    info = b"".join(mode + b" " + oid + b"\t" + path + b"\0" for mode, oid, path in entries)
+    where = os.fsdecode(top)
+    if _git_bytes(where, "update-index", "--replace", "-z", "--index-info", env=env, stdin=info,
+                  timeout_s=timeout_s) is None:
+        return False
+    paths = b"".join(path + b"\0" for _, _, path in entries)
+    return _git_bytes(where, "update-index", "--skip-worktree", "-z", "--stdin", env=env, stdin=paths,
+                      timeout_s=timeout_s) is not None
 
 
 def _seed_index(workdir: str | Path, index: Path, *,
@@ -199,8 +286,11 @@ def _seed_index(workdir: str | Path, index: Path, *,
 
 
 def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
+                     keep: frozenset[bytes] = frozenset(),
                      timeout_s: float | None = None) -> bool:
-    """Clear assume-unchanged and skip-worktree bits in the temporary index.
+    """Clear assume-unchanged and skip-worktree bits in the temporary index,
+    except the skip-worktree bits of `keep`: entries outside a sparse
+    checkout's cone (`_outside_cone`).
 
     Flipping a bit hashes nothing. ``update-index`` applies only the first
     of the two options it is given, so each bit gets its own call.
@@ -221,7 +311,7 @@ def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
         tag, path = record[:1], record[2:]
         if tag.islower():
             assumed.append(path)
-        if tag in (b"S", b"s"):
+        if tag in (b"S", b"s") and path not in keep:
             skipped.append(path)
     for option, paths in (("--no-assume-unchanged", assumed),
                           ("--no-skip-worktree", skipped)):

@@ -15,7 +15,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -28,6 +27,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES,
     TURN_RETENTION_MAX_JOBS,
 )
+from .salvage import SalvageError, working_tree
 from .store import Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -197,11 +197,16 @@ def _remove_worktree(job: dict[str, Any], state_root: Path,
     if dirty:
         if not salvage_artifacts:
             raise ValueError("dirty allocated worktree has no recorded salvage snapshot")
-        with tempfile.TemporaryDirectory(prefix="retention-index-", dir=state_root) as temporary:
-            env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
-            git(worktree, "read-tree", "HEAD", env=env)
-            git(worktree, "add", "-A", env=env)
-            current_tree = git(worktree, "write-tree", env=env)
+        # C-13.1's snapshot, which salvage wrote: in a sparse worktree (C-6.14) a
+        # file outside the cone is not a deletion, and a file written there is
+        # recorded, so a preserved worktree compares equal to its salvage ref.
+        _checkpoint(cancel, deadline)
+        timeout = 15 if deadline is None else max(.001, min(15, deadline - time.monotonic()))
+        try:
+            current_tree = working_tree(worktree, "HEAD", timeout_s=timeout)
+        except SalvageError as exc:
+            raise OSError(f"could not snapshot the allocated worktree: {exc}") from exc
+        _checkpoint(cancel, deadline)
         preserved = False
         for artifact in salvage_artifacts:
             ref = artifact["path"]
