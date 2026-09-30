@@ -230,8 +230,16 @@ class ConversationService:
         return APP_EXECUTABLES
 
     def _person(self, peer: int | None, what: str):
-        """C-25.6: refuse agents Subfleet launched; accept the app or a terminal."""
+        """C-25.6: refuse agents Subfleet launched; accept the app or a terminal.
+
+        A chain that could not be read decides nothing about the caller: the
+        check failed, not the caller (C-17.3 exit 1, which the app may send
+        again as it is). Every caller checks before it changes anything."""
         verdict = judge(peer, root=str(self.root), app_executables=self._app_executables())
+        if verdict.unreadable:
+            self.log.warning("person check for %s could not run (pid %s): %s", what, peer, verdict.reason)
+            raise ConversationError("person-check-failed", f"{what} is a person's decision, and {verdict.reason}",
+                                    code=1, fix="nothing was done; try again")
         if not verdict.person:
             raise ConversationError("person-only", f"{what} is a person's decision: {verdict.reason}", code=7,
                                     fix="answer it in the Subfleet app")
