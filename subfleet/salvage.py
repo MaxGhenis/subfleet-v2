@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .adapters.base import AdapterError
-from .contracts import GIT_LOCATION_ENV
+from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
 from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
@@ -114,9 +114,11 @@ def _transient_git(stderr: str | bytes) -> bool:
 
 
 def _git_env(env: dict[str, str] | None) -> dict[str, str]:
-    """`env` (the daemon's own when None) with git's messages untranslated and no
+    """`env` (the daemon's own when None) with git's messages untranslated, no
     repository named by the environment (`GIT_LOCATION_ENV`; the daemon's own
-    `GIT_INDEX_FILE` too, where a caller's `env` names a temporary index).
+    `GIT_INDEX_FILE` too, where a caller's `env` names a temporary index), and
+    pathspecs read as each one's magic says (`GIT_PATHSPEC_ENV`: under
+    `GIT_LITERAL_PATHSPECS` the exclusion `_add_all` relies on was a file name).
 
     What git prints is read (`_transient_git`), and under another locale git
     translates its messages and even its `error:` and `fatal:` prefixes (review
@@ -126,7 +128,7 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     """
     own = env is None
     env = dict(os.environ if own else env)
-    for name in GIT_LOCATION_ENV + (("GIT_INDEX_FILE",) if own else ()):
+    for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (("GIT_INDEX_FILE",) if own else ()):
         env.pop(name, None)
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)

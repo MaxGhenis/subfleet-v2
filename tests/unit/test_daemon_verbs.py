@@ -242,8 +242,10 @@ def test_the_daemon_does_not_inherit_api_keys_or_a_session(root, monkeypatch):
     """C-14.4 the daemon outlives the shell, so it starts from a scrubbed env."""
     leaked = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
               "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
-              # C-13.1: a repository a git hook named (a `daemon start` run from one).
-              "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")
+              # C-13.1: a repository a git hook named (a `daemon start` run from one),
+              # and a way to read pathspecs that undid salvage's exclusion (P3-3).
+              "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+              "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
     for name in leaked:
         monkeypatch.setenv(name, "leaked")
     monkeypatch.setenv("PATH", "/usr/bin:/bin")

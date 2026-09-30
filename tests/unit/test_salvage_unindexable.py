@@ -517,6 +517,28 @@ def test_a_repository_the_daemons_environment_names_is_not_where_salvage_writes(
     assert git(other, "for-each-ref") == ""
 
 
+@pytest.mark.parametrize("name", ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                                  "GIT_ICASE_PATHSPECS"])
+def test_a_way_to_read_pathspecs_the_daemons_environment_names_keeps_the_exclusion(repository, monkeypatch,
+                                                                                    name):
+    """Review of ceacf18b, P3-3: with `GIT_LITERAL_PATHSPECS=1` inherited, git read the
+    exclusion `:(top,exclude,literal)scratch/empty/` as a file of that name, so `add -A`
+    failed on the empty repository again and the salvage was recorded at once with no
+    ref: the incident's case. Salvage's git drops all four variables, and the
+    repository is left out and named as without them."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("provider progress\n")
+    empty_repository(repository / "scratch" / "empty")
+    monkeypatch.setenv(name, "1")
+    result = salvage(repository, baseline, 1, timestamp="2026-09-29T09:00:00Z")
+    assert result.skipped == ("scratch/empty/",)
+    assert name not in salvage_module._git_env(None)
+    assert name not in salvage_module._git_env({**os.environ, "GIT_INDEX_FILE": "/t/index"})
+    monkeypatch.delenv(name)
+    assert git(repository, "show", f"{result.ref}:tracked.txt") == "provider progress"
+    assert git(repository, "ls-tree", "-r", "--name-only", result.ref).split() == [".gitignore", "tracked.txt"]
+
+
 # --- names (F4) -------------------------------------------------------------------
 
 

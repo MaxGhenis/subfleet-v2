@@ -28,6 +28,14 @@ HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
 #: (`cli.STRIPPED_ENV`).
 GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
                     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
+#: C-13.1: how git reads every pathspec when the environment says so. Salvage
+#: leaves out a nested repository with no commit by a `:(top,exclude,literal)`
+#: pathspec, which `GIT_LITERAL_PATHSPECS=1` reads as a file of that name: the
+#: exclusion was lost and the snapshot failed on the repository as before, so
+#: the incident's case had no ref again (review of ceacf18b, P3-3). Dropped
+#: where `GIT_LOCATION_ENV` is.
+GIT_PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS")
 
 
 class JobState(str, enum.Enum):  # C-4.1

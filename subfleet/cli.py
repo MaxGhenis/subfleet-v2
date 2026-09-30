@@ -52,8 +52,8 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (GIT_LOCATION_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S,
-                        JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S,
+                        STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -2073,11 +2073,13 @@ def _daemond_argv(root: Path) -> list[str]:
 # provider child inherits its environment. An API key or a session id picked up
 # from one terminal must not become the fleet's ambient environment (C-14.4), nor
 # a repository a git hook named (`GIT_DIR` and the rest): every git the daemon
-# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too).
+# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too),
+# nor a way to read pathspecs (`GIT_LITERAL_PATHSPECS` and the rest), which turned
+# salvage's exclusion of a nested repository into a file name (C-13.1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
                 "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
-                *GIT_LOCATION_ENV, "GIT_INDEX_FILE")
+                *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
 
 def daemon_env(root: Path) -> dict[str, str]:
