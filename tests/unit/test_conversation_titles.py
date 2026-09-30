@@ -949,6 +949,7 @@ SCHEDULES = int(os.environ.get("SUBFLEET_TITLE_SCHEDULES", "60"))
 @example(actions=["init", "accept", "result", "daemon-stop", "answer", "tick"])
 @example(actions=["init", "accept", "failed", "tick"])
 @example(actions=["init", "accept", "result", "exit", "restart", "tick"])
+@example(actions=["init", "accept", "answer", "result", "tick"])
 def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(actions):
     """Invariants, for every schedule:
     1. at most one title request is ever written, replays included, and no cancellation;
@@ -965,7 +966,9 @@ def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(act
        budget, a stop, a command or the next message, the next turn of the loop writes it;
     6. title failures never fail the relay, refuse a frame or stop the turn;
     7. liveness: a first turn ending in the provider's success with nothing else before
-       it, and no title write failure, asks exactly once.
+       it, and no title write failure, asks exactly once. A title answer the provider
+       gives before the result is something else: no real provider answers unasked, and
+       the runner takes it as the answer, so the claim ends unwritten (fallback kept).
     """
     with title_turn() as turn:
         runner, epoch, gone = turn.runner(), 0, False
@@ -1009,9 +1012,11 @@ def test_property_a_title_waits_for_the_first_reply_and_nothing_waits_for_it(act
                 turn.say(runner, reply())
             elif action in ("result", "failed") and "accept" in said and not said & {"result", "failed"}:
                 said.add(action)
-                clean = action == "result" and barrier is None and epoch == 0 and not failed_write
+                clean = (action == "result" and barrier is None and epoch == 0 and not failed_write
+                         and "answered" not in said)
                 turn.say(runner, RESULT if action == "result" else FAILED)
             elif action in ("answer", "bad-answer"):
+                said.add("answered")              # one before the result ends the claim unwritten (7)
                 turn.say(runner, response() if action == "answer" else response(None, "error"))
             elif action == "exit":
                 (turn.adir / "exit.json").write_text("{}")
