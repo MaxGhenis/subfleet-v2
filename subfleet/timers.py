@@ -431,6 +431,11 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('status') in ('revoked', 'auth-revoked'):
                     probe['revoked_epoch'] = epoch
+                if probe.get('status') == 'expired-token' and \
+                        self._latest('timer.heal').get(lane.lane_id, {}).get('epoch') == epoch:
+                    # C-11.8: the one heal this credential epoch allows has run and left
+                    # the token expired; only a new login (a new epoch) ends it now.
+                    probe['heal_spent'] = True
             else:
                 # C-9.9: the periodic Claude probe is the usage endpoint, never a
                 # model turn (a turn on a Fable-bearing account spends the shared
@@ -452,6 +457,11 @@ class Timers:
                         if not quarantined:
                             self._pace_usage()
                             probe = self._read_probe(adapter, lane, env)
+                if probe.get('status') == 'expired-token' and lane.credential.kind == 'home' and \
+                        self._latest('timer.heal').get(lane.lane_id, {}).get('epoch') == epoch:
+                    # C-11.8: a heal turn has run this credential epoch and the token is
+                    # still expired; the next heal is 20 minutes off at best.
+                    probe['heal_spent'] = True
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
             return lane, {**probe, 'probed_at': iso(self.now())}

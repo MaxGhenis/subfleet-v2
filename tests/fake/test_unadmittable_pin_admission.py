@@ -216,6 +216,9 @@ def test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode(f
 
 
 def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
+    """The caller is told once: after it has been shown the notice, no flip of the lane
+    sends another. (One withdrawn unread, because it stopped being true, does not count:
+    tests/fake/test_unadmittable_pin_rereview.py.)"""
     service, harness = fleet
     stuck = submit(service, harness)
     service.store.update_lane("claude-7", enabled=0)       # nowhere else to go, so it keeps waiting
@@ -224,6 +227,10 @@ def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
         service._admit()
         assert service._holds[stuck]["reason"] == "pin-unadmittable"
         settle(service, stuck)                                      # each episode long enough to tell
+        if flip == 0:
+            [shown] = service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"]
+            service.dispatch("notice.mark", {"session_id": "caller-session", "notice_ids": [shown["notice_id"]],
+                                             "state": "surfaced", "transport": "hook:UserPromptSubmit"})
         service.store.update_lane("claude-9", desktop=0)
         service.store.add_closure(Closure("claude-9", "account", after(600), ClosureReason.PROVIDER_LIMIT,
                                           ClockSource.REPORTED, "fixture"))   # a wait, not a hold
@@ -231,7 +238,8 @@ def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
         assert service._holds[stuck]["reason"] != "pin-unadmittable"
         with service.store.transaction("fixture.release") as tx:
             tx.execute("UPDATE closures SET released_at=? WHERE lane_id='claude-9'", (utcnow(),))
-    assert len(service_notices(service)) == 1 and len(events(service, stuck, "job.pin_noticed")) == 1
+    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+    assert len(events(service, stuck, "job.pin_noticed")) == 1 and not events(service, stuck, "job.pin_notice_withdrawn")
     assert len(events(service, stuck, "job.pin_unadmittable")) == 3
     assert len(events(service, stuck, "job.pin_admittable")) == 3
 

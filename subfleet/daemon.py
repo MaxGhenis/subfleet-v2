@@ -252,6 +252,17 @@ def after(seconds: float) -> str:
         timespec="seconds").replace("+00:00", "Z")
 
 
+def _pin_notice_key(data_json: str | None) -> tuple | None:
+    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
+    try:
+        data = json.loads(data_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+        return None
+    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+
+
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` (as `utcnow` writes one) plus `seconds`, in the same form (C-11.8)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat(
@@ -2598,6 +2609,9 @@ class Daemon:
         text = render.notice_header(dict(row), self.root) + "\n" + summary
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
+        # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
+        # at the job's end, however it ended, this notice says what happened instead.
+        self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
         """Run `fn` on the worker pool unless `key` is already running.
@@ -4231,7 +4245,8 @@ class Daemon:
         episodes: dict[str, dict] = {}
         rows = self.store.query(
             "SELECT e.job_id,e.kind,e.data_json FROM events e JOIN jobs j ON j.job_id=e.job_id "
-            "WHERE e.kind IN ('job.pin_unadmittable','job.pin_admittable','job.pin_noticed') "
+            "WHERE e.kind IN ('job.pin_unadmittable','job.pin_admittable','job.pin_noticed',"
+            "'job.pin_notice_withdrawn') "
             "AND j.state IN ('queued','waiting') ORDER BY e.event_id")
         for row in rows:
             try:
@@ -4242,6 +4257,8 @@ class Daemon:
             previous = episodes.get(row["job_id"], {})
             if row["kind"] == "job.pin_noticed":
                 episodes[row["job_id"]] = {**previous, "noticed": True}
+            elif row["kind"] == "job.pin_notice_withdrawn":
+                episodes[row["job_id"]] = {**previous, "noticed": False}
             elif row["kind"] == "job.pin_unadmittable":
                 episodes[row["job_id"]] = {**previous, "open": True, "since": data.get("since"),
                                            "fail_at": data.get("fail_at"), "lane_id": data.get("lane_id")}
@@ -4252,18 +4269,17 @@ class Daemon:
     def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
         """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from
         its `job.pin_noticed` event, so `notice.pending` names the job and a session
-        Subfleet launched surfaces it as it does a job's end (C-26.13). A ping, a
-        nudge or an alert names none."""
-        wanted = {row["notice_id"] for row in rows}
+        Subfleet launched surfaces it as it does a job's end (C-26.13). A row matches
+        its event by id, session and creation time together: a service notice's id is
+        reused once the row with the highest id is deleted (it has no AUTOINCREMENT),
+        and a ping, a nudge or an alert that gets an old pin notice's id names none."""
+        wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
         found: dict[int, str] = {}
         for event in self.store.query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
                                       "ORDER BY event_id DESC LIMIT 1000"):
-            try:
-                notice_id = (json.loads(event["data_json"] or "{}") or {}).get("service_notice_id")
-            except (ValueError, AttributeError):
-                continue
-            if notice_id in wanted and event["job_id"]:
-                found.setdefault(notice_id, event["job_id"])
+            key = _pin_notice_key(event["data_json"])
+            if key in wanted and event["job_id"]:
+                found.setdefault(wanted[key], event["job_id"])
         return found
 
     def _pin_view(self, desktop, *, refresh: bool = True) -> dict:
@@ -4328,7 +4344,6 @@ class Daemon:
                              ", ".join(stuck["reasons"]))
             self._fail_queued(job, render.pin_failure(stuck, episode.get("since")), rc=int(Exit.NO_LANE),
                               kind="job.pin_refused", data={**stuck, "since": episode.get("since")})
-            self._withdraw_pin_notice(job_id)
             self._discard_fresh_worktree(job_id)
             self._pin_episodes.pop(job_id, None)
             return
@@ -4338,15 +4353,20 @@ class Daemon:
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
         """C-11.8: the job's one notice, to its caller's session (else the operator's,
-        as `ping` addresses one), unless the store says it went already: a job that
-        ran and came back, or outlived a restart, is not told twice. A
-        `job.pin_noticed` event names the notice. The episode, as it is now."""
+        as `ping` addresses one), unless the store says one went already and was not
+        withdrawn unread: a job that ran and came back, or outlived a restart, is not
+        told twice. A `job.pin_noticed` event names the notice (id, session, creation
+        time). The episode, as it is now."""
         job_id = job["job_id"]
-        if not self.store.one("SELECT 1 FROM events WHERE job_id=? AND kind='job.pin_noticed' LIMIT 1", (job_id,)):
+        counts = self.store.one(
+            "SELECT sum(kind='job.pin_noticed') AS noticed, sum(kind='job.pin_notice_withdrawn') AS withdrawn "
+            "FROM events WHERE job_id=? AND kind IN ('job.pin_noticed','job.pin_notice_withdrawn')", (job_id,))
+        if not (counts and (counts["noticed"] or 0) > (counts["withdrawn"] or 0)):
             session = (job["caller_session"] or (self.policy.get("alerts") or {}).get("operator_session")
                        or "operator")
             record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "session_id": session,
-                      "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None}
+                      "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None,
+                      "created_at": now}
             with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
                                         data=record) as tx:
                 cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
@@ -4358,22 +4378,25 @@ class Daemon:
         self._pin_episodes[job_id] = episode
         return episode
 
-    def _withdraw_pin_notice(self, job_id: str) -> None:
-        """C-11.8: a pin's notice nobody has been shown yet says the job fails at a
-        time now past; the terminal notice (C-15.1) says it all, so it goes."""
-        ids = []
-        for event in self.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.pin_noticed'",
-                                      (job_id,)):
-            try:
-                notice_id = (json.loads(event["data_json"] or "{}") or {}).get("service_notice_id")
-            except (ValueError, AttributeError):
-                continue
-            if isinstance(notice_id, int):
-                ids.append(notice_id)
-        if ids:
-            with self.store.transaction("job.pin_notice_withdrawn", job_id=job_id, data={"service_notice_ids": ids}) as tx:
-                tx.execute(f"DELETE FROM service_notices WHERE state='pending' AND notice_id IN ({','.join('?' * len(ids))})",
-                           ids)
+    def _withdraw_pin_notice(self, tx, job_id: str, *, why: str) -> None:
+        """C-11.8: inside the caller's transaction, withdraw the job's pin notice if
+        nobody has been shown it yet (still `pending`): at the job's end, however it
+        ended, and when its lane can admit it again, the notice is no longer true.
+        Matched by id, session and creation time, so a row that reused its id is
+        left alone. A `job.pin_notice_withdrawn` event records it, and a notice
+        withdrawn unread does not count as the job's one (`_pin_notice`)."""
+        keys = [key for (data,) in tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='job.pin_noticed'",
+                                              (job_id,)) if (key := _pin_notice_key(data))]
+        withdrawn = [key[0] for key in keys if tx.execute(
+            "DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? AND state='pending'",
+            key).rowcount]
+        if withdrawn:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                       (utcnow(), "job.pin_notice_withdrawn", job_id, None, None,
+                        json.dumps({"service_notice_ids": withdrawn, "why": why})))
+            episode = self._pin_episodes.get(job_id)
+            if episode:
+                self._pin_episodes[job_id] = {**episode, "noticed": False}
 
     def _unstuck_pin(self, job: dict) -> dict:
         """C-11.8: the pinned lane could admit the job again (capacity allowing): its
@@ -4388,7 +4411,8 @@ class Daemon:
                                           "ended_at": now}) as tx:
             tx.execute("UPDATE jobs SET next_check_at=CASE WHEN state='waiting' THEN ? ELSE next_check_at END "
                        "WHERE job_id=? AND state IN ('queued','waiting')", (now, job["job_id"]))
-        self._pin_episodes[job["job_id"]] = {**episode, "open": False}
+            self._withdraw_pin_notice(tx, job["job_id"], why="admittable")
+        self._pin_episodes[job["job_id"]] = {**self._pin_episodes.get(job["job_id"], episode), "open": False}
         self.log.info("job %s: pinned lane %s can admit it again", job["job_id"], episode.get("lane_id"))
         return {**job, "next_check_at": now} if job["state"] == "waiting" else job
 

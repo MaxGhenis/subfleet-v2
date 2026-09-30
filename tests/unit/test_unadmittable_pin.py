@@ -63,6 +63,8 @@ def pin_stores(draw) -> dict:
                                                                  "expired-token", "expired-token"]))
         if draw(st.integers(0, 9)) == 0:
             lane["revoked_epoch"] = 1
+        if lane["probe_status"] == "expired-token" and draw(st.booleans()):
+            lane["heal_spent"] = True               # the epoch's heal ran and left it expired
         if credential_latched(lane):
             store["unavailable"][lane["lane_id"]] = "credential-latched"
         elif store["unavailable"].get(lane["lane_id"]) == "credential-latched":
@@ -341,6 +343,9 @@ def test_c11_8_each_standing_refusal_is_named():
     for status in ("revoked", "auth-revoked", "no-auth"):
         assert reasons(one_lane(lane_row("claude-9", probe_status=status), latched=True)) == ["credential-latched"]
     assert reasons(one_lane(lane_row("claude-9", revoked_epoch=3), latched=True)) == ["credential-latched"]
+    # Once the epoch's heal has run and left it expired, only a new login ends it.
+    assert reasons(one_lane(lane_row("claude-9", probe_status="expired-token", heal_spent=True),
+                            latched=True)) == ["credential-latched"]
     assert reasons(one_lane(lane_row("claude-9")), pinned(exclusions=("claude-9",))) == ["excluded"]
     assert reasons(one_lane(lane_row("claude-9")), pinned("claude-99")) == ["unknown"]
     held = closure(10 ** 9)
@@ -356,7 +361,7 @@ def test_c11_8_what_a_wait_ends_is_not_standing():
     assert reasons(one_lane(lane_row("claude-9"), closures=[closure(3 * 86400, "claude-opus-5-5",
                                                                      "provider-limit")])) is None
     assert reasons(one_lane(lane_row("claude-9", desktop=1), in_use=False)) is None          # not in use: a candidate
-    # An expired token latches the slot, but the timers' heal turn renews it (C-23.47).
+    # An expired token latches the slot, but the heal the timers have yet to try may renew it (C-23.47).
     assert reasons(one_lane(lane_row("claude-9", probe_status="expired-token"), latched=True)) is None
     assert reasons(one_lane(lane_row("claude-9", desktop=1)), pinned(allow_desktop=1)) is None
     assert reasons(one_lane(lane_row("claude-9")), pinned(pinned_lane=None)) is None          # no pin, nothing to say
@@ -401,6 +406,8 @@ def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     failure = render.pin_failure(stuck, "2026-09-30T12:00:00Z")
     assert failure.startswith("no lane: its pinned lane claude-9 could never admit it from 2026-09-30T12:00:00Z on")
     assert "resubmit it unpinned" in failure
+    spent = render.pin_refusals({"lane_id": "codex-1", "reasons": ["credential-latched"], "probe_status": "expired-token"})
+    assert "heal the timers allow for it ran" in spent and "only a new login" in spent
     for reason in (*scheduler.STANDING_REFUSALS, "credential-latched", "unknown", "no-lanes"):
         text = render.pin_refusals({"lane_id": "claude-9", "reasons": [reason]})
         assert reason not in ("desktop",) or "desktop" in text

@@ -210,6 +210,8 @@ _PIN_REFUSALS = {
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
+    "credential-latched:expired-token": "{lane}'s token expired and the heal the timers allow for it ran and "
+                                        "left it so (C-23.47): only a new login or a re-enrolment ends it",
     "no-lanes": "no lane of the model's provider is enrolled",
 }
 
@@ -228,8 +230,9 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
         elif str(reason).startswith("closed:"):
             parts.append(f"{lane} is {reason}")
         else:
-            parts.append(_PIN_REFUSALS.get(reason, reason).format(
-                lane=lane, probe_status=stuck.get("probe_status") or "unusable"))
+            status = stuck.get("probe_status") or "unusable"
+            text = _PIN_REFUSALS.get(f"{reason}:{status}") or _PIN_REFUSALS.get(reason, reason)
+            parts.append(text.format(lane=lane, probe_status=status))
     return "; ".join(parts) or "it refuses the job"
 
 
@@ -315,8 +318,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 **{k: v for k, v in fields.items() if v is not None}}))
             if reason == "pin-unadmittable":
                 lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
-                             f"`subfleet kill {standing.get('job_id')}`" + (f"; unadmittable since {hold['since']}"
-                                                                           if hold.get("since") else ""))
+                             f"`subfleet kill {standing.get('job_id')}`; or make {hold.get('lane_id') or 'the lane'} "
+                             f"usable again" + (f"; unadmittable since {hold['since']}" if hold.get("since") else ""))
             if reason == "lease-held" and hold.get("queued_behind"):
                 # C-6.9, C-26.9: FIFO on a lease; a lease an older job waits for is kept for it.
                 lines.append("Queued behind: " + ", ".join(hold["queued_behind"])
