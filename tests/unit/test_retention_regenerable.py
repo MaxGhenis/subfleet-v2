@@ -24,10 +24,13 @@ directories, and a project folder in a `.venv`
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -70,51 +73,95 @@ def ignore(wt: Path, *patterns: str) -> None:
     write(wt / ".gitignore", (wt / ".gitignore").read_text() + "".join(p + "\n" for p in patterns))
 
 
+def record_hash(data: bytes) -> str:
+    """A RECORD row's hash, as the wheel format writes it."""
+    return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+
+
+def install(venv: Path, dist: str, files: dict[str, bytes], scripts: dict[str, bytes] | None = None,
+            url: str | None = None, python: str = "python3.14") -> str:
+    """What pip or uv writes into a virtualenv: the distribution's files, a
+    dist-info (METADATA, INSTALLER, WHEEL, and direct_url.json for an install
+    from a URL) and a RECORD listing them all with their sha256, console
+    scripts in bin/ included. Returns the dist-info's venv-relative path."""
+    sp = venv / "lib" / python / "site-packages"
+    info = f"{dist}-1.0.dist-info"
+    listed = {**files, f"{info}/METADATA": f"Name: {dist}\n".encode(), f"{info}/INSTALLER": b"uv\n",
+              f"{info}/WHEEL": b"Wheel-Version: 1.0\n"}
+    if url is not None:
+        listed[f"{info}/direct_url.json"] = json.dumps({"url": url, "dir_info": {}}).encode()
+    rows = []
+    for rel, data in listed.items():
+        write(sp / rel, data)
+        rows.append(f"{rel},{record_hash(data)},{len(data)}")
+    for name, data in (scripts or {}).items():
+        write(venv / "bin" / name, data)
+        rows.append(f"../../../bin/{name},{record_hash(data)},{len(data)}")
+    rows.append(f"{info}/RECORD,,")
+    write(sp / info / "RECORD", "\n".join(rows) + "\n")
+    return f"lib/{python}/site-packages/{info}"
+
+
+def pyc(source: bytes = b"") -> bytes:
+    """Bytecode as Python writes it: a magic number (two bytes, then CR LF), flags, then the code."""
+    return b"\xcb\x0d\r\n" + b"\0" * 12 + hashlib.sha256(source).digest()
+
+
 def regenerable_tree(wt: Path) -> dict[str, tuple[str, set[str]]]:
     """One of each kind, ignored the ways tools do it (by the project's
-    .gitignore, or by a `*` .gitignore the tool writes inside). Returns
-    directory -> (kind, the roots dropped)."""
+    .gitignore, or by a `*` .gitignore the tool writes inside), each holding
+    what its tool makes again and what it does not. Returns directory ->
+    (kind, the paths dropped whose parent was not): what a rule proves
+    regenerable (final review of e50716e8, N3)."""
     ignore(wt, ".venv/", "node_modules/", "__pycache__/", ".uv-cache/", ".ruff_cache/", ".mypy_cache/", ".tox/")
-    write(wt / ".venv" / "pyvenv.cfg", "home = /usr/local/bin\nversion_info = 3.14\n")
-    write(wt / ".venv" / "lib" / "python3.14" / "site-packages" / "pkg" / "__init__.py", "x = 1\n" * 100)
-    write(wt / ".venv" / "bin" / "python-data", os.urandom(20000))
-    os.symlink("python-data", wt / ".venv" / "bin" / "python")
-    write(wt / "web" / "package.json", '{"name": "web"}\n')
-    write(wt / "web" / "node_modules" / "left-pad" / "package.json", '{"name": "left-pad"}\n')
-    write(wt / "web" / "node_modules" / "left-pad" / "index.js", "module.exports = 1;\n" * 50)
-    write(wt / "web" / "node_modules" / "@types" / "node" / "package.json", "{}\n")
-    write(wt / "web" / "node_modules" / ".bin" / "tool", "#!/bin/sh\n")
-    os.symlink("left-pad", wt / "web" / "node_modules" / "linked-pad")
-    write(wt / "src" / "__pycache__" / "main.cpython-314.pyc", os.urandom(3000))
-    write(wt / "src" / "__pycache__" / "old.pyo", os.urandom(100))
+    venv = wt / ".venv"
+    write(venv / "pyvenv.cfg", "home = /usr/local/bin\nversion_info = 3.14\n")
+    os.makedirs(venv / "bin")
+    os.symlink("/usr/local/bin/python3.14", venv / "bin" / "python")
+    write(venv / "bin" / "activate", "# made for this venv\n")
+    write(venv / "lib" / "python3.14" / "site-packages" / "_virtualenv.py", "# the creator's\n")
+    source = b"x = 1\n" * 100
+    install(venv, "pkg", {"pkg/__init__.py": source, "pkg/data.bin": os.urandom(20000),
+                          "pkg/__pycache__/__init__.cpython-314.pyc": pyc(source)},
+            scripts={"pkg-tool": b"#!/bin/sh\nexec pkg\n"})
+    write(wt / "src" / "helper.py", "def helper(): pass\n")
+    write(wt / "src" / "__pycache__" / "main.cpython-314.pyc", pyc(b"main"))
+    write(wt / "src" / "__pycache__" / "helper.cpython-314.opt-1.pyc", pyc(b"helper"))
+    web = wt / "web"
+    write(web / "package.json", '{"name": "web"}\n')
+    write(web / "node_modules" / "left-pad" / "package.json", '{"name": "left-pad"}\n')
+    write(web / "node_modules" / "left-pad" / "index.js", "module.exports = 1;\n" * 50)
+    write(web / "node_modules" / "@types" / "node" / "package.json", "{}\n")
+    write(web / "node_modules" / ".bin" / "tool", "#!/bin/sh\n")
+    os.symlink("left-pad", web / "node_modules" / "linked-pad")
+    write(web / "node_modules" / ".package-lock.json", '{"lockfileVersion": 3}\n')    # written last, by npm
     write(wt / ".pytest_cache" / "CACHEDIR.TAG", TAG)
     write(wt / ".pytest_cache" / ".gitignore", "*\n")               # pytest ignores its own cache
     write(wt / ".pytest_cache" / "README.md", "# pytest cache directory #\n")
     write(wt / ".pytest_cache" / "v" / "cache" / "nodeids", "[]\n" * 10)
+    write(wt / ".pytest_cache" / "v" / "cache" / "lastfailed", "{}\n")
     write(wt / ".uv-cache" / "CACHEDIR.TAG", rfs.CACHEDIR_SIGNATURE)
     write(wt / ".uv-cache" / ".lock", "")
     write(wt / ".uv-cache" / "archive-v0" / "wheel.bin", os.urandom(40000))
-    write(wt / ".uv-cache" / ".tmpAb12Cd" / "partial", os.urandom(100))
     write(wt / ".ruff_cache" / "CACHEDIR.TAG", TAG)
     write(wt / ".ruff_cache" / "0.16.9" / "123", os.urandom(300))
     write(wt / ".mypy_cache" / "CACHEDIR.TAG", TAG)
     write(wt / ".mypy_cache" / "missing_stubs", "\n")
     write(wt / ".mypy_cache" / "3.14" / "x.data.json", "{}")
+    write(wt / ".mypy_cache" / "3.14" / "x.meta.json", "{}")
     write(wt / ".tox" / "CACHEDIR.TAG", TAG)
     write(wt / ".tox" / "py314" / "pyvenv.cfg", "home = /usr/bin\n")
-    write(wt / ".tox" / "py314" / "lib" / "site.py", "pass\n")
+    install(wt / ".tox" / "py314", "toxpkg", {"toxpkg.py": b"pass\n"})
+    sp = ".venv/lib/python3.14/site-packages"
     return {
-        ".venv": ("venv", {".venv/bin", ".venv/lib", ".venv/pyvenv.cfg"}),
+        ".venv": ("venv", {".venv/bin/pkg-tool", f"{sp}/pkg", f"{sp}/pkg-1.0.dist-info"}),
         "web/node_modules": ("node_modules", {"web/node_modules/left-pad", "web/node_modules/@types",
-                                              "web/node_modules/.bin", "web/node_modules/linked-pad"}),
+                                              "web/node_modules/.bin"}),
         "src/__pycache__": ("pycache", {"src/__pycache__"}),
-        ".pytest_cache": ("pytest_cache", {".pytest_cache/CACHEDIR.TAG", ".pytest_cache/.gitignore",
-                                           ".pytest_cache/README.md", ".pytest_cache/v"}),
-        ".uv-cache": ("uv_cache", {".uv-cache/CACHEDIR.TAG", ".uv-cache/.lock", ".uv-cache/archive-v0",
-                                   ".uv-cache/.tmpAb12Cd"}),
-        ".ruff_cache": ("ruff_cache", {".ruff_cache/CACHEDIR.TAG", ".ruff_cache/0.16.9"}),
-        ".mypy_cache": ("mypy_cache", {".mypy_cache/CACHEDIR.TAG", ".mypy_cache/missing_stubs", ".mypy_cache/3.14"}),
-        ".tox": ("tox", {".tox/CACHEDIR.TAG", ".tox/py314"}),
+        ".pytest_cache": ("pytest_cache", {".pytest_cache/v"}),
+        ".ruff_cache": ("ruff_cache", {".ruff_cache/0.16.9"}),
+        ".mypy_cache": ("mypy_cache", {".mypy_cache/3.14"}),
+        ".tox": ("tox", {".tox/py314/lib"}),                   # all of it installed, and verified
     }
 
 
@@ -254,8 +301,7 @@ def test_work_left_inside_a_tool_directory_is_archived(world):
         assert listed[rel].get("store") and not listed[rel].get("regen"), rel
     kept = {r["p"]: set(r["kept"]) for r in manifest["regenerable"]}
     assert {"full-suite.log", "r2", "retention-commits.git"} <= kept[".pytest_cache"]
-    assert {"remaining-tests.py", "pytest-baseline", "containment-pid-reuse.bundle",
-            "serial-313-cache"} <= kept[".uv-cache"]
+    assert ".uv-cache" not in kept                   # no rule proves anything of uv's cache: all archived
     assert "companion-engine-check" in kept[".venv"]
     rarch.restore(w.root, "job-extras")
     after = snapshot(wt)
@@ -263,6 +309,142 @@ def test_work_left_inside_a_tool_directory_is_archived(world):
         assert (wt / rel).read_bytes() == data
         assert after[rel] == before[rel]
     assert git(bare, "rev-parse", "--is-bare-repository") == "true"
+
+
+def _fates(manifest: dict, paths) -> dict[str, str]:
+    listed = entries(manifest)
+    return {p: ("dropped" if listed[p].get("regen") else "stored" if listed[p].get("store") else "other")
+            for p in paths}
+
+
+def test_work_inside_a_tool_entry_is_archived(world):
+    """N3 (final review of e50716e8, `test_probe_work_inside_a_real_tool_entry`):
+    inside a tool's own entries only what a rule proves regenerable is
+    dropped. An agent's patch to an installed package, a file no RECORD
+    lists, data under a venv's `share/`, a notebook in a package directory of
+    a `node_modules` no install marker dates, and a `.pyc` that is not
+    bytecode are each stored, and restored byte for byte."""
+    w = world
+    wt = w.job("job-inside")
+    ignore(wt, ".venv/", "node_modules/", "__pycache__/")
+    venv = wt / ".venv"
+    write(venv / "pyvenv.cfg", "home = /usr/bin\n")
+    sp = ".venv/lib/python3.12/site-packages"
+    install(venv, "dep", {"dep/core.py": b"def core(): return 1\n", "dep/util.py": b"def util(): pass\n"},
+            python="python3.12")
+    write(wt / sp / "dep" / "core.py", "PATCHED BY THE AGENT\n")                   # listed, hash differs
+    write(wt / sp / "dep" / "notes.py", "an agent's file no RECORD lists\n")
+    write(venv / "share" / "results.h5", os.urandom(64))
+    write(wt / "package.json", "{}\n")
+    write(wt / "node_modules" / "my-work" / "package.json", "{}\n")
+    write(wt / "node_modules" / "my-work" / "analysis.ipynb", "{}\n")
+    write(wt / "src" / "__pycache__" / "results.pyc", os.urandom(64))
+    work = [f"{sp}/dep/core.py", f"{sp}/dep/notes.py", ".venv/share/results.h5",
+            "node_modules/my-work/analysis.ipynb", "src/__pycache__/results.pyc"]
+    before = snapshot(wt)
+    assert run(w)["pruned"] == ["job-inside"]
+    manifest = manifest_of(w, "job-inside")
+    fates = _fates(manifest, work + [f"{sp}/dep/util.py"])
+    assert fates == {**dict.fromkeys(work, "stored"), f"{sp}/dep/util.py": "dropped"}, fates
+    rarch.restore(w.root, "job-inside")
+    after = snapshot(wt)
+    for rel in work:
+        assert after[rel] == before[rel], rel
+
+
+def test_installed_files_are_dropped_only_as_their_record_says(world):
+    """What pip and uv write is dropped when the RECORD vouches for it: listed
+    with a sha256 the bytes match, from a distribution installed from an index
+    or a network URL. One installed from a local path vouches for nothing (its
+    source may be the only copy). A dist-info goes only whole, so a restore
+    leaves no distribution half there."""
+    w = world
+    wt = w.job("job-record")
+    ignore(wt, ".venv/")
+    venv = wt / ".venv"
+    write(venv / "pyvenv.cfg", "home = /usr/bin\n")
+    sp = ".venv/lib/python3.14/site-packages"
+    install(venv, "net", {"net/a.py": b"a\n"}, scripts={"net-cli": b"#!/bin/sh\n"},
+            url="https://files.example.invalid/net-1.0.whl")
+    install(venv, "local", {"local/b.py": b"b\n"}, url=f"file://{w.base}/local-src")
+    info = install(venv, "touched", {"touched/c.py": b"c\n"})
+    write(venv / info / "METADATA", "Name: touched\nedited by hand\n")
+    assert run(w)["pruned"] == ["job-record"]
+    manifest = manifest_of(w, "job-record")
+    listed = entries(manifest)
+    assert listed[f"{sp}/net/a.py"].get("regen") and listed[f"{sp}/net-1.0.dist-info"].get("regen")
+    assert listed[".venv/bin/net-cli"].get("regen") and listed[".venv/bin"].get("regen")
+    assert listed[f"{sp}/net/a.py"]["sha256"] == hashlib.sha256(b"a\n").hexdigest()
+    manifest_fates = _fates(manifest, [f"{sp}/local/b.py", f"{sp}/local-1.0.dist-info/RECORD",
+                                       f"{sp}/touched/c.py", f"{sp}/touched-1.0.dist-info/METADATA",
+                                       f"{sp}/touched-1.0.dist-info/RECORD", f"{sp}/touched-1.0.dist-info/WHEEL"])
+    assert manifest_fates == {f"{sp}/local/b.py": "stored", f"{sp}/local-1.0.dist-info/RECORD": "stored",
+                              f"{sp}/touched/c.py": "dropped", f"{sp}/touched-1.0.dist-info/METADATA": "stored",
+                              f"{sp}/touched-1.0.dist-info/RECORD": "stored",
+                              f"{sp}/touched-1.0.dist-info/WHEEL": "dropped"}, manifest_fates
+
+
+def test_bytecode_needs_its_magic_number_and_its_source(tmp_path):
+    src = tmp_path / "pkg"
+    write(src / "mod.py", "x = 1\n")
+    cache = src / "__pycache__"
+    write(cache / "mod.cpython-314.pyc", pyc(b"x"))
+    write(cache / "mod.cpython-314-pytest-9.1.1.pyc", pyc(b"x"))       # pytest's rewritten bytecode
+    write(cache / "gone.cpython-314.pyc", pyc(b"y"))                   # its source is gone
+    write(cache / "data.cpython-314.pyc", b"not bytecode at all")
+    write(src / "data.py", "")
+    fd = os.open(cache, rfs.O_DIR)
+    try:
+        verdicts = {name: rfs.bytecode(fd, name, os.stat(name, dir_fd=fd, follow_symlinks=False))
+                    for name in os.listdir(fd)}
+    finally:
+        os.close(fd)
+    assert verdicts == {"mod.cpython-314.pyc": True, "mod.cpython-314-pytest-9.1.1.pyc": True,
+                        "gone.cpython-314.pyc": False, "data.cpython-314.pyc": False}
+
+
+def test_a_package_file_changed_after_the_install_is_archived(world):
+    """`node_modules`: a file inside a package goes only if neither its
+    content nor its inode changed after the package manager's install marker
+    (mtime and ctime), so an edit is archived even with its mtime put back;
+    without a marker nothing there goes."""
+    w = world
+    wt = w.job("job-node")
+    ignore(wt, "node_modules/", "other/node_modules/")
+    write(wt / "package.json", "{}\n")
+    write(wt / "node_modules" / "lib" / "package.json", "{}\n")
+    write(wt / "node_modules" / "lib" / "index.js", "installed\n")
+    write(wt / "node_modules" / "lib" / "edited.js", "installed\n")
+    write(wt / "node_modules" / ".package-lock.json", "{}\n")
+    time.sleep(0.05)
+    edited = wt / "node_modules" / "lib" / "edited.js"
+    st = edited.stat()
+    edited.write_text("edited after the install\n")
+    os.utime(edited, ns=(st.st_atime_ns, st.st_mtime_ns))                       # mtime put back; ctime moves
+    write(wt / "other" / "package.json", "{}\n")
+    write(wt / "other" / "node_modules" / "lib" / "package.json", "{}\n")      # no install marker
+    assert run(w)["pruned"] == ["job-node"]
+    fates = _fates(manifest_of(w, "job-node"), ["node_modules/lib/index.js", "node_modules/lib/edited.js",
+                                                "node_modules/.package-lock.json",
+                                                "other/node_modules/lib/package.json"])
+    assert fates == {"node_modules/lib/index.js": "dropped", "node_modules/lib/edited.js": "stored",
+                     "node_modules/.package-lock.json": "stored",
+                     "other/node_modules/lib/package.json": "stored"}, fates
+
+
+def test_a_tool_caches_own_files_are_dropped_and_nothing_else(world):
+    w = world
+    wt = w.job("job-caches")
+    regenerable_tree(wt)
+    extras = [".pytest_cache/v/cache/results.h5", ".pytest_cache/v/plugin/notes", ".ruff_cache/0.16.9/notes.txt",
+              ".mypy_cache/3.14/results.csv", ".uv-cache/archive-v0/wheel.bin"]
+    for rel in extras[:-1]:
+        write(wt / rel, "an agent's\n")
+    assert run(w)["pruned"] == ["job-caches"]
+    fates = _fates(manifest_of(w, "job-caches"), extras + [".pytest_cache/v/cache/nodeids",
+                                                           ".ruff_cache/0.16.9/123", ".mypy_cache/3.14/x.data.json"])
+    assert fates == {**dict.fromkeys(extras, "stored"), ".pytest_cache/v/cache/nodeids": "dropped",
+                     ".ruff_cache/0.16.9/123": "dropped", ".mypy_cache/3.14/x.data.json": "dropped"}, fates
 
 
 def test_lookalikes_are_archived_byte_for_byte(world):
@@ -329,11 +511,14 @@ def test_a_repository_inside_regenerable_output_is_archived(world, monkeypatch):
     assert walks == [{".venv/lib"}]                     # remembered: no walk into it again
     manifest = manifest_of(w, "job-repo-in-venv")
     venv = next(r for r in manifest["regenerable"] if r["p"] == ".venv")
-    assert set(venv["roots"]) == {".venv/bin", ".venv/pyvenv.cfg"} and "lib" in venv["kept"]
+    assert set(venv["roots"]) == {".venv/bin/pkg-tool"} and "lib" in venv["kept"]      # lib: all archived
+    # Only bytecode beside its source goes from the refused lib/ (a `__pycache__` proves itself).
+    assert not any(e.get("regen") for p, e in entries(manifest).items()
+                   if p.startswith(".venv/lib") and "/__pycache__" not in p)
     rarch.restore(w.root, "job-repo-in-venv")
     after = snapshot(wt)
     assert {p: v for p, v in after.items() if p.startswith(".venv/lib")} == \
-        {p: v for p, v in before.items() if p.startswith(".venv/lib")}
+        {p: v for p, v in before.items() if p.startswith(".venv/lib") and "/__pycache__" not in p}
     assert git(clone, "rev-parse", "HEAD") == commit
     assert (clone / "mod.py").read_text() == "and an uncommitted change\n"
 
@@ -504,7 +689,7 @@ def test_sampled_survey_is_read_only_and_matches_the_retirement(world):
     w = world
     wt = w.job("s-regen")
     regenerable_tree(wt)
-    write(wt / ".uv-cache" / "notes-by-an-agent.log", "kept\n")
+    write(wt / ".pytest_cache" / "notes-by-an-agent.log", "kept\n")
     (wt / "untracked.bin").write_bytes(os.urandom(7000))
     w.job("s-pinned")
     w.store.add_notice("s-pinned", "unread", "session-1")
@@ -512,7 +697,7 @@ def test_sampled_survey_is_read_only_and_matches_the_retirement(world):
     report = sample(w.root, 5)
     assert {**_tree_state(w.root), **_tree_state(w.repo)} == before
     assert report["estimate"] is True and report["sampled"] == 1 and report["candidates_with_worktree"] == 1
-    assert report["kept_inside_regenerable"] == {"uv_cache: notes-by-an-agent.log": 1}
+    assert report["kept_inside_regenerable"]["pytest_cache: notes-by-an-agent.log"] == 1
     (job,) = report["jobs"]
     assert job["job_id"] == "s-regen"
     assert run(w)["pruned"] == ["s-regen"]
