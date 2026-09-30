@@ -612,12 +612,12 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 #: The job's own exclusions, a turn's config directory and a v1 owner never
 #: change on their own; the desktop login while Claude Code uses it, a disabled
 #: lane and a credential that proved to hold another account (C-10.6) change
-#: only when a person acts, and so does a credential its last probe found revoked
-#: or missing (`credential-latched` on a lane `capacity.credential_gone` holds of;
-#: an expired token is healed by the timers, C-23.47, so it is not standing). A slot, a reading, the
-#: floor and the reserve are capacity, which comes back by itself. A closure is a
-#: hold only when it ends more than `admission.pin_hold_far_s` out; before that
-#: it is a wait.
+#: only when a person acts, and so does a latched credential `capacity.credential_gone`
+#: holds of: revoked or missing, or a Codex token whose one heal for its login ran
+#: and left it expired (C-23.47). Any other expired token may still heal by
+#: itself, so it is not standing. A slot, a reading, the floor and the reserve
+#: are capacity, which comes back by itself. A closure is a hold only when it ends
+#: more than `admission.pin_hold_far_s` out; before that it is a wait.
 STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch")
 
 #: C-6.12: what evaluating a route may raise; the job's, never the caller's.
