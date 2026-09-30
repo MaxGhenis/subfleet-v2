@@ -15,6 +15,14 @@ from tests.fake.test_state_contract import state_daemon  # noqa: F401  (fixture)
 from tests.fake.test_workspace_contract import repository
 
 
+def placed(workspace: dict) -> dict:
+    """A submitted worktree's place, its C-6.14 plan checked apart: these small
+    repositories are always checked out whole."""
+    plan = workspace.get("checkout") or {}
+    assert plan.get("mode") == "full" and plan.get("reason") == "under-threshold", plan
+    return {key: value for key, value in workspace.items() if key != "checkout"}
+
+
 def sandbox_of(daemon, job_id):
     return daemon.store.get_job(job_id)["sandbox"]
 
@@ -102,7 +110,7 @@ def test_a_writable_job_is_told_its_workspace_and_starts_where_its_caller_stands
     assert (submitted["sandbox"], submitted["worktree"]) == ("workspace-write", str(daemon.root / "worktrees" / job_id))
     manifest = json.loads((jobdir / "manifest.json").read_text())
     worktree = daemon.root / "worktrees" / job_id
-    assert manifest["workspace"] == {"worktree": str(worktree), "prefix": "pkg"}
+    assert placed(manifest["workspace"]) == {"worktree": str(worktree), "prefix": "pkg"}
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert f"Your workspace is {worktree}:" in prepared
     assert f"is relative to {worktree / 'pkg'} here" in prepared
@@ -141,7 +149,7 @@ def test_a_directory_the_commit_lacks_starts_the_job_at_the_top_and_says_so(stat
                                                            tier="standard", workdir=str(scratch)))["job_id"]
     jobdir = daemon.root / "jobs" / job_id
     worktree = daemon.root / "worktrees" / job_id
-    assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {"worktree": str(worktree), "prefix": "."}
+    assert placed(json.loads((jobdir / "manifest.json").read_text())["workspace"]) == {"worktree": str(worktree), "prefix": "."}
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert "/scratch, which commit" in prepared and "your workspace has no scratch" in prepared
     daemon._admit()
@@ -276,7 +284,7 @@ def test_the_callers_place_is_named_as_git_spells_it(state_daemon):
         job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(spelled)))["job_id"]
         jobdir = daemon.root / "jobs" / job_id
         worktree = daemon.root / "worktrees" / job_id
-        assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
+        assert placed(json.loads((jobdir / "manifest.json").read_text())["workspace"]) == {
             "worktree": str(worktree), "prefix": committed}, spelled
         prepared = (jobdir / "prompt.prepared.md").read_text()
         assert f"is relative to {worktree / committed} here" in prepared and ".." not in prepared.split("worktrees")[1][:80]
