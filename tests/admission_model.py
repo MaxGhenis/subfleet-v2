@@ -8,6 +8,9 @@ kinds of pass around it. This model keeps only what decides placement:
 - the machine guard at the door (`scheduler.machine_hold`), never for a turn;
 - C-6.9's hold-back and kept slot, only in a pool with a count cap, and with
   only a parent cap only within a family (`scheduler.hold_scope`);
+- C-11.8: a job pinned to a lane that can never admit it is held
+  `pin-unadmittable` before anything else, and a job every lane refuses for a
+  reason no wait ends (`scheduler.refused_for_good`) is no waiter;
 - one `scheduler.evaluate` per job on the view as it stands, and a placement
   counted in its lane's pool, as the reservation counts it.
 
@@ -37,6 +40,7 @@ class Outcome:
     hold: str | None                        # the reason, when not
     decision: Any = None                    # the evaluation, when one was made
     klass: str = "session"
+    waits_for: str | None = None            # the older job it is held behind or keeps a slot for (C-6.9)
 
 
 @dataclass
@@ -96,6 +100,13 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         turn = job.get("kind") == "turn"
         pool = "turn" if turn else "detached"
         tier = _tier(policy, job)
+        if job.get("pinned_lane") and job.get("wait_reason") not in ("approval", "uncertain") \
+                and scheduler.pin_unadmittable(policy, view, job):
+            # The daemon evaluates no route for it; what `evaluate` would say is kept
+            # as an observation, so a property can check it placed the job nowhere.
+            result.outcomes.append(Outcome(job["job_id"], None, "pin-unadmittable",
+                                           scheduler.evaluate(policy, view, job), klass=klass))
+            continue
         if not turn:
             busy = scheduler.machine_hold(policy, machine, klass)
             if busy:
@@ -110,7 +121,8 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
                        and (scope == "pool" or family & ancestors(older))), None) if scope else None
         if saturated.get(pool) or behind:
             result.outcomes.append(Outcome(job["job_id"], None, "fleet-full" if saturated.get(pool)
-                                           else "behind-older-job", klass=klass))
+                                           else "behind-older-job", klass=klass,
+                                           waits_for=None if saturated.get(pool) else behind))
             continue
         try:
             decision = scheduler.evaluate(policy, view, job)
@@ -123,10 +135,13 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
         at_limit = limit is not None and live_now >= limit
         if not decision.chosen_lane or at_limit:
-            waiters.setdefault(tier, []).append((job["job_id"], models, demand))
+            kept = waiters.get(tier, [])
+            if decision.chosen_lane or not scheduler.refused_for_good(policy, decision, job, view["lanes"]):
+                waiters.setdefault(tier, []).append((job["job_id"], models, demand))
             hold = (scheduler.dominant_rejection(decision) if not decision.chosen_lane
                     else "fleet-full" if saturated[pool] else "slot-kept")
-            result.outcomes.append(Outcome(job["job_id"], None, hold, decision, klass=klass))
+            result.outcomes.append(Outcome(job["job_id"], None, hold, decision, klass=klass,
+                                           waits_for=kept[0][0] if hold == "slot-kept" and kept else None))
             continue
         lane = decision.chosen_lane
         counts = view["in_flight_turns" if turn else "in_flight"]

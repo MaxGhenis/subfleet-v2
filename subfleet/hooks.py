@@ -40,7 +40,9 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
     alert (the daemon's `service_notices`, returned with `job_id` None), or an
     imported v1 continuation — is left pending and unprinted: it is addressed
     to a person's session, and a turn's prompt is the message the person sent
-    from the app.
+    from the app. A pin's notice (C-11.8: a job this session dispatched whose
+    pinned lane can never admit it) is a service notice that names its job, so
+    it is surfaced here too: it is about work the session is waiting on.
 
 * **PostToolUse** on Bash — layer 2. Ask the daemon which of this session's
   jobs are still running, take a file lease so two hooks never wait on one job,
@@ -395,9 +397,10 @@ def names_a_job(row: dict[str, Any]) -> bool:
     """True for a C-15.1 completion notice: a row that names the job it reports.
 
     The daemon's `notice.pending` returns `notices` rows beside
-    `service_notices` rows, the latter with `job_id` None and a negated
-    `notice_id` (`ping`, a sessions-kit nudge, a timer alert); an imported v1
-    outbox continuation is a `notices` row with no job (`importer.import_outbox`).
+    `service_notices` rows, the latter with a negated `notice_id` and `job_id`
+    None (`ping`, a sessions-kit nudge, a timer alert), except a pin's notice
+    (C-11.8), which names the job it is about; an imported v1 outbox
+    continuation is a `notices` row with no job (`importer.import_outbox`).
     """
     job_id = row.get("job_id")
     return isinstance(job_id, str) and bool(job_id.strip())

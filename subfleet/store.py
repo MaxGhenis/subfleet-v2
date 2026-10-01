@@ -723,11 +723,22 @@ class Store:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
 
     def put_closure(self, closure: Closure) -> int:
-        with self.transaction("closure.recorded", lane_id=closure.lane_id):
+        """One open closure per lane and scope: a later end extends the row in place.
+
+        Every call leaves a `closure.recorded` event for the lane, including a
+        limit reported again that ends no later than the open row's and so
+        changes nothing in it (C-18.3). That event is the only trace of such a
+        report, and a busy lane's usage read looks for it before it releases
+        the closure. The row is rewritten as it is so that the transaction has a
+        change to record.
+        """
+        with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
             existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))
+                else:
+                    conn.execute("UPDATE closures SET until_at=until_at WHERE closure_id=?", (existing["closure_id"],))
                 return existing["closure_id"]
             return self._insert("closures", {**asdict(closure), "created_at": utc_now()})
 
