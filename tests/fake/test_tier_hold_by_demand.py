@@ -174,8 +174,13 @@ def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(
 
 @pytest.mark.parametrize("case", ["same-lane", "newer-unpinned", "older-unpinned", "newer-unknown-pin"])
 def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
-    """C-6.9 only two different pins are disjoint; a free choice, a shared pin, or an unresolvable pin competes."""
+    """C-6.9 only two different pins are disjoint; a free choice or a shared pin competes.
+
+    A pin that names no lane no longer waits behind the older job (intended,
+    C-11.8): no lane can ever admit it, so it is held `pin-unadmittable`
+    before it is compared with anyone, and it holds nobody back either."""
     service, harness = pinned_fleet
+    service.policy["caps"]["max_active_attempts"] = 4               # C-6.9 holds back only in a capped pool
     older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
                             "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
     older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
@@ -185,7 +190,13 @@ def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case
     wait_on_capacity(service, older)
     service._admit()
     assert not service.store.list_attempts(newer)
-    assert service.store.get_job(newer)["state"] == "queued"
+    if case == "newer-unknown-pin":
+        hold = service._holds[newer]
+        assert (hold["reason"], hold["reasons"]) == ("pin-unadmittable", ["unknown"])
+        assert service.store.get_job(newer)["state"] == "waiting"
+    else:
+        assert service._holds[newer] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+        assert service.store.get_job(newer)["state"] == "queued"
 
 
 def test_c6_9_demand_lanes_resolves_a_pin_to_its_lane_id():
