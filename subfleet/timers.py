@@ -86,6 +86,11 @@ class Timers:
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
                                      'retention', 'mirror', 'mirror_hot')}
         self.metadata = self._latest('timer.verdict')
+        # Each lane's verdict is replaced whole, under this lock, so that putting
+        # one back after a failed publication can check it is still the one in
+        # place and replace it as one step (C-18.3). Only dictionary work is done
+        # under it; the store's lock, when both are held, is taken first.
+        self._verdicts = threading.RLock()
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
         for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
@@ -248,7 +253,15 @@ class Timers:
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
         self.store.add_event('timer.verdict', lane_id=lane_id, data=meta)
-        self.metadata[lane_id] = meta
+        self._set_verdict(lane_id, meta)
+
+    def _set_verdict(self, lane_id, verdict):
+        """Replace a lane's verdict whole; None removes it."""
+        with self._verdicts:
+            if verdict is None:
+                self.metadata.pop(lane_id, None)
+            else:
+                self.metadata[lane_id] = verdict
 
     def _epoch(self, lane):
         try:
@@ -267,7 +280,7 @@ class Timers:
                 row['enabled'] = False
                 data = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
                 self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
-                self.metadata[row['lane_id']] = data
+                self._set_verdict(row['lane_id'], data)
             if not row['enabled']:
                 continue
             first = seen.setdefault(row['account_key'], row)
@@ -277,7 +290,7 @@ class Timers:
                     data = {'identity_status': 'non-canonical', 'duplicate_of': first['home'] or first['lane_id'],
                             'verdict': 'duplicate', 'home': row['home']}
                     self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
-                self.metadata[row['lane_id']] = data
+                self._set_verdict(row['lane_id'], data)
         # Desktop Codex identity is observed read-only; it is never a lane.
         try:
             from .adapters.codex import _identity, _read_auth
@@ -508,14 +521,18 @@ class Timers:
             self.cancel.wait(wait)
 
     def _publish_busy(self, lane, probe, opened):
-        """C-18.3: judge a busy read and publish it in one transaction; whether it was published.
+        """C-18.3: judge a busy read and publish it in one transaction; what `_publishable` judged.
+
+        None was not published, False was published with nothing released (a
+        newer limit fenced it), True was published whole.
 
         No slot keeps the lane's attempts away, so the store's write lock does:
         nothing can report a limit, disable the lane or hold it between the
         judgement and the commit. A publication that raises rolls back whole,
         the settlement with it, and the verdict the lane had is put back while
-        the lock is still held, so it never overwrites one an attempt records
-        after the rollback.
+        the lock is still held. When it is the commit that fails, the lock is
+        already gone, and the verdict is put back only if nothing has replaced
+        this publication's since.
         """
         before = wrote = missing = object()
         try:
@@ -526,22 +543,19 @@ class Timers:
                     if releases is not None:
                         self._persist(lane, probe, releases=releases)
                 except BaseException:
-                    self._put_back(lane.lane_id, before)
+                    self._set_verdict(lane.lane_id, before)
                     raise
                 wrote = self.metadata.get(lane.lane_id)
         except BaseException:
-            # The commit itself failed, after the lock was let go: put the old
-            # verdict back only if this publication's is still the one in place.
-            if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
-                self._put_back(lane.lane_id, before)
+            # The commit itself failed, after the store lock was let go. Put the
+            # old verdict back only if this publication's is still the one in
+            # place, checked and replaced as one step: an attempt's verdict
+            # recorded since stays.
+            with self._verdicts:
+                if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
+                    self._set_verdict(lane.lane_id, before)
             raise
-        return releases is not None
-
-    def _put_back(self, lane_id, verdict):
-        if verdict is None:
-            self.metadata.pop(lane_id, None)
-        else:
-            self.metadata[lane_id] = verdict
+        return releases
 
     def _persist(self, lane, probe, *, releases=True):
         """Publish one read: readings, closures, settlement, then the verdict.
@@ -597,7 +611,7 @@ class Timers:
                     with self.store.transaction('closure.reset') as tx:
                         tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND scope='account' AND reason='provider-limit' AND released_at IS NULL", (at, lane.lane_id))
             self.store.add_event('timer.verdict', lane_id=lane.lane_id, data=meta)
-        self.metadata[lane.lane_id] = meta
+        self._set_verdict(lane.lane_id, meta)
 
     def snapshot(self):
         with self.store.transaction('timer.snapshot'):
@@ -659,14 +673,16 @@ class Timers:
             return
         # All homes heal before any cycle reading/verdict is published. A busy
         # lane's read is judged as it is published (C-18.3); what it may not
-        # publish is named on the cycle's event.
-        deferred = {}
+        # publish, and what a newer limit fenced, is named on the cycle's event.
+        deferred, fenced = {}, []
         try:
             for lane, probe, opened in results:
                 if opened is None:
                     self._persist(lane, probe)
-                elif not self._publish_busy(lane, probe, opened):
+                elif (published := self._publish_busy(lane, probe, opened)) is None:
                     deferred[lane.lane_id] = probe.get('status', 'unknown')
+                elif not published:
+                    fenced.append(lane.lane_id)
         finally:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)
@@ -698,7 +714,7 @@ class Timers:
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
                              'lanes': [lane.lane_id for lane, _, _ in results],
                              'busy': [lane.lane_id for lane, _, opened in results if opened is not None],
-                             'deferred': deferred})
+                             'deferred': deferred, 'fenced': fenced})
         return snapshot
 
     def latest_request(self, lane_id):
