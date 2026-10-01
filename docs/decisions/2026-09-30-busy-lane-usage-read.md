@@ -22,8 +22,8 @@ Two latches held it there, and each kept the other going:
    `ResetCredits.confirmed_override` answer for the lane until a fresh `ok`
    read with `limit_reached: false` reconciles it, or for seven days. While
    it stands, `Daemon._pick` holds out every reading of the lane, so the lane
-   is unmeasured, and main and the installed release cap an unmeasured lane at
-   one attempt. `settle_by_usage` has one caller, `Timers._persist`, which
+   is unmeasured, and main and the release installed that day (617892c1) cap an
+   unmeasured lane at one attempt. `settle_by_usage` has one caller, `Timers._persist`, which
    only the idle path reaches. Every earlier credit settled 1 to 2 minutes
    after it was spent, because its lane was idle then. codex-4 went from its
    hold straight to work, so its override would have stood until
@@ -37,6 +37,33 @@ It is not only an unmeasured lane's problem. From 01:37:56Z to 03:52:56Z on
 2026-09-29 codex-4 had up to 43 attempts in flight, no timer read, and a
 reading that went from 0.5 to 1.0 unseen; ten attempts ended `limited`. A busy
 measured lane runs past its headroom floor unread.
+
+## After release 2.1.9 (2026-10-01): uncapped, still unread
+
+Release 2.1.9 (release/217 at f1bd2ab5, with PR #72) was installed at 09:13:39Z
+on 2026-10-01, and the policy's interim `reading_ttl_s` of 604800 went back to
+the default 120 at the 09:14:52Z restart. PR #72 removed the count caps, so an
+unmeasured lane is no longer held to one attempt. It did not change
+`Timers._reserve`, and the record shows a busy lane is still never read:
+
+- The four probe cycles from 09:13:05Z to 09:16:55Z each read codex-1, -2, -3,
+  -5 and -6 (idle) and none read codex-4, which had four attempts in flight
+  from 09:13:41Z. Its last timer read was 09:03:56Z.
+- At 09:15:13Z and 09:15:15Z admission judged codex-4 "eligible but unmeasured",
+  and a hard-tier job's admission probe (C-11.4) ran on it at 09:15:13Z.
+- At 09:15:21Z it was "measured" again, because a conversation turn's stream
+  had recorded an `app-server` reading at 09:15:19Z. Detached `codex exec`
+  attempts record none, so a busy lane is measured only while conversation
+  turns happen to run on it less than 120 s apart.
+- Under the old release the same day: codex-4's override was settled at
+  03:21:23Z by the one cycle that fell in a two-minute gap after an attempt was
+  quarantined, 6 h 10 min after the hold's release. It then went unread again
+  from 03:22Z to 06:14Z while it had work.
+
+So on the installed line the loop no longer sustains itself through a cap of 1,
+but a busy lane still has no fresh reading: its headroom floor cannot refuse
+it, each hard or writable job on it pays an admission probe, and a reset
+credit's override on it stands until it happens to go idle at a cycle.
 
 ## The rule
 
