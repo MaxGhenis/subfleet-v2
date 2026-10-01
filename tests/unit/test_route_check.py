@@ -22,6 +22,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import capacity, route_check, scheduler
+from tests.caps import capped
 from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, closure_rows, commits, event, exact,
                                      policies, reading_rows, route_jobs, stores, view_of)
 
@@ -42,7 +43,9 @@ def now_rows(before: dict, after: dict) -> dict:
     """What `Daemon._route_rows` reads inside the reservation, from the store after the commits."""
     mark = max((row["reading_id"] for row in before["readings"]), default=0)
     jobs = {row["job_id"]: row for row in after["jobs"]}
-    return {"lanes": [dict(row) for row in after["lanes"]],
+    # Lane rows marked as a view marks them (C-10.3's in-use signal included).
+    return {"lanes": [capacity.mark_desktop(dict(row), desktop_in_use=after.get("desktop_in_use"))
+                      for row in after["lanes"]],
             "readings": [row for row in after["readings"] if row["reading_id"] > mark],
             "closures": sorted((row for row in after["closures"] if row["released_at"] is None),
                                key=lambda row: row["closure_id"]),
@@ -248,7 +251,10 @@ def test_c6_3_a_concurrent_reservation_that_fills_the_fleet_leaves_no_lane(polic
 
 
 def test_c6_3_a_second_attempt_on_an_unmeasured_lane_is_never_reserved(policy):
-    """C-6.4's `max_in_flight_unmeasured`: codex-1 unmeasured takes one attempt at most."""
+    """C-6.4's `max_in_flight_unmeasured`, when a policy sets it to 1: codex-1
+    unmeasured takes one attempt at most. With no cap (the default since
+    2026-09-27) the attempt that landed meanwhile only moves codex-1 up a band."""
+    capped(policy)
     store = fleet(readings=[reading("codex-2", .5, 2), reading("codex-3", .6, 3)],
                   lanes=[dict(LANES[0])])
     after = with_(store, attempts=[{"attempt_id": "busy/a1", "job_id": "busy", "lane_id": "codex-1", "state": "running"}])

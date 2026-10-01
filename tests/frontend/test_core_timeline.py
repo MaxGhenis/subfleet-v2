@@ -215,6 +215,7 @@ def test_c27_1_an_approval_known_before_its_event_is_one_card(core_probe, tmp_pa
         {"page": page(harness, cid)},
     ])
     early = items_of(result["snapshots"][0], mid, "approval")
+    # The view carries the provider's request id (C-27.5), so the card has it before its event.
     assert len(early) == 1 and early[0]["card"]["approval_id"] and early[0]["card"]["request_id"] == "perm-q"
     cards = items_of(result, mid, "approval")
     assert len(cards) == 1
@@ -251,9 +252,14 @@ def test_replacement_approval_with_identical_display_cannot_take_the_stale_cards
 
 
 @pytest.mark.parametrize("list_first", [False, True])
-def test_legacy_approval_list_without_request_ids_cannot_bind_by_summary(core_probe, tmp_path, harness, list_first):
-    """Old daemons remain decodable, but a summary alone cannot bind an event
-    card. The separately identified approval remains usable by its immutable id."""
+def test_legacy_approval_list_without_request_ids_joins_its_card_by_kind_and_display(core_probe, tmp_path, harness,
+                                                                                     list_first):
+    """A view from a daemon older than the request id names no request (neither
+    `request_id` nor `provider_request_id`): in either order it joins the event's
+    card by message, kind and display, so the one card is answerable by its
+    immutable approval id (C-27.5, docs/desktop/app-needs.md 5). A view that names
+    its request joins only that request's card, so a replacement with identical
+    display never takes a stale card (the test above; C-27.1)."""
     cid = harness.create()["conversation_id"]
     mid = harness.submit(cid, "run it")["message_id"]
     turn = harness.attempt(cid, mid)
@@ -262,12 +268,13 @@ def test_legacy_approval_list_without_request_ids_cannot_bind_by_summary(core_pr
     approvals = harness.call("approval.list", conversation_id=cid)["approvals"]
     for approval in approvals:
         approval.pop("provider_request_id")
+        approval.pop("request_id")
     steps = [{"page": page(harness, cid)}, {"approvals": approvals}]
     result = fold(core_probe, tmp_path, cid, list(reversed(steps)) if list_first else steps)
     cards = [item["card"] for item in items_of(result, mid, "approval")]
-    assert len(cards) == 2
-    assert next(card for card in cards if card["request_id"] == "perm-legacy")["approval_id"] is None
-    assert next(card for card in cards if card["approval_id"] == approvals[0]["approval_id"])["request_id"] is None
+    assert len(cards) == 1
+    assert cards[0]["request_id"] == "perm-legacy" and cards[0]["approval_id"] == approvals[0]["approval_id"]
+    assert cards[0]["state"] == "pending"
 
 
 def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path, harness):

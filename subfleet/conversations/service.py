@@ -948,8 +948,15 @@ class ConversationService:
     # --- ops: approvals --------------------------------------------------------
 
     def _approval_view(self, approval: dict) -> dict:
-        return {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "provider_request_id", "kind", "display",
+        # `request_id` is the provider's, as its `approval.requested` event carries it,
+        # so a client joins the two exactly (C-27.5; docs/desktop/app-needs.md 5).
+        # `provider_request_id` is the same id under the store's own name, which the
+        # app's inline approval card has read since it shipped (C-27.2).
+        view = {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "provider_request_id",
+                                         "kind", "display",
                                          "options", "created_at", "state")}
+        view["request_id"] = approval["provider_request_id"]
+        return view
 
     def op_approval_list(self, args, peer) -> dict:
         return {"approvals": [self._approval_view(a) for a in self.store.approvals(

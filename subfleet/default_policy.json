@@ -101,13 +101,15 @@
   },
   "desktop_login": "never",
   "caps": {
-    "max_active_attempts": 4,
-    "max_in_flight_per_lane": 2,
-    "max_in_flight_unmeasured": 1,
+    "max_active_attempts": null,
+    "max_in_flight_per_lane": null,
+    "max_in_flight_unmeasured": null,
+    "max_active_attempts_per_parent": null,
     "reading_ttl_s": 120,
     "max_wall_s": 21600,
     "max_attempts": 3,
-    "max_child_jobs": 8,
+    "max_child_jobs": null,
+    "max_writable_per_session": null,
     "max_tokens_observed": null,
     "keepalive_workers": 4,
     "keepalive_timeout_s": 60,
@@ -154,6 +156,13 @@
       "progress": 32000,
       "repository": 16000
     }
+  },
+  "admission": {
+    "lane_spread": 2,
+    "desktop_recent_s": 1800,
+    "machine_guard": null,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 604800
   },
   "conversations": {
     "approval_wait_s": null,

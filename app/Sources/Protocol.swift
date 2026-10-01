@@ -871,14 +871,23 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var approval_id: String
     var message_id: String
     var conversation_id: String
+    /// The provider's request id under the store's own name (C-27.1); a daemon
+    /// that sends it sends `request_id` too.
     var provider_request_id: String?
     var kind: String
     var display: ApprovalDisplay
     var options: [String]
     var created_at: String
     var state: String
+    /// The provider's request id, as the `approval.requested` event carries it
+    /// (C-27.5); nil from a daemon older than the field.
+    var request_id: String?
 
     var id: String { approval_id }
+
+    /// The provider's request id, under either name; nil only from a daemon older
+    /// than both, whose views the timeline joins by kind and display (C-27.5).
+    var requestID: String? { request_id ?? provider_request_id }
 }
 
 /// The display fields a driver recorded for a provider request (claude_turn /

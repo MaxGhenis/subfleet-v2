@@ -273,11 +273,12 @@
         "C-27.2",
         "C-27.3",
         "C-27.4",
+        "C-27.5",
         "C-25.6"
       ],
       "status": "open",
       "evidence": [],
-      "notes": "Daemon side done: tests/e2e/test_conversations.py approval, question, deny, person-only refusal, duplicate answer, restart mid-approval. App side pending."
+      "notes": "Daemon side done: tests/e2e/test_conversations.py approval, question, deny, person-only refusal, duplicate answer, restart mid-approval. App side pending. C-27.5 (2026-09-27): a pending card is reachable from the pinned strip's Review and scrolled into view (tests/frontend/test_core_approval_reach.py, tests/frontend/test_conversation_view.py)."
     },
     {
       "id": "P-4",

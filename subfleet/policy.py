@@ -115,6 +115,81 @@ def turn_cap(conversations: Mapping[str, Any] | None, key: str) -> int | None:
 #: and `default_effort: null` turns the default off for every provider.
 CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "codex": None}
 
+#: C-6.4: the `caps` keys that count attempts running at once, which admission
+#: reads (`scheduler.pool_capped`), and the two that count what a caller may
+#: submit (C-6.5). Each is a positive whole number or null, which is no cap and
+#: the default (Max, 2026-09-27 and 2026-09-28: "remove *all* caps").
+CONCURRENCY_CAPS = frozenset({"max_active_attempts", "max_in_flight_per_lane",
+                              "max_in_flight_unmeasured", "max_active_attempts_per_parent"})
+SUBMIT_CAPS = frozenset({"max_writable_per_session", "max_child_jobs"})
+COUNT_CAPS = CONCURRENCY_CAPS | SUBMIT_CAPS
+
+
+def cap(caps: Mapping[str, Any] | None, key: str) -> int | None:
+    """C-6.4: one count cap from policy `caps`, or None when there is none.
+
+    A missing key has the default, which is no cap, so a missing key and a null
+    mean the same thing to every reader.
+    """
+    if key not in COUNT_CAPS:
+        raise KeyError(key)
+    value = (caps or {}).get(key, DEFAULT_CAPS[key])
+    return None if value is None else int(value)
+
+
+def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
+    """C-6.4: how many detached attempts one lane may hold, or None for no cap.
+
+    A lane with a fresh `provider` reading is capped by `max_in_flight_per_lane`;
+    one without by `max_in_flight_unmeasured`, else by `max_in_flight_per_lane`,
+    whichever are set. There is no fixed 1 underneath: until 2026-09-27 an
+    unmeasured lane was held to one attempt whatever the policy said.
+    """
+    per_lane = cap(caps, "max_in_flight_per_lane")
+    if measured:
+        return per_lane
+    limits = [value for value in (per_lane, cap(caps, "max_in_flight_unmeasured")) if value is not None]
+    return min(limits) if limits else None
+
+
+#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: work once no count caps it (2026-09-27).
+#: `lane_spread` is the width of a load band: candidates are ranked by
+#: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
+#: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: `desktop_recent_s` is how recently a Claude Code session on the desktop login
+#: must have been active for that login to count as in use (C-10.3).
+#: `machine_guard` holds detached jobs of a class at the door while the machine is
+#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
+#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
+#: it waits for that to change before it fails with rc 3 (C-11.8); null never
+#: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
+#: closure must end to count as a hold rather than a wait (C-11.8): seven days
+#: is the longest usage window Subfleet reads (`seven_day`).
+MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
+    "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
+    "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
+}
+ADMISSION_DEFAULTS: dict[str, Any] = {
+    "lane_spread": 2,
+    "desktop_recent_s": 1800,
+    "machine_guard": None,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 7 * 86400,
+}
+#: C-6.13: the job classes a machine guard may hold, and the memory pressure
+#: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
+GUARDED_CLASSES = ("session", "background")
+MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
+
+
+def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """The policy's `admission` section with its defaults, as the loader leaves it."""
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+
+
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
 #: evidence of detached work, and the reverse.
@@ -250,12 +325,61 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("caps", "must be a map of positive admission bounds")
     caps = {**DEFAULT_CAPS, "reading_ttl_s": READING_TTL_S,
             "max_tokens_observed": None, **value["caps"]}
-    for name, cap in caps.items():
-        if name == "max_tokens_observed" and cap is None:
-            continue
-        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
-            fail(f"caps.{name}", "must be a positive integer")
+    for name, item in caps.items():
+        if item is None and (name == "max_tokens_observed" or name in COUNT_CAPS):
+            continue            # C-6.4: null is no cap
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            fail(f"caps.{name}", "must be a positive integer, or null for no cap" if name in COUNT_CAPS
+                 else "must be a positive integer")
     value["caps"] = caps
+
+    # `admission` (C-6.9, C-6.13, C-10.3, C-11.3): the load band, the desktop
+    # login's recency window, and the machine guard.
+    admission = value.get("admission", {})
+    if not isinstance(admission, dict):
+        fail("admission", "must be an object")
+    for key in admission:
+        if key not in ADMISSION_DEFAULTS:
+            fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
+    settings = {**ADMISSION_DEFAULTS, **admission}
+    spread = settings["lane_spread"]
+    if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
+        fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    recent = settings["desktop_recent_s"]
+    if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
+        fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
+    guard = settings["machine_guard"]
+    if guard is not None:
+        if not isinstance(guard, dict):
+            fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
+        for klass, limits in guard.items():
+            where = f"admission.machine_guard.{klass}"
+            if klass not in GUARDED_CLASSES:
+                fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
+                            "a conversation turn is never held")
+            if limits is None:
+                continue
+            if not isinstance(limits, dict) or not limits:
+                fail(where, "must be an object with load_per_cpu, memory_pressure, or both")
+            for key, item in limits.items():
+                if key == "load_per_cpu":
+                    if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
+                            or item <= 0):
+                        fail(f"{where}.load_per_cpu", "must be a positive finite number")
+                elif key == "memory_pressure":
+                    if item not in ("warn", "critical"):
+                        fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
+                else:
+                    fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+    grace = settings["pin_grace_s"]
+    if grace is not None and (not isinstance(grace, (int, float)) or isinstance(grace, bool)
+                              or not math.isfinite(grace) or grace < 0):
+        fail("admission.pin_grace_s", "must be a nonnegative finite number of seconds, or null never to fail "
+                                      "a job whose pinned lane can never admit it (C-11.8)")
+    far = settings["pin_hold_far_s"]
+    if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
+        fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
     if not _fraction(floor):
@@ -422,8 +546,9 @@ def _time(value: str | datetime) -> datetime:
 
 
 def lane_capacity(policy: Mapping[str, Any], lane_id: str,
-                  readings: Iterable[Reading | Mapping[str, Any]], *, now: datetime | str | None = None) -> int:
-    """C-6.4: an unmeasured or stale lane is limited to one in-flight attempt."""
+                  readings: Iterable[Reading | Mapping[str, Any]], *,
+                  now: datetime | str | None = None) -> int | None:
+    """C-6.4: how many detached attempts the lane may hold now (`lane_slot_cap`), None for no cap."""
     from .capacity import fresh_provider
 
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
@@ -439,7 +564,7 @@ def lane_capacity(policy: Mapping[str, Any], lane_id: str,
                 break
         except (ValueError, TypeError, KeyError):
             continue
-    return caps["max_in_flight_per_lane"] if measured else min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1)
+    return lane_slot_cap(caps, measured)
 
 
 def pick(policy: Mapping[str, Any], lanes: Iterable[Lane | Mapping[str, Any]], *,

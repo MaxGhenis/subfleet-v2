@@ -789,7 +789,7 @@ ops (D-8) are marked †.
 | `message.cancel` | `{message_id}` → Receipt (§4) |
 | `turn.interrupt` | `{message_id}` → Receipt (D-13) |
 | `message.resolve` † | `{message_id, resolution:"not-delivered"|"delivered", confirm:true}` → Receipt |
-| `approval.list` | `{conversation_id?}` → `{approvals:[{approval_id, message_id, kind, display, options, created_at, state}]}` (no nonce) |
+| `approval.list` | `{conversation_id?}` → `{approvals:[{approval_id, message_id, kind, display, options, created_at, state, request_id}]}` (no nonce; `request_id` is the provider's, as its `approval.requested` event carries it, C-27.5) |
 | `approval.get` † | `{approval_id}` → `{approval, request (masked in place), request_sha256, nonce}` |
 | `approval.respond` † | `{approval_id, nonce, request_sha256, decision, answers?, message?}` → `{approval, receipt}` |
 | `attachment.add` | `{path, sha256?}` → `{sha256, media_type, bytes}` |
@@ -1043,6 +1043,39 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   Finishing with no clock.
 - The live turn's status strip is pinned above the composer, with the
   elapsed time; the strip under each person bubble keeps the words only.
+- A pending approval is always within reach (C-27.5). While a card waits the
+  pinned strip carries Review, or Review (N) when several do, which opens the
+  oldest (by when it was asked); answering it moves Review to the next. The
+  strip is shown whenever a card is pending, even when the newest live turn
+  has already answered; its Stop shows only when it has something to act on.
+  A card is joined to its approval by the provider's request id, which both
+  the `approval.requested` event and the daemon's view carry; a card the view
+  made first moves, when its event arrives, to where the request came. A card whose
+  message has ended, or whose delivery is unknown, is withdrawn: the daemon
+  withdraws an attempt's approvals before it settles the message (C-27.3), and
+  a turn that ends without `result` writes no event withdrawing its requests.
+  Any card the daemon's whole pending set (`conversation.open`,
+  `approval.list`) no longer lists is withdrawn too, since an approval never
+  returns to pending. The app reads that set again when a Review or an answer
+  needs it, and when the watch feed counts fewer pending approvals than the
+  cards shown. The conversation scrolls each new card into view once when it appears,
+  wherever the person was reading, and the oldest when the conversation is
+  opened or the person asks (the strip's Review, or the sidebar's hand badge,
+  which opens its conversation). Each opening reads the log again from where
+  it stopped, and the view waits until that read reaches the end, since rows
+  arriving above a card move it; the request stands until then. It brings the
+  card back once when the first page of older history that opening loads adds
+  rows above it. On 2026-09-27 a card sat above five queued messages and a failover
+  turn, and the strip said "Needs your approval" with only a Stop.
+- Display order is the order turns began (each turn's first event), then the
+  messages still queued (or not yet received) in the order the daemon sends
+  them (an unblock note first, C-24.8). Sequence order had put a failover
+  continuation (D-6), which C-26.7 runs ahead of the queue, after the messages
+  queued before the limit, and an unblock note below the turn that ran after
+  it. A message that never began (withdrawn, refused, or a continuation not
+  yet sent) sits right after the latest turn that began among the messages
+  before it. The view follows the newest row of the turn that began last,
+  not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 - ⌘K, and File > Search…, open a quick-switch palette over the window
