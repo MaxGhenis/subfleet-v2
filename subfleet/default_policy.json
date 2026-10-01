@@ -84,6 +84,10 @@
     "terra": {
       "provider": "codex",
       "id": "gpt-5.6-terra"
+    },
+    "luna": {
+      "provider": "codex",
+      "id": "gpt-5.6-luna"
     }
   },
   "retired": {
@@ -114,7 +118,10 @@
   },
   "timers": {
     "probe_interval_s": 60,
-    "keepalive_interval_s": 18300
+    "keepalive_interval_s": 18300,
+    "touch_unstarted": true,
+    "touch_model": "luna",
+    "touch_spacing_s": 3600
   },
   "alerts": {
     "realert_hours": 6,

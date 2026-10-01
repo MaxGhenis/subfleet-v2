@@ -13,11 +13,12 @@ import os
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import READING_TTL_S, IdentityStatus
+from .contracts import (CLOCK_UNSTARTED_TOLERANCE_S, CLOCK_WINDOW_MIN_S, READING_TTL_S,
+                        WINDOW_KEYS, IdentityStatus)
 
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -243,6 +244,57 @@ def fresh_provider(reading: Mapping[str, Any], *, now: str | datetime,
     age = (instant - _time(reading["observed_at"])).total_seconds()
     return (0 <= age <= reading_ttl_s
             and (not reading.get("resets_at") or _time(reading["resets_at"]) > instant))
+
+
+#: C-9.7: the window keys that are not a bare minute count.
+_WINDOW_MINUTES = {key: minutes for minutes, key in WINDOW_KEYS.items()}
+
+
+def window_seconds(window: Any) -> int | None:
+    """C-9.7: a reading's window length in seconds; None for a key that is no duration
+    (the literal `admission`, C-9.8)."""
+    if window in _WINDOW_MINUTES:
+        return _WINDOW_MINUTES[window] * 60
+    if isinstance(window, str) and window.isdigit() and int(window) > 0:
+        return int(window) * 60
+    return None
+
+
+def long_windows(readings: Iterable[Any]) -> list[dict[str, Any]]:
+    """C-18.3: the account-wide readings of windows at least a day long (the weekly clock)."""
+    rows = [_row(item) for item in readings]
+    return [row for row in rows if row.get("scope") == "account"
+            and (window_seconds(row.get("window")) or 0) >= CLOCK_WINDOW_MIN_S]
+
+
+def clock_unstarted(readings: Iterable[Any], *, now: str | datetime,
+                    reading_ttl_s: int = READING_TTL_S,
+                    tolerance_s: float = CLOCK_UNSTARTED_TOLERANCE_S) -> dict[str, Any] | None:
+    """C-18.3: the evidence that a lane's weekly clock has not started, or None.
+
+    A Codex weekly window starts at its first real request after a reset, not at
+    the reset. Until then the usage endpoint reports it at 0% with a reset that
+    slides to (the instant it was asked + the window's length) on every read, so
+    each idle day moves that lane's next reset a day later. Every account-wide
+    window at least `CLOCK_WINDOW_MIN_S` long must be a fresh `provider` reading
+    at exactly 0% whose `resets_at` lies within `tolerance_s` of `observed_at`
+    plus its length. A long window that is stale, unread, or has no reset says
+    nothing, so the answer is None: this reads evidence and never infers it.
+    """
+    instant = _time(now)
+    found = []
+    for row in long_windows(readings):
+        length = window_seconds(row["window"])
+        if not fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s) or not row.get("resets_at"):
+            return None
+        if row["utilization"] != 0:
+            return None
+        offset = (_time(row["resets_at"]) - (_time(row["observed_at"]) + timedelta(seconds=length))).total_seconds()
+        if abs(offset) > tolerance_s:
+            return None
+        found.append({"window": row["window"], "observed_at": row["observed_at"],
+                      "resets_at": row["resets_at"], "offset_s": offset})
+    return found[0] if found else None
 
 
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:

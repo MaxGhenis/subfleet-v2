@@ -46,7 +46,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .guardian import atomic_publish
-from .policy import PolicyError, load_policy, policy_hash, resolve_model
+from .policy import PolicyError, load_policy, policy_hash, resolve_model, touch_model
 from .retention import maintenance
 from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
@@ -384,7 +384,7 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, log=self.log)
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -1567,6 +1567,12 @@ class Daemon:
                         "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             if a.action == "enroll":
                 return self._enroll_lane(a)
+            if a.action == "touch":
+                return self._touch_lanes(a)
+            if a.action == "touch-status":
+                if not a.request_id:
+                    raise protocol.ProtocolError("touch-status: request_id is required")
+                return {"touch": self.timers.touch_status(a.request_id, wait_s=a.wait_s or 0)}
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
@@ -1631,6 +1637,56 @@ class Daemon:
                     "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
         raise protocol.ProtocolError(f"unknown op {op}")
+
+    #: C-18.3: what an operator is told when the lane they named cannot be touched.
+    TOUCH_REFUSALS = {
+        "owner-v1": ("is owned by v1", "subfleet lanes transfer {lane} --to v2"),
+        "disabled": ("is disabled", "re-enroll it: subfleet login codex {lane}"),
+        "superseded": ("is a superseded binding", "touch the lane that replaced it: subfleet lanes list"),
+        "desktop": ("is the desktop login, which subfleet never uses", "touch another lane"),
+        "identity-mismatch": ("holds another account's credential (C-10.6)",
+                              "re-enroll it: subfleet login codex {lane}"),
+        "credential-latched": ("has a credential that cannot run a turn",
+                               "re-authenticate it: subfleet login codex {lane}"),
+        "limited": ("is at its usage limit, so its weekly window has already started",
+                    "nothing to touch; subfleet status shows its reset"),
+        "busy": ("is running an attempt, which is the first request that starts its clock",
+                 "nothing to touch; subfleet runs --running"),
+    }
+
+    def _touch_lanes(self, a: protocol.LanesArgs) -> dict:
+        """C-18.3: `lanes touch [<lane>|--all] [--dry-run]`.
+
+        A named lane is touched whatever its readings and spacing say, unless it
+        is a lane no touch may use (exit 7, naming why and the fix). Without a
+        lane, every lane whose weekly clock has not started and whose spacing
+        has passed is touched. The plan is read from the capacity view with the
+        cached desktop identity, so a dry run calls no provider and writes
+        nothing. The touch itself runs on the timer workers (C-16.4) and
+        `touch-status` collects it.
+        """
+        target = None
+        if a.lane_id:
+            from .operations import _target
+            target = _target(self, a.lane_id)["lane_id"]
+        view = self._capacity_view(self._cached_desktop_identity())
+        plan = self.timers.touch_plan(view, target=target)
+        if target:
+            entry = next((row for row in plan if row["lane_id"] == target), None)
+            if entry is None or entry["action"] != "touch":
+                reason = entry["reason"] if entry else "not-codex"
+                text, fix = self.TOUCH_REFUSALS.get(reason.split(":", 1)[0], (
+                    f"is closed ({reason})", "wait for the closure to end: subfleet status"))
+                raise protocol.ProtocolError(f"lanes touch: {target} {text}; not touched",
+                                             Exit.REFUSED, fix.format(lane=target))
+        touching = [row["lane_id"] for row in plan if row["action"] == "touch"]
+        result = {"dry_run": bool(a.dry_run), "target": target, "plan": plan, "touching": touching,
+                  "model": touch_model(self.policy)["id"]}
+        if a.dry_run or not touching:
+            return {"touch": {**result, "status": "dry-run" if a.dry_run else "nothing-to-touch"}}
+        request_id = a.request_id or str(uuid4())
+        scheduled = self.timers.request("touch", target=target, request_id=request_id)
+        return {"touch": {**result, **scheduled, "request_id": request_id}}
 
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
@@ -2102,7 +2158,10 @@ class Daemon:
         token = holder.rsplit(":", 1)[-1]
         directory = self.root / "lanes" / lane.lane_id / "probes" / token
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        model = self.policy["models"]["haiku" if lane.provider == "claude" else "terra"]
+        # C-18.3: a touch must be metered on the weekly window it starts, so it
+        # runs the touch model (Luna), never Spark; heal and keepalive keep theirs.
+        model = (touch_model(self.policy) if purpose == "touch"
+                 else self.policy["models"]["haiku" if lane.provider == "claude" else "terra"])
         record = {"holder": holder, "job_id": None, "lane_id": lane.lane_id,
                   "timer_kind": purpose, "model_id": model["id"], "directory": str(directory),
                   "state": "reserved", "created_at": utcnow(), "owned_identities": {},
@@ -2116,11 +2175,19 @@ class Daemon:
                "name": None, "out_path": None}
         try:
             outcome = self._execute_probe(job, lane, model, holder)
-        except Exception:
+        except Exception as exc:
             current = self._probe_record(holder)
             safe = self._contain_probe(current)
             if not safe:
                 return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
+            # Contained and never to be recovered: settle the record and drop the
+            # directory, or a turn refused hourly (a guard drift, an API-key
+            # home) leaves one behind each time. The preflight verdict is in
+            # daemon.log (`_guard_recorder`).
+            current = self._probe_record(holder)
+            current.update(state="completed", error_type=type(exc).__name__)
+            self._save_probe(current)
+            shutil.rmtree(directory, ignore_errors=True)
             raise
         requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
         if requested:
@@ -2425,6 +2492,22 @@ class Daemon:
             if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
                 self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
+            touch = self.timers.touches.get(record["lane_id"])
+            if record["timer_kind"] == "touch" and touch and touch.get("status") == "touching":
+                # C-18.3: a touch whose daemon died mid-turn keeps its spacing,
+                # records how the turn ended, and acts on it as the live path
+                # does: auth-dead disables the lane (C-23.44), limited closes it
+                # (C-9.4).
+                with self.store.transaction("timer.touched", lane_id=record["lane_id"]):
+                    if outcome.cls == OutcomeClass.AUTH_DEAD:
+                        self.store.update_lane(record["lane_id"], enabled=0)
+                        self.timers.record_auth_dead(record["lane_id"])
+                    elif (outcome.cls == OutcomeClass.LIMITED and outcome.closure
+                          and not self.timers.actions.confirmed_override(record["lane_id"])):
+                        self.store.add_closure(outcome.closure)
+                self.timers._record_touch(record["lane_id"], {
+                    **touch, "status": outcome.cls.value, "requested_at": sent, "recovered": True,
+                    "detail": str(outcome.detail or "")[:300], "rc": outcome.evidence.get("rc")})
             record.update(state="completed")
             self._save_probe(record)
             self.store.release_leases(record["holder"])
@@ -2472,6 +2555,11 @@ class Daemon:
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
+            if record.get("state") == "completed":
+                # Settled before the daemon stopped (a timer turn refused before
+                # launch, C-18.3); only its lease outlived it.
+                self.store.release_leases(lease["holder"])
+                continue
             safe, receipt = self._await_probe(record)
             if not safe:
                 continue
@@ -3942,7 +4030,9 @@ class Daemon:
                         continue
                     # Submission filesystem work and long polls have separate
                     # pools; ordinary read/cancel operations stay responsive.
-                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
+                    # C-15.4, C-18.3: long polls wait on their own pool, never the one `status` uses.
+                    polls = req.op == "wait" or req.op == "lanes" and req.args.get("action") == "touch-status"
+                    pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if polls else self.requests
                     pending = [f for f in pending if not f.done()]
                     reads.intersection_update(pending)
                     future = pool.submit(self._respond, conn, write_lock, req)

@@ -68,6 +68,29 @@ def nested_grandchild() -> int:
     return int(result.stdout)
 
 
+def meter_clock(directory: Path) -> None:
+    """C-18.3: a request metered on the weekly window starts that account's clock.
+
+    Spark meters on a bucket of its own, so its turn starts nothing. Every call
+    is recorded with its argv and the environment keys the contract scrubs.
+    """
+    argv = sys.argv[1:]
+    model = argv[argv.index("-m") + 1] if "-m" in argv[:-1] else None
+    try:
+        auth = json.loads((Path(os.environ["CODEX_HOME"]) / "auth.json").read_text())
+        account = auth["tokens"]["account_id"]
+    except (KeyError, OSError, ValueError, TypeError):
+        return
+    with (directory / f"{account}.calls.jsonl").open("a") as calls:
+        calls.write(json.dumps({"argv": argv, "cwd": os.getcwd(),
+                                "probe": os.environ.get("SUBFLEET_PROBE"),
+                                "env": {key: os.environ.get(key) for key in ENV_KEYS}}) + "\n")
+    marker = directory / f"{account}.started"
+    if model and "spark" not in model and not marker.exists():
+        from datetime import datetime, timezone
+        marker.write_text(datetime.now(timezone.utc).isoformat())
+
+
 #: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
 SIGTERM_INTERIM = "I am checking the newer validation code before finalizing the review.\n"
 
@@ -120,6 +143,8 @@ def main() -> int:
                     }],
                 }]}}), flush=True)
         return 0
+    if os.environ.get("SUBFLEET_FAKE_WHAM_CLOCKS"):
+        meter_clock(Path(os.environ["SUBFLEET_FAKE_WHAM_CLOCKS"]))
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; the fake answers it at once

@@ -209,6 +209,8 @@ class LanesArgs:
     owner: str | None = None            # for transfer: "v1" | "v2"
     dry_run: bool = False               # transfer: print the diff, write nothing
     confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
+    request_id: str | None = None       # touch, touch-status: the operator touch to collect
+    wait_s: float | None = None         # touch-status: long-poll seconds, at most 30 (C-16.4)
 
 
 @dataclass

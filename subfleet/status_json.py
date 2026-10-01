@@ -168,7 +168,11 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                           "email": email, "windows": codex_windows, "duplicate_of": lane.get("duplicate_of"),
                           "account_key": lane.get("account_key", lane["lane_id"]),
                           "app_shadowed": bool(lane.get("app_shadowed", False)),
-                          "reset_credits_remaining": credit_count})
+                          "reset_credits_remaining": credit_count,
+                          # C-18.3: `window_unstarted` is v1's name for a clock
+                          # the daemon has not yet started.
+                          "weekly_clock": lane.get("weekly_clock"),
+                          "window_unstarted": lane.get("weekly_clock") == "not-started"})
         elif lane["provider"] == "claude":
             probe: dict[str, Any] = {"status": verdict}
             live: dict[str, Any] = {"source": verdict, "stale": False}
@@ -197,7 +201,9 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
             "jobs": _jobs(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
-                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits}},
+                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits,
+                       "unstarted": [lane["home"] for lane in codex if lane["window_unstarted"]
+                                     and lane["enabled"] and lane["owner"] == "v2"]}},
             "claude": {"accounts": claude, "lanes": {"enrolled": sum(row["enrolled"] for row in claude),
                         "dispatchable_now": sum(row["dispatchable"] for row in claude)}}}
 
