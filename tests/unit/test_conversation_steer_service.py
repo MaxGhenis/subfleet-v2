@@ -373,11 +373,9 @@ def _free_elsewhere(lock) -> bool:
     return got == [True]
 
 
-def test_settlement_holds_the_hosts_stop_lock_from_its_evidence_through_its_settlement(svc, tmp_path, monkeypatch):
-    """The 2.1.10 merge of C-24.7/C-24.8 with steer review finding 14: a person's stop of
-    the host is serialized with the whole settlement, its evidence read included, so no
-    stop is recorded between the read of `stop_requested_at` and the block the settlement
-    applies; the service lock stays free while the evidence is read."""
+def test_settlement_gathers_with_both_locks_free_then_holds_them_through_settlement(svc, tmp_path, monkeypatch):
+    """Transcript scans hold neither the service lock nor a shared Stop stripe.
+    The fresh Stop decision and steer snapshot are serialized through settlement."""
     from subfleet.conversations import service as service_module
     from tests.unit.test_conversation_service import EndedRunner
     cid, host, adir = _ended_without_result(svc, tmp_path)
@@ -387,23 +385,35 @@ def test_settlement_holds_the_hosts_stop_lock_from_its_evidence_through_its_sett
         seen["stop lock free"] = _free_elsewhere(svc._stop_lock(host))
         seen["service lock free"] = _free_elsewhere(svc._lock)
         return _delivered()
+
+    steers = svc.store.steers
+
+    def snapshot(host_id):
+        seen["snapshot stop lock free"] = _free_elsewhere(svc._stop_lock(host))
+        seen["snapshot service lock free"] = _free_elsewhere(svc._lock)
+        return steers(host_id)
+
     monkeypatch.setattr(service_module.reconcile, "gather", gather)
+    monkeypatch.setattr(svc.store, "steers", snapshot)
     svc._on_outcome(EndedRunner(adir, host, cid))
-    assert seen == {"stop lock free": False, "service lock free": True}
+    assert seen == {"stop lock free": True, "service lock free": True,
+                    "snapshot stop lock free": False, "snapshot service lock free": False}
     assert svc.store.conversation(cid)["blocked_by"] == "unfinished-turn"
     assert _free_elsewhere(svc._stop_lock(host))
 
 
-def test_a_stop_asked_while_the_settlement_reads_its_evidence_waits_and_finds_the_turn_settled(
-        svc, tmp_path, monkeypatch):
-    """C-24.7/C-24.8 through the merge: a person's Stop that arrives while the settlement
-    reads its evidence (outside the service lock) waits for the settlement, then finds the
-    message no longer running. The unfinished-turn block the settlement applied therefore
-    never follows a recorded personal stop."""
+@pytest.mark.parametrize("delivery", ["delivered", "not-delivered", "delivery-unknown"])
+def test_a_stop_recorded_during_the_evidence_read_prevents_later_unfinished_blocking(
+        svc, tmp_path, monkeypatch, delivery):
+    """C-24.7/C-24.8: Stop returns during a transcript scan. Settlement uses its
+    persisted stop with the cached evidence, preserving only unknown-delivery blocks."""
     from subfleet.conversations import service as service_module
     from tests.unit.test_conversation_service import EndedRunner
     cid, host, adir = _ended_without_result(svc, tmp_path)
+    queued = submit(svc, cid, after=host)
     answers = []
+    scans = []
+    prompt = []
 
     def stop():
         try:
@@ -413,16 +423,94 @@ def test_a_stop_asked_while_the_settlement_reads_its_evidence_waits_and_finds_th
     asked = threading.Thread(target=stop)
 
     def gather(*args, **kwargs):
+        scans.append(True)
         asked.start()
-        asked.join(0.5)
-        answers.append("waiting" if asked.is_alive() else "answered during the evidence read")
-        return _delivered()
+        asked.join(2)
+        prompt.append(not asked.is_alive())
+        return service_module.reconcile.Evidence(
+            acknowledged=delivery == "delivered", frame="absent" if delivery == "not-delivered" else "written",
+            process_gone=True, native="found" if delivery == "delivered" else "absent", session_exists=True)
     monkeypatch.setattr(service_module.reconcile, "gather", gather)
-    svc._on_outcome(EndedRunner(adir, host, cid))
-    asked.join(10)
-    assert answers == ["waiting", "not-running"]
+    try:
+        svc._on_outcome(EndedRunner(adir, host, cid))
+    finally:
+        asked.join(10)
+    assert not asked.is_alive()
+    assert prompt == [True] and scans == [True]
+    assert len(answers) == 1 and isinstance(answers[0], dict) and answers[0]["stop_requested"]
     message = svc.store.message(host)
-    assert message["state"] == "failed" and message.get("stop_requested_at") is None
+    assert message["stop_requested_at"]
+    if delivery == "delivery-unknown":
+        assert message["state"] == "delivery-unknown"
+        assert svc.store.conversation(cid)["blocked_by"] == "delivery-unknown"
+        assert svc.store.next_dispatchable(cid) == []
+    else:
+        assert message["state"] == "interrupted" and message["state_reason"] == "stopped"
+        assert svc.store.conversation(cid)["blocked_by"] is None
+        assert [row["message_id"] for row in svc.store.next_dispatchable(cid)] == [queued]
+
+
+@pytest.mark.parametrize("action", ["stop", "steer"])
+def test_evidence_gathering_never_blocks_another_conversations_colliding_stop_stripe(
+        svc, tmp_path, monkeypatch, action):
+    """C-25.3: an unrelated Stop starts escalation, or a steer claims its named
+    running turn, while another host scans transcripts on the same Stop stripe."""
+    import uuid
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import EndedRunner
+    cid, host, adir = _ended_without_result(svc, tmp_path)
+    other = conversation(svc)
+    for _ in range(4096):
+        colliding = str(uuid.uuid4())
+        if svc._stop_lock(colliding) is svc._stop_lock(host):
+            break
+    else:
+        pytest.fail("could not find a UUID sharing the host's Stop stripe")
+    other_host = submit(svc, other) if action == "steer" else colliding
+    if action == "steer":
+        after = other_host
+    else:
+        after = None
+    svc.store.submit_message(conversation_id=other, message_id=colliding, after_message_id=after,
+                             text="remember the second point", attachments=[],
+                             settings=svc.store.conversation(other)["settings"])
+    svc.store.set_state(other_host, "running")
+    runner = Runner(other_host, other)
+    svc.runners[runner.attempt_id] = runner
+    svc._person = lambda peer, what: Verdict(True, "test", peer)
+    replies, prompt, scans = [], [], []
+
+    def operate():
+        try:
+            if action == "stop":
+                replies.append(svc.op_turn_interrupt({"message_id": colliding}, None))
+            else:
+                replies.append(svc.op_message_steer({"message_id": colliding, "into": other_host}, None))
+        except Exception as exc:
+            replies.append(exc)
+
+    asked = threading.Thread(target=operate)
+
+    def gather(*args, **kwargs):
+        scans.append(True)
+        asked.start()
+        asked.join(2)
+        prompt.append(not asked.is_alive())
+        return _delivered()
+
+    monkeypatch.setattr(service_module.reconcile, "gather", gather)
+    try:
+        svc._on_outcome(EndedRunner(adir, host, cid))
+    finally:
+        asked.join(10)
+    assert not asked.is_alive()
+    assert prompt == [True] and scans == [True]
+    assert len(replies) == 1 and isinstance(replies[0], dict), replies
+    if action == "stop":
+        assert replies[0]["stop_requested"] and runner.commands == [("interrupt", "stopped")]
+    else:
+        assert replies[0]["state"] == "steering" and replies[0]["steered_into"] == other_host
+        assert runner.commands == [("steer", colliding)]
     assert svc.store.conversation(cid)["blocked_by"] == "unfinished-turn"
 
 
