@@ -1,8 +1,8 @@
 # An approval's event committed before the approval, 2026-10-01
 
-`tests/frontend/test_core_live.py::test_the_app_core_drives_a_development_daemon` failed in about 3 of 7 CI runs on branches built on release/217 (f1bd2ab5), on Python 3.12 and 3.14. The cause was a race in the daemon, not the test's wait: the turn runner committed an approval's `approval.requested` event, then the approval, then the message's move to `approval-needed`, in three transactions. Design §8 (`docs/desktop/design.md:889`) says one. A client that read the event and at once listed approvals, as the app does to answer a card, could find no approval. The fix commits the three together (4a97e16b). The live probe now stops at the first failed step it depends on, with the app core's state, instead of cascading for 300 s (cb739b4d).
+`tests/frontend/test_core_live.py::test_the_app_core_drives_a_development_daemon` failed in about 3 of 7 CI runs on branches built on release/217 (f1bd2ab5), on Python 3.12 and 3.14. The cause was a race in the daemon, not the test's wait: the turn runner committed an approval's `approval.requested` event, then the approval, then the message's move to `approval-needed`, in three transactions. Design §8 (`docs/desktop/design.md:889`) says one. A client that read the event and at once listed approvals, as the app does to answer a card, could find no approval. The fix commits the three together (4a97e16b, with b29c97ca from its review). The live probe now stops at the first failed step it depends on, with the app core's state, instead of cascading for 300 s (cb739b4d).
 
-Every number below comes from CI logs or from commands run on 2026-10-01 on an Apple M5 Max (18 cores, macOS 26.6.2, Python 3.12.14, SQLite 3.53.4), at load average about 36 from other lanes. Raw data and the script are in `docs/reports/2026-10-01-approval-commit-race/`.
+Every number below comes from CI logs or from commands run on 2026-10-01 on an Apple M5 Max (18 cores, macOS 26.6.2, Python 3.12.14, SQLite 3.53.4), at load averages of 36 to 52 from other lanes. Raw data and the script are in `docs/reports/2026-10-01-approval-commit-race/`.
 
 ## What CI showed
 
@@ -40,7 +40,7 @@ The app has the same exposure. A card with no approval id gets one only when Rev
 - calls `approval.list` at once, as the app does, then `message.status`;
 - interrupts the turn.
 
-The old tree is `git archive f1bd2ab5`; the new one is this branch. Runs alternated old, new, old, new.
+The old tree is `git archive f1bd2ab5`; the new one is this branch. Runs alternated old, new, old, new; new-run3 is the final head.
 
 | Run | Code | Rounds | Approval listed when its event arrived | Missed (tool, question) | `message.status` read after a miss |
 |---|---|---|---|---|---|
@@ -48,16 +48,17 @@ The old tree is `git archive f1bd2ab5`; the new one is this branch. Runs alterna
 | new-run1 | 4a97e16b | 40 | 40 | 0 | n/a |
 | old-run2 | f1bd2ab5 | 40 | 10 | 30 (15, 15) | 28 running, 2 approval-needed |
 | new-run2 | 4a97e16b | 40 | 40 | 0 | n/a |
+| new-run3 | b29c97ca | 40 | 40 | 0 | n/a |
 
-At f1bd2ab5, `approval.list` missed the approval its event had just announced in 49 of 80 rounds. The `message.status` read right after the list still said `running` in 47 of them; in the other 2 the move had landed in between. With the fix, the list held the approval and the message was `approval-needed` in all 80.
+At f1bd2ab5, `approval.list` missed the approval its event had just announced in 49 of 80 rounds. The `message.status` read right after the list still said `running` in 47 of them; in the other 2 the move had landed in between. With the fix, the list held the approval and the message was `approval-needed` in all 120.
 
 ## The fix
 
 **One transaction (4a97e16b).** `ConversationStore.add_approvals` (`store.py:1074`) publishes each new request's file first, as a message's text is published before its row (C-24.3). It then commits these in one transaction:
 
-- the event batch and the attempt's watermark (`_insert_events`, `store.py:1192`);
+- the event batch and the attempt's watermark (`_insert_events`, `store.py:1195`);
 - the approval rows and their change-feed rows;
-- the move to `approval-needed` (`_set_state`, `store.py:975`; the call is at `store.py:1117`).
+- the move to `approval-needed` (`_set_state`, `store.py:975`; the call is at `store.py:1121`).
 
 `TurnRunner._apply` hands a step's approvals to `_flush(approvals)` (`runner.py:410`, `runner.py:670`). `add_approval`, `append_events` and `set_state` keep their behaviour on the same helpers. The change rows are written in the same order as before, so the app's watch feed still raises one approval notification. C-27.1 in `docs/acceptance-contract.md` now says that the three commit together.
 
@@ -79,7 +80,8 @@ The question step now checks the card's approval id (`:282`) apart from its ques
   - a Hypothesis property over interleavings of streamed text, requests of every driver kind (one or several per step), withdrawals, answers and batch flushes. At every commit, the events announce exactly the stored approvals, and a pending approval means `approval-needed`.
 
   At f1bd2ab5 the three ordering tests fail, and Hypothesis minimizes the failure to a single request. With the fix all pass.
-- The unit suite (6,184 tests), `tests/frontend` except the live test (171), the contract-index tests, and the Swift probe build pass on Python 3.12.14.
+- The unit suite (6,184 tests at 4a97e16b), `tests/frontend` except the live test (171) and the Swift probe build pass on Python 3.12.14. At b29c97ca, the store, runner, replay, Claude driver and service tests pass on 3.12.14 (229), and with the contract-index tests on 3.14.7 with the GIL (258), and `tests/e2e/test_conversations.py` gives 22 passed and 7 skipped: the person-only flows skip inside a lane.
+- An independent Opus review of 4a97e16b to cb739b4d found no P0 to P2 defect, confirmed that the new tests fail on f1bd2ab5, and raised three latent P3s. b29c97ca closes two of them: `add_approval` for a known request no longer runs an empty commit, and a request named twice in one call is one approval. The third is intended. If publishing a request fails, the events batched before it are not committed either, and a replay writes them.
 - `test_core_live.py` cannot pass inside a Subfleet lane. `approval.get` is person-only, and the peer check (`subfleet/conversations/peers.py:97-102`) refuses any caller whose ancestors carry attempt markers. Run here, it now fails in 25 s at "approval.get and approval.respond as the app", with the dump, instead of waiting out its 900 s timeout. It got past "the card joins its approval id" on the way. Whether the whole live test passes is for CI on macOS, with no lane above it.
 
 ## Not established
