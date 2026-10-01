@@ -1,0 +1,44 @@
+Command: uv run python -u -c import json,time
+from pathlib import Path
+from subfleet import retention,retention_archive as rarch
+from tests.unit.retention_world import Clock
+from tests.unit import test_retention_archive_properties as props
+clock=Clock()
+original_tick=rarch._Builder._tick
+original_maintenance=retention.maintenance
+advanced=False
+captured={}
+def tick(self):
+    global advanced
+    if self.work and not advanced:
+        clock.advance(retention.SLICE_S+1)
+        advanced=True
+        print("CONTROLLED_CLOCK_ADVANCED_PAST_DEFAULT_SLICE",clock(),flush=True)
+    return original_tick(self)
+def maintenance(*args,**kwargs):
+    kwargs["clock"]=clock
+    result=original_maintenance(*args,**kwargs)
+    captured.update(result)
+    print("FULL_MAINTENANCE_RESULT",json.dumps(result,sort_keys=True,default=str),flush=True)
+    print("FULL_JOURNALS",json.dumps(rarch.journals(Path(args[1])),sort_keys=True,default=str),flush=True)
+    return result
+rarch._Builder._tick=tick
+retention.maintenance=maintenance
+print("CONTROLLED_BUDGET_EXPERIMENT: simulate clock advancing beyond the default120 s slice after first progress record; no filesystem source edits",flush=True)
+try:
+    props.test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted.hypothesis.inner_test(ops=[("delete-tracked",)])
+except AssertionError as error:
+    print("EXPECTED_SINGLE_PASS_ORACLE_ASSERTION",str(error),flush=True)
+    assert advanced and captured["pruned"]==[] and captured["in_flight"]==["job-prop"] and captured["errors"]==[] and captured["deferred"]=={}
+    print("CONTROLLED_DEFAULT_SLICE_PARK_CONFIRMED",flush=True)
+else:
+    raise AssertionError("Expected single-pass property assertion after controlled valid parking")
+
+CONTROLLED_BUDGET_EXPERIMENT: simulate clock advancing beyond the default120 s slice after first progress record; no filesystem source edits
+CONTROLLED_CLOCK_ADVANCED_PAST_DEFAULT_SLICE 1121.0
+FULL_MAINTENANCE_RESULT {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 19547, "bytes_before": 19547, "conflicts": [], "deferred": {}, "errors": [], "freed_bytes": 0, "freed_disk_bytes": 0, "in_flight": ["job-prop"], "jobs_after": 1, "more": true, "pin_reasons": {}, "pools": {"detached": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 19547, "bytes_before": 19547, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 1, "jobs_before": 1, "max_bytes": 0, "max_jobs": 0, "unknown_size": 0, "unmeasured": 0}, "turn": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 0, "bytes_before": 0, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 0, "max_bytes": 4294967296, "max_jobs": 2000, "unknown_size": 0, "unmeasured": 0}}, "progressed": true, "protected": [], "pruned": [], "reclaimed": []}
+FULL_JOURNALS {"job-prop": {"admin": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git/worktrees/job-prop", "admin_remnant": false, "archive": null, "attempts": 1, "baseline": "cf015e27d0ee421dbce69b907642463f56d81444", "check1": true, "common": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git", "failures": 0, "job_dir": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/state/jobs/job-prop", "job_id": "job-prop", "lock": {"created": true, "path": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git/worktrees/job-prop/locked", "text": "subfleet retention: job-prop\n"}, "moved": {"job": true, "worktree": true}, "object_format": "sha1", "pool": "detached", "salvage": [], "schema": 1, "started_at": "2026-10-01T20:38:47Z", "state": "quarantined", "updated_at": "2026-10-01T20:38:49Z", "workdir": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project", "worktree": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/state/worktrees/job-prop", "worktree_present": true}}
+EXPECTED_SINGLE_PASS_ORACLE_ASSERTION {'pruned': [], 'errors': [], 'bytes_before': 19547, 'bytes_after': 19547, 'deferred': {}, 'in_flight': ['job-prop'], 'reclaimed': [], 'conflicts': [], 'freed_bytes': 0, 'freed_disk_bytes': 0, 'archived_bytes': 0, 'added_bytes': 0, 'pools': {'detached': {'jobs_before': 1, 'bytes_before': 19547, 'unmeasured': 0, 'unknown_size': 0, 'max_jobs': 0, 'max_bytes': 0, 'jobs_after': 1, 'bytes_after': 19547, 'freed_bytes': 0, 'freed_disk_bytes': 0, 'archived_bytes': 0, 'added_bytes': 0}, 'turn': {'jobs_before': 0, 'bytes_before': 0, 'unmeasured': 0, 'unknown_size': 0, 'max_jobs': 2000, 'max_bytes': 4294967296, 'jobs_after': 0, 'bytes_after': 0, 'freed_bytes': 0, 'freed_disk_bytes': 0, 'archived_bytes': 0, 'added_bytes': 0}}, 'protected': [], 'jobs_after': 1, 'more': True, 'progressed': True, 'pin_reasons': {}}
+CONTROLLED_DEFAULT_SLICE_PARK_CONFIRMED
+
+Exit: 0; elapsed: 144.34s
