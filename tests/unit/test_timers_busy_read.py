@@ -23,7 +23,10 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet.adapters.codex import CodexAdapter, WHAM_USAGE_URL
-from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading, ReadingLabel
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Outcome,
+                                OutcomeClass, Reading, ReadingLabel)
+from subfleet.daemon import Daemon
+from subfleet.retention import maintenance
 from subfleet.store import Store
 from subfleet.timers import BUSY, Timers, iso
 from tests.unit.test_codex_probe import SAVED_WHAM, _auth
@@ -410,8 +413,8 @@ def test_c18_3_an_older_busy_read_never_releases_a_newer_limit(rig, change):
 @pytest.mark.parametrize("until", ["same", "earlier"])
 @pytest.mark.parametrize("override", [False, True])
 def test_c18_3_a_limit_an_attempt_reports_again_during_the_read_is_kept(rig, until, override):
-    """C-18.3, C-9.6 (review of PR #96): `put_closure` writes nothing for a limit that ends no later
-    than the open row's, so the closures show no change; the attempt's `limited` outcome does."""
+    """C-18.3, C-9.6 (review of PR #96): a limit that ends no later than the open row's changes nothing
+    in that row. The report's `closure.recorded` event is its trace, and the older read releases nothing."""
     lane = rig.enroll()
     reset = rig.clock() + timedelta(hours=2)
     rig.store.put_closure(Closure(lane.lane_id, "account", iso(reset), ClosureReason.PROVIDER_LIMIT,
@@ -426,58 +429,95 @@ def test_c18_3_a_limit_an_attempt_reports_again_during_the_read_is_kept(rig, unt
     rig.timer.probe_cycle()
     assert rig.open_closures(lane) == closures
     assert len(rig.wham_readings(lane)) == 2 and rig.events("action.reconciled", lane) == []
+    event = rig.cycle_event()
+    assert event["fenced"] == [lane.lane_id] and event["deferred"] == {}     # published, nothing released
     if override:
         assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
 
 
-def test_c18_3_a_limit_an_admission_probe_reports_again_during_the_read_is_kept(rig):
-    """C-18.3, C-11.4: an admission probe has no attempt row. Its `probe.completed` event is the trace of
-    a limit it reports into a closure already open."""
+@pytest.mark.parametrize("until", ["same", "earlier"])
+def test_c18_3_a_limit_an_admission_probe_reports_again_during_the_read_is_kept(rig, until):
+    """C-18.3, C-11.4 (reviews of PR #96 and #97): an admission probe has no attempt row. The real
+    `Daemon._finish_probe` records its `limited` outcome's closure, and that report's event is the trace."""
     lane = rig.enroll()
-    reset = iso(rig.clock() + timedelta(hours=2))
-    rig.store.put_closure(Closure(lane.lane_id, "account", reset, ClosureReason.PROVIDER_LIMIT,
+    reset = rig.clock() + timedelta(hours=2)
+    rig.store.put_closure(Closure(lane.lane_id, "account", iso(reset), ClosureReason.PROVIDER_LIMIT,
                                   ClockSource.REPORTED, "attempt-1"))
     rig.override(lane)
     rig.occupy(lane, "both")
     rig.occupy(lane, "probe")
     closures = rig.open_closures(lane)
-
-    def probe_ends_limited():                 # `Daemon._finish_probe` for a `limited` probe
-        with rig.store.transaction("probe.completed", job_id=f"job-{lane.lane_id}-0", lane_id=lane.lane_id,
-                                   data={"model": "gpt-6.1-sol", "class": "limited", "evidence": {}}) as tx:
-            rig.store.add_closure(Closure(lane.lane_id, "account", reset, ClosureReason.PROVIDER_LIMIT,
-                                          ClockSource.REPORTED, "probe"))
-            tx.execute("DELETE FROM leases WHERE holder=?", ("probe:0123456789abcdef",))
-
-    rig.wham.during[lane.lane_id] = [probe_ends_limited]
+    again = Closure(lane.lane_id, "account", iso(reset if until == "same" else reset - timedelta(minutes=5)),
+                    ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "probe")
+    record = {"holder": "probe:0123456789abcdef", "job_id": f"job-{lane.lane_id}-0", "lane_id": lane.lane_id,
+              "model_id": "gpt-6.1-sol", "directory": str(rig.root / "probe"), "state": "running"}
+    daemon = object.__new__(Daemon)
+    daemon.store, daemon.timers = rig.store, rig.timer
+    rig.wham.during[lane.lane_id] = [lambda: daemon._finish_probe(
+        record, Outcome(OutcomeClass.LIMITED, "provider rejected again", closure=again))]
     rig.wham.responses[lane.lane_id] = [answer(lane, rig.clock, "ok", utilization=.5, limit_reached=False)]
     rig.timer.probe_cycle()
+    assert record["state"] == "completed" and rig.cycle_event()["fenced"] == [lane.lane_id]
     assert rig.open_closures(lane) == closures and len(rig.wham_readings(lane)) == 2
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
     rig.clock.advance()
-    rig.timer.probe_cycle()                                   # a probe that ended `ok` fences nothing
-    assert rig.open_closures(lane) == set()
+    rig.timer.probe_cycle()                                   # nothing reported during this read
+    assert rig.open_closures(lane) == set() and rig.cycle_event()["fenced"] == []
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
 
 
 def test_c18_3_a_reported_limit_survives_retention_pruning_its_attempt(rig):
-    """C-18.3 (review of PR #97): the attempt that reported the limit again can be pruned before the
-    publication. The report's event cannot, so the older read still releases nothing."""
+    """C-18.3 (review of PR #97): the attempt that reported the limit again is pruned by the real
+    retention pass before the publication. The report's event is not, so the older read releases nothing."""
     lane = rig.enroll()
     reset = iso(rig.clock() + timedelta(hours=2))
     rig.store.put_closure(Closure(lane.lane_id, "account", reset, ClosureReason.PROVIDER_LIMIT,
                                   ClockSource.REPORTED, "attempt-1"))
     rig.override(lane)
     rig.occupy(lane, "both", n=2)
-    closures, pruned = rig.open_closures(lane), f"job-{lane.lane_id}-1"
+    closures, oldest, newer = rig.open_closures(lane), f"job-{lane.lane_id}-0", f"job-{lane.lane_id}-1"
+    with rig.store.transaction("fixture.order-jobs") as tx:
+        tx.execute("UPDATE jobs SET created_at=?,max_attempts=1 WHERE job_id=?", (iso(rig.clock() - timedelta(days=1)), oldest))
+        tx.execute("UPDATE jobs SET created_at=? WHERE job_id=?", (iso(rig.clock()), newer))
 
-    rig.wham.during[lane.lane_id] = [lambda: rig.ends_limited(lane, reset, attempt=f"{pruned}/a1"),
-                                     lambda: rig.prune(pruned)]
+    def ends_limited_and_is_pruned():
+        rig.ends_limited(lane, reset, attempt=f"{oldest}/a1")
+        with rig.store.transaction("fixture.job-terminal") as tx:
+            tx.execute("UPDATE jobs SET state='failed',finished_at=? WHERE job_id=?", (iso(rig.clock()), oldest))
+            tx.execute("UPDATE attempts SET finished_at=? WHERE job_id=?", (iso(rig.clock()), oldest))
+        assert maintenance(rig.store, rig.root, max_jobs=1)["pruned"] == [oldest]
+
+    rig.wham.during[lane.lane_id] = [ends_limited_and_is_pruned]
     rig.wham.responses[lane.lane_id] = [answer(lane, rig.clock, "ok", utilization=.5, limit_reached=False)]
     rig.timer.probe_cycle()
-    assert rig.store.query("SELECT 1 FROM attempts WHERE job_id=?", (pruned,)) == []
+    assert rig.store.get_attempt(f"{oldest}/a1") is None and rig.store.get_job(newer)["state"] == "running"
     assert rig.open_closures(lane) == closures
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
+
+
+def test_c18_3_only_a_closure_report_fences_a_release(rig):
+    """C-18.3 (review of PR #96): a busy lane writes events all the time. An attempt reserved on it, a
+    reading and a lane update during the read are not limit reports, and the read still settles."""
+    lane = rig.enroll()
+    rig.store.put_closure(Closure(lane.lane_id, "account", iso(rig.clock() + timedelta(hours=1)),
+                                  ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    rig.override(lane)
+    rig.occupy(lane, "both")
+
+    def the_lane_is_busy():
+        rig.store.add_job(job_id="job-next", request_id="job-next", payload_digest="d", kind="dispatch",
+                          state="running", workdir=str(rig.root), prompt_path="/p", sandbox="read-only")
+        with rig.store.transaction("attempt.reserved", job_id="job-next", lane_id=lane.lane_id):
+            rig.store.add_attempt(attempt_id="job-next/a1", job_id="job-next", seq=1, lane_id=lane.lane_id,
+                                  model_requested="gpt-6.1-sol", state="reserved")
+        rig.store.add_event("lane.noted", lane_id=lane.lane_id, data={"note": "not a limit"})
+        rig.store.update_lane(lane.lane_id, plan="pro")
+
+    rig.wham.during[lane.lane_id] = [the_lane_is_busy]
+    rig.timer.probe_cycle()
+    assert rig.store.query("SELECT 1 FROM events WHERE lane_id=? AND kind='attempt.reserved'", (lane.lane_id,))
+    assert rig.open_closures(lane) == set() and rig.cycle_event()["fenced"] == []
+    assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
 
 
 def test_c18_3_another_lanes_limit_fences_nothing_here(rig):
@@ -702,6 +742,72 @@ def test_c18_3_a_commit_that_fails_puts_the_old_verdict_back(rig, monkeypatch):
     assert rig.timer.metadata[lane.lane_id] is stood and len(rig.wham_readings(lane)) == read
 
 
+@pytest.mark.parametrize("fails", ["the-commit", "the-publication"])
+def test_c18_3_a_verdict_an_attempt_records_after_the_rollback_stays(rig, monkeypatch, fails):
+    """C-18.3 (reviews of PR #96 and #97): once a failed publication has let the store lock go, an attempt
+    can record `auth-dead`. When the publication's own statements failed, the old verdict was already put
+    back under the lock; when the commit failed, it is put back only if this publication's is still in place."""
+    lane = rig.enroll()
+    rig.timer.probe_cycle()
+    rig.occupy(lane, "both")
+    rig.clock.advance()
+    real, publish = rig.store.transaction, rig.timer._persist
+
+    @contextmanager
+    def fails_then_an_attempt_finalizes(kind, **fields):
+        try:
+            with real(kind, **fields) as conn:
+                yield conn
+                if kind == "timer.busy-read" and fails == "the-commit":
+                    raise RuntimeError("disk I/O error")
+        except RuntimeError:
+            if kind == "timer.busy-read":                     # rolled back, the lock released
+                rig.store.update_lane(lane.lane_id, enabled=0)
+                rig.timer.record_auth_dead(lane.lane_id)
+            raise
+
+    monkeypatch.setattr(rig.store, "transaction", fails_then_an_attempt_finalizes)
+    if fails == "the-publication":
+        monkeypatch.setattr(rig.timer, "_persist", lambda *a, **k: (publish(*a, **k), (_ for _ in ()).throw(
+            RuntimeError("disk I/O error"))))
+    with pytest.raises(RuntimeError):
+        rig.timer.probe_cycle()
+    assert rig.timer.metadata[lane.lane_id] == {"verdict": "auth-dead", "probe_status": "auth-dead"}
+
+
+def test_c18_3_the_check_and_the_put_back_are_one_step(rig, monkeypatch):
+    """C-18.3 (review of PR #97): after a failed commit, an attempt's verdict cannot land between the
+    check that this publication's verdict is still in place and the old one being put back."""
+    lane = rig.enroll()
+    rig.timer.probe_cycle()
+    rig.occupy(lane, "both")
+    rig.clock.advance()
+    real, put, landed, raced = rig.store.transaction, rig.timer._set_verdict, threading.Event(), []
+
+    @contextmanager
+    def commit_fails(kind, **fields):
+        with real(kind, **fields) as conn:
+            yield conn
+            if kind == "timer.busy-read":
+                raced.append("failed")
+                raise RuntimeError("disk I/O error")
+
+    def an_attempt_records_during_the_put_back(lane_id, verdict):
+        if raced == ["failed"]:                               # the put-back after the failed commit
+            raced.append("putting-back")
+            threading.Thread(target=lambda: (put(lane_id, {"verdict": "auth-dead", "probe_status": "auth-dead"}),
+                                             landed.set()), daemon=True).start()
+            assert not landed.wait(.3)                        # it waits for the check and the put-back
+        return put(lane_id, verdict)
+
+    monkeypatch.setattr(rig.store, "transaction", commit_fails)
+    monkeypatch.setattr(rig.timer, "_set_verdict", an_attempt_records_during_the_put_back)
+    with pytest.raises(RuntimeError):
+        rig.timer.probe_cycle()
+    assert landed.wait(2) and raced == ["failed", "putting-back"]
+    assert rig.timer.metadata[lane.lane_id] == {"verdict": "auth-dead", "probe_status": "auth-dead"}
+
+
 @pytest.mark.parametrize("case", ["operator-hold", "auth-dead", "desktop", "claude", "disabled"])
 def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case):
     """C-18.1, C-18.3, C-10.3, C-9.8: held, dead, desktop and disabled lanes are not read; a busy Claude
@@ -759,9 +865,9 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
         tmp_path, monkeypatch, how, n, response, utilization, limit_reached, allowed, during, override, stale_limit):
     """C-18.3 for every occupancy, answer and mid-read event:
 
-    - no slot: the lease table during the read is the table before it, and after
-      it the table plus only what admission took meanwhile; no reservation, no
-      heal turn;
+    - no slot: the read itself acquires and releases no lease (here the lease table
+      changes only by what the test's admission takes during it); no reservation,
+      no heal turn;
     - account fence: no reading, settlement or closure release for another account;
     - no credential verdict: the lane is disabled only by a published mismatch or
       by its own attempt, and a busy read never sets a latch;
@@ -799,7 +905,8 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
             "probe-relimit": [lambda: rig.store.add_closure(Closure(lane.lane_id, "account", older, ClosureReason.PROVIDER_LIMIT,
                                                                     ClockSource.GUESSED, "probe"))],
             "pruned-relimit": [lambda: rig.ends_limited(lane, older), lambda: rig.prune(f"job-{lane.lane_id}-late")],
-            "hold": [lambda: rig.store.put_closure(Closure(lane.lane_id, "operator", "2099-12-31T00:00:00Z",
+            # `lanes hold` records at scope `account`, the scope of a wham limit (#101).
+            "hold": [lambda: rig.store.put_closure(Closure(lane.lane_id, "account", "2099-12-31T00:00:00Z",
                                                            ClosureReason.OPERATOR_HOLD, ClockSource.REPORTED, "operator"))],
         }
         rig.wham.during[lane.lane_id] = actions[during]
@@ -844,12 +951,14 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
         if during in ("closure", "extend"):
             scope = "five_hour-model" if during == "closure" else "account"
             assert any(c[:2] == (scope, "provider-limit") and c[2] >= newer for c in rig.open_closures(lane))
+        fenced = published and during in ("closure", "extend") + RELIMITS   # a mismatch releases nothing anyway
+        assert rig.cycle_event()["fenced"] == ([lane.lane_id] if fenced else [])
         # Settlement: only an `ok`, open, allowed answer of the lane's own account, uncontradicted.
         settles = override and releases and status == "ok" and limit_flag is False and allowed is not False
         assert bool(rig.events("action.reconciled", lane)) is settles
         # The older account limit is released only by a published, uncontradicted, open answer, and
         # extended in place only by a published limit of the lane's own account outside an override.
-        if stale_limit and during != "extend":
+        if stale_limit and during not in ("extend", "hold"):
             stale, = (closure for closure in open_before if closure[0] == "account")
             released = releases and status == "ok" and limit_flag is False
             extended = published and not mismatch and (status == "limited" or limit_flag is True) and not override

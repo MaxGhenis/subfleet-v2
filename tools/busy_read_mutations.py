@@ -34,8 +34,12 @@ JUDGED = """                try:
                     if releases is not None:
                         self._persist(lane, probe, releases=releases)
                 except BaseException:
-                    self._put_back(lane.lane_id, before)
+                    self._set_verdict(lane.lane_id, before)
                     raise
+"""
+RESTORE = """            with self._verdicts:
+                if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
+                    self._set_verdict(lane.lane_id, before)
 """
 
 #: name: (file, the rule's code, what replaces it)
@@ -71,6 +75,7 @@ MUTATIONS = {
     "no later limit fences a release": (TIMERS, FENCE, "        return True\n"),
     "another lane's limit fences this one's release": (TIMERS, FENCE, FENCE.replace(" AND lane_id=?", "").replace(
         "(opened, lane.lane_id)", "(opened,)")),
+    "any event of the lane fences a release": (TIMERS, FENCE, FENCE.replace("kind='closure.recorded' AND ", "")),
     "a limit reported again leaves no event": (
         STORE, """                else:
                     conn.execute("UPDATE closures SET until_at=until_at WHERE closure_id=?", (existing["closure_id"],))
@@ -97,17 +102,26 @@ MUTATIONS = {
             with self.store.transaction('timer.busy-read', lane_id=lane.lane_id):
 """),
     "a failed publication keeps the new verdict": (
-        TIMERS, "                    self._put_back(lane.lane_id, before)\n                    raise\n", "                    raise\n"),
-    "a failed commit keeps the new verdict": (
-        TIMERS, """            if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
-                self._put_back(lane.lane_id, before)
-""", ""),
+        TIMERS, "                    self._set_verdict(lane.lane_id, before)\n                    raise\n", "                    raise\n"),
     "a failed publication drops the old verdict": (
-        TIMERS, """        if verdict is None:
-            self.metadata.pop(lane_id, None)
-        else:
-            self.metadata[lane_id] = verdict
-""", "        self.metadata.pop(lane_id, None)\n"),
+        TIMERS, "                    self._set_verdict(lane.lane_id, before)\n                    raise\n",
+        "                    self._set_verdict(lane.lane_id, None)\n                    raise\n"),
+    "a failed commit keeps the new verdict": (TIMERS, RESTORE, ""),
+    "a failed commit puts the old verdict over an attempt's": (
+        TIMERS, RESTORE, RESTORE.replace(" and self.metadata.get(lane.lane_id) is wrote", "")),
+    "the check and the put-back are two steps": (TIMERS, RESTORE, RESTORE.replace("with self._verdicts:", "if True:")),
+    "the old verdict is put back after the lock is released": (
+        TIMERS, JUDGED + "                wrote = self.metadata.get(lane.lane_id)\n        except BaseException:\n",
+        """                releases = self._publishable(lane, probe, opened)
+                if releases is not None:
+                    self._persist(lane, probe, releases=releases)
+                wrote = self.metadata.get(lane.lane_id)
+        except BaseException:
+            if wrote is missing and before is not missing:
+                self._set_verdict(lane.lane_id, before)
+"""),
+    "a fenced read is not named on the cycle's event": (
+        TIMERS, "                elif not published:\n                    fenced.append(lane.lane_id)\n", ""),
     "only idle reads count toward offline": (
         TIMERS, "        codex = [p for lane, p, _ in results if lane.provider == 'codex']",
         "        codex = [p for lane, p, opened in results if lane.provider == 'codex' and opened is None]"),
