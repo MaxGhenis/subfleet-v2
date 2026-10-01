@@ -22,6 +22,10 @@ from .credentials import resolve_credential
 from .sessions.transcripts import read_regular
 from .store import Store
 
+#: `Timers._claim`'s answer for a lane with work on it: an attempt in flight or a
+#: lane lease (C-18.3).
+BUSY = 'busy'
+
 
 def instant(value=None):
     if isinstance(value, str):
@@ -331,24 +335,34 @@ class Timers:
         except (OSError, ValueError):
             self._app_account = None
 
-    def _reserve(self, lane, purpose):
+    def _claim(self, lane, purpose):
+        """C-18.1, C-18.3: `slot:0` for an idle lane, `BUSY` for one at work, None for one never read.
+
+        One transaction judges the lane, so idle and busy are decided against one
+        state. A lane that is disabled, not v2's, the desktop's, held, or `auth-dead`
+        is never read, busy or idle; that is checked before occupancy.
+        """
         holder = 'probe:timer:' + str(uuid4())
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
             current = self.store.get_lane(lane.lane_id)
             if not current or not current.enabled or current.owner != 'v2' or current.desktop:
                 return None
-            if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
-                return None
-            if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
-                return None
             if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
                 return None
+            if (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
+                    or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',))):
+                return BUSY
             self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
             self.store.add_event('timer.reservation', lane_id=lane.lane_id,
                                  data={'holder': holder, 'purpose': purpose})
         with self._lock:
             self.active_holders.add(holder)
         return holder
+
+    def _reserve(self, lane, purpose):
+        """A timer turn's hold (a keepalive): `slot:0` on an idle lane, else None."""
+        claim = self._claim(lane, purpose)
+        return None if claim is BUSY else claim
 
     def _release(self, holder, *, quarantined=False):
         if not quarantined:
@@ -406,7 +420,11 @@ class Timers:
         until = previous.get('retry_after_until')
         if until and self.now() < instant(until):
             return None     # C-9.9: the usage endpoint asked us to wait
-        holder = self._reserve(lane, 'probe')
+        holder = self._claim(lane, 'probe')
+        if holder is BUSY:
+            # C-18.3: a Claude attempt measures its own lane as it ends (C-9.8);
+            # a Codex attempt never does, so only a Codex lane is read at work.
+            return self._busy_read(lane) if lane.provider == 'codex' else None
         if not holder:
             return None
         quarantined = False
@@ -454,13 +472,65 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            return lane, {**probe, 'probed_at': iso(self.now())}
+            return lane, {**probe, 'probed_at': iso(self.now())}, None
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
+
+    def _busy_read(self, lane):
+        """C-18.3: a busy Codex lane's usage read, taken beside its attempts.
+
+        The usage GET alone. It takes no lease and writes no reservation, so it
+        never holds a slot a job could take, and it runs no heal turn: the lane's
+        attempts renew its token. It goes through the per-lane read fence an idle
+        read does (`_read_probe`). The closures open as it starts travel with the
+        result, so that publishing it never releases one recorded after it
+        (`_publishable`).
+        """
+        opened = self._open_closures(lane.lane_id)
+        adapter = self.adapter_factory('codex')
+        if hasattr(adapter, 'timeout'):
+            adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+        try:
+            probe = self._read_probe(adapter, lane, resolve_credential(lane.credential))
+        except (TimeoutError, OSError) as exc:
+            probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
+        except Exception as exc:
+            probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
+        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+
+    def _open_closures(self, lane_id):
+        """The lane's open closures as rows stand: `put_closure` extends one in place."""
+        return frozenset((row['closure_id'], row['scope'], row['reason'], row['until_at']) for row in self.store.query(
+            'SELECT closure_id,scope,reason,until_at FROM closures WHERE lane_id=? AND released_at IS NULL', (lane_id,)))
+
+    def _publishable(self, lane, probe, opened):
+        """C-18.3: what a busy read may publish, judged as it is published.
+
+        None publishes nothing. A credential verdict (`auth-dead`, `revoked`,
+        `expired-token`, `no-auth`) or a failed read is never published from a
+        busy lane: a 401 on a token its attempts just replaced reads as dead, and
+        the attempts report a dead credential themselves (C-23.44). An answer for
+        another account is published (no readings, the lane disabled); a refresh
+        keeps the account, so a token in rotation cannot produce one. Nothing is
+        published for a lane disabled or rebound since the read.
+
+        False publishes the readings and the verdict but releases no closure and
+        settles no reset credit: a closure was recorded or extended after the read
+        began, and an older answer must not undo a newer limit. The next cycle
+        reads again. True publishes everything an idle read would.
+        """
+        account = probe.get('account_key')
+        mismatch = bool(account) and account != lane.account_key
+        if not mismatch and probe.get('status') not in ('ok', 'limited'):
+            return None
+        current = self.store.get_lane(lane.lane_id)
+        if not current or not current.enabled or current.account_key != lane.account_key:
+            return None
+        return not self._open_closures(lane.lane_id) - opened
 
     def _pace_usage(self):
         """C-9.9: one usage read at a time, `reserve.usage_spacing_s` apart."""
@@ -472,7 +542,12 @@ class Timers:
         if wait > 0:
             self.cancel.wait(wait)
 
-    def _persist(self, lane, probe):
+    def _persist(self, lane, probe, *, releases=True):
+        """Publish one read: readings, closures, settlement, then the verdict.
+
+        `releases=False` (a busy read that a newer closure contradicts, C-18.3)
+        keeps every closure and reset credit as it stands.
+        """
         at = iso(self.now())
         status = probe.get('status', 'unknown')
         outcome = probe.get('outcome')
@@ -498,7 +573,7 @@ class Timers:
         meta['probe_status'] = status
         meta['verdict'] = {'ok': 'ok', 'auth-dead': 'auth-dead', 'revoked': 'auth-revoked',
                            'expired-token': 'auth-suspect'}.get(status, status)
-        if status != 'identity-mismatch':
+        if status != 'identity-mismatch' and releases:
             self.actions.settle_by_usage(lane.lane_id, probe, now=self.now())
         with self.store.transaction('timer.probe', lane_id=lane.lane_id):
             if status in ('auth-dead', 'identity-mismatch'):
@@ -515,7 +590,7 @@ class Timers:
                 reset = max((r.resets_at for r in readings if r.resets_at), default=None)
                 self.store.add_closure(Closure(lane.lane_id, 'account', reset or iso(self.now() + timedelta(hours=1)),
                     ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED if reset else ClockSource.GUESSED, 'wham'))
-            elif status == 'ok' and probe.get('limit_reached') is False:
+            elif status == 'ok' and probe.get('limit_reached') is False and releases:
                 # Release only after real server evidence of a reset, not absence of numbers.
                 if any(r.label == ReadingLabel.PROVIDER and r.utilization is not None and r.utilization < 1 for r in readings):
                     with self.store.transaction('closure.reset') as tx:
@@ -616,8 +691,9 @@ class Timers:
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
         # (review of PR #72). All homes heal before any cycle reading or verdict
-        # is published.
-        results, failure = [], None
+        # is published. A busy lane's read is judged as it is published (C-18.3);
+        # what it may not publish is named on the cycle's event.
+        results, failure, deferred = [], None, {}
         try:
             for future in as_completed(futures):
                 try:
@@ -627,16 +703,23 @@ class Timers:
                     failure = failure or exc
             if self.cancel.is_set():
                 return
-            for lane, probe in results:
-                self._persist(lane, probe)
+            for lane, probe, opened in results:
+                if opened is None:
+                    self._persist(lane, probe)
+                elif (releases := self._publishable(lane, probe, opened)) is None:
+                    deferred[lane.lane_id] = probe.get('status', 'unknown')
+                else:
+                    self._persist(lane, probe, releases=releases)
         finally:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)
             self._probe_holders.clear()
         if failure is not None:
             raise failure
-        self._cycle_error = next((p['error_type'] for _, p in results if p.get('error_type')), None)
-        codex = [p for lane, p in results if lane.provider == 'codex']
+        # Every read counts here, published or not: a busy lane's network error
+        # is as much evidence of being offline as an idle one's.
+        self._cycle_error = next((p['error_type'] for _, p, _ in results if p.get('error_type')), None)
+        codex = [p for lane, p, _ in results if lane.provider == 'codex']
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
@@ -656,7 +739,9 @@ class Timers:
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
         self.publish_status(snapshot)
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
-                             'lanes': [lane.lane_id for lane, _ in results]})
+                             'lanes': [lane.lane_id for lane, _, _ in results],
+                             'busy': [lane.lane_id for lane, _, opened in results if opened is not None],
+                             'deferred': deferred})
         return snapshot
 
     def latest_request(self, lane_id):
