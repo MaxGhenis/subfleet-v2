@@ -148,8 +148,46 @@ def test_a_replayed_request_keeps_its_approval_and_adds_nothing(tmp_path):
         assert (again["approval_id"], again["nonce"]) == (first["approval_id"], first["nonce"])
         assert [e["kind"] for e in store.events_after(cid, 0)["events"]].count("approval.requested") == 1
         assert store.message(MID)["state"] == "approval-needed"
-        # Nothing moved, so the feed has nothing new to tell a watcher but the approval's count.
-        assert [c["state"] for c in store.changes_after(changes)["changes"]] in ([], [None])
+        assert store.changes_after(changes)["changes"] == []          # nothing new for a watcher
+    finally:
+        store.close()
+
+
+def test_an_approval_already_recorded_commits_nothing(tmp_path):
+    """C-27.1: `add_approval` for a request the store holds returns its approval and
+    writes nothing, so no long poll is woken for it."""
+    store = ConversationStore(tmp_path / "state")
+    try:
+        cid = store.create_conversation(provider="claude", workspace="/w", workspace_kind="in-place",
+                                        settings=SETTINGS, origin="new")[0]["conversation_id"]
+        store.submit_message(conversation_id=cid, message_id=MID, after_message_id=None, text="hi",
+                             attachments=[], settings=SETTINGS)
+        kw = dict(message_id=MID, conversation_id=cid, attempt_id="job/a1", provider_request_id="r1", kind="tool",
+                  request={"input": {"command": "ls"}}, display={"tool": "Bash"}, options=("allow", "deny"))
+        first, created = store.add_approval(**kw)
+        commits = watch_commits(store, cid)
+        again, created_again = store.add_approval(**kw)
+        assert created and not created_again and again == first and commits == []
+    finally:
+        store.close()
+
+
+def test_a_request_named_twice_in_one_call_is_one_approval(tmp_path):
+    """C-27.1: one approval per attempt and provider request id, however often a call
+    names it: one row, one request file, one change row; the second is not made."""
+    store, cid, runner, _ = asking(tmp_path)
+    try:
+        start = store.changes_after(0)["next"]
+        request = {"provider_request_id": "r1", "kind": "tool", "request": {"id": "r1"}, "display": {"tool": "Bash"},
+                   "options": ("allow", "deny")}
+        (first, made), (second, made_again) = store.add_approvals(
+            message_id=MID, conversation_id=cid, attempt_id="job/a1", approvals=[request, dict(request)],
+            events=[], expect=("running", "starting"))
+        assert made and not made_again and first == second
+        assert len(store.approvals(conversation_id=cid, state=None)) == 1
+        assert len(list((tmp_path / "state" / "conversations" / cid / "approvals").iterdir())) == 1
+        assert [(c["state"], c["pending_approvals"]) for c in store.changes_after(start)["changes"]] == [
+            (None, 1), ("approval-needed", 1)]
     finally:
         store.close()
 

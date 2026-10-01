@@ -1082,12 +1082,14 @@ class ConversationStore:
         shows the card, to answer it, and found none when the event had been committed
         alone (CI, 2026-10-01). Each exact request is published before the transaction,
         as a message's text is before its row (C-24.3). A request already recorded
-        (replayed, C-27.3) keeps its approval. Each approval is returned with whether
-        it was made here."""
+        (replayed, C-27.3), or named twice, keeps one approval; with nothing new and
+        nothing else to write, nothing is committed. Each approval is returned with
+        whether it was made here."""
         staged: list[tuple[dict, tuple[str, Path, bytes] | None]] = []
         for approval in approvals:
-            if self.one("SELECT 1 FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                        (attempt_id, approval["provider_request_id"])):
+            if any(new and earlier["provider_request_id"] == approval["provider_request_id"] for earlier, new in staged) \
+                    or self.one("SELECT 1 FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                                (attempt_id, approval["provider_request_id"])):
                 staged.append((approval, None))
                 continue
             approval_id = new_id("ap")
@@ -1095,6 +1097,8 @@ class ConversationStore:
             path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
             self._publish(path, raw)
             staged.append((approval, (approval_id, path, raw)))
+        if events is None and expect is None and not any(new for _, new in staged):
+            return [(self._approval_row(attempt_id, a["provider_request_id"]), False) for a in approvals]
         with self.transaction() as tx:
             if events is not None:
                 self._insert_events(tx, conversation_id=conversation_id, message_id=message_id, attempt_id=attempt_id,
@@ -1115,12 +1119,11 @@ class ConversationStore:
                 self._change(tx, conversation_id, message_id, None, pending=pending)
             if expect is not None:
                 self._set_state(tx, message_id, APPROVAL_NEEDED, expect=expect)
-        out = []
-        for approval, new in staged:
-            row = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                           (attempt_id, approval["provider_request_id"]))
-            out.append((_decode_approval(row), new is not None))
-        return out
+        return [(self._approval_row(attempt_id, a["provider_request_id"]), new is not None) for a, new in staged]
+
+    def _approval_row(self, attempt_id: str, provider_request_id: str) -> dict:
+        return _decode_approval(self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                                         (attempt_id, provider_request_id)))
 
     def approval(self, approval_id: str) -> dict:
         row = self.one("SELECT * FROM approvals WHERE approval_id=?", (approval_id,))
