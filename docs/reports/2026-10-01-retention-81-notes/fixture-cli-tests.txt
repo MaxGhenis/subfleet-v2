@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_cli.py::test_a_lock_whose_holder_is_dead_is_no_daemon tests/unit/test_cli.py::test_an_identity_mismatch_names_the_rendering_trap tests/unit/test_cli.py::test_a_daemon_busy_to_the_end_is_a_wait_timeout
+...                                                                      [100%]
+3 passed in 64.49s (0:01:04)
+
+Exit: 0; elapsed: 155.90s

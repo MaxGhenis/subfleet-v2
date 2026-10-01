@@ -1,0 +1,43 @@
+Focused fixture corrections after the interrupted full-suite run.
+
+Production source is unchanged. No assertions were removed and no test was
+skipped. The affected test fixtures now supply deterministic inputs instead
+of depending on sandbox-denied inspection or scheduling within two real seconds.
+
+tests/unit/test_store_contention_queries.py:
+  Per-test, module-local autouse fixture supplies boot identity and the current
+  process start identity so Daemon can construct its database query services.
+  The start reader asserts the exact current PID. Query/reference comparisons,
+  generated seeds, index checks, and SQLite execution all remain real.
+  Both patched functions are restored by monkeypatch after every test.
+
+tests/unit/test_cli.py:
+  Dead-holder and identity-mismatch cases inject process-start observations;
+  identity_report and the client availability decision remain production code.
+  Dead-holder uses current boot "2": the first lock's legacy "1" is uncertain,
+  while the second lock matches; the absent PID proves death in both cases.
+  Busy-timeout uses a private cli.time object and a busy transport stand-in.
+  It retains exit 124, message, elapsed-budget and poll-bound assertions, and
+  adds exact backoff [0.25, 0.5, 1.0, 0.25], final deadline 2.0, and a remaining
+  budget assertion on every poll. Global time and socket clocks are unchanged.
+
+All checks ran in foreground supervised TTYs with a 550-second threshold:
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache
+SUBFLEET_RETENTION_QOS=inherit
+PYTEST_ADDOPTS=''
+
+fixture-cli-tests.txt:
+  Exact CLI dead-holder, identity-mismatch, busy-timeout nodes.
+  3 passed in 64.49s; supervisor exit 0, elapsed 155.90s.
+fixture-query-tests.txt:
+  Probe-record seed 0, session-events seed 0, batches/submissions nodes.
+  3 passed in 108.83s; supervisor exit 0, elapsed 190.23s.
+fixture-dead-lock-tests.txt:
+  Final dead-holder rerun after changing mocked current boot from "1" to "2"
+  to retain both distinct boot scenarios.
+  1 passed in 71.92s; supervisor exit 0, elapsed 134.25s.
+
+7 successful executions covering 6 distinct formerly failing nodes; no skips.
+Every supervisor exited normally and awaited its exact child (78562, 79782,
+87137). Owned TTY sessions 48877, 89785, and 9273 are closed. Nothing started
+for this fixture check remains running; no cleanup signals were needed.

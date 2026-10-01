@@ -12,6 +12,7 @@ the reference, and each test compares the two over randomized stores
 from __future__ import annotations
 
 import json
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -28,6 +29,21 @@ from subfleet.store import Store, _json
 
 SEEDS = range(40)
 BASE = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def query_service_identity(monkeypatch):
+    """Database query tests need a daemon identity, not kernel inspection."""
+    from subfleet import procs
+
+    pid = os.getpid()
+
+    def current_start(asked):
+        assert asked == pid
+        return "Thu Oct  1 12:00:00 2026"
+
+    monkeypatch.setattr(procs, "boot_id", lambda: "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setattr(procs, "proc_start", current_start)
 
 
 @pytest.fixture

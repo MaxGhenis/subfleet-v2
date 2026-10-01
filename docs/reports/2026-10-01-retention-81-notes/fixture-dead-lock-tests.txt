@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_cli.py::test_a_lock_whose_holder_is_dead_is_no_daemon
+.                                                                        [100%]
+1 passed in 71.92s (0:01:11)
+
+Exit: 0; elapsed: 134.25s
