@@ -32,7 +32,7 @@ from hypothesis import strategies as st
 from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
-from tests.unit.retention_world import World, git, inode_groups, snapshot
+from tests.unit.retention_world import Clock, World, git, inode_groups, snapshot
 
 EXAMPLES = int(os.environ.get("RETENTION_PROP_EXAMPLES", "10"))
 #: Each example runs git and a retention pass; shrinking one can take many minutes.
@@ -146,8 +146,10 @@ def _retire_and_check(w: World, ops, *, delete_source: bool) -> None:
     expected = reachable(wt)
     before = snapshot(wt)
     groups = inode_groups(wt)
-    result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0, holders=lambda watches, **_: {})
-    assert result["pruned"] == ["job-prop"], result
+    # The archive oracle should finish independently of host scheduling delays.
+    result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0,
+                                   holders=lambda watches, **_: {}, clock=Clock())
+    assert result["pruned"] == ["job-prop"], f"Full maintenance result: {result!r}"
     assert not wt.exists()
     assert sentinel.read_text() == "outside the job\n"
     if delete_source:
