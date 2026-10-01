@@ -2322,3 +2322,24 @@ def test_a_conversation_lists_the_runs_its_turns_dispatched(svc):
     assert (new["lane_id"], new["model_served"], new["attempt_state"], new["attempts"], new["task"], new["tier"]) == (
         "codex-2", "gpt-6-astra", "running", 2, "build", "hard")
     assert runs[1]["lane_id"] is None and runs[1]["attempts"] == 0
+
+
+def test_an_approval_view_names_the_providers_request_under_both_names(svc):
+    """C-27.1 and C-27.5, merged for 2.1.10: `approval.list`, `conversation.open` and
+    `approval.get` name the provider's request as `provider_request_id` (the inline
+    approval card's field) and as `request_id` (approvals within reach), the same id,
+    so either client joins its card exactly."""
+    from subfleet.conversations.peers import Verdict
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    approval, _ = svc.store.add_approval(message_id=mid, conversation_id=cid, attempt_id="j/a1",
+                                         provider_request_id="perm-7", kind="tool", request={"tool": "Bash"},
+                                         display={"tool": "Bash"}, options=("allow", "deny"))
+    svc._person = lambda peer, what: Verdict(True, "test", peer)
+    views = [svc.handle("approval.list", {"conversation_id": cid}, None)["approvals"][0],
+             svc.handle("conversation.open", {"conversation_id": cid}, None)["pending_approvals"][0],
+             svc.handle("approval.get", {"approval_id": approval["approval_id"]}, None)["approval"]]
+    for view in views:
+        assert view["approval_id"] == approval["approval_id"]
+        assert view["request_id"] == view["provider_request_id"] == "perm-7"

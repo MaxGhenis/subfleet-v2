@@ -401,7 +401,7 @@ struct ConversationView: View {
         guard let card = model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.first?.pendingCard
         else { return }
         model.revealApprovals(in: conversation.conversation_id)
-        if card.kind != "question" { review(card) }
+        if reviewOpensRequestSheet(card) { review(card) }
     }
 
     /// What moves the view to a card: the conversation, whether its log has been

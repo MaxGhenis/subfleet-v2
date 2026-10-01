@@ -114,6 +114,13 @@ func reviewButtonLabel(pending: Int) -> String? {
     pending <= 0 ? nil : pending == 1 ? "Review" : "Review (\(pending))"
 }
 
+/// Whether the strip's Review opens the request sheet for `card`, besides
+/// bringing it into view: only for a tool request. A question is answered on its
+/// own inline card, and the sheet has no form for its answers (C-27.2, C-27.5).
+func reviewOpensRequestSheet(_ card: ApprovalCard) -> Bool {
+    card.kind != "question"
+}
+
 /// The sidebar's hand badge, spoken: "1 approval waiting", "3 approvals waiting".
 func approvalsWaitingWords(_ count: Int) -> String {
     "\(count) approval\(count == 1 ? "" : "s") waiting"

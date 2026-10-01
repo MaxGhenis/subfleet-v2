@@ -389,6 +389,32 @@ def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe):
         assert rows_of(result, "m1")[-1] == result["pending_items"][0], request_ids
 
 
+def test_c27_5_review_brings_a_question_into_view_and_opens_the_sheet_only_for_a_tool_request(core_probe):
+    """The 2.1.10 merge of C-27.5 with the inline cards (C-27.2): the strip's Review
+    brings the oldest waiting card into view either way, but opens the request sheet
+    only for a tool request. A question is answered on its own card; the sheet has
+    no form for its answers. With a question oldest, a tool request asked after it
+    is the one Review opens once the question is answered."""
+    log = Log()
+    log.add("m1", "accepted")
+    question = "approval:m1:q1"
+    log.add("m1", "approval.requested", request_id="q1", kind="question", tool="AskUserQuestion",
+            questions=[{"question": "Which color?", "options": [{"label": "Blue"}, {"label": "Red"}]}],
+            options=["answer", "deny", "cancel-turn"])
+    tool = ask(log, "m1", "r2")
+    first, read_to_the_end = log.page(), log.page()
+    log.add("m1", "approval.resolved", request_id="q1", decision="answer")
+    answered = log.page()
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, first, read_to_the_end,
+                               {"reveal": True, "snapshot": True}, answered, {"reveal": True}])
+    asked = result["snapshots"][0]
+    assert asked["pending_items"] == [question, tool] and asked["review_label"] == "Review (2)"
+    assert asked["review_opens_sheet"] is False
+    assert result["scrolls"] == [None, None, question, question, None, tool]
+    assert result["pending_items"] == [tool] and result["review_label"] == "Review"
+    assert result["review_opens_sheet"] is True
+
+
 def test_c27_5_asking_again_for_the_same_conversation_asks_again(core_probe):
     """A standing request that nothing answered yet (the log still being read)
     is answered once it can be; a second request after that is its own."""
@@ -434,6 +460,27 @@ def test_c27_5_a_view_joins_the_card_of_its_own_request_in_any_order(core_probe)
                                               listed("ap1", "m1", "git status", 1, request_id="r1")]}])
     cards = {item["id"]: item["card"] for item in items_of(result, "m1", "approval")}
     assert (cards[first]["approval_id"], cards[second]["approval_id"]) == ("ap1", "ap2")
+
+
+@pytest.mark.parametrize("key", ["request_id", "provider_request_id"])
+def test_c27_1_a_view_naming_its_request_under_either_name_joins_its_own_card(core_probe, key):
+    """The daemon names the provider's request as `request_id` (C-27.5) and as
+    `provider_request_id` (C-27.1). Either name alone joins each of two identical
+    requests' cards to its own approval, in either order, and the app answers it by
+    that approval (where a join by display pairs them by order)."""
+    log = Log()
+    log.add("m1", "accepted")
+    first, second = ask(log, "m1", "r1", "git status"), ask(log, "m1", "r2", "git status")
+
+    def view(approval_id: str, created: float, request_id: str) -> dict:
+        return {**listed(approval_id, "m1", "git status", created), key: request_id}
+    for views in ([view("ap2", 2, "r2"), view("ap1", 1, "r1")], [view("ap1", 1, "r1"), view("ap2", 2, "r2")]):
+        result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, log.page(),
+                                   {"approvals": views}])
+        log.read = 0
+        cards = {item["id"]: item["card"] for item in items_of(result, "m1", "approval")}
+        assert (cards[first]["approval_id"], cards[second]["approval_id"]) == ("ap1", "ap2")
+        assert (cards[first]["request_id"], cards[second]["request_id"]) == ("r1", "r2")
 
 
 def test_c27_5_a_card_the_daemon_no_longer_lists_is_withdrawn(core_probe):

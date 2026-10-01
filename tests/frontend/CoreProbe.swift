@@ -206,6 +206,8 @@ func project(_ timeline: Timeline) -> [String: Any] {
         "display_order": timeline.displayOrder, "pending_items": timeline.pendingApprovalItems.map(\.id),
         "pinned_turn": timeline.pinnedTurn?.messageID as Any? ?? NSNull(),
         "review_label": reviewButtonLabel(pending: timeline.pendingApprovalItems.count) as Any? ?? NSNull(),
+        "review_opens_sheet": timeline.pendingApprovalItems.first?.pendingCard.map(reviewOpensRequestSheet) as Any?
+            ?? NSNull(),
         "followed_item": timeline.followedItem?.id as Any? ?? NSNull(), "caught_up": timeline.caughtUp,
         "history_pages": timeline.historyPagesLoaded,
     ]
