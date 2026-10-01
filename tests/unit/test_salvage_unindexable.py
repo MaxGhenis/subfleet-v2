@@ -649,6 +649,25 @@ def test_a_way_to_read_pathspecs_the_daemons_environment_names_keeps_the_exclusi
     assert git(repository, "ls-tree", "-r", "--name-only", result.ref).split() == [".gitignore", "tracked.txt"]
 
 
+@pytest.mark.parametrize("name", ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                                  "GIT_ICASE_PATHSPECS"])
+def test_submits_look_at_the_callers_place_reads_pathspecs_as_written(repository, monkeypatch, name):
+    """Review of the P3-3 fix: `_commit_holds_dir` passes `--literal-pathspecs`, a fatal
+    error beside an inherited `GIT_GLOB_PATHSPECS`, so whether a worktree would hold the
+    caller's directory was "cannot say". It and `_git_prefix` run in salvage's environment,
+    whoever started the daemon."""
+    from subfleet import daemon as daemon_module
+    (repository / "pkg").mkdir()
+    (repository / "pkg" / "module.py").write_text("x = 1\n")
+    git(repository, "add", "pkg")
+    git(repository, "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "pkg")
+    head = git_head(repository)
+    monkeypatch.setenv(name, "1")
+    assert daemon_module._commit_holds_dir(str(repository), head, "pkg", 30) is True
+    assert daemon_module._commit_holds_dir(str(repository), head, "PKG", 30) is False
+    assert daemon_module._git_prefix(str(repository / "pkg"), 30) == "pkg"
+
+
 # --- names (F4) -------------------------------------------------------------------
 
 

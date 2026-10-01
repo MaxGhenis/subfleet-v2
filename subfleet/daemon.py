@@ -378,7 +378,8 @@ def _git_prefix(workdir: str, cap: float) -> str | None:
     `/System/Volumes/Data` firmlink to its committed name; `os.path.relpath` of
     the caller's spelling does not (review, 2026-09-25). None when git cannot say."""
     try:
-        shown = subprocess.run(["git", "-C", workdir, "rev-parse", "--show-prefix"], capture_output=True, timeout=cap)
+        shown = subprocess.run(["git", "-C", workdir, "rev-parse", "--show-prefix"], capture_output=True,
+                               env=_git_env(None), timeout=cap)
     except (OSError, subprocess.SubprocessError):
         return None
     if shown.returncode:
@@ -388,10 +389,13 @@ def _git_prefix(workdir: str, cap: float) -> str | None:
 
 def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | None:
     """Whether `commit` holds the directory `prefix` (relative to `top`), so a
-    worktree cut at it will: None when git cannot say."""
+    worktree cut at it will: None when git cannot say. Under salvage's environment
+    (`_git_env`): `--literal-pathspecs` with `GIT_GLOB_PATHSPECS` set is a fatal
+    error, and the daemon's own scrub (`cli.STRIPPED_ENV`) holds only when
+    `daemon start` started it (review of the P3-3 fix)."""
     try:
         found = subprocess.run(["git", "--literal-pathspecs", "-C", top, "ls-tree", "-d", "-z", commit, "--", prefix],
-                               capture_output=True, timeout=cap)
+                               capture_output=True, env=_git_env(None), timeout=cap)
     except (OSError, subprocess.SubprocessError):
         return None
     if found.returncode:

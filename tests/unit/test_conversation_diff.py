@@ -242,6 +242,23 @@ def test_a_directory_path_selects_every_changed_file_under_it(repository):
     assert diff.build(repository, start, end, path="su")["files"] == []
 
 
+@pytest.mark.parametrize("name", ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                                  "GIT_ICASE_PATHSPECS"])
+def test_a_paths_diff_reads_its_filter_as_written_whatever_the_environment(repository, monkeypatch, name):
+    """Review of the P3-3 fix: the diff ran git with the daemon's environment as it was, so
+    under an inherited `GIT_LITERAL_PATHSPECS=1` its `:(top,literal)sub` filter was read as
+    a file of that name and the path's diff showed no changes. It runs in salvage's
+    environment now, as the snapshots it compares were taken."""
+    monkeypatch.setenv(name, "1")
+    _, start = diff.snapshot(repository)
+    (repository / "sub" / "inner.txt").write_text("changed\n")
+    (repository / "tracked.txt").write_text("changed outside\n")
+    _, end = diff.snapshot(repository)
+    under = diff.build(repository, start, end, path="sub")
+    assert [f["path"] for f in under["files"]] == ["sub/inner.txt"] and "+changed" in under["diff"]
+    assert diff.build(repository, start, end, path="SUB")["files"] == []          # literal, and case counts
+
+
 def test_a_listing_past_its_bound_says_it_is_incomplete(repository):
     """C-26.14: when git's file listing passes its bound (4 MiB), the stats count the
     files it listed and say `complete: false`, `files_truncated` is true, and every

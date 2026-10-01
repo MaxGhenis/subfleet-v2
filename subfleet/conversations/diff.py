@@ -32,7 +32,6 @@ the character before a value.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import tempfile
@@ -40,7 +39,7 @@ import threading
 from pathlib import Path
 
 from ..salvage import (
-    SalvageError, _git, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
+    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -407,7 +406,10 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
     A call that runs past the cap is killed and raises a transient
     `SalvageError`, as every capped git call does (C-6.8); a non-zero exit
     raises with git's stderr. Output past the bound is not read: git is
-    stopped and the result says it was cut.
+    stopped and the result says it was cut. git runs in salvage's environment
+    (`_git_env`), as the snapshots it compares were taken: under an inherited
+    `GIT_LITERAL_PATHSPECS` the `:(top,literal)` path filter matched nothing,
+    and a path's diff showed no changes (review of the P3-3 fix).
     """
     cap = git_timeout_s(timeout_s)
     verb = next(a for a in args if not a.startswith("-") and "=" not in a)
@@ -416,7 +418,7 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
         try:
             process = subprocess.Popen(["git", "-C", str(workdir), *args], stdin=subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=errors,
-                                       env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+                                       env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"})
         except OSError as exc:
             raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
 
