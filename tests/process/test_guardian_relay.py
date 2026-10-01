@@ -18,6 +18,10 @@ import pytest
 from subfleet import procs
 from subfleet.relay import RelayClient, read_log
 
+# `serial`: beside pytest-xdist's busy workers the relay closed a connection before
+# acknowledging in 3 of 16 CI runs (2026-10-01); run alone, in 0 of 5.
+pytestmark = pytest.mark.serial
+
 ECHO = "import sys\nfor line in sys.stdin:\n    sys.stdout.write('got:' + line); sys.stdout.flush()\nprint('eof')\n"
 
 

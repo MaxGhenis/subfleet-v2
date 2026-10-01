@@ -27,7 +27,9 @@ import pytest
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.test_core_protocol import strip_nulls
 
-pytestmark = [needs_swift, pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS")]
+# `serial`: its probe answers on 20 to 60 s deadlines, which parallel workers starve.
+pytestmark = [needs_swift, pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS"),
+              pytest.mark.serial]
 
 PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
                     "0000000d4944415478da63f8ffff3f0005fe02fea7d6a4a50000000049454e44ae426082")

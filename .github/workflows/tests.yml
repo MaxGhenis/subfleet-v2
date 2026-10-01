@@ -16,15 +16,25 @@ jobs:
   tests:
     name: Python ${{ matrix.python }} on macOS
     runs-on: macos-15
-    # The release line's suite (6,228 tests, the desktop workspace's included)
-    # took 12 min 22 s on Python 3.12 on 2026-09-27; 15 min cancelled 3.14.
-    timeout-minutes: 30
+    # A macOS minute costs $0.062, ten times a Linux one, but the suite cannot move to
+    # Linux: on ubuntu-24.04 on 2026-09-30, 159 of its 7,159 tests failed, at least
+    # 137 because Linux has no macOS boot session identity. So each job spreads the
+    # suite across the runner's cores (pytest -n auto): 4.5 minutes on 3.14 that day,
+    # against 17 to 18 serially. 3.12 is the floor the acceptance contract promises
+    # (hooks run outside the venv); 3.14 is the live daemon's interpreter.
+    # test_core_live's probe may wait 900 s, so 25 minutes leaves pytest time to
+    # report it rather than the job being cancelled.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the
+          # base, so the parents' diff is the pull request's change.
+          fetch-depth: 2
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
@@ -34,9 +44,33 @@ jobs:
       - run: uv sync --locked --group dev --python '${{ matrix.python }}'
       - name: Build source and wheel distributions
         run: uv build
+      - name: Did the menu bar app or this workflow change?
+        id: app
+        # app/build.sh reads only app/ and the runner's toolchain, which this file
+        # picks. A push, or a checkout that is not a merge commit, always builds.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ] \
+              && git rev-parse -q --verify 'HEAD^2' >/dev/null \
+              && git diff --quiet 'HEAD^1' HEAD -- app/ .github/workflows/tests.yml; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "app/ and this workflow are unchanged; skipping the optimized app compile."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Compile native menu bar app without launching
+        if: steps.app.outputs.build == 'true'
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
       - name: Unit, fake-provider, process, and end-to-end contracts
-        run: uv run --no-sync pytest -q
+        # Tests marked `serial` assert on real processes' deadlines or on timing, and
+        # fail far more often beside busy workers; they run after the parallel pass,
+        # one at a time. On 2026-10-01: test_core_live failed in 3 of 3 parallel
+        # runs on 3.12, test_guardian_relay in 3 of 16, test_stop_bound in 8 of 28.
+        # Both passes always run, and pytest's exit 5 (no tests marked) is not a
+        # failure.
+        run: |
+          status=0
+          uv run --no-sync pytest -q -rfEs -n auto -m "not serial" || status=$?
+          uv run --no-sync pytest -q -rfEs -m serial || { rc=$?; [ "$rc" -eq 5 ] || status=$rc; }
+          exit "$status"
         env:
           SUBFLEET_LIVE: "0"
