@@ -192,6 +192,32 @@ def test_c12_9_native_resume_keeps_opt_in_after_sources_disappear(mcp_daemon, mo
     assert config(daemon, resumed_id) == json.loads(Path(resumed_spec.mcp_config).read_text())
 
 
+@pytest.mark.parametrize("snapshot_defect", ["missing", "corrupt"])
+def test_c12_9_accepted_resume_replay_uses_its_copy_and_still_checks_digest(mcp_daemon, snapshot_defect):
+    daemon, harness, _ = mcp_daemon
+    source_id, attempt, adir = reserve(daemon, harness, sandbox="workspace-write",
+        pinned_model="haiku", in_place=True, mcp_servers=["selected"])
+    daemon.store.update_attempt(attempt["attempt_id"], native_session_id="fixture-native-session")
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    args = harness.submit_args(kind="resume", parent_job_id=source_id)
+    accepted = daemon.dispatch("submit", args)
+    frozen = config(daemon, accepted["job_id"])
+    source_snapshot = daemon.root / "jobs" / source_id / JOB_CONFIG_NAME
+    if snapshot_defect == "missing":
+        source_snapshot.unlink()
+    else:
+        source_snapshot.write_text("invalid JSON")
+    assert daemon.dispatch("submit", args) == {**accepted, "created": False}
+    assert config(daemon, accepted["job_id"]) == frozen
+    Path(args["prompt_path"]).write_text("different continuation")
+    with pytest.raises(protocol.ProtocolError, match="different payload"):
+        daemon.dispatch("submit", args)
+    # A fresh continuation still requires the source's selected definitions.
+    with pytest.raises(AdapterError, match="cannot be read"):
+        daemon.dispatch("submit", harness.submit_args(kind="resume", parent_job_id=source_id))
+    assert len(daemon.store.list_jobs()) == 2
+
+
 @pytest.mark.parametrize("names", [["second"], ["selected", "second"]])
 def test_c12_9_resume_cannot_change_source_opt_in(mcp_daemon, names):
     daemon, harness, _ = mcp_daemon

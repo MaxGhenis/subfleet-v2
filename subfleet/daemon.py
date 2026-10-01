@@ -1717,17 +1717,15 @@ class Daemon:
 
         Found as Claude Code would find them for the workdir (`claude_mcp`); a
         resume takes its source's entries unchanged instead. An unknown name is
-        exit 2, except for a retry of an accepted request (C-6.2), which is
-        answered from its job whatever the files say now: None then.
+        exit 2. A retry of an accepted request (C-6.2) needs no source lookup:
+        its digest still gates the existing response, and its job already has
+        its own entries, whatever its source files say now. None then.
         """
+        if self._accepted_request(args.request_id):
+            return None
         if resume is not None:
             return self._resumed_mcp(resume["source_job_id"], names)
-        try:
-            found = claude_mcp.resolve(workdir, names)
-        except claude_mcp.UnknownServer:
-            if self._accepted_request(args.request_id):
-                return None
-            raise
+        found = claude_mcp.resolve(workdir, names)
         return {"document": claude_mcp.config_document(found), "sources": claude_mcp.sources(found)}
 
     def _resumed_mcp(self, source_id: str, names: tuple[str, ...]) -> dict:
