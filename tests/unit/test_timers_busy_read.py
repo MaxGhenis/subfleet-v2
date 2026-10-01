@@ -510,12 +510,15 @@ def test_c18_3_only_a_closure_report_fences_a_release(rig):
         with rig.store.transaction("attempt.reserved", job_id="job-next", lane_id=lane.lane_id):
             rig.store.add_attempt(attempt_id="job-next/a1", job_id="job-next", seq=1, lane_id=lane.lane_id,
                                   model_requested="gpt-6.1-sol", state="reserved")
+        rig.store.add_reading(Reading(lane.lane_id, "gpt-6.1-sol", "admission", None, None,
+                                      ReadingLabel.ADMISSION_OBSERVED, "probe", iso(rig.clock())))
         rig.store.add_event("lane.noted", lane_id=lane.lane_id, data={"note": "not a limit"})
         rig.store.update_lane(lane.lane_id, plan="pro")
 
     rig.wham.during[lane.lane_id] = [the_lane_is_busy]
     rig.timer.probe_cycle()
     assert rig.store.query("SELECT 1 FROM events WHERE lane_id=? AND kind='attempt.reserved'", (lane.lane_id,))
+    assert rig.store.query("SELECT 1 FROM readings WHERE lane_id=? AND label='admission-observed'", (lane.lane_id,))
     assert rig.open_closures(lane) == set() and rig.cycle_event()["fenced"] == []
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
 
@@ -808,6 +811,61 @@ def test_c18_3_the_check_and_the_put_back_are_one_step(rig, monkeypatch):
     assert rig.timer.metadata[lane.lane_id] == {"verdict": "auth-dead", "probe_status": "auth-dead"}
 
 
+class AfterRead(dict):
+    """`Timers.metadata` whose next read of one lane, once armed, runs an action after the value is read."""
+
+    armed = None
+
+    def get(self, key, default=None):
+        value = super().get(key, default)
+        if self.armed and key == self.armed[0]:
+            action, self.armed = self.armed[1], None
+            action()
+        return value
+
+
+def test_c18_3_an_attempt_that_finalizes_right_after_the_check_keeps_its_verdict(rig, monkeypatch):
+    """C-18.3 (review of PR #96): the commit fails, the check reads this publication's verdict, and an
+    attempt that ends `auth-dead` finalizes at that instant, in its own transaction, on its own thread.
+    The check is under the verdicts' lock too, and `record_auth_dead` writes through it, so the attempt's
+    verdict lands after the put-back and stays."""
+    lane = rig.enroll()
+    rig.timer.probe_cycle()                                   # `ok` from an idle read
+    rig.occupy(lane, "both")
+    rig.clock.advance()
+    rig.timer.metadata = AfterRead(rig.timer.metadata)
+    real, landed = rig.store.transaction, threading.Event()
+
+    def finalizer():                                          # `Daemon._finalize` for an `auth-dead` attempt
+        with real("attempt.accepted", lane_id=lane.lane_id):
+            rig.store.update_lane(lane.lane_id, enabled=0)
+            rig.timer.record_auth_dead(lane.lane_id)
+        landed.set()
+
+    def race():
+        threading.Thread(target=finalizer, daemon=True).start()
+        landed.wait(.5)                                       # lands now unless the verdicts' lock holds it off
+
+    @contextmanager
+    def commit_fails(kind, **fields):
+        try:
+            with real(kind, **fields) as conn:
+                yield conn
+                if kind == "timer.busy-read":
+                    raise RuntimeError("disk I/O error")
+        except RuntimeError:
+            if kind == "timer.busy-read":                     # rolled back, the store lock released
+                rig.timer.metadata.armed = (lane.lane_id, race)   # the next read is the check
+            raise
+
+    monkeypatch.setattr(rig.store, "transaction", commit_fails)
+    with pytest.raises(RuntimeError):
+        rig.timer.probe_cycle()
+    assert landed.wait(5)
+    assert not rig.store.get_lane(lane.lane_id).enabled
+    assert dict.get(rig.timer.metadata, lane.lane_id) == {"verdict": "auth-dead", "probe_status": "auth-dead"}
+
+
 @pytest.mark.parametrize("case", ["operator-hold", "auth-dead", "desktop", "claude", "disabled"])
 def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case):
     """C-18.1, C-18.3, C-10.3, C-9.8: held, dead, desktop and disabled lanes are not read; a busy Claude
@@ -874,7 +932,8 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
     - no older answer undoes a newer limit: a closure recorded or extended during
       the read, or reported again by an attempt that ended `limited`, is still
       open and ends no sooner after the publication;
-    - what is published equals what `_persist` publishes for an idle read.
+    - what is published equals what `_persist` publishes for an idle read, when the
+      lane is still one the timer reads and no limit was reported during the read.
     """
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     with tempfile.TemporaryDirectory(dir=tmp_path) as directory, make_rig(Path(directory)) as rig:

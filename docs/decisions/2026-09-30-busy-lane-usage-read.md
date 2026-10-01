@@ -122,7 +122,8 @@ its transaction has a change to record). A busy read notes the store's newest
 event id as it starts (`_mark`). If at publication a `closure.recorded` event
 for the lane is newer than that mark, the read publishes its readings and
 verdict but releases no closure and settles no reset credit, and the cycle's
-event names the lane as `fenced`. The next cycle reads again. A read may still
+event names the lane under `fenced` (every busy read published while a limit
+was reported during it, whether or not it had anything to release). The next cycle reads again. A read may still
 add or lengthen a closure, which only makes admission more cautious.
 
 The trace is the report itself, not who made it. An earlier revision looked
@@ -239,9 +240,8 @@ lane occupancy and read results, and a busy-versus-idle differential). The
 daemon-level cap test is in `tests/fake/test_timers_busy_admission.py`.
 
 1. **No slot.** A busy read acquires, releases and holds no lease, and writes no
-   reservation. Whatever changes in the lease table while it runs is
-   admission's or an attempt's doing. The next attempt on the lane takes the
-   same slot it would have taken without the read.
+   reservation. The next attempt on the lane takes the same slot it would have
+   taken without the read.
 2. **Account fence.** No provider reading, closure release or settlement is
    written for a credential that names another account.
 3. **No credential verdict from a busy read.** A busy read never disables a lane
@@ -275,10 +275,11 @@ daemon-level cap test is in `tests/fake/test_timers_busy_admission.py`.
 9. **Every closure report leaves its event.** Each `put_closure` call leaves a
    `closure.recorded` event for its lane, and a report that ends no later than
    the open row's leaves that row as it was. (A limit that records no closure
-   leaves no event and has no row a read could release: a timer turn's outcome,
-   or a `limited` read while an override stands.)
+   leaves no event and adds no row: a timer turn's outcome (a heal on an idle
+   Codex lane, a Claude keepalive), or a `limited` read while an override
+   stands, which is a probe cycle's own publication.)
 
-`tools/busy_read_mutations.py` holds thirty mutations of the change, each
+`tools/busy_read_mutations.py` holds thirty-six mutations of the change, each
 removing one rule. Each fails at least one test (run on both lines at this
 revision).
 
@@ -295,8 +296,8 @@ of the picker is #33's closure check.
 
 ## Changes since revision 3 (round-3 reviews of the heads 0ac3464c and 6ad03f47)
 
-- **The put-back after a failed commit is one checked step** (GPT-6.1 Sol on
-  #97, note, reproduced). Revision 3 checked that this publication's verdict
+- **The put-back after a failed commit is one checked step** (both round-3
+  reviews, note, reproduced). Revision 3 checked that this publication's verdict
   was still in place and then put the old one back, with nothing holding off an
   attempt's `auth-dead` verdict in between. Verdicts are now replaced under
   their own lock (`Timers._set_verdict`), and the check and the put-back share
@@ -307,7 +308,9 @@ of the picker is #33's closure check.
   lane update during the read do not); a verdict an attempt records after the
   rollback stays, whichever of the publication or its commit failed; the probe
   and retention cases run the real `Daemon._finish_probe` and the real
-  retention pass. Thirty mutations.
+  retention pass. Round 4 (both approved 3a5f41b6 and f31309f1) added one more:
+  an attempt that finalizes on its own thread right after the check keeps its
+  verdict. Thirty-six mutations.
 - **Statements narrowed**: the store is left as it stood when the publication
   began, not when the read began; equivalence with an idle read holds when
   nothing was reported during the read; the busy read itself changes no lease;
