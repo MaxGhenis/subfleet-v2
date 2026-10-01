@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import select
 import shutil
 import socket
@@ -50,14 +49,6 @@ def until(predicate, timeout=30.0, what="condition"):
             return
         time.sleep(.02)
     raise AssertionError(f"{what} timed out")
-
-
-def catalog_pids(root: Path) -> list[int]:
-    """Every live catalog run for this state root, whoever started it."""
-    out = subprocess.run(["/bin/ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
-    spelled = "|".join(re.escape(str(r)) for r in {root, root.resolve()})
-    pattern = re.compile(rf"subfleet\.conversations\.catalog --state-root ({spelled})(\s|$)")
-    return [int(line.split(None, 1)[0]) for line in out.splitlines() if pattern.search(line)]
 
 
 class Runs:
@@ -341,12 +332,23 @@ def short_root():
 
 
 def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone(
-        runs, identity, short_root):
+        runs, identity, short_root, monkeypatch):
     """The control loop starts a catalog run; the daemon closes while it is in flight.
     `close()` returns only once the run has ended, so no catalog process outlives it,
     and after the root is removed nothing brings it back, even once a surviving run
     could finish its scan and write."""
     root = short_root
+    spawn_refresh = catalog_module.spawn_refresh
+
+    def track_refresh(state_root, **kwargs):
+        # Observe every catalog child this daemon starts, including a second run
+        # that a shutdown race could launch. Exact Popen handles remain useful
+        # when the sandbox does not permit inspecting the host's process table.
+        assert Path(state_root).resolve() == root.resolve()
+        process = spawn_refresh(state_root, **kwargs)
+        return runs.track(process) if process is not None else None
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", track_refresh)
     try:
         with socket.socket(socket.AF_UNIX) as probe:
             probe.bind(str(root / "probe"))
@@ -360,20 +362,21 @@ def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gon
     try:
         runs.hold()
         until(lambda: daemon.conversations._catalog_proc is not None, what="the service to record its run")
-        process = runs.track(daemon.conversations._catalog_proc)
+        process = daemon.conversations._catalog_proc
+        assert process in runs.processes
         assert process.poll() is None
         daemon.stopping.set()                        # serve_forever's `finally` closes the daemon
         thread.join(30)
         assert not thread.is_alive(), "the daemon did not close"
-        stray = catalog_pids(root)
+        stray = [child for child in runs.processes if child.poll() is None]
         if process.poll() is None:
             problems.append("close() returned with its catalog run still running")
         if stray:
-            problems.append(f"catalog processes outlived close(): {stray}")
+            problems.append(f"catalog processes outlived close(): {[child.pid for child in stray]}")
         shutil.rmtree(root)
         runs.let_go()                                # a run that survived now finishes its scan
-        for pid in stray:
-            until(lambda: pid not in catalog_pids(root), what=f"catalog run {pid} to end")
+        for child in stray:
+            child.wait(30)
         time.sleep(.5)
         if root.exists():
             problems.append(f"the removed state root came back holding {sorted(os.listdir(root))}")
@@ -381,11 +384,7 @@ def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gon
     finally:
         daemon.stopping.set()
         thread.join(30)
-        for pid in catalog_pids(root):
-            try:
-                os.killpg(pid, 9)
-            except ProcessLookupError:
-                pass
+        # The runs fixture reaps only the exact children captured above.
 
 
 def test_a_run_that_survives_close_still_writes_nothing(runs, identity, tmp_path, monkeypatch):

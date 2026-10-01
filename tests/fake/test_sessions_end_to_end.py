@@ -31,6 +31,7 @@ from subfleet.sessions import nudge as nudge_module
 from subfleet.sessions import revive as revive_module
 from tests import sessions_fixtures as fx
 from tests.fake_adapter import FakeAdapter
+from tests.fake.session_guardian import BOOT, START
 
 ALICE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 BOB = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
@@ -55,13 +56,57 @@ def stage_s(service: Daemon) -> float:
     starts a guardian and the fake provider, or the attempt, which starts both
     again and runs to its release.
 
-    A budget chosen from measurement, not a daemon deadline. It is scaled to
-    `start_grace_s`, the time the daemon lets an attempt's guardian take to
-    start before it presumes the start failed (C-4.2), and at the default of
-    10 s is twice the slowest stage seen: at a load average of 211 on 18 cores,
-    admission took 9.3 s and reservation to release 10 s.
+    This fixture allows 60 s for a real Python guardian to start under a loaded
+    test runner. A stage may run a probe followed by an attempt, so its wait
+    budget covers both starts. These tests do not assert startup deadlines.
     """
     return 2 * service.start_grace_s
+
+
+class GuardianObservations:
+    """Process observations from children this fixture actually starts.
+
+    Supply the existing procs parser with exact Popen liveness, without asking
+    the host's process table. Each local fake provider stays under a guardian
+    that waits for it; this fixture models those leaders, not escaped children
+    or kernel identity semantics. Keep the real identity/census/signal logic.
+    """
+
+    def __init__(self):
+        self.popen = subprocess.Popen
+        self.children = {}
+        self.lock = threading.Lock()
+
+    def spawn(self, argv, **kwargs):
+        if list(argv)[1:3] != ["-m", "subfleet.guardian"]:
+            return self.popen(argv, **kwargs)
+        command = [*argv]
+        command[2] = "tests.fake.session_guardian"
+        child = self.popen(command, **kwargs)
+        with self.lock:
+            self.children[child.pid] = (child, dict(kwargs["env"]))
+        return child
+
+    def read(self, argv, **kwargs):
+        with self.lock:
+            living = [(pid, env) for pid, (child, env) in self.children.items()
+                      if child.poll() is None]
+        rows = {os.getpid(): (os.getppid(), os.getpgrp(), "Ss", START),
+                **{pid: (os.getpid(), pid, "Ss", START) for pid, _ in living}}
+        if argv == daemon_module.procs.TABLE_ARGV:
+            return "\n".join(f"{pid} {parent} {group} {state} {started}"
+                             for pid, (parent, group, state, started) in rows.items())
+        if argv == ["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]:
+            return "\n".join(f"{pid} {group} {state} {started}"
+                             for pid, (_, group, state, started) in rows.items())
+        if argv == ["/bin/ps", "-axEww", "-o", "pid=,command="]:
+            return "\n".join(f"{pid} SUBFLEET_ATTEMPT={env['SUBFLEET_ATTEMPT']} "
+                             f"SUBFLEET_ROOT={env['SUBFLEET_ROOT']}" for pid, env in living)
+        if argv[:2] == ["/bin/ps", "-p"] and len(argv) == 5:
+            row = rows.get(int(argv[2]))
+            assert argv[3] == "-o" and argv[4] in ("lstart=", "stat="), argv
+            return "" if row is None else row[3 if argv[4] == "lstart=" else 2]
+        raise AssertionError(f"unexpected process observation: {argv}")
 
 
 class Client:
@@ -110,8 +155,15 @@ class Client:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     """A daemon, a lane, a `~/.claude`, and a desktop session store."""
-    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
-    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    observations = GuardianObservations()
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: BOOT)
+    monkeypatch.setattr(daemon_module.procs, "_read", observations.read)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", observations.spawn)
+    # Session policy tests supply a quiet machine, as the standalone fake
+    # daemon does; unrelated host load must not block their admissions.
+    monkeypatch.setattr("subfleet.machine.read", lambda: {
+        "load1": .5, "load5": .5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0})
+    monkeypatch.setenv("SUBFLEET_PROVIDER_QOS", "inherit")
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(adapter_registry, "_factories",
                         {"codex": FakeAdapter, "claude": FakeAdapter})
@@ -122,7 +174,7 @@ def world(tmp_path, monkeypatch):
         root = Path(directory)
         policy = fx.policy(mirror_interval_s=0)         # the timer is its own test
         (root / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
-        service = Daemon(root, tick_s=.02, term_grace_s=.05)
+        service = Daemon(root, tick_s=.02, start_grace_s=60, term_grace_s=.05)
         service.store.put_lane(Lane("codex-1", "codex", "codex:fake",
                                     Credential("codex", str(root / "home"), "home"),
                                     str(root / "home"), LaneOwner.V2, False))
@@ -134,10 +186,10 @@ def world(tmp_path, monkeypatch):
             # way for the same two reasons.
             yield service, Client(service), home, store_dir, root, policy, tmp_path
         finally:
-            close_world(service)
+            close_world(service, observations=observations)
 
 
-def close_world(service: Daemon) -> None:
+def close_world(service: Daemon, *, observations: GuardianObservations | None = None) -> None:
     """Stop daemon workers, then reap this fixture's detached guardians.
 
     Production shutdown deliberately leaves guardians running for recovery.
@@ -146,7 +198,10 @@ def close_world(service: Daemon) -> None:
     this fixture launched; no machine-wide process search is involved.
     """
     service.close()
-    for child in tuple(service._children.values()):
+    # Snapshot after the daemon's workers have stopped, including a probe that
+    # was just being spawned when teardown began.
+    children = () if observations is None else [child for child, _ in observations.children.values()]
+    for child in {*children, *service._children.values()}:
         try:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:                # failed/blocked fixture
@@ -246,7 +301,8 @@ def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypat
         "allow_tmp": True,
     })
     adir = root / "jobs" / result["job_id"] / "a1"
-    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text(),
+          timeout=stage_s(service), describe=lambda: service.store.get_job(result["job_id"]))
     child = service._children[result["job_id"] + "/a1"]
     assert child.poll() is None
     wait = child.wait
@@ -629,7 +685,8 @@ def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world
                                   opt_in=True, model="astra", now=fx.NOW)
     attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
                     timeout=stage_s(service))
-    until(lambda: service.store.get_attempt(attempt["attempt_id"])["native_session_id"])
+    until(lambda: service.store.get_attempt(attempt["attempt_id"])["native_session_id"],
+          timeout=stage_s(service), describe=lambda: service.store.get_attempt(attempt["attempt_id"]))
     assert service.store.get_attempt(
         attempt["attempt_id"])["native_session_id"] == ALICE
 

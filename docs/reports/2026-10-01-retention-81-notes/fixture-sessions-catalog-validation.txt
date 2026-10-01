@@ -1,0 +1,57 @@
+Focused follow-up to full-suite-diagnostic-4f528.txt
+
+The six sessions failures occurred before the behavior their tests asserted:
+probe/admission made no attempt, leases stayed absent, or a real provider never
+published its ready output. The fixture previously replaced boot/start readers
+only in the parent, while its real guardian and census still used ps/sysctl;
+the sandbox denies those reads. The fixture also used host machine load rather
+than the quiet input already supplied by the standalone fake-daemon harness.
+
+The sessions fixture now observes only exact guardian Popen handles it creates.
+Only those launches use tests.fake.session_guardian, which calls the production
+guardian.main and replaces its own boot/start observations. Parent procs parsers,
+identity matching, census, signaling, scheduler, admission, session lease,
+resume, actual provider process and durable receipts remain exercised. Synthetic
+observations model non-escaping local fake providers whose guardian waits for
+them; these fixtures do not test kernel identities or escaped descendants.
+Kernel inspection/process tests remain responsible for those semantics.
+The fixture supplies quiet machine load and inherited provider QoS; startup
+grace is 60s and a stage wait covers two starts (120s). Behavior assertions remain.
+Cleanup snapshots every captured probe/attempt after daemon workers stop and
+waits/reaps exact owned Popen handles before the isolated root is removed.
+
+The catalog failure was PermissionError launching /bin/ps. Its regression now
+captures every catalog.spawn_refresh child of its daemon, verifies those exact
+handles ended before close returned, and retains the root-removal/late-write
+oracle. Cleanup uses the existing Runs fixture's exact handles, without a host
+process scan or pattern-based signaling. A shutdown-race second catalog launch
+would also be captured and checked.
+
+Checks (foreground run_check.py, 550s budget, no xdist):
+- fixture-catalog-close-final-tests.txt: 1 passed, pytest24.25s,
+  supervisor41.57s, exit0, child28763/session28342 reaped.
+- fixture-sessions-01-tests.txt: 3 passed, pytest36.03s,
+  supervisor57.62s, exit0, child46637/session18619 reaped.
+- fixture-sessions-02-tests.txt: 3 passed, pytest63.65s,
+  supervisor82.85s, exit0, child53494/session58093 reaped.
+Seven distinct reported failures pass; no skips. Every command used
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache,
+SUBFLEET_RETENTION_QOS=inherit, PYTEST_ADDOPTS=.
+
+fixture-catalog-close-tests.txt is a superseded diagnostic: the new spy first
+compared /tmp to the daemon's resolved /private/tmp path and failed before
+launching a run (1 failed47.25s, supervisor80.29s, child3044/session77031 reaped).
+The final spy compares resolved paths. Do not count this diagnostic as a pass.
+fixture-sessions-catalog-process-proof.json records the exact PID inspection
+attempt and foreground wait/reap evidence. Nothing started by this agent remains
+running; no production source was changed and no commit was made by this agent.
+
+SHA256 recorded while the first sessions check ran; these sources stayed frozen
+across both sessions checks. The catalog hash also matches its positive check:
+19b35e3d716753094381422bf2454a140d9d621587f83f79aa4b952e42be31f0 tests/fake/test_sessions_end_to_end.py
+9374f367afe390392dee40005b5b3e4f884ad2d384e04b06102eb068ab38ae1c tests/fake/session_guardian.py
+9ae24f997d2fb7b77b6458be7483b4e986b5b271450c0dcbe1d145259427adfa tests/unit/test_conversation_catalog_lifecycle.py
+978ca34c9720d2e3ad770dc022e760018ce3a9b476fdd23f537e7803300b2a00 subfleet/daemon.py
+3bbd141ad1c8bbc3abb1c4aa1a9b374acf7a0f9726e35c1e1666da119133933d subfleet/guardian.py
+13c1671d784e8b73b9e178f76855bdf1ca36c8b7cac7a2f1f16ff9c641a8ae3a subfleet/procs.py
+1b0a9990d4ba3731b687373417c89dd48f80f9f80cb0ee74418936233cba1b95 subfleet/conversations/service.py

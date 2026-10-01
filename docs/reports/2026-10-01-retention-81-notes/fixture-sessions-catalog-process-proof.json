@@ -1,0 +1,10 @@
+{
+  "owned_foreground_child_pids": [
+    3044,
+    28763,
+    46637,
+    53494
+  ],
+  "inspection_unavailable": "[Errno 1] Operation not permitted: 'ps'",
+  "foreground_proof": "Every run_check.py supervisor awaited its exact child and returned a final exit code; all four PTY sessions completed and were closed. Successful test fixture teardown waited/reaped every captured guardian/provider supervisor and catalog Popen handle."
+}
