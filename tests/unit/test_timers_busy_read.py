@@ -127,13 +127,30 @@ class Rig:
         for index in range(n):
             job = f"job-{lane.lane_id}-{index}"
             attempt = f"{job}/a1"
-            if how in ("attempt", "both"):
-                self.store.add_job(job_id=job, request_id=job, payload_digest="d", kind="dispatch",
+            if how in ("attempt", "both", "turn"):       # a conversation turn is a job of kind `turn`
+                self.store.add_job(job_id=job, request_id=job, payload_digest="d",
+                                   kind="turn" if how == "turn" else "dispatch",
                                    state="running", workdir=str(self.root), prompt_path="/p", sandbox="read-only")
                 self.store.add_attempt(attempt_id=attempt, job_id=job, seq=1, lane_id=lane.lane_id,
                                        model_requested="gpt-6.1-sol", state="running")
             if how in ("lease", "both"):
                 self.store.acquire_lease(f"lane:{lane.lane_id}:slot:{index + 1}", attempt)
+            if how == "turn-lease":                      # and its lease is `slot:turn-<n>` (C-26.9)
+                self.store.acquire_lease(f"lane:{lane.lane_id}:slot:turn-{index}", attempt)
+
+    def ends_limited(self, lane, until, *, attempt=None):
+        """What `_finalize` does for an attempt that ends `limited`: its outcome, then its closure."""
+        if attempt is None:                              # one reserved and ended within the read
+            attempt = f"job-{lane.lane_id}-late/a1"
+            self.store.add_job(job_id=attempt[:-3], request_id=attempt, payload_digest="d", kind="dispatch",
+                               state="failed", workdir=str(self.root), prompt_path="/p", sandbox="read-only")
+            self.store.add_attempt(attempt_id=attempt, job_id=attempt[:-3], seq=1, lane_id=lane.lane_id,
+                                   model_requested="gpt-6.1-sol", state="running")
+        with self.store.transaction("attempt.accepted", attempt_id=attempt) as tx:
+            tx.execute("UPDATE attempts SET state='failed',outcome_class='limited' WHERE attempt_id=?", (attempt,))
+            self.store.add_closure(Closure(lane.lane_id, "account", until, ClosureReason.PROVIDER_LIMIT,
+                                           ClockSource.REPORTED, attempt))
+            tx.execute("DELETE FROM leases WHERE holder=?", (attempt,))
 
     def override(self, lane, *, ago=60):
         """A confirmed reset-credit consume on the lane (C-23.16), not yet settled."""
@@ -172,9 +189,13 @@ def rig(tmp_path, monkeypatch):
         yield value
 
 
-@pytest.mark.parametrize("how", ["attempt", "lease", "both", "probe"])
+OCCUPANCY = ("attempt", "lease", "both", "probe", "turn", "turn-lease")
+
+
+@pytest.mark.parametrize("how", OCCUPANCY)
 def test_c18_3_a_busy_codex_lane_is_read_on_its_first_cycle(rig, how):
-    """C-18.3: work on the lane (an attempt, a slot lease, an admission probe's `slot:0`) no longer hides it."""
+    """C-18.3: work on the lane (an attempt, a slot lease, an admission probe's `slot:0`, a conversation
+    turn or its `slot:turn-<n>` lease) no longer hides it, and none of it makes the read take `slot:0`."""
     lane = rig.enroll()
     rig.occupy(lane, how)
     before = leases(rig.store)
@@ -380,6 +401,88 @@ def test_c18_3_an_older_busy_read_never_releases_a_newer_limit(rig, change):
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
 
 
+@pytest.mark.parametrize("until", ["same", "earlier"])
+@pytest.mark.parametrize("override", [False, True])
+def test_c18_3_a_limit_an_attempt_reports_again_during_the_read_is_kept(rig, until, override):
+    """C-18.3, C-9.6 (review of PR #96): `put_closure` writes nothing for a limit that ends no later
+    than the open row's, so the closures show no change; the attempt's `limited` outcome does."""
+    lane = rig.enroll()
+    reset = rig.clock() + timedelta(hours=2)
+    rig.store.put_closure(Closure(lane.lane_id, "account", iso(reset), ClosureReason.PROVIDER_LIMIT,
+                                  ClockSource.REPORTED, "attempt-1"))
+    if override:
+        rig.override(lane)
+    rig.occupy(lane, "both", n=2)
+    closures = rig.open_closures(lane)
+    again = iso(reset if until == "same" else reset - timedelta(minutes=5))
+    rig.wham.during[lane.lane_id] = [lambda: rig.ends_limited(lane, again, attempt=f"job-{lane.lane_id}-1/a1")]
+    rig.wham.responses[lane.lane_id] = [answer(lane, rig.clock, "ok", utilization=.5, limit_reached=False)]
+    rig.timer.probe_cycle()
+    assert rig.open_closures(lane) == closures
+    assert len(rig.wham_readings(lane)) == 2 and rig.events("action.reconciled", lane) == []
+    if override:
+        assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
+
+
+def test_c18_3_a_limit_another_thread_records_waits_for_the_publication(rig, monkeypatch):
+    """C-18.3 (reviews of PR #96 and #97): judged, then published outside one transaction, an attempt's
+    limit recorded in between was released. The publication holds the store's write lock, so the
+    finalizer's write lands after the commit and stays."""
+    lane = rig.enroll()
+    rig.occupy(lane, "both")
+    reset = iso(rig.clock() + timedelta(hours=2))
+    judge, done = rig.timer._publishable, threading.Event()
+
+    def finalizer():
+        rig.store.add_closure(Closure(lane.lane_id, "account", reset, ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "attempt-2"))
+        done.set()
+
+    def judged_then_raced(*args):
+        verdict = judge(*args)
+        threading.Thread(target=finalizer, daemon=True).start()
+        assert not done.wait(.3)                              # it cannot write until the commit
+        return verdict
+
+    monkeypatch.setattr(rig.timer, "_publishable", judged_then_raced)
+    rig.wham.responses[lane.lane_id] = [answer(lane, rig.clock, "ok", utilization=.5, limit_reached=False)]
+    rig.timer.probe_cycle()
+    assert done.wait(2)
+    assert rig.open_closures(lane) == {("account", "provider-limit", reset)}
+
+
+def test_c18_3_whatever_raises_before_the_read_is_a_withheld_read_not_a_failed_cycle(rig, monkeypatch):
+    """C-18.3, C-18.1 (review of PR #96): an error reading the lane's limits is this lane's read failing.
+    The cycle goes on, the idle lane is published and its `slot:0` is released."""
+    busy, idle = rig.enroll("codex-4"), rig.enroll("codex-5")
+    rig.occupy(busy, "both")
+    held, limits = leases(rig.store), rig.timer._limits
+    state = {"fail": True}
+
+    def fails_once(lane_id):
+        if lane_id == busy.lane_id and state.pop("fail", False):
+            raise RuntimeError("database disk image is malformed")
+        return limits(lane_id)
+
+    monkeypatch.setattr(rig.timer, "_limits", fails_once)
+    rig.timer.probe_cycle()
+    assert rig.cycle_event()["deferred"] == {busy.lane_id: "unknown"}
+    assert rig.wham.calls == [idle.lane_id] and rig.wham_readings(idle)
+    assert leases(rig.store) == held and rig.timer._probe_holders == {}
+
+
+@pytest.mark.parametrize("change", [{"owner": "v1"}, {"desktop": 1}])
+def test_c18_3_nothing_is_published_for_a_lane_no_longer_read(rig, change):
+    """C-18.3 (review of PR #96): publication asks what `_claim` asks. A lane transferred or made the
+    desktop's during its read is not published."""
+    lane = rig.enroll()
+    rig.occupy(lane, "both")
+    rig.wham.during[lane.lane_id] = [lambda: rig.store.update_lane(lane.lane_id, **change)]
+    rig.timer.probe_cycle()
+    assert rig.wham_readings(lane) == [] and lane.lane_id not in rig.timer.metadata
+    assert rig.cycle_event()["deferred"] == {lane.lane_id: "ok"}
+
+
 def test_c18_3_nothing_is_published_for_a_lane_disabled_during_its_read(rig):
     """C-18.3, C-23.44: an attempt that ends `auth-dead` mid-read keeps the lane's verdict."""
     lane = rig.enroll()
@@ -414,11 +517,18 @@ def test_c18_3_a_busy_read_is_judged_and_published_in_one_transaction(rig, monke
     assert rig.store._depth == 0
 
 
+@pytest.mark.parametrize("verdict", ["none-yet", "from-an-idle-read"])
 @pytest.mark.parametrize("fails", ["writing-the-verdict", "after-the-verdict"])
-def test_c18_3_a_publication_that_raises_leaves_the_lane_as_it_stood(rig, monkeypatch, fails):
+def test_c18_3_a_publication_that_raises_leaves_the_lane_as_it_stood(rig, monkeypatch, fails, verdict):
     """C-18.3 (Astra's finding 2): no fence is released early because there is none; a busy read's
-    publication that fails rolls back whole, the settlement with it, and the next cycle publishes."""
+    publication that fails rolls back whole, the settlement with it, and the next cycle publishes.
+    The verdict the lane had (its email, its reset-credit counts) is put back, not dropped."""
     lane = rig.enroll()
+    if verdict == "from-an-idle-read":
+        rig.wham.responses[lane.lane_id] = [{**answer(lane, rig.clock), "email": "lane@example.invalid"}]
+        rig.timer.probe_cycle()
+        rig.clock.advance()
+    stood, read = rig.timer.metadata.get(lane.lane_id), len(rig.wham_readings(lane))
     rig.store.put_closure(Closure(lane.lane_id, "account", iso(rig.clock() + timedelta(hours=1)),
                                   ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
     rig.override(lane)
@@ -435,14 +545,14 @@ def test_c18_3_a_publication_that_raises_leaves_the_lane_as_it_stood(rig, monkey
                 RuntimeError("disk I/O error"))))
         with pytest.raises(RuntimeError):
             rig.timer.probe_cycle()
-    assert rig.wham_readings(lane) == [] and rig.open_closures(lane) == closures
+    assert len(rig.wham_readings(lane)) == read and rig.open_closures(lane) == closures
     assert rig.events("action.reconciled", lane) == []
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
-    assert lane.lane_id not in rig.timer.metadata and rig.store.get_lane(lane.lane_id).enabled
+    assert rig.timer.metadata.get(lane.lane_id) == stood and rig.store.get_lane(lane.lane_id).enabled
     assert rig.store._depth == 0 and leases(rig.store) == held
     rig.clock.advance()
     rig.timer.probe_cycle()
-    assert len(rig.wham_readings(lane)) == 2 and rig.open_closures(lane) == set()
+    assert len(rig.wham_readings(lane)) == read + 2 and rig.open_closures(lane) == set()
     assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
 
 
@@ -487,14 +597,14 @@ def test_c18_3_busy_reads_count_toward_offline(rig, monkeypatch):
 
 # --- properties ------------------------------------------------------------------
 
-DURING = ("none", "closure", "extend", "disable", "admit")
+DURING = ("none", "closure", "extend", "relimit", "disable", "admit")
 RESPONSES = USAGE + WITHHELD + ("mismatch-ok", "mismatch-limited", "mismatch-network-error", "mismatch-auth-dead",
                                 "no-account", "raise-oserror", "raise-valueerror")
 
 
 @settings(max_examples=120, deadline=None, derandomize=True, database=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
-@given(how=st.sampled_from(("attempt", "lease", "both", "probe")), n=st.integers(1, 3),
+@given(how=st.sampled_from(OCCUPANCY), n=st.integers(1, 3),
        response=st.sampled_from(RESPONSES), utilization=st.floats(0, .99),
        limit_reached=st.sampled_from((None, True, False)), allowed=st.sampled_from((True, False, None)),
        during=st.sampled_from(DURING), override=st.booleans(), stale_limit=st.booleans())
@@ -509,14 +619,17 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
     - no credential verdict: the lane is disabled only by a published mismatch or
       by its own attempt, and a busy read never sets a latch;
     - no older answer undoes a newer limit: a closure recorded or extended during
-      the read is still open, as recorded, after the publication;
+      the read, or reported again by an attempt that ended `limited`, is still
+      open and ends no sooner after the publication;
     - what is published equals what `_persist` publishes for an idle read.
     """
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     with tempfile.TemporaryDirectory(dir=tmp_path) as directory, make_rig(Path(directory)) as rig:
         lane = rig.enroll()
+        stale_limit = stale_limit or during == "relimit"
+        older = iso(rig.clock() + timedelta(minutes=30))
         if stale_limit or during == "extend":
-            rig.store.put_closure(Closure(lane.lane_id, "account", iso(rig.clock() + timedelta(minutes=30)),
+            rig.store.put_closure(Closure(lane.lane_id, "account", older,
                                           ClosureReason.PROVIDER_LIMIT, ClockSource.GUESSED, "attempt"))
         if override:
             rig.override(lane)
@@ -532,6 +645,8 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
             "extend": [lambda: rig.store.put_closure(Closure(lane.lane_id, "account", newer,
                                                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "attempt"))],
             "disable": [lambda: (rig.store.update_lane(lane.lane_id, enabled=0), rig.timer.record_auth_dead(lane.lane_id))],
+            # An attempt ends `limited` and reports the limit already open: `put_closure` writes nothing.
+            "relimit": [lambda: rig.ends_limited(lane, older)],
         }
         rig.wham.during[lane.lane_id] = actions[during]
         status = response.removeprefix("mismatch-") if response.startswith("mismatch-") else (
@@ -552,7 +667,7 @@ def test_c18_3_property_a_busy_read_takes_no_slot_and_publishes_only_what_it_may
         mismatch = response.startswith("mismatch-")
         disabled = during == "disable"
         published = (mismatch or (status in USAGE and not response.startswith("raise-"))) and not disabled
-        releases = published and not mismatch and during not in ("closure", "extend")
+        releases = published and not mismatch and during not in ("closure", "extend", "relimit")
         # No slot.
         assert rig.wham.leases_seen == [before_leases]
         assert leases(rig.store) == sorted(before_leases + ([admitted] if during == "admit" else []))

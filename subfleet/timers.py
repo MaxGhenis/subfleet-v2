@@ -486,15 +486,18 @@ class Timers:
         The usage GET alone. It takes no lease and writes no reservation, so it
         never holds a slot a job could take, and it runs no heal turn: the lane's
         attempts renew its token. It goes through the per-lane read fence an idle
-        read does (`_read_probe`). The closures open as it starts travel with the
-        result, so that publishing it never releases one recorded after it
-        (`_publishable`, `_publish_busy`).
+        read does (`_read_probe`). The lane's limits as it starts travel with the
+        result, so that publishing it never releases one reported after it
+        (`_publishable`, `_publish_busy`). Whatever raises here is a read that
+        failed, never a cycle that failed: no hold of this lane's needs releasing,
+        and the idle lanes' holds are released by the cycle.
         """
-        opened = self._open_closures(lane.lane_id)
-        adapter = self.adapter_factory('codex')
-        if hasattr(adapter, 'timeout'):
-            adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+        opened = frozenset()
         try:
+            opened = self._limits(lane.lane_id)
+            adapter = self.adapter_factory('codex')
+            if hasattr(adapter, 'timeout'):
+                adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
             probe = self._read_probe(adapter, lane, resolve_credential(lane.credential))
         except (TimeoutError, OSError) as exc:
             probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
@@ -502,10 +505,19 @@ class Timers:
             probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
         return lane, {**probe, 'probed_at': iso(self.now())}, opened
 
-    def _open_closures(self, lane_id):
-        """The lane's open closures as rows stand: `put_closure` extends one in place."""
-        return frozenset((row['closure_id'], row['scope'], row['reason'], row['until_at']) for row in self.store.query(
+    def _limits(self, lane_id):
+        """The lane's limits as they stand: its open closures and its attempts that ended `limited`.
+
+        `put_closure` keeps one open closure per lane and scope. It extends that
+        row in place, and writes nothing when the limit it is given ends no later
+        than the row's, so a limit an attempt reports again leaves no trace in the
+        closures. The attempt's own outcome is the trace.
+        """
+        closures = frozenset((row['closure_id'], row['scope'], row['reason'], row['until_at']) for row in self.store.query(
             'SELECT closure_id,scope,reason,until_at FROM closures WHERE lane_id=? AND released_at IS NULL', (lane_id,)))
+        limited = frozenset(('limited', row['attempt_id']) for row in self.store.query(
+            'SELECT attempt_id FROM attempts WHERE lane_id=? AND outcome_class=?', (lane_id, OutcomeClass.LIMITED.value)))
+        return closures | limited
 
     def _publishable(self, lane, probe, opened):
         """C-18.3: what a busy read may publish, judged as it is published.
@@ -514,23 +526,25 @@ class Timers:
         `expired-token`, `no-auth`) or a failed read is never published from a
         busy lane: a 401 on a token its attempts just replaced reads as dead, and
         the attempts report a dead credential themselves (C-23.44). An answer for
-        another account is published (no readings, the lane disabled); a refresh
-        keeps the account, so a token in rotation cannot produce one. Nothing is
-        published for a lane disabled or rebound since the read.
+        another account is published as an idle read publishes it (no readings,
+        the lane disabled). Nothing is published for a lane that is no longer
+        one `_claim` would read: disabled, transferred or made the desktop's
+        since the read. (A lane's binding never changes; `Store.put_lane`.)
 
         False publishes the readings and the verdict but releases no closure and
-        settles no reset credit: a closure was recorded or extended after the read
-        began, and an older answer must not undo a newer limit. The next cycle
-        reads again. True publishes everything an idle read would.
+        settles no reset credit: since the read began a closure was recorded or
+        extended, or an attempt ended `limited`, and an older answer must not
+        undo a newer limit. The next cycle reads again. True publishes
+        everything an idle read would.
         """
         account = probe.get('account_key')
         mismatch = bool(account) and account != lane.account_key
         if not mismatch and probe.get('status') not in ('ok', 'limited'):
             return None
         current = self.store.get_lane(lane.lane_id)
-        if not current or not current.enabled or current.account_key != lane.account_key:
+        if not current or not current.enabled or current.owner != 'v2' or current.desktop:
             return None
-        return not self._open_closures(lane.lane_id) - opened
+        return not self._limits(lane.lane_id) - opened
 
     def _pace_usage(self):
         """C-9.9: one usage read at a time, `reserve.usage_spacing_s` apart."""
@@ -550,16 +564,17 @@ class Timers:
         judgement and the commit. A publication that raises rolls back whole,
         the settlement with it, and the lane's verdict stays as it stood.
         """
-        before = self.metadata.get(lane.lane_id)
+        before = missing = object()
         try:
             with self.store.transaction('timer.busy-read', lane_id=lane.lane_id):
+                before = self.metadata.get(lane.lane_id)       # under the lock an attempt's verdict needs
                 releases = self._publishable(lane, probe, opened)
                 if releases is not None:
                     self._persist(lane, probe, releases=releases)
         except BaseException:
             if before is None:
                 self.metadata.pop(lane.lane_id, None)
-            else:
+            elif before is not missing:
                 self.metadata[lane.lane_id] = before
             raise
         return releases is not None

@@ -1,6 +1,8 @@
-# Read a busy Codex lane's usage beside its work (decision, 2026-09-30, revision 1)
+# Read a busy Codex lane's usage beside its work (decision, 2026-09-30, revision 2)
 
 Resolves MaxGhenis/subfleet-v2#73 for Codex lanes. Amends C-18.1 and adds C-18.3.
+Revision 2 answers the two independent reviews of PR #96 and PR #97; see
+"Changes since revision 1" at the end.
 
 ## What was observed
 
@@ -23,11 +25,11 @@ Two latches held it there, and each kept the other going:
    read with `limit_reached: false` reconciles it, or for seven days. While
    it stands, `Daemon._pick` holds out every reading of the lane, so the lane
    is unmeasured, and main and the release installed that day (617892c1) cap an
-   unmeasured lane at one attempt. `settle_by_usage` has one caller, `Timers._persist`, which
-   only the idle path reaches. Every earlier credit settled 1 to 2 minutes
-   after it was spent, because its lane was idle then. codex-4 went from its
-   hold straight to work, so its override would have stood until
-   2026-10-07T20:41:57Z.
+   unmeasured lane at one attempt. `settle_by_usage` has one caller,
+   `Timers._persist`, which only the idle path reached. The six native reset
+   credits before this one each settled 64 to 141 s after they were confirmed,
+   at their lanes' next timer reads. codex-4 went from its hold straight to
+   work, so its override would have stood until 2026-10-07T20:41:57Z.
 
 The loop: busy, so not read; not read, so the override stands; the override
 stands, so the lane is unmeasured and capped at 1; capped at 1 with a queue,
@@ -46,9 +48,10 @@ the default 120 at the 09:14:52Z restart. PR #72 removed the count caps, so an
 unmeasured lane is no longer held to one attempt. It did not change
 `Timers._reserve`, and the record shows a busy lane is still never read:
 
-- The four probe cycles from 09:13:05Z to 09:16:55Z each read codex-1, -2, -3,
-  -5 and -6 (idle) and none read codex-4, which had four attempts in flight
-  from 09:13:41Z. Its last timer read was 09:03:56Z.
+- Four probe cycles span the install: 09:13:05Z (the old daemon, 34 s before
+  it) and 09:14:41Z, 09:15:54Z and 09:16:55Z (2.1.9). Each read codex-1, -2,
+  -3, -5 and -6 (idle) and none read codex-4, which had four attempts in
+  flight from 09:13:41Z. Its last timer read was 09:03:56Z.
 - At 09:15:13Z and 09:15:15Z admission judged codex-4 "eligible but unmeasured",
   and a hard-tier job's admission probe (C-11.4) ran on it at 09:15:13Z.
 - At 09:15:21Z it was "measured" again, because a conversation turn's stream
@@ -87,25 +90,31 @@ lane that has no `operator-hold` or `auth-dead` closure, busy or idle.
 | `auth-dead`, `revoked`, `expired-token`, `no-auth`, `network-error`, `http-error`, `invalid-response`, `unknown`, or a timeout | Nothing. The lane's verdict, readings, closures and `enabled` stay as they were. The cycle event names the lane and what the read found |
 
 A busy lane's result is published with the cycle's other results, after every
-read has finished, and only if the lane is still enabled and bound to the same
-account when it is published. It is judged and published in one store
+read has finished, and only if the lane is still one `_claim` would read:
+enabled, v2-owned and not the desktop's. (A lane's binding to its account never
+changes; `Store.put_lane` refuses it.) It is judged and published in one store
 transaction (`_publish_busy`): no slot keeps the lane's attempts away, so the
-store's write lock does, and nothing can disable the lane, rebind it or record
-a closure between the judgement and the commit. A publication that raises rolls
-back whole, the settlement with it.
+store's write lock does, and nothing can disable the lane, transfer it or
+record a limit between the judgement and the commit. A publication that raises
+rolls back whole, the settlement with it, and the verdict the lane had is put
+back.
 
-**An older answer never undoes a newer limit.** On an idle lane nothing can
+**An older answer never undoes a newer limit.** On an idle lane no attempt can
 record a closure between the read and its publication, because the read holds
-`slot:0`. On a busy lane an attempt can: it ends `limited` and records a
-`provider-limit` closure, or `put_closure` extends the lane's open closure in
+`slot:0`. (An operator's `lanes hold` can, and no publication releases a hold.)
+On a busy lane an attempt can. It ends `limited` and `put_closure` does one of
+three things: it records a new closure; it extends the lane's open closure in
 place (one open closure per lane and scope; the row keeps its id and creation
-time). Publishing an older `ok` read would then release that closure, and
-`settle_by_usage` would release it too. So a busy read records the lane's open
-closures (id, scope, reason, `until_at`) as it starts. If any closure is open at
-publication that was not open, exactly so, at the start, the read publishes its
-readings and verdict but releases no closure and settles no reset credit. The
-next cycle reads again. A read may still add or lengthen a closure, which only
-makes admission more cautious.
+time); or, when the limit it is given ends no later than the open row's, it
+writes nothing. Publishing an older `ok` read would then release that closure,
+and `settle_by_usage` would release it too. So a busy read records the lane's
+limits as it starts (`_limits`): its open closures (id, scope, reason,
+`until_at`) and its attempts that ended `limited`, whose outcome is the only
+trace of a limit reported again. If at publication a closure is open that was
+not open, exactly so, at the start, or an attempt has ended `limited` since,
+the read publishes its readings and verdict but releases no closure and settles
+no reset credit. The next cycle reads again. A read may still add or lengthen a
+closure, which only makes admission more cautious.
 
 ## Why the busy read takes no lease
 
@@ -129,32 +138,47 @@ that only a fence could make safe:
    release. A busy read is published in one transaction, so a publication that
    raises leaves the lane exactly as it stood before the read (readings,
    closures, the reset credit and the verdict), and the lane is read again next
-   cycle. A busy read publishes no credential verdict, so none can be lost.
+   cycle. That holds for the one lane-removing verdict a busy read publishes,
+   the mismatch: it rolls back with the rest and the next cycle's read
+   publishes it.
 3. **An identity mismatch was not fenced.** It is published without one, and
    this design says so. A job admitted between the read and the publication
-   runs as it would have had nothing been read. Nothing else would ever catch
-   it: a Codex attempt carries no identity evidence, and the timer never read
-   a busy lane. Once published, the lane is disabled in the same store
-   transaction, so admission's reservation, which re-reads the lane row, sees
-   it at once. A token refresh cannot produce a mismatch. A torn `auth.json`
-   reads as `{}`, which is `no-auth` (published nothing), and a refresh keeps
-   the account.
+   runs as it would have had nothing been read. Before this change only an
+   idle read could catch it, when the lane happened to be idle at a cycle: a
+   Codex attempt carries no identity evidence. Once published, the lane is
+   disabled in the same store transaction, so admission's reservation, which
+   re-reads the lane row, sees it at once. What could make a busy lane's
+   `auth.json` name another account for a moment? This repository shows one
+   thing: a half-written file fails to parse, reads as no credential
+   (`_read_auth`), and is withheld. That a token refresh keeps the account is
+   the Codex CLI's behaviour and is not established here. The live store has
+   59,154 Codex timer verdicts from 2026-09-19 to 2026-10-01, over up to 13
+   values of `last_refresh` per lane, and no identity mismatch among them. All
+   of those were idle reads.
 4. **An admission probe's reservation bypassed the fence.** There is no fence.
 5. **The gap between the store commit and `Timers.metadata`.** The credential
    latches that live only in `metadata` (`revoked`, `expired-token`, `no-auth`)
    are never published from a busy read. The one lane-removing verdict a busy
    read publishes, the mismatch, writes `enabled = 0` inside the store
-   transaction. An `ok` verdict that clears an older latch can only reach
-   admission later than the store does, which keeps the lane out longer, never
-   shorter.
+   transaction. A busy read's verdict is written to `metadata` inside that
+   transaction, before the commit, and admission's reservation runs under the
+   same store lock, so a reservation sees the store and `metadata` together.
 
 Why a busy read publishes no credential verdict: its lane's attempts are
-refreshing the same `auth.json`. A 401 on a token the CLI has just replaced
-reads as `auth-dead`, which disables the lane until it is re-enrolled. An
-expired token on a busy lane is renewed by the attempts, and a heal turn beside
-them would be a second refresher. The attempts classify their own credential
-failures: an attempt that ends `auth-dead` disables the lane (C-23.44), and the
-next idle read sets the latches.
+renewing the same `auth.json` while it is read. `probe_status` reads a 401 as
+`auth-dead` unless the error says "expired" or the token's own expiry has
+passed, and publishing that disables the lane until it is re-enrolled. Whether the provider refuses a token once the CLI
+has replaced it is not established here, and withholding the verdict loses
+nothing that was caught before. An expired token on a busy lane is renewed by
+the attempts, and a heal turn beside them would be a second refresher.
+
+What still catches a dead credential on a busy lane: an attempt that ends
+`auth-dead` disables the lane and records that verdict at once (C-23.44), and
+the lane is then not read until it is re-enrolled. A Codex attempt counts three
+failures as a dead credential (`AUTH_RE`: a revoked refresh token, a blocked
+organisation, a 401 from the usage endpoint); any other 401 is `transient`. A
+busy lane whose credential is dead in another way is caught by its next idle
+read, as before this change.
 
 ## Scope
 
@@ -206,30 +230,62 @@ daemon-level cap test is in `tests/fake/test_timers_busy_admission.py`.
    except for a mismatch, never sets `revoked_epoch` or a latching
    `probe_status`, and never runs a heal turn.
 4. **Liveness.** A busy, readable Codex lane is read on the first cycle it is
-   due, whatever its occupancy. An unmeasured lane under a confirmed override
-   that is busy and whose account has opened is measured, and its override
-   settled, within one cycle. Its slot cap is then the measured cap.
+   due, whatever its occupancy (detached attempts, their leases, an admission
+   probe, a conversation turn or its lease). A busy lane under a confirmed
+   override is settled, and so measured, by its first read that is `ok` and
+   open, is published within `reading_ttl_s` of being taken (`_fresh_usage`),
+   and has no limit reported on the lane during it. In the incident no limit
+   was reported on codex-4 before its override settled. Its slot cap is then
+   the measured cap.
 5. **Equivalence.** For `ok` and `limited` reads of the lane's own account, a
    busy read publishes the same readings, closures, settlement and verdict an
    idle read of the same answer would.
 6. **Never read.** Desktop, disabled, non-v2, held and `auth-dead` lanes are not
    read, busy or idle.
 7. **No older answer undoes a newer limit.** A closure recorded or extended on
-   the lane during a busy read is still open after the read is published, and
-   ends no sooner.
-
+   the lane during a busy read, or reported again by an attempt that ended
+   `limited`, is still open after the read is published, and ends no sooner.
 8. **One transaction.** A busy read's judgement, settlement and publication
-   commit together or not at all.
+   commit together or not at all, and a failed one puts the lane's verdict back.
 
-Thirteen mutations of the change, each removing one of these rules, were run
-against the tests; each one fails at least one test.
+`tools/busy_read_mutations.py` holds twenty mutations of the change, each
+removing one rule. Each fails at least one test (run on both lines at this
+revision).
 
 ## Relation to the reset-credit picker (PR #33)
 
 The picker's candidate filter trusts the timer's verdict (`row['probe']`) and
 checks no closure (#33, comment 5919734141). This change keeps busy lanes'
 verdicts current, so a busy lane is no longer judged on an old `limited`, and a
-credit spent on a lane that goes straight to work settles within a cycle
-instead of holding the lane unmeasured for up to seven days. It does not read
+credit spent on a lane that goes straight to work settles at the lane's first
+open read instead of holding the lane unmeasured for up to seven days. It does not read
 held lanes, so a held lane's verdict still goes stale. Keeping held lanes out
 of the picker is #33's closure check.
+
+## Changes since revision 1 (independent reviews of PR #96 and PR #97)
+
+Two reviews ran on Subfleet lanes: Opus 5.5 on PR #96 and GPT-6.1 Sol on PR #97.
+
+- **Judged and published in one transaction** (both reviews, reproduced; the
+  port's review requested changes for it). Revision 1 judged a busy read and
+  then published it in separate transactions, so an attempt's limit recorded in
+  between was released. `_publish_busy` closes it.
+- **A limit reported again** (review of #96, P2). `put_closure` writes nothing
+  for a limit that ends no later than the open row's, so the closure fence
+  missed it. The fence now includes the lane's attempts that ended `limited`.
+- **A failed publication puts back the verdict the lane had** (P2), and that
+  verdict is read under the store lock.
+- **Whatever raises before the read is a withheld read**, not a failed cycle.
+- **Publication asks what `_claim` asks**: enabled, v2-owned, not the desktop's.
+  The account comparison is gone, since a lane's binding never changes.
+- **Tests**: conversation-turn occupancy (a turn's attempt, a `slot:turn-<n>`
+  lease), the reported-again limit in the property test, a second thread's
+  limit waiting for the publication, and the mutation list in `tools/`.
+- **Statements corrected**: what catches a dead credential on a busy lane; what
+  is and is not established about a token refresh; the conditions on "settled
+  by one read"; the earlier credits' settlement times; which of the four
+  2026-10-01 cycles ran on 2.1.9.
+
+Not taken: publishing a mismatch the moment its read returns, rather than with
+the cycle. It would shorten the unfenced window by at most the cycle's length
+and add a second publication path.
