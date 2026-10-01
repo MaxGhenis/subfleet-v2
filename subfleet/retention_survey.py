@@ -156,7 +156,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     try:
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
-                                   hosted=ret.nested_hosts(jobs, root))
+                                   hosted=ret.nested_hosts(jobs, root), root=root)
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
@@ -167,7 +167,15 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     finally:
         store.close()
     rows: dict[str, dict[str, Any]] = {}
-    remotes_cache: dict[str, tuple[dict[str, str], str | None, str | None]] = {}
+    remotes_cache: dict[Any, Any] = {}
+    repositories: list[list[Path]] = []
+
+    def known() -> list[Path]:
+        # Read once, and only when a job whose tree and workdir are gone needs it.
+        if not repositories:
+            repositories.append(rarch.known_repositories(jobs, root))
+        return repositories[0]
+
     for job in jobs:
         job_id = job["job_id"]
         info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
@@ -189,7 +197,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         if worktree is not None and not info.get("pin"):
             seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
             _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache, remote_less, seen,
-                       lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees))
+                       lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees), known)
         if worktree is not None and info["worktree_exists"] and sizes:
             wt = _walk_sizes(worktree, info.pop("_omit", None))
             info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
@@ -340,21 +348,42 @@ def _source_common(job: dict[str, Any]) -> Path | None:
 
 def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: list[str],
                cache: dict[Any, Any], remote_less: int | None = None, seen: int | None = None,
-               live: Any = None) -> None:
+               live: Any = None, known: Any = None) -> None:
     """The per-job checks of `Retirement.begin`, read-only, for a tree that is
     there or gone, and what the retirement's bundle would carry
     (`bundle_estimate`, N1): a job whose baseline no network remote holds, and
     whose bundle would carry more than `remote_less` bytes (or `seen`, the
     size an earlier attempt's bundle had), is kept (`remote-less-history`). `live(tree)` says whether a job whose tree that
-    is still has rows or a journal (`rarch.host_absent`)."""
+    is still has rows or a journal (`rarch.host_absent`). `known()` lists the
+    repositories the store's jobs are in (`rarch.known_repositories`), for a
+    job whose tree and workdir are both gone."""
     live = live or (lambda host: True)
+    known = known or (lambda: [])
     head = None
+    lost = None
+    found = None
     if os.path.lexists(worktree):
         reg, why = rgit.registration(worktree)
         where = rgit.gitfile_admin(worktree)[0] if why == "admin-missing" else None
     else:
+        away = rarch.tree_away(worktree)
+        if away is not None:
+            # As `Retirement.begin`: another tool holds the tree aside.
+            info["issue"] = f"tree away: {worktree} is at {away}"
+            return
         workdir = job.get("workdir")
-        reg = rgit.find_registration(Path(workdir), worktree) if workdir and os.path.isdir(workdir) else None
+
+        def listing(common: Path) -> dict[str, str]:
+            if ("salvage", str(common)) not in cache:
+                try:
+                    cache[("salvage", str(common))] = rgit.refs_under(common, "refs/subfleet-salvage/")
+                except (rgit.GitError, OSError):
+                    cache[("salvage", str(common))] = {}
+            return cache[("salvage", str(common))]
+
+        reg, found, lost = (rarch.source_of_gone_tree(job, worktree, known, listing,
+                                                      [r for r in salvage_refs if isinstance(r, str)])
+                            if workdir else (None, None, None))
         why = "tree-gone"
         where = Path(os.path.realpath(workdir)) if reg is None and workdir and not os.path.isdir(workdir) else None
     if reg is None:
@@ -366,10 +395,10 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             info["issue"] = f"nested-host: {host[1]}"
             return
         info["git"] = why
-        common = _source_common(job)
+        common = found if found is not None else _source_common(job)
         if common is None:
             if salvage_refs and not info.get("issue"):
-                info["issue"] = "salvage not archivable"
+                info["issue"] = f"salvage not archivable: {lost}" if lost else "salvage not archivable"
             return
     else:
         info["admin"] = str(reg.admin)
@@ -547,7 +576,8 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root))
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root),
+                                   root=root)
         salvage = defaultdict(list)
         for row in store.query("SELECT r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage'"):

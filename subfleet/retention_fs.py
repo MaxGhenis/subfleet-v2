@@ -77,20 +77,63 @@ def unchanged(recorded: dict[str, Any], st: os.stat_result) -> bool:
 
     A directory is matched on type, device and inode only: removing its children
     and the rename into quarantine change its times, and deletion makes a
-    read-only directory writable (review of ccc85387, finding 8). A file whose
-    inode had other links when archived is matched without its ctime, because
-    unlinking one link changes the others' ctime (APFS); its size, mtime and
-    mode still have to match, so a write is still seen.
+    read-only directory writable (review of ccc85387, finding 8). Anything else
+    is matched on every field, its ctime included: a same-size write whose
+    mtime was put back (`touch -r`, `rsync -t`, `cp -p`) moves only the ctime.
+    A file whose inode had other links when it was archived also has its ctime
+    moved by the other links (unlinking one changes the others' ctime on
+    APFS); `still_archived` judges such a file by its bytes.
     """
     t = kind(st.st_mode)
     if t != recorded["t"] or st.st_dev != recorded["dev"] or st.st_ino != recorded["ino"]:
         return False
     if t == "d":
         return True
-    if (st.st_size != recorded["size"] or st.st_mtime_ns != recorded["mtime"]
-            or stat.S_IMODE(st.st_mode) != recorded["mode"]):
+    return _same_but_ctime(recorded, st) and st.st_ctime_ns == recorded["ctime"]
+
+
+def _same_but_ctime(recorded: dict[str, Any], st: os.stat_result) -> bool:
+    return (kind(st.st_mode) == recorded["t"] and st.st_dev == recorded["dev"] and st.st_ino == recorded["ino"]
+            and st.st_size == recorded["size"] and st.st_mtime_ns == recorded["mtime"]
+            and stat.S_IMODE(st.st_mode) == recorded["mode"])
+
+
+def still_archived(entry: dict[str, Any], st: os.stat_result, parent_fd: int, name: str | None,
+                   check: Check | None = None) -> bool:
+    """Whether the entry a manifest lists (`entry`, with its ``sig``), which
+    `lstat` now says is `st`, is still the version the archive holds.
+
+    Its signature is unchanged; or it is a file whose inode had other links
+    when it was archived, every field but the ctime matches, and its bytes,
+    read now, still hash to the sha256 the archive recorded for it. Until
+    2026-10-01 such a file was matched without its ctime, so a same-size write
+    whose mtime was put back passed as unchanged and was deleted (#81's note on
+    #76). The bytes are compared, never bookkeeping, so it holds for a deletion
+    running and for one an interruption left half done. A file the archive
+    recorded no sha256 for (regenerable bytecode or a cache file) is judged
+    changed, and kept.
+    """
+    if unchanged(entry["sig"], st):
+        return True
+    recorded = entry["sig"]
+    if (recorded["t"] != "f" or recorded.get("nlink", 1) < 2 or not entry.get("sha256") or name is None
+            or not _same_but_ctime(recorded, st)):
         return False
-    return recorded.get("nlink", 1) > 1 or st.st_ctime_ns == recorded["ctime"]
+    try:
+        fd = os.open(name, O_FILE, dir_fd=parent_fd)
+    except OSError:
+        return False
+    try:
+        before = os.fstat(fd)
+        if not _same_but_ctime(recorded, before):
+            return False
+        try:
+            digest, _ = read_hashes(fd, before.st_size, None, check)
+        except (TreeError, OSError):
+            return False
+        return digest == entry["sha256"] and same_content_signature(before, os.fstat(fd))
+    finally:
+        os.close(fd)
 
 
 def same_content_signature(a: os.stat_result, b: os.stat_result) -> bool:
@@ -1201,7 +1244,7 @@ class Reclaim:
         if record is None:
             self._set_aside_fd(fd, name, path, "new")
             return
-        if not unchanged(record["sig"], st):
+        if not still_archived(record, st, fd, name, self.check):
             self._set_aside_fd(fd, name, path, "changed")
             return
         if stat.S_ISDIR(st.st_mode):

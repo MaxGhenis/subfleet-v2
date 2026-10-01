@@ -186,20 +186,37 @@ def registration(tree: Path) -> tuple[Registration | None, str | None]:
     return Registration(admin, common, gitfile), None
 
 
+def common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
+    """The common directory of the repository `path` is in, or None."""
+    try:
+        out = run(["rev-parse", "--git-common-dir"], cwd=path, timeout=timeout, cancel=cancel).stdout
+    except (GitError, OSError):
+        return None
+    return _resolve(path, out.decode("utf-8", "surrogateescape").strip())
+
+
 def find_registration(repository: Path, tree: Path, timeout: float = 60,
                       cancel: threading.Event | None = None) -> Registration | None:
     """The registration whose backlink names `tree` when the tree itself is gone."""
-    try:
-        out = run(["rev-parse", "--git-common-dir"], cwd=repository, timeout=timeout, cancel=cancel).stdout
-    except (GitError, OSError):
-        return None
-    common = _resolve(repository, out.decode("utf-8", "surrogateescape").strip())
+    common = common_dir(repository, timeout, cancel)
+    return None if common is None else registration_in(common, tree)
+
+
+def registration_in(common: Path, tree: Path, *, named: bool = False) -> Registration | None:
+    """The admin directory directly under ``<common>/worktrees`` whose ``gitdir``
+    backlink names `tree`, or None. With `named`, only those named after the
+    tree: git names a registration by its tree's basename (with digits added
+    when that is taken), and `git worktree move` keeps the name, so a search of
+    many repositories reads only the few that can be the tree's."""
     wanted = os.path.realpath(tree / ".git")
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
     try:
         admins = sorted((common / "worktrees").iterdir())
     except OSError:
         return None
     for admin in admins:
+        if named and not pattern.fullmatch(admin.name):
+            continue
         try:
             backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
         except OSError:
@@ -207,6 +224,38 @@ def find_registration(repository: Path, tree: Path, timeout: float = 60,
         if os.path.realpath(_resolve(admin, backlink)) == wanted:
             return Registration(Path(os.path.realpath(admin)), common, b"")
     return None
+
+
+def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
+    """For a directory that is gone: the common directory of the repository its
+    nearest existing ancestor is in, or, when git cannot use that (a linked
+    checkout whose admin directory was removed), the one whose
+    ``worktrees/<id>`` the first ``.git`` file above it names. None when
+    neither is there. Only a hint: a caller confirms it (a registration's
+    backlink, the job's own salvage refs) before acting on it."""
+    ancestor = path
+    while not os.path.isdir(ancestor):
+        if ancestor.parent == ancestor:
+            return None
+        ancestor = ancestor.parent
+    common = common_dir(ancestor, timeout, cancel)
+    if common is not None:
+        return common
+    for candidate in (ancestor, *ancestor.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        admin, _, _ = gitfile_admin(candidate)
+        if admin is not None and admin.parent.name == "worktrees" and os.path.isdir(admin.parent.parent / "objects"):
+            return admin.parent.parent
+        return None
+    return None
+
+
+def refs_under(common: Path, prefix: str, *, cancel: threading.Event | None = None) -> dict[str, str]:
+    """ref -> object id of every ref under `prefix` (one `for-each-ref`)."""
+    out = run(["for-each-ref", "--format=%(refname) %(objectname)", prefix], git_dir=common,
+              cancel=cancel).stdout.decode("utf-8", "surrogateescape")
+    return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 
 def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,
