@@ -1436,9 +1436,12 @@ class ConversationService:
             return
         protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
         protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
-        real = Path(workspace).resolve()
+        # Both sides spelled one way (`folders.canonical`): on a case-insensitive volume
+        # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
+        # it (review of 5e9f2fbd, P3-4).
+        real = Path(folders.canonical(workspace))
         for path in protected:
-            p = path.expanduser().resolve()
+            p = Path(folders.canonical(path))
             if real == p or real in p.parents:
                 raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
                                         fix="choose a narrower directory, or Ask or read-only")
