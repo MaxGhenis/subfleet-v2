@@ -152,7 +152,13 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     done = conv.until_state(first, "complete", "failed", "delivery-unknown")
     assert done["state"] == "complete", done
     kinds = [e["kind"] for e in conv.events(cid)]
-    assert "accepted" in kinds and "text" in kinds and kinds[-1] == "turn.completed"
+    # The provider answers C-26.8's `get_settings` on its own thread, so the `served`
+    # event it yields can land after the result; the app merges `served` into the
+    # turn's facts whenever it arrives. Nothing else may follow the completion.
+    assert "turn.completed" in kinds, kinds
+    end = kinds.index("turn.completed")
+    assert "accepted" in kinds[:end] and "text" in kinds[:end], kinds
+    assert set(kinds[end + 1:]) <= {"served"}, kinds
     text = [e for e in conv.events(cid) if e["kind"] == "text"][-1]["data"]["text"]
     assert text == "Fake Claude read 11 characters."
 
