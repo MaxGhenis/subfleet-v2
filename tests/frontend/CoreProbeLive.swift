@@ -281,7 +281,7 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
     try run.require("the question card joins its approval id", questionCard?.approvalID != nil
                     && questionCard?.approvalID == questions.first?.approval_id, questionCard.map(project) ?? NSNull())
-    run.check("the question card lists its questions", questionCard?.kind == "question"
+    try run.require("the question card lists its questions", questionCard?.kind == "question"
               && questionCard?.questions.first?.question == "Which color?"
               && questionCard?.questions.first?.options?.map(\.label) == ["Blue", "Red"], questionCard.map(project) ?? NSNull())
     if let id = questionCard?.approvalID {
