@@ -2815,8 +2815,10 @@ class Daemon:
                     self._refresh_hold(job["job_id"], holds[job["job_id"]])
                 continue
             # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+            # C-3.8: the event is named for what the transaction turns out to do. It
+            # opens as the wait, which is what every arm but the reservation writes.
             with self._isolated_route(job, holds) as route, \
-                    self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                    self.store.transaction("job.capacity_waiting", job_id=job["job_id"]) as tx:
                 job = self._job(job["job_id"])
                 if job["cancel_requested_at"] or job["state"] in TERMINAL:
                     continue
@@ -2918,6 +2920,7 @@ class Daemon:
                 tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                            (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
                             json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                self.store.retitle("attempt.reserved", attempt_id=aid, lane_id=lane_id)     # C-3.8
                 tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
                            (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
                 tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
@@ -3026,6 +3029,7 @@ class Daemon:
         would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
         case; this path is the submit/admission race, and it says the same thing.
         """
+        self.store.retitle("job.revive_skipped")     # C-3.8
         tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))

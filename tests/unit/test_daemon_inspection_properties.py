@@ -168,7 +168,8 @@ def test_the_export_query_matches_the_sweep_it_replaced(tmp_path_factory, jobs, 
         store.close()
 
 
-operations = st.lists(st.sampled_from(["noop", "change", "rollback", "nested-change", "inner-rollback"]),
+operations = st.lists(st.sampled_from(["noop", "change", "rollback", "nested-change", "inner-rollback",
+                                        "only-inner-rollback"]),
                       max_size=25)
 
 
@@ -206,6 +207,12 @@ def test_generation_counts_committed_top_level_changes(tmp_path_factory, ops):
                             inner.execute(insert)
                             raise RuntimeError("inner rolled back")
                 expected += 1
+            elif op == "only-inner-rollback":              # C-3.8: a child's undone write keeps nothing
+                with store.transaction("t"):
+                    with pytest.raises(RuntimeError):
+                        with store.transaction("t") as inner:
+                            inner.execute(insert)
+                            raise RuntimeError("inner rolled back")
             assert store.generation == expected
             seen.append(store.generation)
         assert seen == sorted(seen)

@@ -651,6 +651,9 @@ def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(
     assert "already has a live revive" in notice["text"]
     assert "another-revive" in notice["text"]
     assert notice["session_id"] == ALICE
+    # C-3.8: the event says what happened; nothing was reserved.
+    kinds = [row["kind"] for row in service.store.list_events(result.job_id)]
+    assert "job.revive_skipped" in kinds and "attempt.reserved" not in kinds
 
 
 def test_the_lease_is_session_scoped_and_released_with_the_job(

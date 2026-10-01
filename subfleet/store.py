@@ -58,9 +58,13 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         self._lock = threading.RLock()
         self._depth = 0
-        # Bumped by every committed top-level transaction that changed a row.
-        # A reader compares it without taking `_lock` (an int read is atomic)
-        # to learn whether anything it derived from the store can have changed.
+        # C-3.8: the audit event each open transaction will record, innermost last.
+        self._audits: list[dict[str, Any]] = []
+        self._undone: list[int] = []
+        # Bumped by every committed top-level transaction that kept a change (C-3.8:
+        # net of what nested transactions rolled back). A reader compares it without
+        # taking `_lock` (an int read is atomic) to learn whether anything it derived
+        # from the store can have changed.
         self.generation = 0
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -153,15 +157,31 @@ class Store:
             savepoint = f"store_{depth}"
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
+            audit = {"kind": kind, "job_id": job_id, "attempt_id": attempt_id,
+                     "lane_id": lane_id, "data": data}
+            self._audits.append(audit)
+            # Changes a nested transaction, at any depth below this one, made and then
+            # rolled back: `total_changes` still counts them, but they changed nothing
+            # this transaction keeps.
+            self._undone.append(0)
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                # C-3.8: what this transaction keeps, net of what its children rolled
+                # back. It decides both the event and, at the top level, the generation.
+                kept = self.connection.total_changes - before != self._undone[-1]
+                if kept:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
+                        (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"],
+                         audit["lane_id"], _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
-                if depth == 0 and self.connection.total_changes != before:
+                if depth:
+                    # The parent's count includes everything this one counted, so it
+                    # also includes what this one's children rolled back: hand that on,
+                    # or a grandchild's undone write makes the parent record an event.
+                    self._undone[-2] += self._undone[-1]
+                elif kept:
                     self.generation += 1
             except BaseException:
                 if depth == 0:
@@ -169,9 +189,29 @@ class Store:
                 else:
                     self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    self._undone[-2] += self.connection.total_changes - before
                 raise
             finally:
+                self._audits.pop()
+                self._undone.pop()
                 self._depth -= 1
+
+    def retitle(self, kind: str, **refs: Any) -> None:
+        """C-3.8: name the innermost open transaction's event for what it turned out to do.
+
+        A transaction that decides inside itself (admission either reserves an
+        attempt or leaves the job waiting) is opened under the name of the
+        outcome that is commoner and retitled when the other happens, so the
+        event never reports something that did not occur. `refs` may set
+        `job_id`, `attempt_id`, `lane_id` or `data`. Only the thread that holds
+        the transaction can be here: the lock is held from BEGIN to COMMIT.
+        """
+        if set(refs) - {"job_id", "attempt_id", "lane_id", "data"}:
+            raise ValueError(f"invalid audit fields {sorted(refs)}")
+        with self._lock:
+            if not self._audits:
+                raise sqlite3.OperationalError("retitle outside a transaction")
+            self._audits[-1].update(kind=kind, **refs)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         with self._lock:
