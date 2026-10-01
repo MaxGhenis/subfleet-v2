@@ -439,7 +439,7 @@ class Timers:
         attempts renew its token. It goes through the per-lane read fence an idle
         read does (`_read_probe`). The closures open as it starts travel with the
         result, so that publishing it never releases one recorded after it
-        (`_publishable`).
+        (`_publishable`, `_publish_busy`).
         """
         opened = self._open_closures(lane.lane_id)
         adapter = self.adapter_factory('codex')
@@ -492,6 +492,28 @@ class Timers:
             self._usage_next = max(now, self._usage_next) + spacing
         if wait > 0:
             self.cancel.wait(wait)
+
+    def _publish_busy(self, lane, probe, opened):
+        """C-18.3: judge a busy read and publish it in one transaction; whether it was published.
+
+        No slot keeps the lane's attempts away, so the store's write lock does:
+        nothing can record a closure, disable the lane or rebind it between the
+        judgement and the commit. A publication that raises rolls back whole,
+        the settlement with it, and the lane's verdict stays as it stood.
+        """
+        before = self.metadata.get(lane.lane_id)
+        try:
+            with self.store.transaction('timer.busy-read', lane_id=lane.lane_id):
+                releases = self._publishable(lane, probe, opened)
+                if releases is not None:
+                    self._persist(lane, probe, releases=releases)
+        except BaseException:
+            if before is None:
+                self.metadata.pop(lane.lane_id, None)
+            else:
+                self.metadata[lane.lane_id] = before
+            raise
+        return releases is not None
 
     def _persist(self, lane, probe, *, releases=True):
         """Publish one read: readings, closures, settlement, then the verdict.
@@ -615,10 +637,8 @@ class Timers:
             for lane, probe, opened in results:
                 if opened is None:
                     self._persist(lane, probe)
-                elif (releases := self._publishable(lane, probe, opened)) is None:
+                elif not self._publish_busy(lane, probe, opened):
                     deferred[lane.lane_id] = probe.get('status', 'unknown')
-                else:
-                    self._persist(lane, probe, releases=releases)
         finally:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)

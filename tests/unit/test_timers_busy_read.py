@@ -396,6 +396,56 @@ def test_c18_3_nothing_is_published_for_a_lane_disabled_during_its_read(rig):
     assert rig.cycle_event()["deferred"] == {lane.lane_id: "ok"}
 
 
+def test_c18_3_a_busy_read_is_judged_and_published_in_one_transaction(rig, monkeypatch):
+    """C-18.3: the store's write lock stands in for the slot. The judgement, the settlement and the
+    publication share one transaction, so no attempt can record a closure between them."""
+    lane = rig.enroll()
+    rig.override(lane)
+    rig.occupy(lane)
+    seen = {}
+    judge, settle, publish = rig.timer._publishable, rig.timer.actions.settle_by_usage, rig.timer._persist
+    monkeypatch.setattr(rig.timer, "_publishable", lambda *a: seen.setdefault("judged", rig.store._depth) and judge(*a))
+    monkeypatch.setattr(rig.timer.actions, "settle_by_usage",
+                        lambda *a, **k: seen.setdefault("settled", rig.store._depth) and settle(*a, **k))
+    monkeypatch.setattr(rig.timer, "_persist", lambda *a, **k: seen.setdefault("published", rig.store._depth) and publish(*a, **k))
+    rig.timer.probe_cycle()
+    assert seen == {"judged": 1, "published": 1, "settled": 1}
+    assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
+    assert rig.store._depth == 0
+
+
+@pytest.mark.parametrize("fails", ["writing-the-verdict", "after-the-verdict"])
+def test_c18_3_a_publication_that_raises_leaves_the_lane_as_it_stood(rig, monkeypatch, fails):
+    """C-18.3 (Astra's finding 2): no fence is released early because there is none; a busy read's
+    publication that fails rolls back whole, the settlement with it, and the next cycle publishes."""
+    lane = rig.enroll()
+    rig.store.put_closure(Closure(lane.lane_id, "account", iso(rig.clock() + timedelta(hours=1)),
+                                  ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    rig.override(lane)
+    rig.occupy(lane)
+    closures, held = rig.open_closures(lane), leases(rig.store)
+    with monkeypatch.context() as patch:
+        if fails == "writing-the-verdict":
+            add_event = rig.store.add_event
+            patch.setattr(rig.store, "add_event", lambda kind, **fields: (_ for _ in ()).throw(
+                RuntimeError("disk I/O error")) if kind == "timer.verdict" else add_event(kind, **fields))
+        else:                                 # the verdict is in `metadata`; the commit never happens
+            publish = rig.timer._persist
+            patch.setattr(rig.timer, "_persist", lambda *a, **k: (publish(*a, **k), (_ for _ in ()).throw(
+                RuntimeError("disk I/O error"))))
+        with pytest.raises(RuntimeError):
+            rig.timer.probe_cycle()
+    assert rig.wham_readings(lane) == [] and rig.open_closures(lane) == closures
+    assert rig.events("action.reconciled", lane) == []
+    assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock())
+    assert lane.lane_id not in rig.timer.metadata and rig.store.get_lane(lane.lane_id).enabled
+    assert rig.store._depth == 0 and leases(rig.store) == held
+    rig.clock.advance()
+    rig.timer.probe_cycle()
+    assert len(rig.wham_readings(lane)) == 2 and rig.open_closures(lane) == set()
+    assert rig.timer.actions.confirmed_override(lane.lane_id, now=rig.clock()) is None
+
+
 @pytest.mark.parametrize("case", ["operator-hold", "auth-dead", "desktop", "claude", "disabled"])
 def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case):
     """C-18.1, C-18.3, C-10.3, C-9.8: held, dead, desktop and disabled lanes are not read; a busy Claude
