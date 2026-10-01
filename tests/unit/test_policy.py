@@ -408,9 +408,14 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
     assert admission_settings({})["lane_spread"] == 2
-    policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
+    assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
+    policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
+                                "pin_grace_s": None, "pin_hold_far_s": 3600}
     loaded = load_policy(write_policy(tmp_path, policy_data))
-    assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
+    assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
+                                   "pin_grace_s": None, "pin_hold_far_s": 3600}
+    policy_data["admission"] = {"pin_grace_s": 0}             # C-11.8: 0 fails such a job on the pass that finds it
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["session"] is None
 
@@ -423,6 +428,13 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"lane_spread": True}, "admission.lane_spread"),
     ({"desktop_recent_s": -1}, "admission.desktop_recent_s"),
     ({"desktop_recent_s": float("inf")}, "admission.desktop_recent_s"),
+    ({"pin_grace_s": -1}, "admission.pin_grace_s"),
+    ({"pin_grace_s": float("nan")}, "admission.pin_grace_s"),
+    ({"pin_grace_s": True}, "admission.pin_grace_s"),
+    ({"pin_grace_s": "1800"}, "admission.pin_grace_s"),
+    ({"pin_hold_far_s": 0}, "admission.pin_hold_far_s"),
+    ({"pin_hold_far_s": None}, "admission.pin_hold_far_s"),
+    ({"pin_hold_far_s": float("inf")}, "admission.pin_hold_far_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),

@@ -163,6 +163,11 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
 #: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
+#: it waits for that to change before it fails with rc 3 (C-11.8); null never
+#: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
+#: closure must end to count as a hold rather than a wait (C-11.8): seven days
+#: is the longest usage window Subfleet reads (`seven_day`).
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
@@ -171,6 +176,8 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 7 * 86400,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -365,6 +372,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                         fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
                 else:
                     fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+    grace = settings["pin_grace_s"]
+    if grace is not None and (not isinstance(grace, (int, float)) or isinstance(grace, bool)
+                              or not math.isfinite(grace) or grace < 0):
+        fail("admission.pin_grace_s", "must be a nonnegative finite number of seconds, or null never to fail "
+                                      "a job whose pinned lane can never admit it (C-11.8)")
+    far = settings["pin_hold_far_s"]
+    if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
+        fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
