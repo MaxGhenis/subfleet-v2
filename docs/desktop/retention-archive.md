@@ -59,7 +59,7 @@ make it again.
 | 1: a changed hard-linked file passed as unchanged | A file whose inode had other links when it was archived was matched without its ctime, so a same-size write whose mtime was then put back (`touch -r`, `rsync -t`, `cp -p`) was deleted: through the tree by a late writer, or through a package store's link (pnpm) that was then dropped, the new bytes existed nowhere afterwards | Every file is matched on its ctime. One that had other links and whose ctime alone moved (unlinking a sibling moves it) is read again and deleted only if its bytes still hash to the archived sha256 (`retention_fs.still_archived`), in the final check, verified deletion and the late admin check (sections 4, 9) |
 | 2: the sweep's quarantine | `disk-guard` and `worktree-archive-sweep` `git worktree move` a tree to `.disk-guard-removing.<name>`, check it there, and move it back when a check fails. With the tree away, `begin` found no registration and the job retired without its tree: moved back, it had no row naming it. Moved back between `begin` and `quarantine`, it was archived without its registration, left naming a tree that was gone (its HEAD's commit lost to a prune and gc). Moved away between `begin` and `lock`, its registration was archived and deleted: the sweep could not move back a tree whose `.git` named nothing | A tree held aside (an entry `<anything>.<name>` beside it) keeps its job (`tree away`, an hour at a time). `begin` records whether the tree was there; `quarantine` puts the job back when that changed, and the final check when a gone tree came back (section 4) |
 | 3: a tree no row names | `_workspace` allocates `worktrees/<job id>` before the reserving transaction records `jobs.worktree`; a job cancelled in between (four live jobs, 2026-09-29) retired without that tree, which stayed for ever with its registration | `owned_worktree` takes that tree as the job's while `jobs.worktree` is NULL: archived and retired with it, sized, leased, and pinned by `worktree-in-use` like a recorded one (C-13.4) |
-| 4: a workdir that is gone | With the tree and the workdir gone (62 of 371 terminal owned jobs, 2026-09-29), `find_registration` ran git in a missing directory and found nothing: the job retired with no anchor while its registration stayed behind, or, with salvage, was kept for ever as `salvage not archivable` (55 live jobs, 2026-09-30) | The registration is looked for, by its name and backlink, in the repository the workdir's nearest existing ancestor is in (or a broken linked checkout's `.git` there names), then in every repository the store's jobs are in; without one, a repository is the job's when it holds every salvage ref the job's rows name. A salvage ref whose repository is not found says so (section 4) |
+| 4: a workdir that is gone | With the tree and the workdir gone (62 of 371 terminal owned jobs, 2026-09-29), `find_registration` ran git in a missing directory and found nothing: the job retired with no anchor while its registration stayed behind, or, with salvage, was kept for ever as `salvage not archivable` (55 live jobs, 2026-09-30) | The registration is looked for, by its name and backlink, in the repository the workdir's nearest existing ancestor is in (or a broken linked checkout's `.git` there names), then in every repository the store's jobs are in; without one, a repository is the job's when it holds every salvage ref at the commit digest its row recorded. An undiscovered repository keeps the job, with or without salvage (section 4) |
 
 ### Revision 4 (final review of e50716e8)
 
@@ -202,8 +202,22 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
      names, then in every repository the store's jobs' trees and workdirs
      are in (listed once a pass, only when needed). Without a registration,
      a repository is the job's only when it holds every salvage ref the
-     job's rows name; a salvage ref whose repository is not found keeps the
-     job with `repository not found (workdir … is gone)`.
+     job's rows name at the commit whose sha256 the artifact row recorded.
+     Ref names can collide across repositories. Every salvage ref resolved
+     through an inferred repository is checked against its recorded digest.
+     When neither source nor registration can be found, the job is kept with
+     `repository not found (workdir … is gone)`, including jobs without salvage.
+     Once the source becomes discoverable, a later pass bundles its private
+     HEAD and retires normally.
+     An existing workdir whose linked registration is broken uses this same
+     discovery path; directory existence does not establish a usable Git
+     source. Its inferred salvage commits are checked against the recorded
+     digests in both the survey and the retirement pass.
+   - A live checkout under the job's registration id that was moved to
+     another directory also keeps its job (`tree away`). Both directions of
+     its registration must agree. This covers a move outside the sweep's
+     sibling naming convention and an allocation moved before admission
+     recorded its path. Retention never deletes that checkout's registration.
    - An admin directory that is only a remnant (a real directory under
      `worktrees` holding nothing but an `index` file and a `logs` directory:
      what a temporary directory's cleaner leaves of a clone whose files it
@@ -682,7 +696,8 @@ Each is tested (section 16).
   names it.
 - **I15, every allocated tree has an owner** (revision 5). The tree admission
   allocated for a job is retired with that job, recorded in `jobs.worktree` or
-  not.
+  not. A writable git job keeps the expected daemon path while it is absent,
+  so its lease and journal still protect a moved or returning allocation.
 
 ## 15. Residual risks
 
@@ -736,20 +751,14 @@ descriptors, and deliberately adversarial same-user tricks):
   archive moves a file's ctime: a file with one link then goes to conflicts,
   but one that had other links and still holds its archived bytes is deleted
   (revision 5), with the attributes the clone took.
-- A job whose tree and workdir are both gone, in a repository that no job of
-  the store is in and no ancestor of its workdir is in (revision 5): its
-  registration, if one is left, is not found. Without salvage the job retires
-  without an anchor, and the registration stays as it was, neither archived
-  nor deleted: its commits are as safe as git leaves a registration whose tree
-  is gone (`git gc` prunes it after `gc.worktreePruneExpire`, 3 months), the
-  same with the job kept. With salvage it is kept, `repository not found`.
-- A tool that moves a job's tree aside to a name other than
-  `<anything>.<name>` beside it, before `begin`, and keeps it there: the job
-  retires without the tree (its registration is not touched, since its
-  backlink names the other place), and a tree moved back later has no row.
-  Moved back before the final check, the job is kept (revision 5).
 
 **Costs, not risks:**
+
+- A source repository that cannot be discovered causes explicit deferral,
+  with or without salvage; it cannot retire until the source becomes
+  discoverable. This preserves its rows instead of retiring without a
+  bundle. A registered checkout moved outside the sibling quarantine is
+  likewise deferred until it is back or gone (revision 5 completion).
 
 - Archives are never deleted automatically. With clones, an archive costs the
   blocks of the files it keeps (they would otherwise have been freed), plus
@@ -803,7 +812,20 @@ finding:
 | The re-review | `test_nothing_under_node_modules_is_dropped`, `test_a_dist_info_goes_whole_or_not_at_all`, `test_an_install_from_a_server_on_this_machine_vouches_for_nothing`, `test_a_remote_on_this_machine_is_no_network_remote`, `test_a_remote_that_holds_only_unrelated_history_counts_as_none`, `test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does` |
 | The confirmation review | `test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline`, `test_this_machine_by_any_of_its_names` |
 | The final check | `test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now`, `test_this_machine_by_its_short_name` |
-| Revision 5, #81's notes (`tests/unit/test_retention_81_notes.py`) | Note 1: `test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check, after-the-commit]`, `test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted`, `test_verified_deletion_unlinks_only_the_bytes_the_archive_holds` (Hypothesis). Note 2: `test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back`, `test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration`, `test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration`, `test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job`, `test_the_survey_keeps_a_job_whose_tree_the_sweep_holds`. Note 3: `test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it`, `test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it`. Note 4: `test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows`, `test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor`, `test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled`, `test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs`, `test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own`, `test_a_job_whose_repository_cannot_be_found_says_so`. Each fix has a mutant its tests kill (`docs/reports/2026-10-01-retention-81-notes.md`) |
+| Revision 5, #81's notes (`tests/unit/test_retention_81_notes.py`) | Note 1: `test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check, after-the-commit]`, `test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted`, `test_verified_deletion_unlinks_only_the_bytes_the_archive_holds` (Hypothesis). Note 2: `test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back`, `test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration`, `test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration`, `test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job`, `test_the_survey_keeps_a_job_whose_tree_the_sweep_holds`. Note 3: `test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it`, `test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it`. Note 4: `test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows`, `test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor`, `test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled`, `test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs`, `test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own`, `test_a_job_whose_repository_cannot_be_found_says_so`. Each fix has a mutant its tests kill (`docs/reports/2026-10-01-retention-81-notes/final-mutation-results.txt`) |
+
+Revision 5 completion additionally covers regenerable hardlinks with digest-only
+manifest entries, proof-to-digest writes, cross-repository salvage ref collisions,
+unreadable registrations of unrelated jobs, a moved allocation whose row is still
+NULL, and an undiscovered source without salvage. The additional tests are in
+`tests/unit/test_retention_81_notes.py`; baseline reproductions and final validation
+are in `docs/reports/2026-10-01-retention-81-notes/`. A regenerable file with multiple
+links records sha256 without storing its bytes, so a sibling unlink can be told
+from a write that invalidated its proof. `_digest` checks the walk's content
+signature before hashing, as well as checking it afterwards.
+The final fallback tests also cover an existing lane with a dangling `.git`
+file, both with and without salvage, and a replaced salvage ref in that source.
+
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each

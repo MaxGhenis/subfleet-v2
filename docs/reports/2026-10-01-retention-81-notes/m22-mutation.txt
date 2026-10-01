@@ -1,0 +1,6 @@
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M22
+M22 note 4: an existing broken workdir skips source fallback: KILLED (87 s) FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head] | 1 failed in 61.17s (0:01:01)
+
+1 killed, 0 survived or not applied
+
+Exit: 0; elapsed: 92.19s

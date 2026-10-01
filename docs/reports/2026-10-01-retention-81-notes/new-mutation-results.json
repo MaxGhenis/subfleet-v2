@@ -1,0 +1,53 @@
+[
+  {
+    "mutant": "M22",
+    "result": "KILLED",
+    "supervisor_exit": 0,
+    "assertion_verified": true,
+    "source_restored": true,
+    "command": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m22-mutation.txt",
+      "550",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python",
+      "-u",
+      "mutate.py",
+      "M22"
+    ]
+  },
+  {
+    "mutant": "M23",
+    "result": "KILLED",
+    "supervisor_exit": 0,
+    "assertion_verified": true,
+    "source_restored": true,
+    "command": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m23-mutation.txt",
+      "550",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python",
+      "-u",
+      "mutate.py",
+      "M23"
+    ]
+  },
+  {
+    "mutant": "M24",
+    "result": "KILLED",
+    "supervisor_exit": 0,
+    "assertion_verified": true,
+    "source_restored": true,
+    "command": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m24-mutation.txt",
+      "550",
+      "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python",
+      "-u",
+      "mutate.py",
+      "M24"
+    ]
+  }
+]

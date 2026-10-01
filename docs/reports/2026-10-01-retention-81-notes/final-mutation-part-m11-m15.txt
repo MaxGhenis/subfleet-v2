@@ -1,0 +1,451 @@
+Final-source isolated mutation evidence: M11–M15 and M18–M21
+Date: 2026-10-01
+Original workspace: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont
+Isolated copy: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Copied subfleet/, tests/, pyproject.toml, and the report mutate.py. No source files in the original workspace or Git metadata were modified by these checks.
+Copied harness changes only: subprocess timeout 900 -> 550 s; save full pytest stdout/stderr and metadata; append requested M21.
+Each mutant ran in a separate foreground command, was awaited through completion, and restored its copied source in finally.
+Environment: PYTHONPATH and TMPDIR point inside isolated copy; PYTHONDONTWRITEBYTECODE=1; RETENTION_PROP_EXAMPLES=200.
+M11 runner used ../.venv/bin/python and emitted two harmless sys.prefix RuntimeWarnings before the harness began. Subsequent commands used the absolute interpreter path. All captured pytest stderr logs are empty.
+
+Source comparison and SHA256 after all mutants restored:
+subfleet/retention_archive.py: copied_sha256=c544cb4097f1ad85d7805f966fd4af1f9c43790f71feb937ed291b8bec1b069e matches_current_main=True
+subfleet/retention_git.py: copied_sha256=25a4645ddda4e7e7e3d8270f786ec5ee9ce198f85b713e93b17382ef9274d467 matches_current_main=True
+tests/unit/test_retention_81_notes.py: copied_sha256=2541df62c4e7887f6f779062c9520678b88a78e0018d130e9df7864d9a5716c8 matches_current_main=False
+pyproject.toml: copied_sha256=76121228d32e2622e21eb793fb1bbd2699d9ed767dbacf3a692d923427bfa049 matches_current_main=True
+
+Source/test snapshot note: current main notes file gained two unrelated changes after this snapshot: M16 assertion bytecode["sha256"] -> bytecode.get("sha256"), and `monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)` in the M7 return-before-quarantine test `test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration` near line 468. This timing edit is M7, not M7b. All selected M11–M15 and M18–M21 test function source text is identical to current main, verified by AST source segments. Mutated retention source files are byte-for-byte identical to current main after restoration. Assertion line numbers in captured output therefore reflect the snapshot.
+
+Mutant results (KILLED means expected AssertionError, pytest rc=1; not an infrastructure failure):
+
+M11 note 4: the repositories retention knows are not searched
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 ../.venv/bin/python -u mutate.py M11
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=137.362; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'for common in ([near] if near is not None else []) + list(known()):'
+Replacement: 'for common in ([near] if near is not None else []):'
+Concise assertion excerpt:
+>       assert report["would_retire"]["jobs"] == 2, report["kept"]          # job-other is pinned only in the pass
+E       AssertionError: {'jobs_by_reason': {'repository not found': 1}, 'worktrees_by_reason': {}, 'worktree_bytes_by_reason': {'repository not found': 0}}
+E       assert 1 == 2
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+1 failed in 90.84s (0:01:30)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_ test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-0/test_a_gone_workdirs_job_finds0/state'), store=<subfleet.store.Store object at 0x52fce195b90>)
+
+    def test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows(world):
+        """Note 4, no salvage. Before, the registration was not found, the archive
+        had no anchor and no bundle, and the registration stayed behind, naming a
+        tree that is gone, until a prune and a gc dropped the commit only its HEAD
+        named. Found through a repository another job's workdir is in, it is
+        anchored, bundled and removed, as for any job whose tree is gone."""
+        from subfleet.retention_survey import survey
+        w = world
+        tree, lane, private = _lane_job(w, "job-lane")
+        _another_job_from(w, "job-other", w.repo)
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+>       assert report["would_retire"]["jobs"] == 2, report["kept"]          # job-other is pinned only in the pass
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: {'jobs_by_reason': {'repository not found': 1}, 'worktrees_by_reason': {}, 'worktree_bytes_by_reason': {'repository not found': 0}}
+E       assert 1 == 2
+
+tests/unit/test_retention_81_notes.py:661: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 90.84s (0:01:30)
+Full pytest stderr: <empty>
+
+M12 note 4: the workdir's nearest ancestor is not searched
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M12
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=96.860; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None'
+Replacement: 'near = None'
+Concise assertion excerpt:
+>       assert result["pruned"] == ["job-sub"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...}
+E       assert [] == ['job-sub']
+E         
+E         Right contains one more item: 'job-sub'
+E         Use -v to get more diff
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+1 failed in 66.19s (0:01:06)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_ test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-1/test_a_gone_workdirs_job_finds0/state'), store=<subfleet.store.Store object at 0x51998195b90>)
+
+    def test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor(world):
+        """Note 4, a workdir that was a folder of the checkout: its nearest
+        existing ancestor is in the repository."""
+        w = world
+        sub = w.repo / "pkg" / "deep"
+        sub.mkdir(parents=True)
+        tree = w.root / "worktrees" / "job-sub"
+        git(w.repo, "worktree", "add", "--quiet", "--detach", str(tree), w.head())
+        w.store.add_job(job_id="job-sub", request_id="req-sub", payload_digest="d", kind="dispatch", workdir=str(sub),
+                        workdir_head=w.head(), worktree=str(tree), prompt_path="/p", sandbox="workspace-write",
+                        state="succeeded")
+        (w.root / "jobs" / "job-sub").mkdir()
+        (tree / "f.py").write_text("x\n")
+        git(tree, "add", "f.py")
+        git(tree, "commit", "--quiet", "-m", "private")
+        private = git(tree, "rev-parse", "HEAD")
+        shutil.rmtree(w.repo / "pkg")
+        shutil.rmtree(tree)
+        result = run(w)
+>       assert result["pruned"] == ["job-sub"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...}
+E       assert [] == ['job-sub']
+E         
+E         Right contains one more item: 'job-sub'
+E         Use -v to get more diff
+
+tests/unit/test_retention_81_notes.py:687: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 66.19s (0:01:06)
+Full pytest stderr: <empty>
+
+M13 note 4: no repository by the job's salvage refs
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M13
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=97.814; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: '    if wanted:\n        for common in candidates:'
+Replacement: '    if False:\n        for common in candidates:'
+Concise assertion excerpt:
+>       assert "job-pr" in result["pruned"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 4, 'bytes_after': 4, ...}
+E       assert 'job-pr' in []
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+1 failed in 59.58s
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_ test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-2/test_a_gone_workdirs_job_whose0/state'), store=<subfleet.store.Store object at 0x3a5b6195b90>)
+
+    def test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs(world):
+        """Note 4, the registration pruned too (`git worktree prune`): the
+        repository that holds every salvage ref the job's rows name is its own."""
+        w = world
+        tree, lane, private = _lane_job(w, "job-pr", salvage=True)
+        git(w.repo, "worktree", "prune")
+        assert not (w.repo / ".git" / "worktrees" / "job-pr").exists()
+        _another_job_from(w, "job-other", w.repo)
+        result = run(w, referenced_job_ids=["job-other"])
+>       assert "job-pr" in result["pruned"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 4, 'bytes_after': 4, ...}
+E       assert 'job-pr' in []
+
+tests/unit/test_retention_81_notes.py:715: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 59.58s
+Full pytest stderr: <empty>
+
+M14 note 4: any known repository taken as the job's (salvage refs not required)
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M14
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=117.040; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):'
+Replacement: 'if True:'
+Concise assertion excerpt:
+>       assert "repository not found" in result["deferred"]["job-x"]
+E       AssertionError: assert 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1'
+FAILED tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+1 failed in 85.29s (0:01:25)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_ test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-3/test_a_repository_that_does_no0/state'), store=<subfleet.store.Store object at 0x3eccc195b90>)
+tmp_path = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11/tmp/pytest-of-maxghenis/pytest-3/test_a_repository_that_does_no0')
+
+    def test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own(world, tmp_path):
+        """Another repository retention knows, without the job's salvage refs, is
+        not the job's: the job is kept, saying its repository was not found."""
+        w = world
+        _lane_job(w, "job-x", salvage=True)
+        git(w.repo, "worktree", "prune")
+        git(w.repo, "update-ref", "-d", SALVAGE_REF)
+        other = tmp_path / "other-repo"
+        git(tmp_path, "init", "--quiet", str(other))
+        _another_job_from(w, "job-other", other)
+        result = run(w, referenced_job_ids=["job-other"])
+        assert result["pruned"] == [], result
+>       assert "repository not found" in result["deferred"]["job-x"]
+E       AssertionError: assert 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1'
+
+tests/unit/test_retention_81_notes.py:733: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 85.29s (0:01:25)
+Full pytest stderr: <empty>
+
+M15 note 4: the reason does not say the repository was not found
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M15
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=116.339; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'f"{ref}: {lost}" if lost else str(ref))'
+Replacement: 'str(ref))'
+Concise assertion excerpt:
+>       assert "salvage not archivable" in reason and "repository not found" in reason
+E       AssertionError: assert ('salvage not archivable' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1' and 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1')
+FAILED tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+1 failed in 80.00s (0:01:19)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_____________ test_a_job_whose_repository_cannot_be_found_says_so ______________
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-4/test_a_job_whose_repository_ca0/state'), store=<subfleet.store.Store object at 0x23e2e195b90>)
+
+    def test_a_job_whose_repository_cannot_be_found_says_so(world):
+        """Note 4, nothing names the repository any more: a job with salvage is
+        kept (C-8.4), with a reason that says what is missing."""
+        from subfleet.retention_survey import survey
+        w = world
+        _lane_job(w, "job-lost", salvage=True)
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert report["kept"]["jobs_by_reason"] == {"salvage not archivable": 1}, report["kept"]
+        result = run(w)
+        assert result["pruned"] == [], result
+        reason = result["deferred"]["job-lost"]
+>       assert "salvage not archivable" in reason and "repository not found" in reason
+E       AssertionError: assert ('salvage not archivable' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1' and 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1')
+
+tests/unit/test_retention_81_notes.py:843: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 80.00s (0:01:19)
+Full pytest stderr: <empty>
+
+M19 note 2: a registration moved outside the sibling quarantine is ignored
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M19
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=178.405; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_git.py
+Old pattern: '    the caller keeps the job and never acts on that checkout or registration.\n    """\n    pattern'
+Replacement: '    the caller keeps the job and never acts on that checkout or registration.\n    """\n    return None\n    pattern'
+Concise assertion excerpt:
+>       assert any(reason.startswith("tree away") for reason in report["kept"]["jobs_by_reason"]), report
+E       AssertionError: {'state_root': '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check...-01T17:57:49Z', 'budgets': {'detached': {'max_jobs': 0, 'max_bytes': 0}, 'turn': {'max_jobs': 0, 'max_bytes': 0}}, ...}
+E       assert False
+E        +  where False = any(<generator object test_a_registered_tree_moved_elsewhere_keeps_its_job.<locals>.<genexpr> at 0x451a0305f60>)
+FAILED tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]
+1 failed in 122.22s (0:02:02)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+______ test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False] _______
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-5/test_a_registered_tree_moved_e0/state'), store=<subfleet.store.Store object at 0x451a0195b90>)
+workdir_gone = False, recorded = False
+
+    @pytest.mark.parametrize("workdir_gone", [False, True])
+    @pytest.mark.parametrize("recorded", [False, True])
+    def test_a_registered_tree_moved_elsewhere_keeps_its_job(world, workdir_gone, recorded):
+        """A registration id survives a move outside the sweep's sibling path.
+        Keep its rows while the checkout exists, including a missing workdir;
+        after it is moved back, archive the private HEAD and untracked work.
+        """
+        from subfleet.retention_survey import survey
+        w = world
+        wt, private = _job_with_private_commit(w, "job-moved")
+        elsewhere = w.base / "some-other-directory"
+        git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+        if not recorded:
+            w.store.connection.execute("UPDATE jobs SET worktree=NULL WHERE job_id=?", ("job-moved",))
+        if workdir_gone:
+            w.store.connection.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (str(w.base / "gone-lane"), "job-moved"))
+            _another_job_from(w, "job-other", w.repo)
+        pins = ["job-other"] if workdir_gone else []
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+>       assert any(reason.startswith("tree away") for reason in report["kept"]["jobs_by_reason"]), report
+E       AssertionError: {'state_root': '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check...-01T17:57:49Z', 'budgets': {'detached': {'max_jobs': 0, 'max_bytes': 0}, 'turn': {'max_jobs': 0, 'max_bytes': 0}}, ...}
+E       assert False
+E        +  where False = any(<generator object test_a_registered_tree_moved_elsewhere_keeps_its_job.<locals>.<genexpr> at 0x451a0305f60>)
+
+tests/unit/test_retention_81_notes.py:865: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 122.22s (0:02:02)
+Full pytest stderr: <empty>
+
+M20 note 4: an undiscovered source without salvage retires without its anchor
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M20
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=216.059; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if lost and not salvage_rows:'
+Replacement: 'if False:'
+Concise assertion excerpt:
+>       assert first["pruned"] == [] and "repository not found" in first["deferred"]["job-undiscovered"], first
+E       AssertionError: {'pruned': ['job-undiscovered'], 'errors': [], 'bytes_before': 4, 'bytes_after': 0, ...}
+E       assert (['job-undiscovered'] == []
+E         
+E         Left contains one more item: 'job-undiscovered'
+E         Use -v to get more diff)
+FAILED tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+1 failed in 140.75s (0:02:20)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_ test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-6/test_an_undiscovered_repositor0/state'), store=<subfleet.store.Store object at 0x28506195b90>)
+
+    def test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled(world):
+        """An undiscovered registration can hold a private HEAD without salvage.
+        Keeping the rows allows a later pass to discover and bundle it, rather
+        than leaving that HEAD to git's eventual prune/gc without an archive.
+        """
+        from subfleet.retention_survey import survey
+        w = world
+        _, _, private = _lane_job(w, "job-undiscovered")
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert report["would_retire"]["jobs"] == 0, report
+        assert report["kept"]["jobs_by_reason"] == {"repository not found": 1}, report
+        state, clock = retention.RetentionState(), Clock()
+        first = run(w, state=state, clock=clock)
+>       assert first["pruned"] == [] and "repository not found" in first["deferred"]["job-undiscovered"], first
+E       AssertionError: {'pruned': ['job-undiscovered'], 'errors': [], 'bytes_before': 4, 'bytes_after': 0, ...}
+E       assert (['job-undiscovered'] == []
+E         
+E         Left contains one more item: 'job-undiscovered'
+E         Use -v to get more diff)
+
+tests/unit/test_retention_81_notes.py:904: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 140.75s (0:02:20)
+Full pytest stderr: <empty>
+
+M21 note 3: an absent NULL worktree allocation ignores its expected HEAD
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M21
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=102.172; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None and not job.get("workdir_head"):'
+Replacement: 'if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None:'
+Concise assertion excerpt:
+>       assert _in_bundle(w, "job-unrecorded-gone", private)
+E       AssertionError: assert False
+E        +  where False = _in_bundle(World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-7/test_an_unrecorded_allocation_0/state'), store=<subfleet.store.Store object at 0x39eb8195b90>), 'job-unrecorded-gone', '71bfb8383294f6472e19c9b329524a51b06e087d')
+FAILED tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration
+1 failed in 74.87s (0:01:14)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+__ test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration ___
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-7/test_an_unrecorded_allocation_0/state'), store=<subfleet.store.Store object at 0x39eb8195b90>)
+
+    def test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration(world):
+        w = world
+        wt = _allocated_but_unrecorded(w, "job-unrecorded-gone")
+        (wt / "f.py").write_text("private work\n")
+        git(wt, "add", "f.py")
+        git(wt, "commit", "--quiet", "-m", "private")
+        private = git(wt, "rev-parse", "HEAD")
+        shutil.rmtree(wt)
+        result = run(w)
+        assert result["pruned"] == ["job-unrecorded-gone"], result
+>       assert _in_bundle(w, "job-unrecorded-gone", private)
+E       AssertionError: assert False
+E        +  where False = _in_bundle(World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-7/test_an_unrecorded_allocation_0/state'), store=<subfleet.store.Store object at 0x39eb8195b90>), 'job-unrecorded-gone', '71bfb8383294f6472e19c9b329524a51b06e087d')
+
+tests/unit/test_retention_81_notes.py:924: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 74.87s (0:01:14)
+Full pytest stderr: <empty>
+
+M18 note 1: the digest may hash a different version than the regenerability proof
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M18
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=210.417; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if not rfs.same_content_signature(st, before) or not stat.S_ISREG(before.st_mode):'
+Replacement: 'if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):'
+Concise assertion excerpt:
+>       assert result["pruned"] == [] and "changed before it was read" in result["deferred"]["job-proof"], result
+E       AssertionError: {'pruned': ['job-proof'], 'errors': [], 'bytes_before': 24235, 'bytes_after': 0, ...}
+E       assert (['job-proof'] == []
+E         
+E         Left contains one more item: 'job-proof'
+E         Use -v to get more diff)
+FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept
+1 failed in 149.77s (0:02:29)
+Full pytest stdout:
+F
+=================================== FAILURES ===================================
+_____ test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept _____
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-8/test_a_regenerable_file_change0/state'), store=<subfleet.store.Store object at 0x3d7f4195b90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x3d7f5243490>
+
+    def test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept(world, monkeypatch):
+        """A digest must describe the version whose bytecode proof was checked,
+        rather than vouch for invalid replacement bytes read under that proof."""
+        w = world
+        wt, cached, outside = _cache_linked_job(w, "job-proof")
+        (wt / "a-installed.py").unlink()      # only the omitted link and an external link remain
+        rel = cached.relative_to(wt)
+        changed = b"a report, not Python bytecode\n".ljust(4096, b"R")
+        original = rarch._Builder._digest
+    
+        def rewrite_then_digest(self, entry, st_, parent, name):
+            if entry["p"] == str(rel):
+                _write_keeping_mtime(outside, changed)
+            return original(self, entry, st_, parent, name)
+    
+        monkeypatch.setattr(rarch._Builder, "_digest", rewrite_then_digest)
+        result = run(w)
+>       assert result["pruned"] == [] and "changed before it was read" in result["deferred"]["job-proof"], result
+E       AssertionError: {'pruned': ['job-proof'], 'errors': [], 'bytes_before': 24235, 'bytes_after': 0, ...}
+E       assert (['job-proof'] == []
+E         
+E         Left contains one more item: 'job-proof'
+E         Use -v to get more diff)
+
+tests/unit/test_retention_81_notes.py:254: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 149.77s (0:02:29)
+Full pytest stderr: <empty>
+
+Total: 9 killed, 0 survived, 0 not applied; all 9 expected assertion failures.
+Isolated copy removed only after this artifact was written and verified.

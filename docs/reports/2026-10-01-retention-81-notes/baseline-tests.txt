@@ -1,0 +1,227 @@
+Retention #81 notes baseline evidence rerun at 52520723 (2026-10-01).
+Export produced by git archive 52520723 inside assigned workspace; copied current regression test file.
+All observed/test repositories and state roots use TMPDIR under the exported checkout.
+Four pytest failures are expected: they demonstrate defects before the fixes.
+
+=== probes-1 ===
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check
+TMPDIR=/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u -c 'import observe; observe.note1(); observe.note2a(); observe.note2b(); observe.note2c()'
+NOTE 1 (write after commit, same size, mtime restored, store link dropped):
+  pruned: ['job-hl'] | conflicts folder exists: False
+  files anywhere holding the new bytes: NONE (deleted)
+  archive holds (first byte): {'pair-a.bin': b'A', 'vendored.js': b'S'}
+NOTE 2a (tree in the sweep's quarantine for the whole pass, moved back after):
+  pruned: ['job-q'] | rows left: False
+  deferred: {}
+  after move back: tree exists: True | registration: ok | archive trees: ['job']
+  untracked work archived: False
+NOTE 2b (tree back between begin and quarantine):
+  pruned: ['job-qb'] | deferred: {}
+  tree exists: False | admin dir left: True | its backlink names: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/obs-liv8kxhj/state/worktrees/job-qb/.git
+  `git worktree list` says: ['prunable gitdir file points to non-existent location']
+  private commit in the bundle: False
+  after `git worktree prune` and gc, commit present: False
+NOTE 2c (tree moved away between begin and lock):
+  pruned: ['job-qa'] | admin dir exists: False
+  sweep's move back worked: False
+  tree at: .disk-guard-removing.job-qa | its .git: gitdir: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/obs-b23wu561/home/project/.git/worktrees/job-qa
+  git works in it: False
+  untracked work archived: False | deferred: {}
+Exit status: 0; elapsed: 168.58s
+
+=== probes-2 ===
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check
+TMPDIR=/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u -c 'import observe; observe.note3(); observe.note4(False); observe.note4(True); observe.note4(False, True); observe.note4(True, True)'
+NOTE 3 (allocated tree, jobs.worktree NULL, cancelled):
+  pruned: ['job-cut'] | tree left: True | registration left: True
+  next pass sees it: [] {} | tree still left: True
+NOTE 4 (no salvage; tree and workdir gone, repository there, no other job of it):
+  pruned: ['job-lane'] | deferred: {}
+  archive git: {'common': None, 'anchor': None} | registration left: True | private commit in bundle: no bundle
+NOTE 4 (with salvage; tree and workdir gone, repository there, no other job of it):
+  pruned: [] | deferred: {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1'}
+  three days later: [] {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1'}
+NOTE 4 (no salvage; tree and workdir gone, repository there, another job of it in the store):
+  pruned: ['job-lane'] | deferred: {}
+  archive git: {'common': None, 'anchor': None} | registration left: True | private commit in bundle: no bundle
+NOTE 4 (with salvage; tree and workdir gone, repository there, another job of it in the store):
+  pruned: [] | deferred: {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1'}
+  three days later: [] {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1'}
+Exit status: 0; elapsed: 64.69s
+
+=== tests ===
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check
+TMPDIR=/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q 'tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]' tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit] _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline...st-of-maxghenis/pytest-0/test_a_hard_linked_file_rewrit0/state'), store=<subfleet.store.Store object at 0x3a29827e590>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x3a299413990>
+when = 'after-the-commit'
+
+    @pytest.mark.parametrize("when", ["before-the-final-check", "after-the-commit"])
+    def test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted(world, monkeypatch, when):
+        """Note 1. After the archive, the pair is rewritten through the tree (a
+        late writer, as `test_file_written_after_the_final_check_is_kept_in_conflicts`
+        has one) and the vendored file through the package store, which then drops
+        its own link (`pnpm store prune`). Same size, mtime put back. Neither new
+        version is in the archive, so neither may be deleted: before the final
+        check the job is put back; after the commit both go to conflicts."""
+        w = world
+        wt, store = _hard_linked_job(w, "job-hl")
+        pair, vendored = b"a" * 4096, b"v" * 4096
+    
+        def rewrite(tree: Path) -> None:
+            _write_keeping_mtime(tree / "pair-a.bin", pair)
+            _write_keeping_mtime(store, vendored)
+            store.unlink()
+    
+        step = "final_check" if when == "before-the-final-check" else "publish"
+        original = getattr(rarch.Retirement, step)
+    
+        def hooked(self):
+            if step == "final_check":
+                rewrite(self.q_worktree)
+                return original(self)
+            original(self)
+            rewrite(self.q_worktree)
+    
+        monkeypatch.setattr(rarch.Retirement, step, hooked)
+        result = run(w)
+        if when == "before-the-final-check":
+            assert result["pruned"] == [], result
+            assert "changed after archive" in result["deferred"]["job-hl"]
+            assert (wt / "pair-a.bin").read_bytes() == pair and (wt / "pair-b.bin").read_bytes() == pair
+            assert (wt / "vendored.js").read_bytes() == vendored
+            assert w.store.get_job("job-hl") is not None
+            return
+        assert result["pruned"] == ["job-hl"], result
+        kept = w.root / "retention-conflicts" / "job-hl" / "worktree"
+>       assert (kept / "pair-a.bin").read_bytes() == pair
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_retention_81_notes.py:116: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/pathlib/__init__.py:777: in read_bytes
+    with self.open(mode='rb', buffering=0) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/pytest-of-maxghenis/pytest-0/test_a_hard_linked_file_rewrit0/state/retention-conflicts/job-hl/worktree/pair-a.bin')
+mode = 'rb', buffering = 0, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/pytest-of-maxghenis/pytest-0/test_a_hard_linked_file_rewrit0/state/retention-conflicts/job-hl/worktree/pair-a.bin'
+
+../../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/pathlib/__init__.py:771: FileNotFoundError
+_____ test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration ______
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline...st-of-maxghenis/pytest-0/test_a_tree_the_sweep_moves_aw0/state'), store=<subfleet.store.Store object at 0x3a299413350>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x3a299411690>
+
+    def test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration(world, monkeypatch):
+        """Note 2, the tree moved away between `begin` (which found it and its
+        registration) and `lock`. Retired then, the admin directory would be
+        archived and deleted while the tree sat in the sweep's quarantine: a tree
+        with a dangling `.git` that the sweep can no longer move back. The job is
+        put back, retention's lock removed, and the sweep's move back works."""
+        w = world
+        wt, private = _job_with_private_commit(w, "job-qa")
+        original = rarch.Retirement.lock
+        moved = {}
+    
+        def away_then_lock(self):
+            if not moved:
+                moved["to"] = _sweep_away(w, wt)
+            return original(self)
+    
+        monkeypatch.setattr(rarch.Retirement, "lock", away_then_lock)
+        result = run(w)
+>       assert result["pruned"] == [], result
+E       AssertionError: {'pruned': ['job-qa'], 'errors': [], 'bytes_before': 20178, 'bytes_after': 0, ...}
+E       assert ['job-qa'] == []
+E         
+E         Left contains one more item: 'job-qa'
+E         Use -v to get more diff
+
+tests/unit/test_retention_81_notes.py:453: AssertionError
+_ test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it __
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline...st-of-maxghenis/pytest-0/test_a_tree_admission_allocate0/state'), store=<subfleet.store.Store object at 0x3a299412590>)
+
+    def test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it(world):
+        """Note 3. Before, such a job retired without its tree, which stayed in
+        `worktrees/` for ever with its registration (four live jobs, 2026-09-29).
+        It is the job's own allocation, so it is archived and retired with it."""
+        from subfleet.retention_survey import survey
+        w = world
+        path = _allocated_but_unrecorded(w, "job-cut")
+        (path / "touched.txt").write_text("a person looked in\n")
+        before = snapshot(path)
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+>       assert report["worktree_dirs"]["orphans_never_touched"] == 0, report["worktree_dirs"]
+E       AssertionError: {'total': 1, 'with_job_rows': 0, 'orphans_never_touched': 1, 'orphans': ['job-cut']}
+E       assert 1 == 0
+
+tests/unit/test_retention_81_notes.py:526: AssertionError
+_ test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline...st-of-maxghenis/pytest-0/test_a_gone_workdirs_job_finds0/state'), store=<subfleet.store.Store object at 0x3a2994153d0>)
+
+    def test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows(world):
+        """Note 4, no salvage. Before, the registration was not found, the archive
+        had no anchor and no bundle, and the registration stayed behind, naming a
+        tree that is gone, until a prune and a gc dropped the commit only its HEAD
+        named. Found through a repository another job's workdir is in, it is
+        anchored, bundled and removed, as for any job whose tree is gone."""
+        from subfleet.retention_survey import survey
+        w = world
+        tree, lane, private = _lane_job(w, "job-lane")
+        _another_job_from(w, "job-other", w.repo)
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert report["would_retire"]["jobs"] == 2, report["kept"]          # job-other is pinned only in the pass
+        result = run(w, referenced_job_ids=["job-other"])
+        assert "job-lane" in result["pruned"], result
+>       assert not (w.repo / ".git" / "worktrees" / "job-lane").exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = (((PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/pytest-of-maxghenis/pytest-0/test_a_gone_workdirs_job_finds0/home/project') / '.git') / 'worktrees') / 'job-lane').exists
+E        +      where PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline-check/.probe-tmp/pytest-of-maxghenis/pytest-0/test_a_gone_workdirs_job_finds0/home/project') = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-baseline...st-of-maxghenis/pytest-0/test_a_gone_workdirs_job_finds0/state'), store=<subfleet.store.Store object at 0x3a2994153d0>).repo
+
+tests/unit/test_retention_81_notes.py:618: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+4 failed in 216.84s (0:03:36)
+Exit status: 1; elapsed: 251.85s
+
+Baseline source references (commit 52520723):
+1. subfleet/retention_fs.py:75 unchanged(); line 93 accepts a recorded multi-link inode without checking ctime.
+   Regression tests/unit/test_retention_81_notes.py:79; fails at line 116 because changed bytes were deleted instead of retained in conflicts.
+2. subfleet/retention_archive.py:260 begin(); line 288 searches only original backlink; lock starts at line 394; quarantine at line 426 skips a missing original path while still retiring the registration.
+   subfleet/retention_git.py:189 find_registration() compares backlink to the original tree/.git.
+   Regression tests/unit/test_retention_81_notes.py:435; fails at line 453 because the moved-away job was pruned instead of deferred.
+3. subfleet/retention_archive.py:187 owned_worktree(); line 189 rejects jobs whose worktree field is NULL.
+   Regression tests/unit/test_retention_81_notes.py:516; fails at line 526 because survey calls the allocated job tree an orphan. The independent probe demonstrates retirement then leaves its tree and registration forever.
+4. subfleet/retention_archive.py:288 begin() calls find_registration with the missing workdir; subfleet/retention_git.py:193-195 returns None when git cannot run there; retention_archive.py:298 only infers common directory from an existing workdir.
+   Regression tests/unit/test_retention_81_notes.py:604; fails at line 618 because the job retires while its registration remains. The probe also shows no common/anchor/bundle, including with another known job of the repository.
+
+All four regression cases failed for the expected defect at 52520723 (4 failed in 216.84s, pytest exit status 1); neither import nor fixture setup failed.
+Observational commands exited 0 in 168.58s and 64.69s. Every command ran in the foreground and below ten minutes.
+Owned child PIDs 33910, 57622, and 80593 were awaited and reaped with exit statuses 0, 0, and 1, respectively; no cleanup signals were needed. ps is unavailable in the sandbox (operation not permitted).
+Removed temporary exported checkout and every probe/test state root after completion.

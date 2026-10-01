@@ -1,0 +1,29 @@
+F
+=================================== FAILURES ===================================
+___ test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded ___
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-m22-chec...st-of-maxghenis/pytest-1/test_a_broken_present_workdir_0/state'), store=<subfleet.store.Store object at 0x257f3b55b90>)
+
+    def test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded(world):
+        """A recovered registration does not make a replaced salvage ref valid."""
+        from subfleet.retention_survey import survey
+        w = world
+        tree, lane, private = _lane_job(w, "job-broken-ref", salvage=True, broken_lane=True)
+        git(w.repo, "update-ref", SALVAGE_REF, w.head())
+        report = survey(w.root, holders=False, sample_throughput=False,
+                        budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert report["would_retire"]["jobs"] == 0, report
+        assert report["kept"]["jobs_by_reason"] == {"salvage not archivable": 1}, report
+        result = run(w)
+>       assert result["pruned"] == [] and "not the commit its row recorded" in result["deferred"]["job-broken-ref"], result
+E       AssertionError: {'pruned': ['job-broken-ref'], 'errors': [], 'bytes_before': 4, 'bytes_after': 0, ...}
+E       assert (['job-broken-ref'] == []
+E         
+E         Left contains one more item: 'job-broken-ref'
+E         Use -v to get more diff)
+
+tests/unit/test_retention_81_notes.py:727: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 170.05s (0:02:50)
