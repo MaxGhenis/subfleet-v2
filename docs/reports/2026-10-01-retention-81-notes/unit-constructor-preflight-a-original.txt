@@ -1,0 +1,128 @@
+Command: uv run pytest -q tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+EEF                                                                      [100%]
+==================================== ERRORS ====================================
+__________ ERROR at setup of test_nothing_to_wait_for_returns_at_once __________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5155/test_nothing_to_wait_for_retur0')
+
+    @pytest.fixture
+    def daemon(tmp_path):
+>       core = Daemon(tmp_path / "state")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_wait_hub.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+_ ERROR at setup of test_running_attempt_inspection_shares_one_table_and_never_dumps_environments _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5155/test_running_attempt_inspectio0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x34b7dfd7a90>
+
+    @pytest.fixture
+    def daemon(tmp_path, monkeypatch):
+>       core = Daemon(tmp_path / "state", inspect_interval_s=30)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_daemon_inspection_load.py:94: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+=================================== FAILURES ===================================
+__________ test_the_daemon_answers_reads_while_a_transaction_is_open ___________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5155/test_the_daemon_answers_reads_0')
+
+    def test_the_daemon_answers_reads_while_a_transaction_is_open(tmp_path):
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_readers.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+ERROR tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once
+ERROR tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments
+1 failed, 2 errors in 22.16s
+
+Exit: 1; elapsed: 33.98s

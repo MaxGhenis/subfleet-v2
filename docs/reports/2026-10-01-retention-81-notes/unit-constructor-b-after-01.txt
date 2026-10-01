@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+...                                                                      [100%]
+3 passed in 17.72s
+
+Exit: 0; elapsed: 23.11s

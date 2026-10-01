@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+...                                                                      [100%]
+3 passed in 6.34s
+
+Exit: 0; elapsed: 13.54s

@@ -23,16 +23,30 @@ Invariants pinned here:
 
 from __future__ import annotations
 
+import os
 import random
 import threading
 import time
 
 import pytest
 
-from subfleet import protocol
+from subfleet import procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
 from subfleet.waits import WAIT_POLL_S, WaitHub
+
+
+@pytest.fixture(autouse=True)
+def daemon_identity(monkeypatch):
+    """Wait orchestration needs a daemon identity, not kernel inspection."""
+    pid = os.getpid()
+
+    def current_start(asked):
+        assert asked == pid
+        return "Thu Oct  1 12:00:00 2026"
+
+    monkeypatch.setattr(procs, "boot_id", lambda: "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setattr(procs, "proc_start", current_start)
 
 
 @pytest.fixture

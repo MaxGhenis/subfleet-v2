@@ -14,6 +14,16 @@ from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
 
 
+def daemon_for_test(root, **options):
+    """Observe only this constructor's identity; other inspection stays real."""
+    pid, real_start = os.getpid(), module.procs.proc_start
+    with pytest.MonkeyPatch.context() as identity:
+        identity.setattr(module.procs, "boot_id", lambda: "integration-boot")
+        identity.setattr(module.procs, "proc_start", lambda found: (
+            "integration-start" if found == pid else real_start(found)))
+        return Daemon(root, **options)
+
+
 def lane(home):
     return Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                 str(home), LaneOwner.V2, False)
@@ -78,7 +88,7 @@ def test_c10_3_no_desktop_login_means_no_credential_is_read(tmp_path, monkeypatc
     """C-10.3, C-10.5 with no desktop login recorded for this HOME there is no
     desktop identity to verify, and the daemon reaches for no keychain item."""
     asked = []
-    daemon = Daemon(tmp_path, desktop_prober=lambda: asked.append(True))
+    daemon = daemon_for_test(tmp_path, desktop_prober=lambda: asked.append(True))
     try:
         daemon.store.put_lane(claude_lane())
         monkeypatch.setattr(module.capacity, "read_desktop_account", lambda path=None: None)
@@ -97,7 +107,7 @@ def test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane(tmp_pa
     something to compare a label against."""
     from subfleet.adapters.claude import ProfileResult
 
-    daemon = Daemon(tmp_path, desktop_prober=lambda: ProfileResult(
+    daemon = daemon_for_test(tmp_path, desktop_prober=lambda: ProfileResult(
         "ok", email="desktop@example.test", account_uuid="acct", org_uuid="org"))
     try:
         daemon.store.put_lane(claude_lane("claude-1"))
@@ -129,7 +139,7 @@ def test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared(tmp_path):
     until an operator re-enrols it" survives a later, healthier-looking answer."""
     from subfleet.contracts import Outcome, OutcomeClass
 
-    daemon = Daemon(tmp_path)
+    daemon = daemon_for_test(tmp_path)
     try:
         daemon.store.put_lane(claude_lane())
         mismatch = Outcome(OutcomeClass.OK, "ok", {"identity": {
@@ -157,7 +167,7 @@ def test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports(tmp_p
     from then on."""
     from subfleet.contracts import Outcome, OutcomeClass
 
-    daemon = Daemon(tmp_path)
+    daemon = daemon_for_test(tmp_path)
     try:
         daemon.store.put_lane(
             Lane("claude-1", "claude", "claude:max@example.test",
