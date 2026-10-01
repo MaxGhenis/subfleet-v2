@@ -14,6 +14,7 @@ import shutil
 import signal
 import stat
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -448,9 +449,10 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
     (a memory-pressure kill; EMFILE and ENOMEM read the same). The attempt ended as a spawn
     error, which both adapters classify `unknown`, never retried, so the job failed for good.
     Now nothing launches (C-13.2 fails closed) and the attempt ends as one whose guardian
-    could not be started: the job is queued again while it has attempts left. Its next
-    admission asks again, waiting under C-6.8's backoff while git gives no answer, and
-    refuses the checkout, switched to `main` meanwhile, once git answers."""
+    could not be started: the job is queued again while it has attempts left, after C-6.8's
+    backoff (review of the P3-5 fix: queued at once, it was asked again on the next pass).
+    Its next admission asks again, waiting under C-6.8's backoff while git gives no answer,
+    and refuses the checkout, switched to `main` meanwhile, once git answers."""
     import subfleet.daemon as daemon_module
     from subfleet.daemon import Daemon
     from tests.fake.test_state_contract import reserve
@@ -477,11 +479,22 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
         assert (job["state"], job["rc"]) == ("failed", 1)
         assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [detail]
         return
-    assert (job["state"], job["rc"]) == ("queued", None)
-    daemon._admit()
+    assert (job["state"], job["rc"], job["wait_reason"]) == ("waiting", None, "workspace")
+    assert 0 < seconds_until(job["next_check_at"]) <= 5
+    [deferred] = events(daemon, job_id, "job.workspace_deferred")
+    assert deferred == {"stage": "launch", "deferrals": 1, "next_check_at": job["next_check_at"],
+                        "error_type": "SalvageError", "error": "git symbolic-ref was killed by SIGKILL"}
+    assert daemon.dispatch("show", {"job_id": job_id})["workspace"]["stage"] == "launch"
+    daemon._admit()                                       # not due: git is not asked, nothing is reserved
+    assert daemon.store.get_job(job_id)["next_check_at"] == job["next_check_at"]
+    assert len(daemon.store.list_attempts(job_id)) == 1
+    due(daemon, job_id)
+    daemon._admit()                                       # due, and still no answer: admission's own wait
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     assert len(daemon.store.list_attempts(job_id)) == 1
+    latest = events(daemon, job_id, "job.workspace_deferred")[-1]
+    assert latest["deferrals"] == 1 and "stage" not in latest
     killed[0] = False
     due(daemon, job_id)
     daemon._admit()
@@ -490,3 +503,49 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
     lines = daemon.store.list_notices()[-1]["text"].split("\n")[1:]
     assert lines[0].startswith("failed while preparing the retry: writable job refused on main")
     assert lines[1:] == [f"attempt a1: unknown, rc=-: {detail}"]
+
+
+def seconds_until(stamp: str) -> float:
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) - datetime.now(timezone.utc)).total_seconds()
+
+
+def test_c6_8_launch_time_checks_that_get_no_answer_back_off_counted_in_a_row(state_daemon, monkeypatch):
+    """Review of the P3-5 fix: if git kept giving no answer at launch while admission's own
+    check got one (and reset admission's count), the job was queued at once each time and
+    used up its attempts in as many passes. Each such wait now doubles with the attempts
+    that ended so in a row, read from the store: 5 s, then 10 s. The attempts still bound
+    it, and the notice names every attempt, none of which launched."""
+    import subfleet.daemon as daemon_module
+    from subfleet.daemon import Daemon
+    from tests.fake.test_state_contract import reserve
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id, _, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True, max_attempts=3)
+    real_run, killed = subprocess.run, [False]
+
+    def run(cmd, *args, **kwargs):
+        if killed[0] and "symbolic-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, b"", b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    waits = []
+    for seq in (1, 2, 3):
+        current = daemon.store.list_attempts(job_id)[-1]
+        assert (current["seq"], current["state"]) == (seq, "reserved")
+        killed[0] = True
+        Daemon._launch(daemon, current)                   # the fixture forbids scheduled launches
+        killed[0] = False
+        assert daemon._children == {}
+        job = daemon.store.get_job(job_id)
+        if seq == 3:
+            break
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+        waits.append(seconds_until(job["next_check_at"]))
+        assert events(daemon, job_id, "job.workspace_deferred")[-1]["deferrals"] == seq
+        due(daemon, job_id)
+        daemon._admit()                                   # admission's check answers: the next attempt
+    assert 0 < waits[0] <= 5 < waits[1] <= 10
+    assert (job["state"], job["rc"]) == ("failed", 1) and len(events(daemon, job_id, "job.workspace_deferred")) == 2
+    detail = "workdir-branch-check-unfinished: git symbolic-ref was killed by SIGKILL"
+    assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [
+        f"attempt a3: {detail}", f"attempt a2: unknown, rc=-: {detail}", f"attempt a1: unknown, rc=-: {detail}"]

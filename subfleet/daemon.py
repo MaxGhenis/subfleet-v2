@@ -123,6 +123,9 @@ TURN_TREE_TRIES = 3
 #: finished attempts held Codex lanes for hours on a snapshot that could not
 #: succeed). The worktree is kept either way (C-13.4).
 SALVAGE_TRIES = 3
+#: C-6.8: how an attempt ends whose launch-time main/master re-check git gave no answer
+#: to (`_launch`), and how `_defer_after_launch` counts those in a row.
+LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
@@ -4184,12 +4187,13 @@ class Daemon:
             # timeout, EMFILE or ENOMEM, a git killed by a signal) says nothing
             # about the checkout, so the attempt ends as one whose guardian could
             # not be started does, and the job is queued again while it has
-            # attempts left: its next admission asks again, under C-6.8's backoff.
+            # attempts left: its next admission asks again, after C-6.8's backoff
+            # (`_defer_after_launch`).
             # As a spawn error it was classified `unknown`, which is never
             # retried, and ended the job (review of ceacf18b, P3-5).
             self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
             if exc.transient:
-                self._unlaunched(a, f"workdir-branch-check-unfinished: {exc}")
+                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {exc}", deferred=exc)
             else:
                 self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
             return
@@ -4545,7 +4549,19 @@ class Daemon:
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
-    def _unlaunched(self, a: dict, detail: str) -> None:
+    def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None) -> None:
+        """An attempt that ended before its provider could run: `failed`, or
+        `interrupted` when the job was cancelled, its leases released, and the job
+        queued again while it has attempts left.
+
+        `deferred` is the transient failure of the launch-time main/master re-check
+        (C-6.8). A job queued again after one waits under C-6.8's backoff before its
+        next admission asks git again, 5 s doubling per consecutive attempt that
+        ended so to the 300 s ceiling, and the wait is a `job.workspace_deferred`
+        event, as admission's are. Queued at once, a launch-time check that kept
+        getting no answer while admission's got one used up the job's attempts in
+        as many passes (review of the P3-5 fix).
+        """
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
@@ -4556,11 +4572,34 @@ class Daemon:
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
+            if retry and deferred is not None:
+                self._defer_after_launch(tx, job, deferred)
             if not retry:
                 # C-13.1, C-15.1: a retry that never launched names the attempt before it.
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier)
         self._notify()
+
+    def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
+        """C-6.8: `_unlaunched`'s wait after a launch-time main/master re-check that git
+        gave no answer to. The count is of the job's latest attempts that ended so, in a
+        row, read from the store, so the admission pass that succeeds between two of them
+        (and resets admission's own count) does not reset it."""
+        count = 0
+        for (detail,) in tx.execute("SELECT outcome_detail FROM attempts WHERE job_id=? ORDER BY seq DESC",
+                                    (job["job_id"],)).fetchall():
+            if not (detail or "").startswith(LAUNCH_CHECK_UNFINISHED):
+                break
+            count += 1
+        delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (max(count, 1) - 1))
+        next_check = after(delay)
+        _, record = self._workspace_error(exc)
+        record.update(stage="launch", deferrals=count, next_check_at=next_check)
+        with self.store.transaction("job.workspace_deferred", job_id=job["job_id"], data=record) as inner:
+            inner.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
+                          "WHERE job_id=? AND state='queued'", (next_check, job["job_id"]))
+        self.log.warning("job %s launch-time branch check got no answer (%d in a row), next check in %d s: %s: %s",
+                         job["job_id"], count, delay, record["error_type"], record["error"])
 
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
         with self.store.transaction("attempt.finalizing", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

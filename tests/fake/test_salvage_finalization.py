@@ -790,7 +790,9 @@ def test_c13_1_a_retry_that_never_launched_names_the_attempt_that_ran_before_it(
     with monkeypatch.context() as killed:
         killed.setattr(daemon_module.subprocess, "run", run)
         Daemon._launch(daemon, daemon.store.get_attempt(a2["attempt_id"]))      # the fixture forbids scheduled launches
-    assert daemon._children == {} and daemon.store.get_job(job_id)["state"] == "queued"
+    assert daemon._children == {}
+    assert (daemon.store.get_job(job_id)["state"], daemon.store.get_job(job_id)["wait_reason"]) == \
+        ("waiting", "workspace")                         # C-6.8's wait before a3's admission
     if ending == "cancel":
         daemon.dispatch("kill", {"job_id": job_id})
         assert daemon.store.get_job(job_id)["state"] == "cancelled"
