@@ -79,13 +79,16 @@ struct ApprovalCardView: View {
             }
             if card.isPending && !card.isActionable {
                 Text("Waiting for the request to be identified…").readingFont(.caption).foregroundStyle(.secondary)
+                if card.kind == "question" && loadFailed {
+                    Button("Reload request") { Task { await load() } }
+                }
             }
         }
         .readingFont(.body)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(card.isPending ? 0.12 : 0.05)))
         .task(id: card.approvalID ?? card.requestID) {
-            if card.isPending && card.kind != "question" { await load() }
+            if card.isPending { await load() }
         }
     }
 

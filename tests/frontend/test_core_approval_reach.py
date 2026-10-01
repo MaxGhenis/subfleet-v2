@@ -421,8 +421,29 @@ def test_c27_5_asking_again_for_the_same_conversation_asks_again(core_probe):
     assert result["scrolls"] == [None, None, None, card, card, None]
 
 
+def test_c27_1_an_event_only_question_becomes_actionable_after_its_exact_list_lookup(core_probe):
+    """The parent card loads pending questions as well as tools: its safe fresh
+    list lookup identifies the same modern row and enables the inline form."""
+    log = Log()
+    question = {"questions": [{"question": "Which color?", "options": [{"label": "Blue"}]}]}
+    log.add("m1", "approval.requested", request_id="q-new", kind="question", **question,
+            options=["answer", "deny"])
+    view = {**listed("ap-new", "m1", "unused", 1, request_id="q-new"), "kind": "question",
+            "display": question, "options": ["answer", "deny"]}
+    row_id = "approval:m1:q-new"
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]},
+                               {**log.page(), "snapshot": True}, {"pending": [view]}])
+    before = items_of(result["snapshots"][0], "m1", "approval")[0]
+    after = items_of(result, "m1", "approval")[0]
+    assert before["id"] == after["id"] == row_id
+    assert before["card"]["approval_id"] is None and before["card"]["actionable"] is False
+    assert after["card"]["approval_id"] == "ap-new" and after["card"]["actionable"] is True
+    assert result["pending_items"] == [row_id] and result["review_opens_sheet"] is False
+
+
 @pytest.mark.parametrize("list_first", [True, False], ids=["list-first", "event-first"])
-def test_c27_5_legacy_replacement_never_reuses_an_old_questions_draft_row(core_probe, list_first):
+@pytest.mark.parametrize("old_view_kind", ["none", "modern", "legacy"])
+def test_c27_5_legacy_replacement_never_reuses_an_old_questions_draft_row(core_probe, list_first, old_view_kind):
     """A fresh legacy list can precede the replacement's events. Identical
     questions keep different SwiftUI row identities, preventing stale drafts
     from being authenticated as the replacement request."""
@@ -435,8 +456,10 @@ def test_c27_5_legacy_replacement_never_reuses_an_old_questions_draft_row(core_p
     old_view = {**listed("ap-old", "m1", "unused", 2), "kind": "question", "display": question,
                 "options": ["answer", "deny"]}
     new_view = {**old_view, "approval_id": "ap-new", "created_at": ts(4)}
-    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, old_page,
-             {"pending": [old_view], "snapshot": True}]
+    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, old_page]
+    if old_view_kind != "none":
+        identified = {**old_view, "request_id": "q-old"} if old_view_kind == "modern" else old_view
+        steps.append({"pending": [identified], "snapshot": True})
     log.add("m1", "approval.resolved", request_id="q-old", decision="answer")
     log.add("m1", "approval.requested", request_id="q-new", kind="question", **question,
             options=["answer", "deny"])
@@ -446,17 +469,26 @@ def test_c27_5_legacy_replacement_never_reuses_an_old_questions_draft_row(core_p
     else:
         steps += [later, {"pending": [new_view], "snapshot": True}]
     result = fold(core_probe, steps)
+    # The snapshot immediately after the replacement list is the dangerous
+    # window: the old question may still appear pending in the unread event log.
+    snapshot = result["snapshots"][-1]
+    before = {item["id"]: item["card"] for item in items_of(snapshot, "m1", "approval")}
+    assert before["approval:m1:q-old"]["approval_id"] == ("ap-old" if old_view_kind == "modern" else None)
+    assert before["approval:m1:q-old"]["actionable"] is False
+    assert snapshot["pending_items"] == ["approval:m1:ap-new"]
     cards = {item["id"]: item["card"] for item in items_of(result, "m1", "approval")}
-    assert cards["approval:m1:q-old"]["approval_id"] is None
-    assert cards["approval:m1:q-old"]["actionable"] is False
-    assert cards["approval:m1:ap-old"]["state"] == "withdrawn"
+    old_card = cards["approval:m1:q-old"]
+    assert old_card["approval_id"] == ("ap-old" if old_view_kind == "modern" else None)
+    assert old_card["actionable"] is False
+    if old_view_kind == "legacy":
+        assert cards["approval:m1:ap-old"]["state"] == "withdrawn"
     assert cards["approval:m1:q-new"]["approval_id"] is None
     assert cards["approval:m1:q-new"]["state"] == "withdrawn"
     assert cards["approval:m1:ap-new"]["request_id"] is None
     assert cards["approval:m1:ap-new"]["actionable"] is True
     assert result["pending_items"] == ["approval:m1:ap-new"]
     assert result["review_label"] == "Review" and result["review_opens_sheet"] is False
-    assert len(cards) == 4
+    assert len(cards) == (4 if old_view_kind == "legacy" else 3)
 
 
 def test_c27_5_a_view_joins_the_card_of_its_own_request_in_any_order(core_probe):
