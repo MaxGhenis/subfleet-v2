@@ -199,7 +199,7 @@ def test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted(world, mon
     listed = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
     bytecode = listed["sub/__pycache__/mod.cpython-312.pyc"]
     assert bytecode.get("regen") and "store" not in bytecode
-    assert bytecode["sha256"] == listed["a-installed.py"]["sha256"] == hashlib.sha256(data).hexdigest()
+    assert bytecode.get("sha256") == listed["a-installed.py"]["sha256"] == hashlib.sha256(data).hexdigest()
     assert not wt.exists()
     assert not (w.root / "retention-conflicts" / "job-uv").exists()
     assert outside.read_bytes() == data
@@ -468,6 +468,7 @@ def test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_i
     # The sibling check alone would keep the job at `begin`; this case is the
     # tree that comes back after it, so take the sweep's name away from `begin`.
     monkeypatch.setattr(rarch, "tree_away", lambda worktree: None, raising=False)
+    monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
     result = run(w)
     assert result["pruned"] == [], result
     assert wt.is_dir() and _registration_works(wt)
