@@ -226,3 +226,14 @@ def test_auto_provider_follows_the_lanes_ready_now(probe, tmp_path):
     payload["codex"]["fleet"]["dispatchable_now"] = 0
     unknown = project(probe, tmp_path, payload)
     assert unknown["dispatchable"] == {"codex": 0} and unknown["auto_provider"] == "claude"
+
+
+def test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable(probe, tmp_path):
+    """C-5.7a, C-18.1 the probe fields are additions the Swift model decodes past, and a held lane reads unavailable."""
+    result = display(probe, tmp_path, [lane("codex", probe_state="quarantined", probe_holder="probe:q1"),
+                                       lane("claude", probe_state="reserved", probe_holder="probe:q2")])
+    for provider in ("codex", "claude"):
+        row = result[provider][0]
+        assert row["status"] == "Unavailable" and row["tone"] == "neutral"
+        assert "Not dispatchable" in row["detail"]
+        assert row["percentage"] == 25 and row["weekly_percentage"] == 60
