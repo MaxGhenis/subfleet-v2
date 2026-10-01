@@ -39,7 +39,7 @@ from .adapters import claude_mcp
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
-    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -251,6 +251,28 @@ def utcnow() -> str:
 def after(seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(
         timespec="seconds").replace("+00:00", "Z")
+
+
+def _pin_notice_key(data_json: str | None) -> tuple | None:
+    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
+    try:
+        data = json.loads(data_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+        return None
+    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+
+
+def _later(stamp: str, seconds: float) -> str:
+    """`stamp` (as `utcnow` writes one) plus `seconds`, in the same form (C-11.8)."""
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
+
+
+def _seconds_between(earlier: str, later: str) -> float:
+    return (datetime.fromisoformat(later.replace("Z", "+00:00"))
+            - datetime.fromisoformat(earlier.replace("Z", "+00:00"))).total_seconds()
 
 
 def age(timestamp: str | None) -> float:
@@ -493,6 +515,7 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._pin_episodes = self._load_pin_episodes()          # C-11.8
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
@@ -547,6 +570,12 @@ class Daemon:
         # is not the job's demand while its clock runs; the next due look
         # evaluates the pair again, so a restart, which forgets this, changes nothing.
         self._retry_verdicts: dict[str, tuple[str, bool]] = {}
+        # C-11.8: job id -> its pin episode: whether its pinned lane can never admit
+        # it now (`open`), since when, when it fails, and whether its one notice
+        # went. Loaded from the episode events once the store opens
+        # (`_load_pin_episodes`), so a restart keeps the grace's clock and never
+        # sends a second notice.
+        self._pin_episodes: dict[str, dict] = {}
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
@@ -2256,6 +2285,17 @@ class Daemon:
                 stamp = utcnow()
                 with self.store.transaction("notice." + a.state) as tx:
                     for notice_id in a.notice_ids:
+                        if notice_id < 0:
+                            # A service notice (negated id, as `notice.ack` takes it):
+                            # marked in its own table, or a hook that printed it would
+                            # print it again at every prompt.
+                            tx.execute(
+                                "UPDATE service_notices SET state=?,transport=COALESCE(?,transport),"
+                                "offered_at=COALESCE(offered_at,?),"
+                                "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
+                                "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                (a.state, a.transport, stamp, a.state, stamp, -notice_id, a.session_id))
+                            continue
                         tx.execute(
                             "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
@@ -2263,8 +2303,9 @@ class Daemon:
                             "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
                             (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
-            notices += [{**row, "notice_id": -row["notice_id"], "job_id": None} for row in
-                        self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
+            service = self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
+            about = self._pin_notice_jobs(service) if service else {}
+            notices += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
             return {"notices": notices}
         if op == "ping":
             text = args.get("text", "")
@@ -2301,11 +2342,14 @@ class Daemon:
         pending = job["state"] in ("queued", "waiting") and not job["cancel_requested_at"]
         route_error = refused = None
         if job["state"] == "failed":
-            event = self.store.one("SELECT ts,data_json FROM events WHERE kind='job.route_refused' AND job_id=? "
+            event = self.store.one("SELECT ts,kind,data_json FROM events WHERE kind IN "
+                                   "('job.route_refused','job.pin_refused') AND job_id=? "
                                    "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
             if event and (row is None or event["ts"] >= row["evaluated_at"]):
                 record = json.loads(event["data_json"])
-                refused = f"{record.get('error_type')}: {record.get('error')}"
+                # C-11.8: a job failed for a pin no lane could ever admit says which and why.
+                refused = (render.pin_failure(record, record.get("since")) if event["kind"] == "job.pin_refused"
+                           else f"{record.get('error_type')}: {record.get('error')}")
         if decision is None and pending:
             try:
                 decision, source = dataclasses.asdict(self._pick(job, desktop=self._desktop_identity())), "evaluated-now"
@@ -2664,6 +2708,9 @@ class Daemon:
         text = render.notice_header(dict(row), self.root) + "\n" + summary
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
+        # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
+        # at the job's end, however it ended, this notice says what happened instead.
+        self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
         """Run `fn` on the worker pool unless `key` is already running.
@@ -3501,7 +3548,8 @@ class Daemon:
         # whichever pass notices. Each dict is walked as a copy: the other kind's
         # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
         pending = {job["job_id"] for job in queued}
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors)
+        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
+                  self._pin_episodes)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
             # A job submitted after the read above, whose entry the other pass has
@@ -3562,6 +3610,14 @@ class Daemon:
                 if not key.startswith("lane:"):
                     lease_queue.setdefault(key, job_id)
         roster = self._pin_roster()              # C-6.9: lane pins are compared by lane id (C-11.2)
+        pin_views: list[dict] = []
+        for_good_memo: dict = {}                 # C-11.8: `scheduler.unadmittable`'s, for this pass
+
+        def pin_view() -> dict:
+            """C-11.8: read once per pass, and only by a pass that needs it."""
+            if not pin_views:
+                pin_views.append(self._pin_view(desktop_account, refresh=kind == "detached"))
+            return pin_views[0]
         # C-26.9: turns and detached jobs fill separate pools, so one being full
         # holds back only its own kind. Neither pool has a cap unless the policy
         # sets one (`conversations.max_active_turns`, `caps.max_active_attempts`):
@@ -3612,6 +3668,16 @@ class Daemon:
                 if hold:
                     holds[job["job_id"]] = hold
                     continue
+            if job["pinned_lane"] and job["wait_reason"] not in ("approval", "uncertain"):
+                # C-11.8: a job pinned to a lane that can never admit it is held here,
+                # every pass, before it could wait behind or ahead of anyone (C-6.9):
+                # it holds no other job back, its caller is told once, and it fails
+                # once `admission.pin_grace_s` has passed with the lane still so.
+                stuck = scheduler.pin_unadmittable(self.policy, pin_view(), job)
+                if stuck:
+                    self._stuck_pin(job, stuck, holds)
+                    continue
+                job = self._unstuck_pin(job)
             due = not (job["next_check_at"] and job["next_check_at"] > utcnow())
             if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
                     and (due or job["wait_reason"] != "workspace")):
@@ -3689,14 +3755,25 @@ class Daemon:
                 known = None
             hurried = bool(freed and known and known["expedite"])
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
-                if job["wait_reason"] == "capacity":
-                    waiting_for = (frozenset(known["hold"].get("leases") or ())
-                                   if known and known["hold"].get("reason") == "lease-held" else frozenset())
+                # C-11.8: a job every lane refuses now for a reason no wait ends waits
+                # for nothing another job could take, however its clock was set (a
+                # transient retry's 60 s, or lanes that turned since its last look).
+                # Asked only where a hold can follow (`hold_scope`), and once per
+                # model and job shape per pass.
+                lease_held = bool(known and known["hold"].get("reason") == "lease-held")
+                asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
+                for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
+                if job["wait_reason"] == "capacity" and not for_good:
+                    waiting_for = (frozenset(known["hold"].get("leases") or ()) if lease_held else frozenset())
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
-                if known and known["hold"].get("reason") == "lease-held":
+                if lease_held and not for_good:
+                    # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
                     queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
                               job["job_id"])
-                holds[job["job_id"]] = {**(known["hold"] if known else {"reason": job["wait_reason"] or "waiting"}),
+                last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
+                if asked:
+                    last.pop("for_good", None)          # C-6.11: this pass's answer, not the last look's
+                holds[job["job_id"]] = {**last, **({"for_good": for_good} if for_good else {}),
                                         "next_check_at": job["next_check_at"]}
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
@@ -3878,7 +3955,14 @@ class Daemon:
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
                         if not decision.chosen_lane or at_limit:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                            # C-11.8: a job every lane refuses for a reason no wait ends
+                            # (the pinned lane turned so since this pass's check) waits
+                            # for no slot, so it holds no later job back (C-6.9).
+                            for_good = (None if decision.chosen_lane
+                                        else scheduler.refused_for_good(self.policy, decision, decision_job,
+                                                                        pin_view()["lanes"]))
+                            if not for_good:
+                                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
                             # 2026-09-20 three such jobs were each re-evaluated every
@@ -3890,7 +3974,7 @@ class Daemon:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
                                 label = "fleet-full" if saturated[pool] else "slot-kept"
-                            hold = {"reason": label,
+                            hold = {"reason": label, **({"for_good": for_good} if for_good else {}),
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
@@ -4037,7 +4121,8 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                if not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):  # C-11.8
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
                 continue
@@ -4248,6 +4333,187 @@ class Daemon:
         if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
             self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
+
+    def _load_pin_episodes(self) -> dict[str, dict]:
+        """C-11.8: each unfinished job's pin episode as its events left it.
+
+        The latest of a job's `job.pin_unadmittable` and `job.pin_admittable`
+        events says whether an episode is open, since when, and when it fails.
+        Read once, at start, by the kinds' index. Whether its one notice went is
+        asked of the store when it is due (`_pin_notice`), whatever this held."""
+        episodes: dict[str, dict] = {}
+        rows = self.store.query(
+            "SELECT e.job_id,e.kind,e.data_json FROM events e JOIN jobs j ON j.job_id=e.job_id "
+            "WHERE e.kind IN ('job.pin_unadmittable','job.pin_admittable','job.pin_noticed',"
+            "'job.pin_notice_withdrawn') "
+            "AND j.state IN ('queued','waiting') ORDER BY e.event_id")
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"] or "{}")
+            except ValueError:
+                data = {}
+            data = data if isinstance(data, dict) else {}
+            previous = episodes.get(row["job_id"], {})
+            if row["kind"] == "job.pin_noticed":
+                episodes[row["job_id"]] = {**previous, "noticed": True}
+            elif row["kind"] == "job.pin_notice_withdrawn":
+                episodes[row["job_id"]] = {**previous, "noticed": False}
+            elif row["kind"] == "job.pin_unadmittable":
+                episodes[row["job_id"]] = {**previous, "open": True, "since": data.get("since"),
+                                           "fail_at": data.get("fail_at"), "lane_id": data.get("lane_id")}
+            else:
+                episodes[row["job_id"]] = {**previous, "open": False}
+        return episodes
+
+    def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
+        """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from
+        its `job.pin_noticed` event, so `notice.pending` names the job and a session
+        Subfleet launched surfaces it as it does a job's end (C-26.13). A row matches
+        its event by id, session and creation time together: a service notice's id is
+        reused once the row with the highest id is deleted (it has no AUTOINCREMENT),
+        and a ping, a nudge or an alert that gets an old pin notice's id names none."""
+        wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+        found: dict[int, str] = {}
+        for event in self.store.query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
+                                      "ORDER BY event_id DESC LIMIT 1000"):
+            key = _pin_notice_key(event["data_json"])
+            if key in wanted and event["job_id"]:
+                found.setdefault(wanted[key], event["job_id"])
+        return found
+
+    def _pin_view(self, desktop, *, refresh: bool = True) -> dict:
+        """C-11.8: what `scheduler.pin_unadmittable` reads, as a view has it: every lane
+        row marked and merged as a view marks and merges it (`capacity.mark_desktop`
+        with whether Claude Code uses the desktop login, `Timers.merge_lane`), as
+        C-6.3's check inside a reservation does, the closures open now, and the lanes
+        whose credential latched. No reading and no attempt: a pin's standing
+        refusals need neither. Whether Claude Code uses the desktop login is asked
+        only when a lane is the desktop's, and without `refresh` (the turn pass) it
+        is the last answer read (`_desktop_answer`, unknown reading as in use), so
+        this never lists the registry for a pass that places only Codex turns."""
+        now = utcnow()
+        lanes = [capacity.mark_desktop(dict(row), desktop=desktop) for row in self.store.lane_rows()]
+        if any(lane.get("desktop") for lane in lanes):
+            in_use = self._desktop_in_use() if refresh else self._desktop_answer()
+            lanes = [capacity.mark_desktop(lane, desktop=desktop, desktop_in_use=in_use) for lane in lanes]
+        lanes = [self.timers.merge_lane(lane) for lane in lanes]
+        return {"now": now, "lanes": lanes, "closures": self.store.list_closures(active_at=now),
+                "unavailable_lanes": {lane["lane_id"]: "credential-latched" for lane in lanes
+                                      if capacity.credential_latched(lane)}}
+
+    def _stuck_pin(self, job: dict, stuck: dict, holds: dict[str, dict]) -> None:
+        """C-11.8: hold a job whose pinned lane can never admit it, say so once, and
+        fail it once `admission.pin_grace_s` has passed with the lane still so.
+
+        An episode begins on the first pass that finds it: one `job.pin_unadmittable`
+        event, and the job waiting on `capacity` with its failure as its next check.
+        Once the episode has lasted `PIN_NOTICE_AFTER_S`, the job's one notice goes
+        (`_pin_notice`). A conversation turn is held and nothing more: its message is
+        the person's, and the conversation carries its end (C-26.12). A job with an
+        attempt still live or quarantined is never failed here: it is held until that
+        attempt settles. Every clock here is read once, from `now`."""
+        job_id, now = job["job_id"], utcnow()
+        turn = job["kind"] == "turn"
+        episode = self._pin_episodes.get(job_id) or {}
+        if not episode.get("open"):
+            grace = admission_settings(self.policy)["pin_grace_s"]
+            fail_at = None if turn or grace is None else _later(now, grace)
+            record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "closures": stuck["closures"],
+                      "since": now, "fail_at": fail_at}
+            with self.store.transaction("job.pin_unadmittable", job_id=job_id, lane_id=stuck["lane_id"],
+                                        data=record) as tx:
+                tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                           "WHERE job_id=? AND state IN ('queued','waiting')",
+                           (fail_at or _later(now, CAPACITY_RECHECK_CEILING_S), job_id))
+            episode = {**episode, "open": True, "since": now, "fail_at": fail_at, "lane_id": stuck["lane_id"]}
+            self._pin_episodes[job_id] = episode
+            self._capacity_waits.pop(job_id, None)          # C-6.10: not a wait for capacity now
+            self.log.warning("job %s: pinned lane %s can never admit it (%s); %s", job_id, stuck["lane_id"],
+                             ", ".join(stuck["reasons"]), render.pin_ends(fail_at))
+            self._notify()
+        fail_at = episode.get("fail_at")
+        failing = bool(fail_at) and now >= fail_at
+        if (not failing and not turn and not episode.get("noticed")
+                and _seconds_between(episode.get("since") or now, now) >= PIN_NOTICE_AFTER_S):
+            episode = self._pin_notice(job, stuck, episode, now)
+        if failing and not self.store.one(
+                "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                "('reserved','starting','running','finalizing','quarantined')", (job_id,)):
+            self.log.warning("job %s failed: pinned lane %s could never admit it (%s)", job_id, stuck["lane_id"],
+                             ", ".join(stuck["reasons"]))
+            self._fail_queued(job, render.pin_failure(stuck, episode.get("since")), rc=int(Exit.NO_LANE),
+                              kind="job.pin_refused", data={**stuck, "since": episode.get("since")})
+            self._discard_fresh_worktree(job_id)
+            self._pin_episodes.pop(job_id, None)
+            return
+        holds[job_id] = {"reason": "pin-unadmittable", "lane_id": stuck["lane_id"], "reasons": stuck["reasons"],
+                         "closures": stuck["closures"], "since": episode.get("since"), "fail_at": fail_at,
+                         **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
+
+    def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
+        """C-11.8: the job's one notice, to its caller's session (else the operator's,
+        as `ping` addresses one), unless the store says one went already and was not
+        withdrawn unread: a job that ran and came back, or outlived a restart, is not
+        told twice. A `job.pin_noticed` event names the notice (id, session, creation
+        time). The episode, as it is now."""
+        job_id = job["job_id"]
+        counts = self.store.one(
+            "SELECT sum(kind='job.pin_noticed') AS noticed, sum(kind='job.pin_notice_withdrawn') AS withdrawn "
+            "FROM events WHERE job_id=? AND kind IN ('job.pin_noticed','job.pin_notice_withdrawn')", (job_id,))
+        if not (counts and (counts["noticed"] or 0) > (counts["withdrawn"] or 0)):
+            session = (job["caller_session"] or (self.policy.get("alerts") or {}).get("operator_session")
+                       or "operator")
+            record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "session_id": session,
+                      "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None,
+                      "created_at": now}
+            with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
+                                        data=record) as tx:
+                cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                    "VALUES(?,?,'pending',?)",
+                                    (session, render.pin_notice(job_id, stuck, episode.get("fail_at")), now))
+                record["service_notice_id"] = cursor.lastrowid
+            self._notify()
+        episode = {**episode, "noticed": True}
+        self._pin_episodes[job_id] = episode
+        return episode
+
+    def _withdraw_pin_notice(self, tx, job_id: str, *, why: str) -> None:
+        """C-11.8: inside the caller's transaction, withdraw the job's pin notice if
+        nobody has been shown it yet (still `pending`): at the job's end, however it
+        ended, and when its lane can admit it again, the notice is no longer true.
+        Matched by id, session and creation time, so a row that reused its id is
+        left alone. A `job.pin_notice_withdrawn` event records it, and a notice
+        withdrawn unread does not count as the job's one (`_pin_notice`)."""
+        keys = [key for (data,) in tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='job.pin_noticed'",
+                                              (job_id,)) if (key := _pin_notice_key(data))]
+        withdrawn = [key[0] for key in keys if tx.execute(
+            "DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? AND state='pending'",
+            key).rowcount]
+        if withdrawn:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                       (utcnow(), "job.pin_notice_withdrawn", job_id, None, None,
+                        json.dumps({"service_notice_ids": withdrawn, "why": why})))
+            episode = self._pin_episodes.get(job_id)
+            if episode:
+                self._pin_episodes[job_id] = {**episode, "noticed": False}
+
+    def _unstuck_pin(self, job: dict) -> dict:
+        """C-11.8: the pinned lane could admit the job again (capacity allowing): its
+        episode ends with a `job.pin_admittable` event and the job is due now, not at
+        the failure its episode had set. The job, as the rest of the pass sees it."""
+        episode = self._pin_episodes.get(job["job_id"])
+        if not episode or not episode.get("open"):
+            return job
+        now = utcnow()
+        with self.store.transaction("job.pin_admittable", job_id=job["job_id"], lane_id=episode.get("lane_id"),
+                                    data={"lane_id": episode.get("lane_id"), "since": episode.get("since"),
+                                          "ended_at": now}) as tx:
+            tx.execute("UPDATE jobs SET next_check_at=CASE WHEN state='waiting' THEN ? ELSE next_check_at END "
+                       "WHERE job_id=? AND state IN ('queued','waiting')", (now, job["job_id"]))
+            self._withdraw_pin_notice(tx, job["job_id"], why="admittable")
+        self._pin_episodes[job["job_id"]] = {**self._pin_episodes.get(job["job_id"], episode), "open": False}
+        self.log.info("job %s: pinned lane %s can admit it again", job["job_id"], episode.get("lane_id"))
+        return {**job, "next_check_at": now} if job["state"] == "waiting" else job
 
     def _route_hold(self, job_id: str, next_check_at: str | None) -> dict:
         """C-6.11, C-6.12: what a route wait reports, also on passes that do not look at it."""
