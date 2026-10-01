@@ -759,6 +759,63 @@ def test_c18_1_the_daemon_hands_the_timer_its_probe_records(tmp_path, monkeypatc
         daemon.close()
 
 
+def test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published(tmp_path, monkeypatch):
+    """C-18.1, C-3.7: the probe leases are read inside the snapshot the rows come from. A snapshot is fixed at its
+    first read, so a commit that lands while the block is still open (a probe handing its lane to an attempt) must
+    not reach the publication. A lease read placed just below the block would find the probe's lease gone while
+    the rows still lack the attempt, and publish an occupied lane as dispatchable (the review of 87f87aef measured
+    about 70 of 300 publications under churn). This needs the daemon's own store: a store with no read connections
+    holds the store lock for the whole snapshot, so no commit can land inside it and the single-threaded tests
+    above cannot see the difference."""
+    import threading
+    from subfleet.daemon import Daemon, utcnow
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    daemon = Daemon(tmp_path / "root")
+    try:
+        for n in (1, 2, 3):
+            home = tmp_path / f"codex-{n}"
+            home.mkdir()
+            daemon.store.put_lane(Lane(f"codex-{n}", "codex", f"codex:{n}", Credential("codex", str(home), "home"),
+                                       str(home), LaneOwner.V2, False, True))
+        store, timers = daemon.store, daemon.timers
+        daemon.policy["caps"].update({"max_in_flight_unmeasured": 1})
+        assert store._max_readers > 0, "the daemon's store reads on its own connections"
+        store.acquire_lease("lane:codex-1:slot:0", "probe:handoff")
+
+        def hand_the_lane_to_an_attempt():
+            with store.transaction("test.handoff") as tx:
+                tx.execute("DELETE FROM leases WHERE holder=?", ("probe:handoff",))
+                tx.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,"
+                           "created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                           ("handoff", "handoff", "x", "dispatch", "running", "/tmp", "/tmp/p", "read-only", utcnow()))
+                tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                           ("lane:codex-1:slot:0", "handoff/a1", utcnow()))
+                tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at) "
+                           "VALUES(?,?,1,'codex-1','gpt-6-astra','running',?)", ("handoff/a1", "handoff", utcnow()))
+
+        view_rows = timers.view_rows
+
+        def view_rows_then_a_commit(*args, **kwargs):
+            rows = view_rows(*args, **kwargs)
+            worker = threading.Thread(target=hand_the_lane_to_an_attempt)   # another thread's commit, mid-snapshot
+            worker.start()
+            worker.join(10)
+            assert not worker.is_alive()
+            return rows
+
+        monkeypatch.setattr(timers, "view_rows", view_rows_then_a_commit)
+        snapshot = timers.snapshot()
+        monkeypatch.setattr(timers, "view_rows", view_rows)
+        timers.publish_status(snapshot)
+        homes = {row["lane_id"]: row for row in json.loads((daemon.root / "status.json").read_text())["codex"]["homes"]}
+        admission = {row["lane_id"]: bool(row["dispatchable"])
+                     for row in daemon._capacity_view(desktop_in_use=False)["lanes"]}
+        assert not admission["codex-1"]                      # occupied before the commit and after it
+        assert not homes["codex-1"]["dispatchable"], homes["codex-1"]
+    finally:
+        daemon.close()
+
+
 def test_c6_4_c18_1_with_no_fleet_cap_probe_leases_take_out_only_their_own_lanes(fleet):
     """C-6.4 (#72), C-18.1 under the shipped policy, which sets no max_active_attempts, five probe leases take out
     five lanes and nothing else: the sixth is published dispatchable, as admission would place work there."""
