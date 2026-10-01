@@ -570,6 +570,12 @@ class Retirement:
 
     def _final_check(self) -> None:
         manifest = self.manifest()
+        j = self.journal or {}
+        if j.get("worktree") and not j["moved"]["worktree"] and os.path.lexists(j["worktree"]):
+            # A tree that was gone came back (moved back by another tool):
+            # retired now, the job's rows would go and the tree stay with no
+            # row naming it (#81's note on #76).
+            raise Defer("changed after archive", DEFER_CHANGED_S, f"{j['worktree']} came back")
         for label, path in self.trees():
             tree = manifest["trees"].get(label)
             if tree is None:

@@ -1,5 +1,8 @@
 # Job retention by archive
 
+Revision 5, 2026-10-01: the four notes the parallel effort (#81) left on
+#76, each reproduced against real repositories and fixed (section 2;
+`docs/reports/2026-10-01-retention-81-notes.md`).
 Revision 4, 2026-09-30: as built after the final review of e50716e8
 (`~/reviews/retention-2026-09-28/final-review-opus3-a2-scratch/REVIEW.md`);
 section 2 lists what changed. Revision 3, 2026-09-29, followed the in-session
@@ -48,6 +51,15 @@ it somewhere else, or proves by its structure that the project's own tools
 make it again.
 
 ## 2. What changed
+
+### Revision 5 (#81's notes on #76)
+
+| Note | Revision 4 | Revision 5 |
+|---|---|---|
+| 1: a changed hard-linked file passed as unchanged | A file whose inode had other links when it was archived was matched without its ctime, so a same-size write whose mtime was then put back (`touch -r`, `rsync -t`, `cp -p`) was deleted: through the tree by a late writer, or through a package store's link (pnpm) that was then dropped, the new bytes existed nowhere afterwards | Every file is matched on its ctime. One that had other links and whose ctime alone moved (unlinking a sibling moves it) is read again and deleted only if its bytes still hash to the archived sha256 (`retention_fs.still_archived`), in the final check, verified deletion and the late admin check (sections 4, 9) |
+| 2: the sweep's quarantine | `disk-guard` and `worktree-archive-sweep` `git worktree move` a tree to `.disk-guard-removing.<name>`, check it there, and move it back when a check fails. With the tree away, `begin` found no registration and the job retired without its tree: moved back, it had no row naming it. Moved back between `begin` and `quarantine`, it was archived without its registration, left naming a tree that was gone (its HEAD's commit lost to a prune and gc). Moved away between `begin` and `lock`, its registration was archived and deleted: the sweep could not move back a tree whose `.git` named nothing | A tree held aside (an entry `<anything>.<name>` beside it) keeps its job (`tree away`, an hour at a time). `begin` records whether the tree was there; `quarantine` puts the job back when that changed, and the final check when a gone tree came back (section 4) |
+| 3: a tree no row names | `_workspace` allocates `worktrees/<job id>` before the reserving transaction records `jobs.worktree`; a job cancelled in between (four live jobs, 2026-09-29) retired without that tree, which stayed for ever with its registration | `owned_worktree` takes that tree as the job's while `jobs.worktree` is NULL: archived and retired with it, sized, leased, and pinned by `worktree-in-use` like a recorded one (C-13.4) |
+| 4: a workdir that is gone | With the tree and the workdir gone (62 of 371 terminal owned jobs, 2026-09-29), `find_registration` ran git in a missing directory and found nothing: the job retired with no anchor while its registration stayed behind, or, with salvage, was kept for ever as `salvage not archivable` (55 live jobs, 2026-09-30) | The registration is looked for, by its name and backlink, in the repository the workdir's nearest existing ancestor is in (or a broken linked checkout's `.git` there names), then in every repository the store's jobs are in; without one, a repository is the job's when it holds every salvage ref the job's rows name. A salvage ref whose repository is not found says so (section 4) |
 
 ### Revision 4 (final review of e50716e8)
 
@@ -175,6 +187,23 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    (`rev-parse --git-common-dir` in its workdir). Resolve every salvage ref;
    check the trees are on the state root's volume. A backlink that names
    another tree, an unresolvable salvage ref or another volume defers the job.
+   The journal records whether the tree was there (revision 5).
+   - A tree that is gone while an entry named `<anything>.<its name>` is
+     beside it is held aside by another tool: `disk-guard` and
+     `worktree-archive-sweep` `git worktree move` a tree to
+     `.disk-guard-removing.<name>`, check it there, and remove it or move it
+     back. The job is kept, an hour at a time (`tree away`). Job ids hold no
+     dots, so no job's own tree has such a name.
+   - When the workdir is gone too (a lane checkout removed, a folder
+     deleted), the registration is looked for, by its name (git names it by
+     the tree's basename, digits added when taken; `git worktree move` keeps
+     it) and its backlink, in the repository the workdir's nearest existing
+     ancestor is in, or that a broken linked checkout's `.git` file there
+     names, then in every repository the store's jobs' trees and workdirs
+     are in (listed once a pass, only when needed). Without a registration,
+     a repository is the job's only when it holds every salvage ref the
+     job's rows name; a salvage ref whose repository is not found keeps the
+     job with `repository not found (workdir … is gone)`.
    - An admin directory that is only a remnant (a real directory under
      `worktrees` holding nothing but an `index` file and a `logs` directory:
      what a temporary directory's cleaner leaves of a clone whose files it
@@ -213,7 +242,12 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    so no `git worktree prune` or `git gc` drops it while the tree is away. A
    lock someone else wrote defers the job.
 4. **Quarantine**: rename the worktree and the job directory into
-   `retention/<job>/`. No process can reach them by path afterwards.
+   `retention/<job>/`. No process can reach them by path afterwards. A tree
+   that left since `begin` read its registration (another tool's `git
+   worktree move`), or came back, puts the job back: its registration would
+   otherwise be archived and removed while the tree is elsewhere, or the tree
+   archived without it. After the lock, `git worktree move` refuses the tree
+   (the sweep never forces).
 5. **Holder check 1** (one `lsof` for the whole batch, section 8).
 6. **Archive**, within the job's time slice (default 120 s): list, with git,
    the worktree's tracked and untracked-unignored paths (again after the
@@ -228,7 +262,9 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    after it has written new progress, so every pass moves a parked job forward.
 7. **Holder check 2** (one `lsof`, also matching the archived inodes).
 8. **Final check**: walk every tree again; every entry must still be there with
-   its archived signature, and nothing may have been added.
+   its archived signature (a file that had other links and whose ctime alone
+   moved: with its archived bytes, section 9), and nothing may have been
+   added. A worktree that was gone must still be gone.
 9. **Commit**, in one transaction: write `rows.json` and read it back first;
    inside, compare the rows with it, ask every pin again (the conversation
    service's included, and salvage released only for the commits the verified
@@ -435,9 +471,16 @@ retention clamp (section 12).
 ## 9. Verified deletion
 
 Descriptor-relative and post-order. For every entry present: unlisted or
-changed (type, device, inode, size, mtime, mode, and ctime unless the inode had
-other links) goes to `retention-conflicts/<job>/<tree>/<path>` by rename (a
-writer's open file keeps its data); a listed, unchanged file is unlinked; a
+changed (type, device, inode, size, mtime, mode and ctime) goes to
+`retention-conflicts/<job>/<tree>/<path>` by rename (a writer's open file
+keeps its data); a listed, unchanged file is unlinked. A file whose inode had
+other links when it was archived, and whose ctime alone moved (unlinking a
+sibling link moves it, mid-deletion or in a deletion an interruption left half
+done), is read again and unlinked only if its bytes still hash to the archived
+sha256; one whose bytes differ, or for which the archive recorded none
+(regenerable bytecode or a cache file), goes to conflicts. Until revision 5
+such a file was matched without its ctime, so a same-size write whose mtime
+was put back was unlinked (#81's note 1). A
 directory is emptied (made owner-writable first if it was read-only) and
 removed with `rmdir`. Directories match on type, device and inode, so a
 deletion interrupted half way resumes cleanly. An entry that cannot be
@@ -454,7 +497,9 @@ job; it or an attempt holds a lease; another holder has its worktree lease; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
-inside the commit transaction); a turn job within `turn_keep_days`; an
+inside the commit transaction); a job not yet ended works in its allocated
+tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or, while that
+is NULL, the `worktrees/<job id>` admission allocated, revision 5); a turn job within `turn_keep_days`; an
 explicit reference; another job's worktree is registered in a repository
 inside its tree and that job still has rows (`nested-host: <those jobs>`: which job each
 owned worktree's gitfile names is read once per pass, and a job whose tree is
@@ -587,8 +632,12 @@ Each is tested (section 16).
   bytes, link target, hard-link grouping, mtime.
 - **I2, delete only what is archived or regenerable.** An entry is unlinked
   only if the verified manifest lists it with a signature equal to its `lstat`
-  just before the unlink; directories only with `rmdir`. Anything created or
-  changed after archiving stays, in conflicts.
+  just before the unlink, ctime included, or, for a file that had other links
+  when archived and whose ctime alone moved, with bytes that still hash to the
+  archived sha256; directories only with `rmdir`. Anything created or changed
+  after archiving stays, in conflicts (revision 5: a property over writes,
+  links, chmods and interrupted deletions checks the bytes of every entry
+  unlinked).
 - **I3, commits kept.** Every commit and staged blob the worktree reached
   before retirement, and every salvage commit, is in the bundle or reachable
   from a network remote's refs, so a fresh clone of the remote plus the bundle
@@ -626,6 +675,14 @@ Each is tested (section 16).
 - **I13, a hosted job keeps its own anchor.** A job registered in a
   repository inside another job's tree is never retired in the same pass as
   that job, nor without its registration.
+- **I14, never around a tree that is away** (revision 5). A job is not
+  retired while another tool holds its tree aside, nor when its tree left or
+  came back while it was being retired: a registration is archived and removed
+  only with its tree, and a tree is archived only with the registration that
+  names it.
+- **I15, every allocated tree has an owner** (revision 5). The tree admission
+  allocated for a job is retired with that job, recorded in `jobs.worktree` or
+  not.
 
 ## 15. Residual risks
 
@@ -633,7 +690,9 @@ Each is tested (section 16).
 descriptors, and deliberately adversarial same-user tricks):
 
 - A write in the microseconds between an entry's final signature check and its
-  unlink.
+  unlink (for a file that had other links and whose ctime alone moved: between
+  the read that hashes it and its unlink; and a tree another tool moves back
+  between the final check and the commit).
 - A writable descriptor passed over a Unix socket and held by no process at the
   moment of a listing.
 - Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
@@ -673,7 +732,22 @@ descriptors, and deliberately adversarial same-user tricks):
 - Processes of other users are invisible to a non-root `lsof`; worktrees are
   0700, so only root could hold one.
 - Extended attributes, ACLs and file flags are not in the manifest; a clone
-  keeps them, a byte copy and a restore do not.
+  keeps them, a byte copy and a restore do not. A change to them after the
+  archive moves a file's ctime: a file with one link then goes to conflicts,
+  but one that had other links and still holds its archived bytes is deleted
+  (revision 5), with the attributes the clone took.
+- A job whose tree and workdir are both gone, in a repository that no job of
+  the store is in and no ancestor of its workdir is in (revision 5): its
+  registration, if one is left, is not found. Without salvage the job retires
+  without an anchor, and the registration stays as it was, neither archived
+  nor deleted: its commits are as safe as git leaves a registration whose tree
+  is gone (`git gc` prunes it after `gc.worktreePruneExpire`, 3 months), the
+  same with the job kept. With salvage it is kept, `repository not found`.
+- A tool that moves a job's tree aside to a name other than
+  `<anything>.<name>` beside it, before `begin`, and keeps it there: the job
+  retires without the tree (its registration is not touched, since its
+  backlink names the other place), and a tree moved back later has no row.
+  Moved back before the final check, the job is kept (revision 5).
 
 **Costs, not risks:**
 
@@ -729,6 +803,7 @@ finding:
 | The re-review | `test_nothing_under_node_modules_is_dropped`, `test_a_dist_info_goes_whole_or_not_at_all`, `test_an_install_from_a_server_on_this_machine_vouches_for_nothing`, `test_a_remote_on_this_machine_is_no_network_remote`, `test_a_remote_that_holds_only_unrelated_history_counts_as_none`, `test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does` |
 | The confirmation review | `test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline`, `test_this_machine_by_any_of_its_names` |
 | The final check | `test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now`, `test_this_machine_by_its_short_name` |
+| Revision 5, #81's notes (`tests/unit/test_retention_81_notes.py`) | Note 1: `test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check, after-the-commit]`, `test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted`, `test_verified_deletion_unlinks_only_the_bytes_the_archive_holds` (Hypothesis). Note 2: `test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back`, `test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration`, `test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration`, `test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job`, `test_the_survey_keeps_a_job_whose_tree_the_sweep_holds`. Note 3: `test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it`, `test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it`. Note 4: `test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows`, `test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor`, `test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled`, `test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs`, `test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own`, `test_a_job_whose_repository_cannot_be_found_says_so`. Each fix has a mutant its tests kill (`docs/reports/2026-10-01-retention-81-notes.md`) |
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
 Not built (final review of e50716e8, N1). With no network remote, each

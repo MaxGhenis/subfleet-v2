@@ -399,6 +399,34 @@ def test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration(world, m
     assert git(wt, "rev-parse", "HEAD") == private
 
 
+def test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job(world, monkeypatch):
+    """Note 2, a tree moved where no sibling name shows it (a person's `git
+    worktree move` elsewhere) and moved back after `quarantine`, while the
+    job archived without it: the final check sees it back and keeps the job,
+    so the next pass retires it with its tree and registration."""
+    w = world
+    wt, private = _job_with_private_commit(w, "job-qm")
+    elsewhere = w.base / "elsewhere"
+    git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    original = rarch.Retirement.final_check
+
+    def back_then_check(self):
+        if elsewhere.exists():
+            git(w.repo, "worktree", "move", str(elsewhere), str(wt))
+        return original(self)
+
+    monkeypatch.setattr(rarch.Retirement, "final_check", back_then_check)
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [], first
+    assert "came back" in first["deferred"]["job-qm"]
+    assert _registration_works(wt) and w.store.get_job("job-qm") is not None
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    second = run(w, state=state, clock=clock)
+    assert second["pruned"] == ["job-qm"], second
+    assert not wt.exists() and not w.admin("job-qm").exists()
+
+
 def test_the_survey_keeps_a_job_whose_tree_the_sweep_holds(world):
     """The survey runs the pass's checks (design section 13): a tree away in
     the sweep's quarantine keeps its job there too."""
@@ -431,10 +459,14 @@ def test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it(
     """Note 3. Before, such a job retired without its tree, which stayed in
     `worktrees/` for ever with its registration (four live jobs, 2026-09-29).
     It is the job's own allocation, so it is archived and retired with it."""
+    from subfleet.retention_survey import survey
     w = world
     path = _allocated_but_unrecorded(w, "job-cut")
     (path / "touched.txt").write_text("a person looked in\n")
     before = snapshot(path)
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["worktree_dirs"]["orphans_never_touched"] == 0, report["worktree_dirs"]
+    assert report["would_retire"] == {**report["would_retire"], "jobs": 1, "with_worktree": 1}
     result = run(w)
     assert result["pruned"] == ["job-cut"], result
     assert not path.exists() and not w.admin("job-cut").exists()
@@ -512,9 +544,12 @@ def test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_ret
     tree that is gone, until a prune and a gc dropped the commit only its HEAD
     named. Found through a repository another job's workdir is in, it is
     anchored, bundled and removed, as for any job whose tree is gone."""
+    from subfleet.retention_survey import survey
     w = world
     tree, lane, private = _lane_job(w, "job-lane")
     _another_job_from(w, "job-other", w.repo)
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["would_retire"]["jobs"] == 2, report["kept"]          # job-other is pinned only in the pass
     result = run(w, referenced_job_ids=["job-other"])
     assert "job-lane" in result["pruned"], result
     assert not (w.repo / ".git" / "worktrees" / "job-lane").exists()
@@ -592,8 +627,11 @@ def test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_o
 def test_a_job_whose_repository_cannot_be_found_says_so(world):
     """Note 4, nothing names the repository any more: a job with salvage is
     kept (C-8.4), with a reason that says what is missing."""
+    from subfleet.retention_survey import survey
     w = world
     _lane_job(w, "job-lost", salvage=True)
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["kept"]["jobs_by_reason"] == {"salvage not archivable": 1}, report["kept"]
     result = run(w)
     assert result["pruned"] == [], result
     reason = result["deferred"]["job-lost"]
