@@ -109,9 +109,9 @@ def still_archived(entry: dict[str, Any], st: os.stat_result, parent_fd: int, na
     2026-10-01 such a file was matched without its ctime, so a same-size write
     whose mtime was put back passed as unchanged and was deleted (#81's note on
     #76). The bytes are compared, never bookkeeping, so it holds for a deletion
-    running and for one an interruption left half done. A file the archive
-    recorded no sha256 for (regenerable bytecode or a cache file) is judged
-    changed, and kept.
+    running and for one an interruption left half done. Multi-link regenerable
+    files carry a digest even though their bytes are omitted, so they receive
+    the same check. A file without a recorded sha256 is kept.
     """
     if unchanged(entry["sig"], st):
         return True

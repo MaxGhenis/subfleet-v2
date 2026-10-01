@@ -389,6 +389,9 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
         inferred = bool(workdir) and not os.path.isdir(workdir)
         why = "tree-gone"
         where = Path(os.path.realpath(workdir)) if reg is None and workdir and not os.path.isdir(workdir) else None
+        if lost and lost.startswith("tree away:"):
+            info["issue"] = lost
+            return
     if reg is None:
         if why not in ("no-gitfile", "admin-missing", "admin-remnant", "tree-gone"):
             info["issue"] = f"registration: {why}"
@@ -402,6 +405,8 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
         if common is None:
             if salvage_refs and not info.get("issue"):
                 info["issue"] = f"salvage not archivable: {lost}" if lost else "salvage not archivable"
+            elif lost and not info.get("issue"):
+                info["issue"] = f"repository not found: {lost}"
             return
     else:
         info["admin"] = str(reg.admin)

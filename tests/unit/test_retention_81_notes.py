@@ -155,18 +155,15 @@ def test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted(
 
 
 def _cache_linked_job(w: World, job_id: str) -> tuple[Path, Path, Path]:
-    """A job whose tree holds a uv cache (regenerable output: deleted with the
-    tree, never archived, so its manifest entries have no sha256) one of whose
-    files is hard-linked twice: into the tree's own data, which sorts, and so
-    is deleted, before `sub/` (uv's hardlink link mode, a cache inside the
-    project), and into a virtualenv outside the tree."""
+    """A bytecode file linked into the tree's own data, which sorts and is
+    deleted before `sub/`, and into another environment outside the tree."""
     wt = w.job(job_id)
-    (wt / ".gitignore").write_text(".uv-cache/\n")
-    cache = wt / "sub" / ".uv-cache"
-    (cache / "archive-v0" / "abc").mkdir(parents=True)
-    (cache / "CACHEDIR.TAG").write_bytes(rfs.CACHEDIR_SIGNATURE + b"\n")
-    cached = cache / "archive-v0" / "abc" / "mod.py"
-    cached.write_bytes(b"M" * 4096)
+    (wt / ".gitignore").write_text("__pycache__/\n")
+    cache = wt / "sub" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache.parent / "mod.py").write_text("pass\n")
+    cached = cache / "mod.cpython-312.pyc"
+    cached.write_bytes(b"\xcb\x0d\r\n" + b"M" * 4092)
     os.link(cached, wt / "a-installed.py")
     outside = w.base / "other-venv" / "mod.py"
     outside.parent.mkdir()
@@ -176,15 +173,11 @@ def _cache_linked_job(w: World, job_id: str) -> tuple[Path, Path, Path]:
 
 @pytest.mark.parametrize("when", ["only-the-sibling", "before-the-final-check", "after-the-commit"])
 def test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted(world, monkeypatch, when):
-    """Review of the note-1 fix. A regenerable file (here in a tagged uv
-    cache) is deleted without a copy, so its manifest entry has no sha256 to
-    compare its bytes with. When it had other links, a ctime moved by one of
-    them (the in-tree sibling unlinked first; another virtualenv linking the
-    same cache file) is no reason to keep it: the archive holds none of its
-    bytes whatever they are. Before this, it was put back at the final check
-    or set aside in conflicts instead of freed."""
+    """A regenerable file's digest distinguishes an unlinked sibling from a
+    write even though its bytes are never copied into the archive."""
     w = world
     wt, cached, outside = _cache_linked_job(w, "job-uv")
+    data = cached.read_bytes()
     step = "final_check" if when == "before-the-final-check" else "publish"
     original = getattr(rarch.Retirement, step)
 
@@ -204,12 +197,62 @@ def test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted(world, mon
     assert result["pruned"] == ["job-uv"] and result["reclaimed"] == ["job-uv"], result
     manifest = json.loads((w.root / "archive" / "job-uv" / "manifest.json").read_text())
     listed = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
-    assert listed["sub/.uv-cache/archive-v0/abc/mod.py"].get("regen") and \
-        "sha256" not in listed["sub/.uv-cache/archive-v0/abc/mod.py"]
-    assert listed["a-installed.py"]["sha256"] == hashlib.sha256(b"M" * 4096).hexdigest()
+    bytecode = listed["sub/__pycache__/mod.cpython-312.pyc"]
+    assert bytecode.get("regen") and "store" not in bytecode
+    assert bytecode["sha256"] == listed["a-installed.py"]["sha256"] == hashlib.sha256(data).hexdigest()
     assert not wt.exists()
     assert not (w.root / "retention-conflicts" / "job-uv").exists()
-    assert outside.read_bytes() == b"M" * 4096
+    assert outside.read_bytes() == data
+
+
+@pytest.mark.parametrize("when", ["before-the-final-check", "after-the-commit"])
+def test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted(world, monkeypatch, when):
+    """A late rewrite can invalidate a bytecode file's regenerability proof;
+    neither a missing bytecopy nor an unchanged mtime authorizes its deletion."""
+    w = world
+    wt, cached, outside = _cache_linked_job(w, "job-bytecode")
+    rel = cached.relative_to(wt)
+    changed = b"a report, not Python bytecode\n".ljust(4096, b"R")
+    step = "final_check" if when == "before-the-final-check" else "publish"
+    original = getattr(rarch.Retirement, step)
+
+    def hooked(self):
+        if step == "final_check":
+            _write_keeping_mtime(outside, changed)
+            return original(self)
+        original(self)
+        _write_keeping_mtime(outside, changed)
+
+    monkeypatch.setattr(rarch.Retirement, step, hooked)
+    result = run(w)
+    if when == "before-the-final-check":
+        assert result["pruned"] == [] and "changed after archive" in result["deferred"]["job-bytecode"], result
+        kept = wt
+    else:
+        assert result["pruned"] == ["job-bytecode"], result
+        kept = w.root / "retention-conflicts" / "job-bytecode" / "worktree"
+    assert (kept / rel).read_bytes() == (kept / "a-installed.py").read_bytes() == changed
+
+
+def test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept(world, monkeypatch):
+    """A digest must describe the version whose bytecode proof was checked,
+    rather than vouch for invalid replacement bytes read under that proof."""
+    w = world
+    wt, cached, outside = _cache_linked_job(w, "job-proof")
+    (wt / "a-installed.py").unlink()      # only the omitted link and an external link remain
+    rel = cached.relative_to(wt)
+    changed = b"a report, not Python bytecode\n".ljust(4096, b"R")
+    original = rarch._Builder._digest
+
+    def rewrite_then_digest(self, entry, st_, parent, name):
+        if entry["p"] == str(rel):
+            _write_keeping_mtime(outside, changed)
+        return original(self, entry, st_, parent, name)
+
+    monkeypatch.setattr(rarch._Builder, "_digest", rewrite_then_digest)
+    result = run(w)
+    assert result["pruned"] == [] and "changed before it was read" in result["deferred"]["job-proof"], result
+    assert cached.read_bytes() == changed and w.store.get_job("job-proof") is not None
 
 
 class _Stop(Exception):
@@ -466,6 +509,9 @@ def test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job(world,
     wt, private = _job_with_private_commit(w, "job-qm")
     elsewhere = w.base / "elsewhere"
     git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    # Exercise the final window even when the initial moved-tree lookup did
+    # not observe the checkout (e.g. an unavailable volume).
+    monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
     original = rarch.Retirement.final_check
 
     def back_then_check(self):
@@ -761,6 +807,7 @@ def test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in(world, mo
     wt, private = _job_with_private_commit(w, "job-t")
     elsewhere = w.base / "elsewhere"
     git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
     original_save = rarch.Retirement.save
 
     def save(self, **changes):
@@ -794,3 +841,108 @@ def test_a_job_whose_repository_cannot_be_found_says_so(world):
     assert result["pruned"] == [], result
     reason = result["deferred"]["job-lost"]
     assert "salvage not archivable" in reason and "repository not found" in reason
+
+
+@pytest.mark.parametrize("workdir_gone", [False, True])
+@pytest.mark.parametrize("recorded", [False, True])
+def test_a_registered_tree_moved_elsewhere_keeps_its_job(world, workdir_gone, recorded):
+    """A registration id survives a move outside the sweep's sibling path.
+    Keep its rows while the checkout exists, including a missing workdir;
+    after it is moved back, archive the private HEAD and untracked work.
+    """
+    from subfleet.retention_survey import survey
+    w = world
+    wt, private = _job_with_private_commit(w, "job-moved")
+    elsewhere = w.base / "some-other-directory"
+    git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    if not recorded:
+        w.store.connection.execute("UPDATE jobs SET worktree=NULL WHERE job_id=?", ("job-moved",))
+    if workdir_gone:
+        w.store.connection.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (str(w.base / "gone-lane"), "job-moved"))
+        _another_job_from(w, "job-other", w.repo)
+    pins = ["job-other"] if workdir_gone else []
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert any(reason.startswith("tree away") for reason in report["kept"]["jobs_by_reason"]), report
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, referenced_job_ids=pins, state=state, clock=clock)
+    assert "job-moved" not in first["pruned"] and "registered at" in first["deferred"]["job-moved"], first
+    assert w.store.get_job("job-moved") is not None and _registration_works(elsewhere)
+    git(w.repo, "worktree", "move", str(elsewhere), str(wt))
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    second = run(w, referenced_job_ids=pins, state=state, clock=clock)
+    assert second["pruned"] == ["job-moved"], second
+    assert _in_bundle(w, "job-moved", private)
+
+
+def test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job(world):
+    w = world
+    wt = _allocated_but_unrecorded(w, "job-unrecorded-away")
+    away = _sweep_away(w, wt)
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [] and "tree away" in first["deferred"]["job-unrecorded-away"], first
+    assert _sweep_back(w, away, wt) and _registration_works(wt)
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    second = run(w, state=state, clock=clock)
+    assert second["pruned"] == ["job-unrecorded-away"], second
+    assert not wt.exists() and not w.admin("job-unrecorded-away").exists()
+
+
+def test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled(world):
+    """An undiscovered registration can hold a private HEAD without salvage.
+    Keeping the rows allows a later pass to discover and bundle it, rather
+    than leaving that HEAD to git's eventual prune/gc without an archive.
+    """
+    from subfleet.retention_survey import survey
+    w = world
+    _, _, private = _lane_job(w, "job-undiscovered")
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["would_retire"]["jobs"] == 0, report
+    assert report["kept"]["jobs_by_reason"] == {"repository not found": 1}, report
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [] and "repository not found" in first["deferred"]["job-undiscovered"], first
+    assert w.store.get_job("job-undiscovered") is not None and w.admin("job-undiscovered").is_dir()
+    _another_job_from(w, "job-other", w.repo)
+    clock.advance(rarch.DEFER_PERMANENT_S + 1)
+    second = run(w, referenced_job_ids=["job-other"], state=state, clock=clock)
+    assert second["pruned"] == ["job-undiscovered"], second
+    assert _in_bundle(w, "job-undiscovered", private)
+    assert not w.admin("job-undiscovered").exists()
+
+
+def test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration(world):
+    w = world
+    wt = _allocated_but_unrecorded(w, "job-unrecorded-gone")
+    (wt / "f.py").write_text("private work\n")
+    git(wt, "add", "f.py")
+    git(wt, "commit", "--quiet", "-m", "private")
+    private = git(wt, "rev-parse", "HEAD")
+    shutil.rmtree(wt)
+    result = run(w)
+    assert result["pruned"] == ["job-unrecorded-gone"], result
+    assert _in_bundle(w, "job-unrecorded-gone", private)
+    assert not w.admin("job-unrecorded-gone").exists()
+
+
+def test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job(world, monkeypatch):
+    w = world
+    wt = _allocated_but_unrecorded(w, "job-unrecorded-return")
+    elsewhere = w.base / "elsewhere"
+    git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    original = rarch.source_of_gone_tree
+
+    def source(*args, **kwargs):
+        if elsewhere.exists():
+            git(w.repo, "worktree", "move", str(elsewhere), str(wt))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(rarch, "source_of_gone_tree", source)
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [] and "came back" in first["deferred"]["job-unrecorded-return"], first
+    assert _registration_works(wt) and w.store.get_job("job-unrecorded-return") is not None
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    second = run(w, state=state, clock=clock)
+    assert second["pruned"] == ["job-unrecorded-return"], second
+    assert not wt.exists() and not w.admin("job-unrecorded-return").exists()
