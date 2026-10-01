@@ -115,6 +115,9 @@ class SubmitArgs:
     review_root: str | None = None
     round_lease: str | None = None
     unmeasured_reserve_reason: str | None = None
+    # C-12.9, d714: the MCP servers a writable Claude job starts, by name; none
+    # unless named. The daemon finds their entries itself; a client sends names only.
+    mcp_servers: list[str] = field(default_factory=list)
     # C-11.2, C-17.2: the provider the pin's flag names, `claude` for `-a` and
     # `codex` for `-H`. It narrows a name both providers answer to; a lane id
     # says its own provider. Not stored and not part of the request digest.

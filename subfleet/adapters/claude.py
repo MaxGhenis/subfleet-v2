@@ -115,6 +115,10 @@ ADMISSION_WINDOW = "admission"
 READ_ONLY_TOOLS_BASE = "Read,Glob,Grep"
 READ_ONLY_TOOLS_WEB = "Read,Glob,Grep,WebSearch,WebFetch"
 EMPTY_MCP_CONFIG = '{"mcpServers":{}}'
+#: C-12.9: the servers a writable attempt starts, written in its attempt directory.
+ATTEMPT_MCP_CONFIG = "mcp-config.json"
+#: The most of a job's MCP config a launch reads.
+MCP_CONFIG_MAX_BYTES = 4 << 20
 
 #: Removed from the child's environment: a lane bills the subscription through the
 #: pinned OAuth token, never the API meter (C-12.4).
@@ -1199,18 +1203,23 @@ class ClaudeAdapter(Adapter):
     @staticmethod
     def permission_args(
         sandbox: Sandbox | str, *, isolated: bool = False, review_root: str | None = None,
+        mcp_config: str = EMPTY_MCP_CONFIG,
     ) -> tuple[str, ...]:
-        """`PERM_ARGS` exactly as v1 `bin/subfleet-claude` builds them, in v1's order.
+        """`PERM_ARGS` as v1 `bin/subfleet-claude` builds them, in v1's order, with
+        one documented change.
 
-        `workspace-write` takes the bypass flag. `read-only` fails closed even when
-        the operator's own settings default to `bypassPermissions`: plan mode plus a
-        named tool surface, with settings sources, Chrome, MCP and slash commands all
-        removed so nothing settings-driven can reintroduce a writing tool. An isolated
-        review drops web access and gains the review root.
+        `workspace-write` takes the bypass flag and, unlike v1 (C-12.9, d714),
+        `--strict-mcp-config --mcp-config <mcp_config>`: no MCP server from any
+        settings file, only the ones `mcp_config` names, and it names none unless
+        the job did. `read-only` fails closed even when the operator's own settings
+        default to `bypassPermissions`: plan mode plus a named tool surface, with
+        settings sources, Chrome, MCP and slash commands all removed so nothing
+        settings-driven can reintroduce a writing tool; `mcp_config` is never read
+        there. An isolated review drops web access and gains the review root.
         """
         value = sandbox.value if isinstance(sandbox, Sandbox) else str(sandbox)
         if value == Sandbox.WORKSPACE_WRITE.value:
-            return ("--dangerously-skip-permissions",)
+            return ("--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config)
         tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
         args = [
             "--permission-mode", "plan",
@@ -1226,6 +1235,36 @@ class ClaudeAdapter(Adapter):
         if isolated and review_root:
             args += ["--add-dir", review_root]
         return tuple(args)
+
+    @staticmethod
+    def mcp_config_arg(job: JobSpec, sandbox: str, attempt_dir: Path) -> str:
+        """C-12.9: the `--mcp-config` value of this launch.
+
+        No servers unless the job is writable and named some. Then exactly those,
+        taken from the copy the daemon kept with the job (`job.mcp_config`) and
+        written to this attempt's own file: a name the copy lacks fails the launch,
+        and an entry the job did not name never reaches it.
+        """
+        names = tuple(job.mcp_servers or ())
+        if sandbox != Sandbox.WORKSPACE_WRITE.value or not names:
+            return EMPTY_MCP_CONFIG
+        try:
+            if not job.mcp_config:
+                raise ValueError("the job records no MCP config")
+            document = json.loads(read_regular(job.mcp_config, MCP_CONFIG_MAX_BYTES))
+            servers = document["mcpServers"]
+            missing = [name for name in names if not isinstance(servers.get(name), dict)]
+            if missing:
+                raise ValueError(f"it has no entry for {', '.join(missing)}")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise AdapterError(
+                f"the job's MCP config cannot give the servers it names ({', '.join(names)}): {exc}",
+                code=7, fix="submit the job again with --mcp naming servers its workdir offers",
+            ) from None
+        path = Path(attempt_dir) / ATTEMPT_MCP_CONFIG
+        _atomic_write_text(path, json.dumps({"mcpServers": {name: servers[name] for name in names}},
+                                            sort_keys=True) + "\n")
+        return str(path)
 
     def expected_transcript_path(
         self, workdir: str | Path, session_id: str, credential_env: dict[str, str],
@@ -1317,7 +1356,8 @@ class ClaudeAdapter(Adapter):
             from .isolation import validate_isolated_review
             validate_isolated_review(sandbox, job.review_root, {**os.environ, **credential_env})
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
-                                         review_root=job.review_root))
+                                         review_root=job.review_root,
+                                         mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 
@@ -1364,7 +1404,8 @@ class ClaudeAdapter(Adapter):
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
                                fix="submit a fresh isolated review job")
-        argv += list(self.permission_args(sandbox))
+        argv += list(self.permission_args(
+            sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 
@@ -2005,6 +2046,7 @@ def reconstruct_v1_argv(
     claude_bin: str, model: str, session_id: str, sandbox: str, *,
     isolated: bool = False, review_root: str | None = None,
     output_format: str = "stream-json", verbose: bool = True,
+    mcp_config: str = EMPTY_MCP_CONFIG,
 ) -> tuple[str, ...]:
     """v1 `bin/subfleet-claude`'s launch line, rebuilt here from its own source.
 
@@ -2013,17 +2055,20 @@ def reconstruct_v1_argv(
         "$CLAUDE_BIN" -p --model "$MODEL" --session-id "$SID" \\
             --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
 
-    v2 differs in exactly two documented places: the output format is `stream-json`
-    (C-12.4, so the `rate_limit_event` is readable) and `--verbose` accompanies it.
-    `PERM_ARGS` is reproduced verbatim, in v1's order. The parity test compares this
-    against `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
+    v2 differs in exactly three documented places: the output format is `stream-json`
+    (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it, and
+    a writable launch adds `--strict-mcp-config --mcp-config <config>` after v1's
+    bypass flag (C-12.9, d714), so it starts only the MCP servers its job named.
+    Read-only `PERM_ARGS` is reproduced verbatim, in v1's order. The parity test
+    compares this against `ClaudeAdapter.build_launch`, so a drift in either fails
+    loudly.
     """
     argv = [claude_bin, "-p", "--model", model, "--session-id", session_id,
             "--output-format", output_format]
     if verbose:
         argv.append("--verbose")
     if sandbox == Sandbox.WORKSPACE_WRITE.value:
-        argv.append("--dangerously-skip-permissions")
+        argv += ["--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config]
     else:
         tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
         argv += [

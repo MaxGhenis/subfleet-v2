@@ -601,6 +601,19 @@ def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
         for key in MANAGED:
             if key in os.environ:
                 return None, fail(Exit.REFUSED, f"isolated review inherits {key} (C-23.3)", "review the managed policy before retrying")
+    mcp = getattr(args, "mcp", None) or []
+    if mcp:
+        from .adapters.claude_mcp import validate_names
+        try:
+            validate_names(mcp)
+        except ValueError as exc:
+            return None, fail(Exit.INVALID_INPUT, f"run --mcp: {exc}")
+        if args.s == "read-only" or getattr(args, "isolated_review", False):
+            return None, fail(Exit.REFUSED, "run --mcp: a read-only job starts no MCP servers (C-12.9)",
+                              "pass -s workspace-write for a job that needs them, or drop --mcp")
+        if args.H:
+            return None, fail(Exit.REFUSED, "run --mcp: only a Claude launch starts MCP servers, and -H pins "
+                                            "a Codex lane (C-12.9)", "pin a Claude lane with -a, or drop --mcp")
     workdir = Path(args.C).expanduser()
     try:
         resolved = workdir.resolve()
@@ -682,6 +695,7 @@ def _prepare_submit(args: argparse.Namespace,
         dry_run=bool(args.dry_run or args.why),
         isolated_review=bool(getattr(args, "isolated_review", False)),
         review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
+        mcp_servers=list(getattr(args, "mcp", None) or []),
         batch=batch,
     ), None
 
@@ -853,6 +867,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
+    "mcp": ("mcp", "list"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -2734,6 +2749,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="with --json, exit 75 when the job is still queued")
     p_run.add_argument("--no-preamble", action="store_true",
                        help="do not prepend the workspace-write template (C-6.7)")
+    p_run.add_argument("--mcp", action="append", default=[], metavar="NAME",
+                       help="start this MCP server in a writable Claude job (repeatable); such a job "
+                            "starts none otherwise, and a read-only job never does (C-12.9)")
     p_run.add_argument("--dry-run", action="store_true",
                        help="evaluate routing and print the decision; dispatch nothing")
     p_run.add_argument("--why", action="store_true",
