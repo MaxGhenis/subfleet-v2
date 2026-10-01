@@ -675,9 +675,10 @@ def test_kill_reaches_the_kill_op_with_its_resolutions(daemon, capsys):
                      "wait": lambda request: terminal("cancelled")})
     assert run_cli(["kill", JOB]) == 0
     assert server.args("kill") == {"job_id": JOB, "confirm_dead": False,
-                                   "force_release": False, "operator_note": None}
+                                   "force_release": False, "operator_note": None, "issued_at": None}
     assert run_cli(["kill", JOB, "--confirm-dead", "--note", "checked"]) == 0
     assert server.args("kill")["confirm_dead"] is True
+    assert server.args("kill")["issued_at"], "C-5.7a: a resolution says when it was issued"
     assert server.args("kill")["operator_note"] == "checked"
     assert run_cli(["kill", JOB, "--force-release"]) == 0
     assert server.args("kill")["force_release"] is True

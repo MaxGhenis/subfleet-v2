@@ -164,11 +164,83 @@ _HOLD_TEXT = {
     "probe-pending": "its lane is being probed before the job may start on it",
     "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",
     "approval": "waiting for an operator's approval",
-    "uncertain": "a probe was quarantined; an operator must resolve it",
+    "uncertain": "a probe was quarantined; it is released when a census finds it contained, "
+                 "or when an operator resolves it (C-5.7a)",
     "workspace": "its workspace could not be prepared; it is retried with backoff (C-6.8)",
     "route": "its route could not be evaluated ({error_type}: {error}); it is rechecked with backoff "
              "and holds no other job back (C-6.12)",
 }
+
+
+def operator_looks(rows) -> list[dict[str, Any]]:
+    """C-5.7a: a probe's latest operator looks, newest first, as `--wait` reads
+    them: each look's event id and the ids of the requests it acted on."""
+    looks = []
+    for row in rows:
+        try:
+            said = json.loads(row["data_json"])
+            ids = [entry.get("id") for entry in said.get("requests") or () if isinstance(entry, dict)]
+        except Exception:                   # noqa: BLE001 - a look that cannot be read names no request
+            ids = []
+        looks.append({"event_id": row["event_id"], "at": row["ts"], "ids": ids})
+    return looks
+
+
+def probe_resolutions(lane_id: str, job_id: str | None) -> list[str]:
+    """C-5.7a: the two commands that resolve a quarantined probe, as an operator types them.
+
+    An admission probe is named by its job; a timer's or a re-enrolment's turn,
+    which has none, by the lane slot it holds (`lanes release-probe` also takes
+    an admission probe's lane, or any probe's holder).
+    """
+    target = f"kill {job_id}" if job_id else f"lanes release-probe {lane_id}"
+    return [f"subfleet {target} --confirm-dead", f"subfleet {target} --force-release"]
+
+
+def probe_lines(probe: Mapping[str, Any]) -> list[str]:
+    """C-5.7a: one probe that holds a lane slot, and for a quarantined one what an operator can do.
+
+    `probe` is a row of the daemon's `_probe_rows` (in `why`, `runs show`,
+    `status` and `lanes`): a quarantined probe keeps its slot until a census
+    comes back verified empty or an operator resolves it.
+    """
+    lanes = ", ".join(probe.get("lane_ids") or [probe.get("lane_id") or "?"])
+    owner = f"job {probe['job_id']}" if probe.get("job_id") else f"{probe.get('kind') or 'unknown'} turn"
+    state = probe.get("state") or "unrecorded"
+    head = f"probe {probe.get('holder')} ({owner}) holds {lanes}: {state}"
+    if state != "quarantined":
+        return [head]
+    found = []
+    if probe.get("live_pids"):
+        found.append("live pids " + ", ".join(str(pid) for pid in probe["live_pids"]))
+    if probe.get("unverifiable"):
+        found.append("census unverifiable" + (f" ({'; '.join(probe.get('errors') or ())})"
+                                             if probe.get("errors") else ""))
+    head += " since " + str(probe.get("recorded_at") or "?") + (f"; {'; '.join(found)}" if found else "")
+    if probe.get("next_look_in_s") is not None:
+        head += f"; next look in {probe['next_look_in_s']:g} s"
+    lines = [head]
+    look = probe.get("operator_look")
+    if isinstance(look, Mapping):
+        evidence = look.get("containment") if isinstance(look.get("containment"), Mapping) else {}
+        seen = ", ".join(str(pid) for pid in evidence.get("live_pids") or ()) or "none"
+        lines.append(f"  operator's last --confirm-dead at {look.get('at')}: still quarantined "
+                     f"(live pids {seen}" + ("; census unverifiable" if evidence.get("unverifiable") else "") + ")")
+    requested = probe.get("requested")
+    if isinstance(requested, Mapping):
+        lines.append(f"  --{requested.get('mode')} requested at {requested.get('at')}; "
+                     f"the next admission pass acts on it")
+    resolve = list(probe.get("resolve") or ())
+    if len(resolve) == 2:
+        lines.append(f"  after checking those processes are gone: {resolve[0]} "
+                     f"(re-runs the census; releases only on verified empty)")
+        lines.append(f"  or override: {resolve[1]} (records the override; releases without containment)")
+    if probe.get("unverifiable"):
+        # A census that cannot complete now will not verify the next probe on
+        # this lane either; a hold (C-9.6) closes the lane to admission and timers.
+        lines.append(f"  while the census cannot complete, a new probe there can be quarantined the same way: "
+                     f"subfleet lanes hold {probe.get('lane_id')} --until <time> keeps work off the lane")
+    return lines
 
 
 def why_queue(standing: Mapping[str, Any]) -> list[str]:
@@ -181,6 +253,9 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     lines = [f"Job: {standing.get('job_id')} is {state}"
              + (f" ({standing['wait_reason']})" if standing.get("wait_reason") else "")]
     hold, recheck = standing.get("hold"), standing.get("recheck")
+    for probe in standing.get("probes") or ():
+        # C-5.7a: a finished job's quarantined probe still holds its lane slot.
+        lines.extend(probe_lines(probe))
     if state not in ("queued", "waiting"):
         return lines
     if hold:
@@ -197,6 +272,12 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     if recheck:
         lines.append(f"Rechecks: same verdict {recheck['rechecks'] + 1} times since {recheck['since']}, "
                      f"last {recheck['checked_at']}")
+    fleet = list(standing.get("fleet_probes") or ())
+    if fleet:
+        # C-5.7a: each probe lease counts toward max_active_attempts (C-11.4).
+        lines.append(f"Probes hold {sum(len(probe.get('lane_ids') or [1]) for probe in fleet)} lane slot(s), "
+                     f"and each counts toward max_active_attempts:")
+        lines.extend("  " + line for probe in fleet for line in probe_lines(probe))
     if standing.get("next_check_at"):
         lines.append(f"Next check: {standing['next_check_at']}")
     if standing.get("decision_source") == "evaluated-now":

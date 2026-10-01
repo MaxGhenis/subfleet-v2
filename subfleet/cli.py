@@ -8,7 +8,7 @@
   subfleet wait <id>...          long-poll until terminal; rc = the job's rc
   subfleet kill <id>             cancel a job (offline: signal the recorded pgid)
   subfleet resume <id> [PROMPT]  continue a job on its own lane (alias: resume-codex)
-  subfleet lanes [list|probe|enroll|hold|release|transfer]
+  subfleet lanes [list|probe|enroll|hold|release|release-probe|transfer]
   subfleet why <id> | --task T --tier X
   subfleet daemon [start|stop|status|logs|install]
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
@@ -38,7 +38,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, policy, protocol
+from . import capacity, descriptors, ids, policy, protocol, render
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -73,7 +73,7 @@ TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
                 "authored-prose", "strategy", "adjudication")
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
 SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
-LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
+LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "release-probe", "transfer")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 WAIT_BACKOFF_MAX_S = 5.0        # cap on the pause after an immediate long poll
@@ -353,6 +353,14 @@ def format_status(data: dict[str, Any]) -> str:
             lines.append(f"  {closure.get('lane_id')} {closure.get('scope')} "
                          f"until {closure.get('until_at')} "
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
+    probes = rows_of(data.get("probes"))
+    if probes:
+        # C-5.7a: a probe holds its lane slot until it is contained, or until an
+        # operator resolves a quarantined one; this is where one is named.
+        lines.append("")
+        lines.append("probes")
+        for probe in probes:
+            lines.extend("  " + line for line in render.probe_lines(probe))
     lines.append("")
     admission = data.get("admission")
     if isinstance(admission, dict) and admission.get("idle_for_s") is not None:
@@ -1474,6 +1482,11 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
     # are v2's single-artifact forms.
     emit(job)
+    for probe in rows_of(job.get("probes")):
+        # C-5.7a, C-17.4: the object above carries it; the prose goes to stderr.
+        if probe.get("state") == "quarantined":
+            for line in render.probe_lines(probe):
+                note(line)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
     if path and Path(path).is_file():
@@ -1574,6 +1587,12 @@ def cmd_kill(args: argparse.Namespace) -> int:
                     "kill: --confirm-dead and --force-release are exclusive")
     worst = int(Exit.OK)
     killed: list[str] = []
+    resolving = bool(args.confirm_dead or args.force_release)
+    # C-5.7a: one instant for the whole command, sent again unchanged with a
+    # request whose answer was lost, so a resolution reaches only the probes that
+    # existed when the operator issued it.
+    issued_at = cli_utcnow()
+    probe_waits: list[tuple[str, dict[str, Any]]] = []
     for job_id in args.ids:
         try:
             client = _client(args)
@@ -1584,7 +1603,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
             result = client.call_settled("kill", _asdict(protocol.KillArgs(
                 job_id=job_id, confirm_dead=bool(args.confirm_dead),
                 force_release=bool(args.force_release),
-                operator_note=args.note)), on_lost=_asking_again(
+                operator_note=args.note, issued_at=issued_at if resolving else None)), on_lost=_asking_again(
                     "kill", f"sending the kill of {job_id} again, which is safe to repeat "
                             f"(C-7.1)"))
             if result.get("requeried") and result.get("status") in ("already finished",
@@ -1592,7 +1611,22 @@ def cmd_kill(args: argparse.Namespace) -> int:
                 # The first, unanswered kill may be what finished it (or
                 # resolved its quarantine): say what the job became.
                 result = {**result, **_finished_as(client, job_id)}
-            killed.append(job_id)
+            if resolving and "probes" not in result:
+                # C-16.2: a daemon older than C-5.7a answers from the job's
+                # attempts alone and never looks at its probes.
+                if result.get("status") in ("already finished", "not quarantined"):
+                    worst = max(worst, fail(Exit.DAEMON_UNAVAILABLE,
+                                            f"kill: {job_id}: the daemon did not look at the job's probes; it is "
+                                            f"older than this CLI", "subfleet daemon stop && subfleet daemon start"))
+                    continue
+                note(f"{PROG} kill: {job_id}: the daemon is older than this CLI and resolved the job's attempt "
+                     f"only; a quarantined probe of the job is not reached until it is restarted")
+            if resolving and rows_of(result.get("probes")):
+                # `--wait` waits for these, not for the job: a job held by its
+                # probe is not finished, and may run for hours once released.
+                probe_waits.append((job_id, result))
+            else:
+                killed.append(job_id)
             if args.json:
                 emit({"job_id": job_id, **result})
             else:
@@ -1622,8 +1656,11 @@ def cmd_kill(args: argparse.Namespace) -> int:
                 note(f"{PROG} kill: {job_id}: outcome unknown: the {resolution} resolution may "
                      f"have been requested, and no answer says whether it was "
                      f"({'; then '.join(exc.reasons)})")
-                note(f"  {PROG} runs show {shlex.quote(job_id)} shows whether the attempt is "
-                     f"still quarantined; running {again} again is safe (C-16.3)")
+                # C-5.7a: asked again, it is a new command with a new `issued_at`, so
+                # it would reach a probe the job started since: look first.
+                note(f"  {PROG} runs show {shlex.quote(job_id)} shows whether the attempt, or a "
+                     f"probe of the job, is still quarantined, and which; if one you checked is, "
+                     f"running {again} again is safe (C-16.3)")
             else:
                 note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
                      f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
@@ -1661,8 +1698,25 @@ def cmd_kill(args: argparse.Namespace) -> int:
             worst = max(worst, _daemon_error(exc))
         except ProtocolError as exc:
             worst = max(worst, fail(exc.code, str(exc)))
+    if args.wait and probe_waits:
+        worst = max(worst, _wait_for_probes(args, probe_waits))
     if args.wait and killed:
         return max(worst, wait_jobs(args, killed, timeout=args.timeout))
+    return worst
+
+
+def _wait_for_probes(args: argparse.Namespace, waits: list[tuple[str, dict[str, Any]]]) -> int:
+    """C-5.7a `kill --confirm-dead|--force-release --wait`: until each probe is acted on."""
+    try:
+        client = _client(args)
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    worst = int(Exit.OK)
+    for job_id, result in waits:
+        for probe in rows_of(result.get("probes")):
+            answer = {**probe, "since_event": result.get("since_event")}
+            outcome = _await_probe_resolution(client, answer, args.timeout)
+            worst = max(worst, _report_probe_outcome({**answer, **outcome}, args, prefix=f"{job_id} "))
     return worst
 
 
@@ -1795,6 +1849,10 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
             f"{lane.get('plan') or '-'}")
+    probes = rows_of(result.get("probes"))
+    if probes:
+        lines.append("probes")                                # C-5.7a
+        lines.extend("  " + line for line in (text for probe in probes for text in render.probe_lines(probe)))
     return "\n".join(lines)
 
 
@@ -1819,8 +1877,163 @@ def _format_transfer(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def cli_utcnow() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _probe_target(answer: dict[str, Any]) -> str:
+    lanes = ", ".join(answer.get("lane_ids") or [str(answer.get("lane_id") or "?")])
+    return f"{answer.get('holder')} on {lanes}"
+
+
+def _answered(row: dict[str, Any], since: int, mine: str | None) -> bool:
+    """C-5.7a: whether an operator look recorded after `since` acted on request
+    `mine`. It is found among the probe's recent looks (`operator_looks`), so a
+    look for a later request that came after it does not hide it. A daemon
+    that lists no recent looks is read by its newest (`operator_look`), and one
+    with no request ids at all by any look after `since`, as before ids."""
+    looks = row.get("operator_looks")
+    if isinstance(looks, list):
+        return any(isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since
+                   and (not mine or mine in (look.get("ids") or ())) for look in looks)
+    look = row.get("operator_look")
+    return isinstance(look, dict) and int(as_number(look.get("event_id")) or 0) > since and (
+        not mine or not isinstance(look.get("requests"), list)
+        or any(isinstance(entry, dict) and entry.get("id") == mine for entry in look["requests"]))
+
+
+def _await_probe_resolution(client: Client, answer: dict[str, Any],
+                            timeout: float | None) -> dict[str, Any]:
+    """C-5.7a `lanes release-probe --wait`: until the admission worker has acted.
+
+    The daemon acts on the request at its next admission pass, never in the
+    request handler (C-16.4), so the answer is looked for in `lanes`: the
+    holder no longer holds a slot (released), or an operator look recorded
+    after the request that acted on it (`probe.still_live`, still quarantined).
+    Another operator's look, taken while this request waited, is not this
+    command's answer: a look answers only if its `requests` name this request's
+    id (a daemon that predates request ids names none, and any newer look is
+    taken, as before).
+    """
+    holder, since = answer.get("holder"), int(as_number(answer.get("since_event")) or 0)
+    mine = answer.get("request_id")
+    deadline = time.monotonic() + (30.0 if timeout is None else timeout)
+    while True:
+        try:
+            listing = client.call("lanes", _asdict(protocol.LanesArgs()))
+        except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+            return {"outcome": "unknown", "error": str(exc)}
+        rows = [row for row in rows_of(listing.get("probes")) if row.get("holder") == holder]
+        if not rows:
+            return {"outcome": "released"}
+        if _answered(rows[0], since, mine):
+            return {"outcome": "still quarantined", "probe": rows[0]}
+        if time.monotonic() >= deadline:
+            return {"outcome": "pending", "probe": rows[0]}
+        time.sleep(.25)
+
+
+def _report_probe_outcome(answer: dict[str, Any], args: argparse.Namespace, *, prefix: str = "") -> int:
+    """Say what came of a waited-for probe resolution; its exit code (C-17.3)."""
+    outcome = answer.get("outcome")
+    mode = "--force-release" if args.force_release else "--confirm-dead"
+    if args.json:
+        emit({"release_probe": answer} if not prefix else {"job_id": prefix.strip(), "probe": answer})
+    elif outcome == "released":
+        # Released by this request, by another, or by the probe's own look: the
+        # slot is free either way, and which one is in the events, not here.
+        out(f"{prefix}{_probe_target(answer)}: released (it no longer holds a lane slot)")
+    elif outcome == "still quarantined":
+        out(f"{prefix}{_probe_target(answer)}: still quarantined")
+        for line in render.probe_lines(answer.get("probe") or {}):
+            note("  " + line)
+    else:
+        out(f"{prefix}{_probe_target(answer)}: {mode} requested")
+        if outcome == "pending":
+            note(f"  not acted on within {args.timeout if args.timeout is not None else 30:g} s: the next "
+                 f"admission pass acts on it, and a daemon restart forgets it; `subfleet status` shows "
+                 f"whether it is still pending")
+        elif outcome == "unknown":
+            note(f"  could not read the outcome ({answer.get('error')})")
+    return int({"still quarantined": Exit.OPERATIONAL, "pending": Exit.WAIT_TIMEOUT,
+                "unknown": Exit.OPERATIONAL}.get(outcome, Exit.OK))
+
+
+def cmd_lanes_release_probe(args: argparse.Namespace) -> int:
+    """`lanes release-probe <lane|holder>` (C-5.7a): resolve a quarantined probe.
+
+    `--confirm-dead` (the default) re-runs C-5.5 and releases only on verified
+    empty; `--force-release` records the operator's override and releases
+    without containment. Only the daemon does either (C-3.4), so there is no
+    offline form.
+    """
+    mode = "--force-release" if args.force_release else "--confirm-dead"
+    request = protocol.LanesArgs(action="release-probe", lane_id=args.lane,
+                                 force_release=bool(args.force_release), operator_note=args.note,
+                                 issued_at=cli_utcnow())
+    again = (f"{PROG} lanes release-probe {shlex.quote(args.lane)} {mode}"
+             + (f" --note {shlex.quote(args.note)}" if args.note else ""))
+    try:
+        client = _client(args)
+        # C-16.3: a lost answer is asked again. A second --confirm-dead is one
+        # more census; a request the first one settled finds no probe to resolve.
+        result = client.call_settled("lanes", _asdict(request), on_lost=_asking_again(
+            "lanes release-probe", f"sending the {mode} request for {args.lane} again, which is safe to repeat"))
+    except OutcomeUnknown as exc:
+        if args.json:
+            emit({"target": args.lane, "outcome": "unknown", "error": str(exc)})
+        note(f"{PROG} lanes release-probe: {args.lane}: outcome unknown: the {mode} request may have been "
+             f"recorded, and no answer says whether it was ({'; then '.join(exc.reasons)})")
+        # C-5.7a: asked again, it is a new command with a new `issued_at`: look first.
+        note(f"  {PROG} status lists the probes that still hold a lane slot, and which; if the one you "
+             f"checked still does, running {again} again is safe (C-16.3)")
+        return int(Exit.OPERATIONAL)
+    except DaemonUnavailable as exc:
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    f"lanes release-probe: {mode} releases a lease and records an event, which only the "
+                    f"daemon does ({exc})", START_DAEMON)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    answer = result.get("release_probe")
+    if not isinstance(answer, dict):
+        # C-16.2: an older daemon ignores the action and lists the lanes.
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not resolve the probe; it is older than this CLI",
+                    "subfleet daemon stop && subfleet daemon start")
+    requested = answer.get("status") == "resolution requested"
+    if args.wait and requested:
+        answer = {**answer, **_await_probe_resolution(client, answer, args.timeout)}
+    if args.json:
+        emit({**result, "release_probe": answer})
+        return int({"still quarantined": Exit.OPERATIONAL, "pending": Exit.WAIT_TIMEOUT,
+                    "unknown": Exit.OPERATIONAL}.get(answer.get("outcome"), Exit.OK))
+    status, code = answer.get("status"), int(Exit.OK)
+    if status == "no probe":
+        held = f" ({answer['holder']} is {answer.get('state')})" if answer.get("holder") else ""
+        out(f"{answer.get('lane_id') or answer.get('holder')}: no probe holds a lane slot{held}")
+    elif status == "not quarantined":
+        out(f"{_probe_target(answer)}: not quarantined ({answer.get('state')}); nothing to resolve")
+    elif status == "newer probe":
+        out(f"{_probe_target(answer)}: started after this request was issued; not resolved by it")
+        note(f"  it is a different probe from the one the request was for; after checking it, "
+             f"{PROG} lanes release-probe {answer.get('holder')} {mode} names it")
+    else:
+        code = _report_probe_outcome(answer, args)
+        if not answer.get("outcome"):
+            note("  the next admission pass acts on it; `subfleet status` lists the probes that "
+                 "still hold a lane slot, or wait with --wait")
+    if requested and answer.get("absorbed"):
+        note(f"  {answer['absorbed']}")
+    if result.get("requeried"):
+        note("  acknowledged on re-query: the first request went unanswered and may be the one that took effect")
+    return code
+
+
 def cmd_lanes(args: argparse.Namespace) -> int:
     action = args.lanes_command or "list"
+    if action == "release-probe":
+        return cmd_lanes_release_probe(args)
     if action == "transfer" and args.to not in ("v1", "v2"):
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
@@ -1868,6 +2081,15 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         "subfleet daemon stop && subfleet daemon start")
         out(f"{action}: {result.get('held') or result.get('released')}")
+        if action == "release":
+            if result.get("holds_released") == 0:
+                note(f"  no operator hold was open on {args.lane}; nothing changed")
+            probe = result.get("probe")
+            if isinstance(probe, dict):
+                # C-5.7a: `release` ends operator holds; a probe's slot is another verb's.
+                note(f"  probe {probe.get('holder')} ({probe.get('state')}) holds this lane's slot"
+                     + (f"; to resolve it: {PROG} lanes release-probe {args.lane}"
+                        if probe.get("state") == "quarantined" else ""))
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -2631,6 +2853,21 @@ def build_parser() -> argparse.ArgumentParser:
     l_release = lanes_sub.add_parser("release")
     l_release.add_argument("lane")
     _add_json(l_release, nested=True)
+    l_release_probe = lanes_sub.add_parser(
+        "release-probe", help="resolve a quarantined probe that holds a lane slot (C-5.7a)")
+    l_release_probe.add_argument("lane", metavar="LANE|HOLDER",
+                                 help="the lane whose slot the probe holds, or its probe:... holder")
+    probe_resolution = l_release_probe.add_mutually_exclusive_group()
+    probe_resolution.add_argument("--confirm-dead", action="store_true",
+                                  help="re-run containment and release on verified empty (the default)")
+    probe_resolution.add_argument("--force-release", action="store_true",
+                                  help="record an operator override and release without containment")
+    l_release_probe.add_argument("--note", help="operator note recorded with the resolution")
+    l_release_probe.add_argument("--wait", action="store_true",
+                                 help="wait for the daemon to act, and say what it found")
+    l_release_probe.add_argument("--timeout", type=float, default=None,
+                                 help="seconds --wait waits (default 30; exit 124 past it)")
+    _add_json(l_release_probe, nested=True)
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")
     l_transfer.add_argument("--to", required=True, choices=("v1", "v2"))

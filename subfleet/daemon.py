@@ -18,6 +18,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import resource
 import signal
 import shutil
@@ -76,6 +77,13 @@ PROBE_RECORD = (
     "ORDER BY event_id DESC LIMIT 1) "
     "UNION ALL SELECT event_id,0,data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) "
     "ORDER BY event_id DESC")
+#: C-5.7a: what an operator's resolution of a quarantined probe records.
+PROBE_RESOLUTION_KINDS = ("probe.confirmed_dead", "probe.force_released", "probe.still_live")
+#: C-5.7a: how many of a probe's latest operator looks (`probe.still_live`) its
+#: rows list, for `--wait` to find the one that acted on its own request. Each
+#: look is a pass, and passes are at least 50 ms apart, so a poll every 0.25 s
+#: sees every look since its last poll.
+OPERATOR_LOOKS = 16
 
 #: C-16.6: `accept` failures that say the process or the system is short of
 #: something for now, not that the socket is gone. The daemon waits and accepts
@@ -215,6 +223,98 @@ def probe_evidence(record: dict | None) -> str | None:
     return _json(value)
 
 
+def probe_covered(row: dict, issued_at: str | None) -> bool:
+    """C-5.7a: whether a resolution issued at `issued_at` reaches this probe.
+
+    A resolution names a job or a lane, and what is quarantined there can change
+    after the operator looked: a released probe's job is admitted again and can
+    probe again, and under the same failing census that probe is quarantined in
+    turn. So a resolution by job or lane reaches only the probes created before
+    it was issued, and the CLI sends a request again (C-16.3) with the same
+    `issued_at`. A request without one, from an older CLI, reaches every probe.
+    A record without a readable `created_at` is taken to predate the request.
+    Both instants are compared in whole seconds, as `utcnow()` writes
+    `created_at`: a probe created in the second the request was issued counts
+    as newer, whatever fraction of that second either carried.
+    """
+    if not issued_at:
+        return True
+    try:
+        created = datetime.fromisoformat(str(row.get("created_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    created = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+    return whole_seconds(created) < whole_seconds(issued_instant(issued_at))
+
+
+#: The Unix epoch, which whole seconds are counted from.
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def whole_seconds(instant: datetime) -> int:
+    """C-5.7a: the UTC second an aware instant falls in, whatever its offset
+    (an ISO offset may carry seconds and a fraction of one)."""
+    return (instant - EPOCH) // timedelta(seconds=1)
+
+
+#: C-5.7a: the one form `issued_at` takes: a date, a time to the second with an
+#: optional fraction, and `Z`, a whole-minute offset, or none (UTC). The other
+#: forms `datetime.fromisoformat` accepts are read differently from one Python to
+#: the next (3.12 reads `+00:00:00.5` as no offset at all, where 3.14 reads half
+#: a second), so the same stamp could name two instants: they are refused.
+ISSUED_AT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?")
+
+
+def issued_instant(issued_at: str) -> datetime:
+    """C-5.7a: the instant a CLI stamped on its resolution request; refused if
+    it is not `YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]` or cannot be read."""
+    if not ISSUED_AT.fullmatch(str(issued_at)):
+        raise protocol.ProtocolError(f"issued_at {issued_at!r} is not an instant of the form "
+                                     f"YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", Exit.INVALID_INPUT)
+    try:
+        instant = datetime.fromisoformat(str(issued_at).replace("Z", "+00:00"))
+    except ValueError:
+        raise protocol.ProtocolError(f"issued_at {issued_at!r} is not an ISO 8601 instant",
+                                     Exit.INVALID_INPUT) from None
+    return instant if instant.tzinfo else instant.replace(tzinfo=timezone.utc)
+
+
+def merge_probe_requests(older: dict | None, newer: dict | None) -> dict | None:
+    """C-5.7a: two resolutions of one probe asked before it was acted on.
+
+    `--force-release` is kept once asked: an override an operator was told had
+    been accepted is never quietly downgraded by a later `--confirm-dead`. Every
+    request is kept, with its note, for the event that records the resolution.
+    Either side may be missing: a pass that raised puts back the request it took
+    (`older`) whether or not another was asked meanwhile (`newer`). A request
+    entry is one request, by its id: merging in one already there adds nothing,
+    so putting a request back twice is putting it back once.
+    """
+    if not older:
+        return newer
+    if not newer:
+        return older
+    held = {entry.get("id") for entry in older["requests"] if isinstance(entry, dict)} - {None}
+    fresh = [entry for entry in newer["requests"] if not (isinstance(entry, dict) and entry.get("id") in held)]
+    if not fresh:
+        return older
+    return {**newer, "force_release": bool(older["force_release"] or newer["force_release"]),
+            "operator_note": newer["operator_note"] if newer["operator_note"] is not None else older["operator_note"],
+            "requests": [*older["requests"], *fresh]}
+
+
+def probe_request(entries: list[dict]) -> dict | None:
+    """C-5.7a: the pending request that these request entries, asked in this
+    order, merge into (`merge_probe_requests` of each alone): a `--force-release`
+    if any asked one, the last note given, the last one's time and route."""
+    if not entries:
+        return None
+    notes = [entry.get("operator_note") for entry in entries if entry.get("operator_note") is not None]
+    return {"force_release": any(entry.get("mode") == "force-release" for entry in entries),
+            "operator_note": notes[-1] if notes else None, "requested_at": entries[-1].get("at"),
+            "via": entries[-1].get("via"), "requests": list(entries)}
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -315,6 +415,15 @@ class Daemon:
         # thread. In memory as C-6.10's records are: a restart looks at every
         # quarantined probe once, and that look writes nothing it already said.
         self._probe_rechecks: dict[str, tuple[int, float]] = {}
+        # C-5.7a: probe holder -> the operator's pending resolution (`kill
+        # --confirm-dead|--force-release`, `lanes release-probe`). A request
+        # handler only records it; the thread that looks at quarantined probes
+        # (`_recover_probes`) takes it and acts on it, so the two never act on
+        # one probe at once. Requests asked before it is acted on are merged
+        # (`merge_probe_requests`), under the lock. In memory: a restart forgets
+        # it, and asking again is safe (C-16.3).
+        self._probe_resolutions: dict[str, dict] = {}
+        self._probe_resolution_lock = threading.Lock()
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -384,7 +493,7 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, releasable=self._probe_releasable)
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -576,12 +685,17 @@ class Daemon:
                     "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
         finally:
             if enrollment_holder:
-                self.timers.active_holders.discard(enrollment_holder)
-                record = self._probe_record(enrollment_holder)
-                if not record or record['state'] in ('contained', 'completed', 'reserved'):
-                    self.store.release_leases(enrollment_holder)
-                    if record:
-                        shutil.rmtree(record['directory'], ignore_errors=True)
+                # C-5.7a: the lease goes (or, quarantined, stays) before the
+                # holder is let go, as `Timers._release` does: from then on only
+                # `_recover_probes` looks at it, and never at a lease on its way out.
+                try:
+                    if self._probe_releasable(enrollment_holder):
+                        record = self._probe_record(enrollment_holder)
+                        self.store.release_leases(enrollment_holder)
+                        if record:
+                            shutil.rmtree(record['directory'], ignore_errors=True)
+                finally:
+                    self.timers.active_holders.discard(enrollment_holder)
 
     def _enrollment_turn(self, lane_id, holder, argv, *, cwd, env, timeout, **_):
         """Run re-authentication through the recoverable guardian process fence.
@@ -658,13 +772,24 @@ class Daemon:
                                                ClockSource.REPORTED, "operator"))
         else:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
-                tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
-                           "AND released_at IS NULL", (utcnow(), a.lane_id))
+                released = tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
+                                      "AND released_at IS NULL", (utcnow(), a.lane_id)).rowcount
         self._notify()
         view = self._capacity_view(self._desktop_identity())
-        return {"held": a.lane_id if a.action == "hold" else None,
-                "released": a.lane_id if a.action == "release" else None,
-                "lanes": view["lanes"], "closures": view["closures"]}
+        result = {"held": a.lane_id if a.action == "hold" else None,
+                  "released": a.lane_id if a.action == "release" else None,
+                  "lanes": view["lanes"], "closures": view["closures"]}
+        if a.action == "release":
+            # C-5.7a: `release` ends operator holds only. A probe that holds the
+            # lane's slot is `release-probe`'s, and the answer says so.
+            result["holds_released"] = released
+            prefix = f"lane:{a.lane_id}:"
+            probe = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=? AND holder LIKE 'probe:%' "
+                                   "ORDER BY lease_key LIMIT 1", (len(prefix), prefix))
+            if probe:
+                result["probe"] = {"holder": probe["holder"],
+                                   "state": (self._probe_record(probe["holder"]) or {}).get("state", "unrecorded")}
+        return result
 
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
@@ -1546,7 +1671,11 @@ class Daemon:
                                                **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
-                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
+                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
+                    # C-5.7a: the job's probes that still hold a lane slot, and
+                    # what operators have asked of its quarantined ones.
+                    "probes": self._probe_rows(a.job_id),
+                    "probe_resolutions": self._probe_resolution_events(a.job_id)}
         if op == "wait":
             return self.wait(protocol.coerce_args(protocol.WaitArgs, args), client_gone=client_gone)
         if op == "kill":
@@ -1569,8 +1698,11 @@ class Daemon:
                 return self._enroll_lane(a)
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
+            if a.action == "release-probe":
+                return self._release_probe(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
-                    "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
+                    "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'"),
+                    "probes": self._probe_rows()}
         if op == "readings":
             view = self._capacity_view(self._desktop_identity())
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
@@ -1629,7 +1761,8 @@ class Daemon:
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
-                    "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
+                    "admission": self._admission_status(view), "descriptors": self._descriptor_status(),
+                    "probes": self._probe_rows()}
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def _why_job(self, job: dict) -> dict:
@@ -1664,7 +1797,14 @@ class Daemon:
         standing = {"job_id": job["job_id"], "state": job["state"], "tier": job["tier"],
                     "wait_reason": job["wait_reason"], "next_check_at": job["next_check_at"],
                     "hold": hold, "recheck": recheck, "decision_source": source,
-                    "decided_at": row["evaluated_at"] if row else None}
+                    "decided_at": row["evaluated_at"] if row else None,
+                    # C-5.7a: a probe of this job still holding a lane slot, a
+                    # quarantined one with the commands that resolve it; and, when
+                    # the fleet is full, the probes whose leases count toward its
+                    # cap (C-11.4 reservations, scheduler `reserved_probes`).
+                    "probes": self._probe_rows(job["job_id"]),
+                    "fleet_probes": ([row for row in self._probe_rows() if row["job_id"] != job["job_id"]]
+                                     if (hold or {}).get("reason") == "fleet-full" else [])}
         queue = render.why_queue(standing)
         # C-6.12: a refusal comes first; a decision recorded before it is the last walk it had.
         lines = [*queue, *([f"Refused at admission: {refused}"] if refused else [])]
@@ -1847,13 +1987,9 @@ class Daemon:
                 self.changed.wait(min(remaining, .25))
 
     def kill(self, args: protocol.KillArgs) -> dict:
-        job = self._job(args.job_id)
-        quarantine = self.store.one("SELECT * FROM attempts WHERE job_id=? AND state='quarantined' ORDER BY seq DESC LIMIT 1", (args.job_id,))
         if args.confirm_dead or args.force_release:
-            if not quarantine:
-                return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
-            self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
-            return {"job_id": args.job_id, "status": "resolution requested"}
+            return self._kill_resolution(args)
+        self._job(args.job_id)
         with self.store.transaction("job.cancel_requested", job_id=args.job_id) as tx:
             job = self._job(args.job_id)
             if job["state"] in TERMINAL:
@@ -1871,6 +2007,58 @@ class Daemon:
                     self._notice(tx, row, "cancelled before launch")
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
+
+    def _kill_resolution(self, args: protocol.KillArgs) -> dict:
+        """C-5.7, C-5.7a: `kill <job> --confirm-dead|--force-release`.
+
+        It resolves the job's quarantined attempt and every quarantined probe
+        whose newest record names the job and that existed when the request was
+        issued (`probe_covered`). Probes are found by their records, so a job
+        that is finished, or that retention has pruned, still names its probe.
+        Every answer carries `probes`, empty when there are none, so a CLI can
+        tell this daemon from one that predates C-5.7a (C-16.2 drops what it does
+        not know).
+        """
+        if args.issued_at:
+            issued_instant(args.issued_at)
+        job = self.store.get_job(args.job_id)
+        quarantined = [row for row in self._probe_rows(args.job_id) if row["state"] == "quarantined"]
+        if job is None and not quarantined:
+            raise protocol.ProtocolError(f"unknown job {args.job_id}")
+        probes = [row for row in quarantined if probe_covered(row, args.issued_at)]
+        newer = [row for row in quarantined if row not in probes]
+        quarantine = job and self.store.one(
+            "SELECT * FROM attempts WHERE job_id=? AND state='quarantined' ORDER BY seq DESC LIMIT 1", (args.job_id,))
+        summary = ("holder", "lane_id", "lane_ids", "kind", "created_at")
+        result: dict[str, Any] = {"job_id": args.job_id,
+                                  "probes": [{key: row[key] for key in summary} for row in probes]}
+        notes = []
+        if newer:
+            result["newer_probes"] = [{key: row[key] for key in summary} for row in newer]
+            notes += [f"probe {row['holder']} on {', '.join(row['lane_ids'])} was started after this request was "
+                      f"issued, and it does not reach it: `subfleet lanes release-probe {row['holder']}` names it"
+                      for row in newer]
+        if not quarantine and not probes:
+            result["status"] = "already finished" if job and job["state"] in TERMINAL else "not quarantined"
+            if notes:
+                result["detail"] = "; ".join(notes)
+            return result
+        if quarantine:
+            self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
+        mode = "--force-release" if args.force_release else "--confirm-dead"
+        result["since_event"] = self.store.one("SELECT max(event_id) AS n FROM events")["n"]
+        for row, reached in zip(probes, result["probes"]):
+            answer = self._request_probe_resolution(row["holder"], force_release=bool(args.force_release),
+                                                    operator_note=args.operator_note, via="kill")
+            reached["request_id"] = answer["request_id"]
+            notes.insert(0, f"{mode} of quarantined probe {row['holder']} on {', '.join(row['lane_ids'])} requested"
+                         + (f" ({answer['absorbed']})" if answer.get("absorbed") else ""))
+        if probes:
+            notes.append(f"`subfleet runs show {args.job_id}` shows whether it is still quarantined")
+        result["status"] = "resolution requested"
+        if notes:
+            result["detail"] = "; ".join(notes)
+        return result
 
     def _notice(self, tx, job: dict, summary: str) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
@@ -2188,6 +2376,18 @@ class Daemon:
         except (OSError, subprocess.SubprocessError):
             pass
 
+    def _probe_releasable(self, holder: str) -> bool:
+        """C-5.7a: whether a turn that has ended may give its probe lease back.
+
+        Only when nothing it recorded is left to contain: no record at all (an
+        HTTP read, or a turn that failed before its first record) or one that
+        says `contained`, `completed` or `reserved` (no guardian was started).
+        `starting`, `containing` and `quarantined` keep the lease for
+        `_recover_probes`, whatever the turn itself reported.
+        """
+        record = self._probe_record(holder)
+        return record is None or record.get("state") in ("contained", "completed", "reserved")
+
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
         # C-5.7a: the newest record for this holder, found by SQLite; every
@@ -2208,6 +2408,151 @@ class Daemon:
             if isinstance(record, dict) and record.get("holder") == holder:
                 return record
         return None
+
+    def _probe_rows(self, job_id: str | None = None) -> list[dict]:
+        """C-5.7a: every held probe lease, one row per holder (a re-enrolment's
+        holder fences several lane bindings), for `show`, `why`, `status` and
+        `lanes`: what an operator needs to decide a quarantined probe.
+
+        Not for admission: it is a few statements per probe, and `_capacity_view`,
+        which admission builds on every pass, keeps to its one `probe_state`.
+        `job_id` keeps the rows whose newest record names that job.
+        """
+        lanes: dict[str, list[str]] = {}
+        for lease in self.store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%' "
+                                      "ORDER BY lease_key"):
+            lanes.setdefault(lease["holder"], []).append(lease["lease_key"].split(":")[1])
+        rows, now = [], time.monotonic()
+        for holder, lane_ids in lanes.items():
+            record = self._probe_record(holder) or {}
+            if job_id is not None and record.get("job_id") != job_id:
+                continue
+            # When the newest record was written: one step of `events_probe_holder`.
+            recorded = self.store.one(
+                "SELECT ts FROM events WHERE kind='probe.state' AND json_valid(data_json) "
+                "AND json_extract(data_json,'$.holder')=? ORDER BY event_id DESC LIMIT 1", (holder,))
+            state = record.get("state", "unrecorded")
+            looks, due = self._probe_rechecks.get(holder, (0, None))
+            request = self._probe_resolutions.get(holder)
+            # The operator's recent looks, newest first: `--wait` finds the one
+            # that acted on its own request even when a later request's look
+            # came after it (`operator_looks`); the newest is shown.
+            recent = self.store.query(
+                "SELECT event_id,ts,data_json FROM events WHERE kind='probe.still_live' AND json_valid(data_json) "
+                "AND json_extract(data_json,'$.holder')=? ORDER BY event_id DESC LIMIT ?", (holder, OPERATOR_LOOKS))
+            look = recent[0] if recent else None
+            said = json.loads(look["data_json"]) if look else None
+            containment = record.get("containment") if isinstance(record.get("containment"), dict) else {}
+            job = record.get("job_id")
+            rows.append({
+                "holder": holder, "lane_id": lane_ids[0], "lane_ids": lane_ids,
+                "job_id": job, "kind": record.get("timer_kind") or ("admission" if job else "unknown"),
+                "state": state, "created_at": record.get("created_at"),
+                "recorded_at": recorded["ts"] if recorded else None,
+                "live_pids": containment.get("live_pids", []),
+                "unverifiable": containment.get("unverifiable"),
+                "errors": containment.get("errors", []),
+                "containment": containment or None,
+                "looks": looks, "next_look_in_s": None if due is None else round(max(0.0, due - now), 1),
+                "requested": ({"mode": "force-release" if request["force_release"] else "confirm-dead",
+                               "at": request["requested_at"], "via": request["via"],
+                               "requests": len(request["requests"])} if request else None),
+                "operator_look": ({"event_id": look["event_id"], "at": look["ts"],
+                                   **{key: said.get(key) for key in ("operator_note", "containment", "requests")}}
+                                  if isinstance(said, dict) else None),
+                "operator_looks": render.operator_looks(recent),
+                "resolve": render.probe_resolutions(lane_ids[0], job) if state == "quarantined" else None,
+            })
+        return rows
+
+    def _probe_resolution_events(self, job_id: str) -> list[dict]:
+        """C-5.7a: what operators asked of this job's quarantined probes, and what came of it, oldest first."""
+        marks = ",".join("?" for _ in PROBE_RESOLUTION_KINDS)
+        events = []
+        for row in self.store.query(f"SELECT ts,kind,data_json FROM events WHERE job_id=? AND kind IN ({marks}) "
+                                    "ORDER BY event_id", (job_id, *PROBE_RESOLUTION_KINDS)):
+            try:
+                data = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("holder"):      # not an insert's empty audit twin
+                events.append({"at": row["ts"], "event": row["kind"], **data})
+        return events
+
+    def _request_probe_resolution(self, holder: str, *, force_release: bool, operator_note: str | None,
+                                  via: str) -> dict:
+        """C-5.7a: record the operator's resolution for the thread that looks at probes.
+
+        A request handler never takes a census (C-16.4), and one taken here could
+        race the admission worker's own look at the same probe: a look that
+        re-held the job after a release would leave it `uncertain` with nothing
+        left to resolve. `_recover_probes` acts on it at its next pass, whatever
+        the probe's recheck clock says. Each request gets an id, kept in its
+        entry of `requests` and so in the event of the look that acts on it:
+        `--wait` takes a look as its answer only if it names that id.
+        """
+        at, request_id = utcnow(), uuid4().hex
+        mode = "force-release" if force_release else "confirm-dead"
+        request = {"force_release": bool(force_release), "operator_note": operator_note, "requested_at": at,
+                   "via": via, "requests": [{"id": request_id, "mode": mode, "operator_note": operator_note,
+                                             "at": at, "via": via}]}
+        with self._probe_resolution_lock:
+            pending = self._probe_resolutions.get(holder)
+            merged = self._probe_resolutions[holder] = merge_probe_requests(pending, request)
+        answer = {"mode": "force-release" if merged["force_release"] else "confirm-dead", "requested_at": at,
+                  "request_id": request_id}
+        if merged["force_release"] and not force_release:
+            answer["absorbed"] = ("a --force-release asked earlier is pending, and this --confirm-dead "
+                                  "does not replace it")
+        return answer
+
+    def _release_probe(self, a: protocol.LanesArgs) -> dict:
+        """`lanes release-probe <lane|holder>` (C-5.7a): resolve a quarantined probe
+        named by the lane slot it holds, or by its holder. A timer's turn and a
+        re-enrolment's have no job for `kill` to name; an admission probe may be
+        named either way. `--confirm-dead` (the default) re-runs C-5.5 and
+        releases only on verified empty; `--force-release` records the override.
+        """
+        target = (a.lane_id or "").strip()
+        if not target:
+            raise protocol.ProtocolError("lanes release-probe: name a lane or a probe holder",
+                                         Exit.INVALID_INPUT, "subfleet status")
+        if a.issued_at:
+            issued_instant(a.issued_at)
+        by_holder = target.startswith("probe:")
+        if by_holder:
+            holder, lane_id = target, None
+            if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)):
+                record = self._probe_record(holder)
+                if record is None:
+                    raise protocol.ProtocolError(f"lanes release-probe: no probe {holder!r} was ever recorded",
+                                                 Exit.INVALID_INPUT, "subfleet status")
+                # Released already (a repeated request, C-16.3, finds it so).
+                return {"release_probe": {"holder": holder, "lane_id": record.get("lane_id"),
+                                          "state": record.get("state"), "status": "no probe"}}
+        else:
+            if not self.store.get_lane(target):
+                raise protocol.ProtocolError(f"lanes release-probe: unknown lane {target!r}",
+                                             Exit.INVALID_INPUT, "subfleet lanes list")
+            lane_id, prefix = target, f"lane:{target}:"
+            lease = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=? AND holder LIKE 'probe:%' "
+                                   "ORDER BY lease_key LIMIT 1", (len(prefix), prefix))
+            if not lease:
+                return {"release_probe": {"lane_id": lane_id, "holder": None, "status": "no probe"}}
+            holder = lease["holder"]
+        row = next((row for row in self._probe_rows() if row["holder"] == holder), None)
+        answer = {key: row[key] for key in ("holder", "lane_id", "lane_ids", "job_id", "kind", "state")} if row else {
+            "holder": holder, "lane_id": lane_id, "state": "unrecorded"}
+        if not row or row["state"] != "quarantined":
+            return {"release_probe": {**answer, "status": "not quarantined"}}
+        if not by_holder and not probe_covered(row, a.issued_at):
+            # Started after the operator named the lane (a request sent again,
+            # C-16.3, or a command repeated): name it by its holder to resolve it.
+            return {"release_probe": {**answer, "created_at": row["created_at"], "status": "newer probe"}}
+        since = self.store.one("SELECT max(event_id) AS n FROM events")["n"]
+        requested = self._request_probe_resolution(holder, force_release=bool(a.force_release),
+                                                   operator_note=a.operator_note, via="lanes release-probe")
+        return {"release_probe": {**answer, **requested, "status": "resolution requested", "since_event": since}}
 
     def _save_probe(self, record: dict) -> bool:
         """C-8.4: append the record as a `probe.state` event, and say whether it did.
@@ -2233,13 +2578,20 @@ class Daemon:
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
-    def _contain_probe(self, record: dict) -> bool:
+    def _contain_probe(self, record: dict, *, save_contained: bool = True) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases.
 
         C-5.7a: whatever it finds starts or backs off the probe's recheck clock
         when it is not verified empty, and it writes only what changes: a
         quarantined probe found as it was, with its job held, adds no row and
         commits no transaction.
+
+        `save_contained=False` is an operator's `--confirm-dead`
+        (`_resolve_probe`): a verified-empty census is not saved as `contained`
+        on its own, because the `probe.confirmed_dead` transaction that follows
+        saves the finished record. If that transaction fails, the record still
+        says `quarantined`, and the request, put back, is acted on again rather
+        than found moot by a record its own first try left behind.
         """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
@@ -2274,7 +2626,7 @@ class Daemon:
         self._pace_probe(record["holder"], census.verified_empty)
         changed = probe_evidence(record) != probe_evidence(self._probe_record(record["holder"]))
         if census.verified_empty:
-            if changed:
+            if changed and save_contained:
                 self._save_probe(record)
             return True
         if not changed and not (record["job_id"] and self.store.one(
@@ -2412,27 +2764,38 @@ class Daemon:
         return dataclasses.replace(outcome, evidence={**outcome.evidence, **request,
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
-    def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+    def _finish_probe(self, record: dict, outcome: Outcome, *, resolution: dict | None = None) -> None:
+        """Record a contained probe's outcome and release its lease.
+
+        C-5.7a: `resolution` is an operator's `--confirm-dead` of a quarantined
+        probe whose census has just come back verified empty. The finish is the
+        same, committed as one `probe.confirmed_dead` transaction that carries
+        the operator's request, so the lease is never released without it.
+        """
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
                 ClockSource.GUESSED, None))
+        summary = {"model": record["model_id"], "class": outcome.cls.value, "evidence": outcome.evidence}
         if record.get("timer_kind"):
-            sent = (self._read_json(Path(record["directory"]) / "request.json") or {}).get("requested_at")
-            if sent:
-                self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent, "rc": outcome.evidence.get("rc"),
-                                                                      "native_session_id": outcome.native_session_id})
-            if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
-                self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
-                                              ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
-            record.update(state="completed")
-            self._save_probe(record)
-            self.store.release_leases(record["holder"])
+            with (self.store.transaction("probe.confirmed_dead", lane_id=record["lane_id"],
+                                         data={**summary, **resolution})
+                  if resolution else contextlib.nullcontext()):
+                sent = (self._read_json(Path(record["directory"]) / "request.json") or {}).get("requested_at")
+                if sent:
+                    self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent, "rc": outcome.evidence.get("rc"),
+                                                                          "native_session_id": outcome.native_session_id})
+                if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
+                    self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
+                                                  ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
+                record.update(state="completed")
+                self._save_probe(record)
+                self.store.release_leases(record["holder"])
             shutil.rmtree(record["directory"], ignore_errors=True)
             return
-        with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
-                                    data={"model": record["model_id"], "class": outcome.cls.value,
-                                          "evidence": outcome.evidence}) as tx:
+        with self.store.transaction("probe.confirmed_dead" if resolution else "probe.completed",
+                                    job_id=record["job_id"], lane_id=record["lane_id"],
+                                    data={**summary, **(resolution or {})}) as tx:
             if outcome.cls == OutcomeClass.AUTH_DEAD:
                 self.store.update_lane(record["lane_id"], enabled=0)
                 self.timers.record_auth_dead(record["lane_id"])
@@ -2460,16 +2823,68 @@ class Daemon:
         the last look left quarantined keeps its lease and is looked at again
         only when its own clock is due, since a look is a full census (C-5.5,
         which reads every process's environment) and a guardian identity check.
+        An operator's resolution of it is acted on here too, at the next pass
+        whatever the clock says, so no other thread ever acts on the probe.
         """
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
-        for gone in set(self._probe_rechecks) - {lease["holder"] for lease in leases}:
-            self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
-        for lease in leases:
-            if lease["holder"] in self.timers.active_holders:
+        # One look per holder: a re-enrolment's holder fences every binding of
+        # its account (one lease each), and a look that has just released it
+        # must not be followed by another through its second lease.
+        holders = list(dict.fromkeys(lease["holder"] for lease in leases))
+        # Prune what belongs to a holder that no longer holds a lease: a clock
+        # (released: nothing left to look at) or a request (released another
+        # way: nothing to resolve). A holder the read above missed may have
+        # taken its lease since, been looked at and been asked about, so each
+        # candidate's lease is read again, now; a request is only ever recorded
+        # for a holder that held one, so a holder without one now has let it go.
+        kept = set(holders) | set(self.timers.active_holders)
+        stale = [holder for holder in {*self._probe_rechecks, *self._probe_resolutions} - kept
+                 if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,))]
+        for gone in stale:
+            self._probe_rechecks.pop(gone, None)
+        with self._probe_resolution_lock:
+            for gone in stale:
+                self._probe_resolutions.pop(gone, None)
+        for holder in holders:
+            if holder in self.timers.active_holders:
                 continue
-            if time.monotonic() < self._probe_rechecks.get(lease["holder"], (0, 0.0))[1]:
+            with self._probe_resolution_lock:
+                request = self._probe_resolutions.pop(holder, None)
+            if request is None and time.monotonic() < self._probe_rechecks.get(holder, (0, 0.0))[1]:
                 continue                                  # quarantined, and not yet due
-            record = self._probe_record(lease["holder"])
+            try:
+                if not self.store.one("SELECT 1 FROM leases WHERE holder=?", (holder,)):
+                    continue      # released since this pass read the leases: nothing left to look at
+                if request is not None:
+                    # Before acting, less what a committed resolution already
+                    # recorded (a pass that raised after its commit, when the
+                    # store could not say so): no entry is acted on twice.
+                    request = self._probe_unrecorded(holder, request)
+                    if request is None:
+                        continue  # all of it was recorded; the clock decides the next look
+                    if self._resolve_probe(holder, request):  # C-5.7a: the operator's, whatever the clock says
+                        continue
+                    # The record no longer says quarantined, and the lease is
+                    # held: a look contained it and could not finish. The
+                    # request waits, and this pass's look is the ordinary one,
+                    # which finishes it or quarantines it again.
+                    taken, request = request, None       # not put back twice if a raise lands here
+                    self._keep_probe_request(holder, taken)
+            except BaseException:
+                # A pass that raised (C-5.10 retries it), reading the lease again
+                # or resolving, keeps what it took less each entry a committed
+                # resolution already recorded; if the store cannot say, all of it,
+                # and the next pass reconciles before it acts. So no entry is
+                # recorded twice, and none is dropped unrecorded.
+                if request is not None and not request.get("acted"):
+                    try:
+                        request = self._probe_unrecorded(holder, request)
+                    except Exception:            # noqa: BLE001 - the store cannot say: keep it all
+                        pass
+                    if request is not None:
+                        self._keep_probe_request(holder, request)
+                raise
+            record = self._probe_record(holder)
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
             safe, receipt = self._await_probe(record)
@@ -2483,6 +2898,113 @@ class Daemon:
                 outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
                     key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
             self._finish_probe(record, outcome)
+
+    def _probe_unrecorded(self, holder: str, request: dict) -> dict | None:
+        """C-5.7a: `request` less each entry that a committed resolution of
+        `holder` (`probe.confirmed_dead`, `probe.force_released`,
+        `probe.still_live`) already names by id; None if that is all of it.
+        Raises `sqlite3.Error` if the store cannot say, and the caller keeps
+        the request whole rather than drop or repeat any of it."""
+        entries = [entry for entry in request.get("requests", ()) if isinstance(entry, dict)]
+        ids = {entry.get("id") for entry in entries} - {None}
+        if not ids:
+            return request
+        marks = ",".join("?" for _ in PROBE_RESOLUTION_KINDS)
+        # This holder's resolutions, and any payload SQLite does not read as JSON
+        # (normally none), parsed in Python as C-3.7's lookup does.
+        rows = self.store.query(
+            f"SELECT data_json FROM events WHERE kind IN ({marks}) AND json_valid(data_json) "
+            f"AND json_extract(data_json,'$.holder')=? UNION ALL SELECT data_json FROM events "
+            f"WHERE kind IN ({marks}) AND NOT json_valid(data_json)",
+            (*PROBE_RESOLUTION_KINDS, holder, *PROBE_RESOLUTION_KINDS))
+        recorded = set()
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"])
+                if isinstance(data, dict) and data.get("holder") == holder:
+                    recorded |= {entry.get("id") for entry in data.get("requests") or ()
+                                 if isinstance(entry, dict)} & ids
+            except Exception:           # noqa: BLE001 - a row that cannot be read names nothing
+                continue
+        if not recorded:
+            return request
+        return probe_request([entry for entry in entries if entry.get("id") not in recorded])
+
+    def _keep_probe_request(self, holder: str, request: dict) -> None:
+        """C-5.7a: put back a request this pass took and did not act on, merged
+        with any asked since (the one taken is the older)."""
+        with self._probe_resolution_lock:
+            self._probe_resolutions[holder] = merge_probe_requests(request, self._probe_resolutions.get(holder))
+
+    def _resolve_probe(self, holder: str, request: dict) -> bool:
+        """C-5.7a: an operator's resolution of a quarantined probe, as C-5.7 resolves an attempt.
+
+        Runs on the thread that looks at quarantined probes (`_recover_probes`),
+        never on a request handler. `--confirm-dead` re-runs C-5.5 now and
+        releases only on verified empty, finishing the probe with an `unknown`
+        outcome; anything else leaves it quarantined, and the look is recorded
+        (`probe.still_live`). `--force-release` records the override and
+        releases without containment.
+
+        It answers whether it dealt with the request. With no record there is
+        nothing an operator can resolve, and the request is dropped. A record
+        that no longer says quarantined while its lease is held (a look found it
+        contained and could not finish) is not the operator's to resolve yet:
+        False, and the caller keeps the request for when it is quarantined
+        again. Each commit that records the request marks it `acted`, so a raise
+        after it never puts the request back to be recorded twice.
+        """
+        record = self._probe_record(holder)
+        if not record:
+            return True
+        if record.get("state") != "quarantined":
+            return False
+        resolution = {"holder": holder, "operator_note": request.get("operator_note"),
+                      "requested_at": request.get("requested_at"), "via": request.get("via"),
+                      "requests": request.get("requests", [])}
+        # The turn's own receipt, if it left one, is kept with the record of what
+        # the operator did: the finish records an `unknown` outcome, not what the
+        # receipt would classify as (C-5.7a), and the directory may be removed.
+        receipt = self._read_json(Path(record["directory"]) / "exit.json") if record.get("directory") else None
+        if receipt:
+            resolution["receipt"] = {key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}
+        if request.get("force_release"):
+            self._force_release_probe(record, resolution)
+            request["acted"] = True
+            return True
+        # The record is quarantined, so this is a census and nothing else: no
+        # signal (C-5.7). It paces the clock and records changed evidence as
+        # any look does.
+        if not self._contain_probe(record, save_contained=False):
+            self.store.add_event("probe.still_live", job_id=record["job_id"], lane_id=record["lane_id"],
+                                 data={**resolution, "containment": record.get("containment")})
+            request["acted"] = True
+            return True
+        self._finish_probe(record, Outcome(OutcomeClass.UNKNOWN, "an operator confirmed the probe dead"),
+                           resolution={**resolution, "containment": record.get("containment")})
+        request["acted"] = True
+        return True
+
+    def _force_release_probe(self, record: dict, resolution: dict) -> None:
+        """C-5.7a `--force-release`: the operator's override, recorded; no census and no signal.
+
+        The override exists for a probe whose census cannot complete (`ps`
+        failing under load), so it takes none, and the event carries the last
+        recorded look's evidence. The record's state is `released`, not
+        `completed`, because nothing verified containment, and its directory is
+        kept: a survivor may still be running in it.
+        """
+        holder = record["holder"]
+        with self.store.transaction("probe.force_released", job_id=record["job_id"], lane_id=record["lane_id"],
+                                    data={**resolution, "override": True,
+                                          "containment": record.get("containment")}) as tx:
+            self._save_probe({**record, "state": "released", "override": True})
+            tx.execute("DELETE FROM leases WHERE holder=?", (holder,))
+            # C-6.10: an inconclusive probe's job keeps its own 60 s clock, and
+            # here survivors may still be running on the lane just given back.
+            tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
+                       (after(60), record["job_id"]))
+        self._probe_rechecks.pop(holder, None)
 
     def _probe_candidate(self, job: dict, decision, holder: str) -> Outcome:
         lane = self.store.get_lane(decision.chosen_lane)
