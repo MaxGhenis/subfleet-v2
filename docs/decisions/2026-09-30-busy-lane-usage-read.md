@@ -88,7 +88,11 @@ lane that has no `operator-hold` or `auth-dead` closure, busy or idle.
 
 A busy lane's result is published with the cycle's other results, after every
 read has finished, and only if the lane is still enabled and bound to the same
-account when it is published.
+account when it is published. It is judged and published in one store
+transaction (`_publish_busy`): no slot keeps the lane's attempts away, so the
+store's write lock does, and nothing can disable the lane, rebind it or record
+a closure between the judgement and the commit. A publication that raises rolls
+back whole, the settlement with it.
 
 **An older answer never undoes a newer limit.** On an idle lane nothing can
 record a closure between the read and its publication, because the read holds
@@ -122,9 +126,10 @@ that only a fence could make safe:
 
 1. **A contended fence.** There is no fence.
 2. **A publication error released the fence first.** There is no fence to
-   release. A publication that raises leaves the lane as it stood before the
-   read, and the lane is read again next cycle. A busy read publishes no
-   credential verdict, so none can be lost.
+   release. A busy read is published in one transaction, so a publication that
+   raises leaves the lane exactly as it stood before the read (readings,
+   closures, the reset credit and the verdict), and the lane is read again next
+   cycle. A busy read publishes no credential verdict, so none can be lost.
 3. **An identity mismatch was not fenced.** It is published without one, and
    this design says so. A job admitted between the read and the publication
    runs as it would have had nothing been read. Nothing else would ever catch
@@ -213,7 +218,10 @@ daemon-level cap test is in `tests/fake/test_timers_busy_admission.py`.
    the lane during a busy read is still open after the read is published, and
    ends no sooner.
 
-Eleven mutations of the change, each removing one of these rules, were run
+8. **One transaction.** A busy read's judgement, settlement and publication
+   commit together or not at all.
+
+Thirteen mutations of the change, each removing one of these rules, were run
 against the tests; each one fails at least one test.
 
 ## Relation to the reset-credit picker (PR #33)
