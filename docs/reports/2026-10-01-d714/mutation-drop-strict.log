@@ -1,0 +1,56 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_writable_default_never_reads_a_config_or_enables_servers[False] _____
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-1873/test_writable_default_never_re0')
+resume = False
+
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_writable_default_never_reads_a_config_or_enables_servers(tmp_path, resume):
+        launch = launch_job(tmp_path, resume=resume)
+        assert "--dangerously-skip-permissions" in launch.argv
+>       assert visible_servers(launch) == {}
+               ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_claude_mcp_launch.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+launch = Launch(argv=('claude', '-p', '--model', 'claude-opus-5', '--session-id', '310a5f8f-acb8-47b8-8c18-edc3c2176179', '--ou...a5f8f-acb8-47b8-8c18-edc3c2176179.jsonl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects'})
+
+    def visible_servers(launch):
+>       assert launch.argv.count("--strict-mcp-config") == 1
+E       AssertionError: assert 0 == 1
+E        +  where 0 = <built-in method count of tuple object at 0x1095ae050>('--strict-mcp-config')
+E        +    where <built-in method count of tuple object at 0x1095ae050> = ('claude', '-p', '--model', 'claude-opus-5', '--session-id', '310a5f8f-acb8-47b8-8c18-edc3c2176179', ...).count
+E        +      where ('claude', '-p', '--model', 'claude-opus-5', '--session-id', '310a5f8f-acb8-47b8-8c18-edc3c2176179', ...) = Launch(argv=('claude', '-p', '--model', 'claude-opus-5', '--session-id', '310a5f8f-acb8-47b8-8c18-edc3c2176179', '--ou...a5f8f-acb8-47b8-8c18-edc3c2176179.jsonl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects'}).argv
+
+tests/unit/test_claude_mcp_launch.py:40: AssertionError
+_____ test_writable_default_never_reads_a_config_or_enables_servers[True] ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-1873/test_writable_default_never_re1')
+resume = True
+
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_writable_default_never_reads_a_config_or_enables_servers(tmp_path, resume):
+        launch = launch_job(tmp_path, resume=resume)
+        assert "--dangerously-skip-permissions" in launch.argv
+>       assert visible_servers(launch) == {}
+               ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_claude_mcp_launch.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+launch = Launch(argv=('claude', '-p', '--resume', 'existing-session', '--model', 'claude-opus-5', '--output-format', 'stream-js...onl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects', 'resumed_from': 'existing-session'})
+
+    def visible_servers(launch):
+>       assert launch.argv.count("--strict-mcp-config") == 1
+E       AssertionError: assert 0 == 1
+E        +  where 0 = <built-in method count of tuple object at 0x10952dbd0>('--strict-mcp-config')
+E        +    where <built-in method count of tuple object at 0x10952dbd0> = ('claude', '-p', '--resume', 'existing-session', '--model', 'claude-opus-5', ...).count
+E        +      where ('claude', '-p', '--resume', 'existing-session', '--model', 'claude-opus-5', ...) = Launch(argv=('claude', '-p', '--resume', 'existing-session', '--model', 'claude-opus-5', '--output-format', 'stream-js...onl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects', 'resumed_from': 'existing-session'}).argv
+
+tests/unit/test_claude_mcp_launch.py:40: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_claude_mcp_launch.py::test_writable_default_never_reads_a_config_or_enables_servers[False]
+FAILED tests/unit/test_claude_mcp_launch.py::test_writable_default_never_reads_a_config_or_enables_servers[True]
+2 failed in 4.39s

@@ -1,0 +1,42 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_c12_9_provider_limit_retry_keeps_opt_in_and_original_entries _______
+
+mcp_daemon = (<subfleet.daemon.Daemon object at 0x1076b3f20>, <tests.fake.conftest.Harness object at 0x1076b3920>, {'selected': {'c...ject-command'}, 'second': {'url': 'https://second.example.test'}, 'unselected-project': {'command': 'unused-command'}})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107611580>
+
+    def test_c12_9_provider_limit_retry_keeps_opt_in_and_original_entries(mcp_daemon, monkeypatch):
+        daemon, harness, project = mcp_daemon
+        job_id, first, adir = reserve(daemon, harness, sandbox="workspace-write",
+            pinned_model="haiku", in_place=True, mcp_servers=["selected"])
+        first_spec = observe_launch(daemon, first, monkeypatch)
+        assert first_spec.mcp_servers == ("selected",)
+    
+        class Limited(FakeAdapter):
+            def classify(self, *args):
+                return Outcome(OutcomeClass.LIMITED, "fixture limit", closure=Closure(
+                    first["lane_id"], "account", after(3600), ClosureReason.PROVIDER_LIMIT,
+                    ClockSource.REPORTED, "fixture"))
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(module, "get_adapter", lambda _: Limited())
+            daemon._finalize(receipt_fixture(daemon, first, adir, rc=4))
+        assert daemon.store.get_job(job_id)["state"] == "waiting"
+        (harness.workdir / ".mcp.json").write_text(json.dumps({"mcpServers": {
+            "selected": {"command": "replacement-command"}, "added-later": {"command": "unused"}}}))
+        daemon.policy["mcp_servers"] = ["added-later"]
+        daemon._admit()
+        attempts = daemon.store.list_attempts(job_id)
+        assert [row["seq"] for row in attempts] == [1, 2]
+        assert attempts[0]["lane_id"] != attempts[1]["lane_id"]
+        retry_spec = observe_launch(daemon, attempts[1], monkeypatch)
+>       assert retry_spec.mcp_servers == first_spec.mcp_servers == ("selected",)
+E       AssertionError: assert () == ('selected',)
+E         
+E         Right contains one more item: 'selected'
+E         Use -v to get more diff
+
+tests/fake/test_mcp_job_contract.py:173: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_mcp_job_contract.py::test_c12_9_provider_limit_retry_keeps_opt_in_and_original_entries
+1 failed in 13.48s
