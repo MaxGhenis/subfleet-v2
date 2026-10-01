@@ -315,9 +315,10 @@ class Retirement:
                 raise Defer("tree away", DEFER_CHANGED_S,
                             f"{worktree} is at {away}, another tool's quarantine; kept until it is back or gone")
         salvage_rows = self.ctx.store.query(
-            "SELECT r.artifact_id,r.path FROM artifacts r JOIN attempts a USING(attempt_id) "
+            "SELECT r.artifact_id,r.path,r.sha256 FROM artifacts r JOIN attempts a USING(attempt_id) "
             "WHERE a.job_id=? AND r.role='salvage' ORDER BY r.artifact_id", (self.job_id,))
         lost = None
+        inferred = False           # the repository was found without the job's workdir
         if worktree is not None:
             if present:
                 reg, why = rgit.registration(worktree)
@@ -333,8 +334,10 @@ class Retirement:
             elif job.get("workdir"):
                 reg, common, lost = source_of_gone_tree(
                     job, worktree, self.ctx.known_repositories, self.ctx.salvage_refs,
-                    [row["path"] for row in salvage_rows if isinstance(row["path"], str)], cancel=self.ctx.cancel)
-                if reg is None and not os.path.isdir(job["workdir"]):
+                    {row["path"]: row["sha256"] for row in salvage_rows if isinstance(row["path"], str)},
+                    cancel=self.ctx.cancel)
+                inferred = not os.path.isdir(job["workdir"])
+                if reg is None and inferred:
                     self._not_without_host(Path(os.path.realpath(job["workdir"])), worktree)
             if reg is not None:
                 common = reg.common
@@ -355,6 +358,11 @@ class Retirement:
             if commit is None:
                 # C-8.4: a salvage ref that cannot be put into the archive pins its job, as before.
                 raise Defer("salvage not archivable", DEFER_PERMANENT_S, f"{ref}: {lost}" if lost else str(ref))
+            if inferred and salvage_digest(commit) != row["sha256"]:
+                # A repository found without the workdir must hold the commit
+                # the row recorded, not only a ref of the same name.
+                raise Defer("salvage not archivable", DEFER_PERMANENT_S,
+                            f"{ref}: in {common} it names {commit[:12]}, not the commit its row recorded")
             salvage.append({"artifact_id": row["artifact_id"], "ref": ref, "commit": commit})
         if common is not None:
             self._remote_less_history(common, reg, job.get("workdir_head"),
@@ -484,6 +492,8 @@ class Retirement:
         for name, original, target in moves:
             if original is None or j["moved"][name]:
                 continue
+            if name == "worktree" and present is False:
+                continue           # gone at `begin`: never moved in, so one back now is the final check's
             if os.path.lexists(target):
                 raise RuntimeError(f"quarantine {target} is occupied")
             if os.path.lexists(original):
@@ -928,7 +938,10 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
         except ValueError:
             continue
         if tree is not None and os.path.lexists(tree):
-            reg, _ = rgit.registration(tree)
+            try:
+                reg, _ = rgit.registration(tree)
+            except OSError:
+                continue           # another job's unreadable registration answers nothing here
             if reg is not None:
                 found.setdefault(str(reg.common), reg.common)
     for workdir in sorted({job["workdir"] for job in jobs if job.get("workdir")}):
@@ -941,8 +954,14 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
     return list(found.values())
 
 
+def salvage_digest(commit: str) -> str:
+    """What the daemon records as a salvage artifact's `sha256`: the sha256
+    of its commit id (`Daemon._salvage`)."""
+    return hashlib.sha256(commit.encode()).hexdigest()
+
+
 def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[], list[Path]],
-                        salvage_refs: Callable[[Path], dict[str, str]], wanted: list[str], *,
+                        salvage_refs: Callable[[Path], dict[str, str]], wanted: dict[str, str], *,
                         cancel: threading.Event | None = None) -> tuple[rgit.Registration | None, Path | None, str | None]:
     """(registration, repository, None) for a job whose tree is gone, or with
     None in place of what was not found, and why the repository was not.
@@ -952,8 +971,12 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     the workdir gone too, the registration is looked for, by its name and its
     backlink, in the repository the workdir's nearest existing ancestor is in
     (`rgit.repository_near`), then in every repository `known` names; without
-    one, a repository is the job's only when it holds every salvage ref the
-    job's rows name (`wanted`). Before, such a job retired with no anchor while
+    one, a repository is the job's only when every salvage ref the job's rows
+    name (`wanted`: ref -> the digest its row recorded) is there at the commit
+    the row recorded. A ref's name alone proves nothing: it is the branch, the
+    reservation's second and the attempt (`refs/subfleet-salvage/detached-
+    20260929T120000Z-a1`), which two jobs of different repositories reserved
+    in the same second share. Before, such a job retired with no anchor while
     its registration stayed behind, or was kept for ever as `salvage not
     archivable` (#81's note on #76)."""
     workdir = job.get("workdir")
@@ -972,7 +995,7 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     if wanted:
         for common in candidates:
             listing = salvage_refs(common)
-            if all(ref in listing for ref in wanted):
+            if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
                 return None, common, None
     return None, None, f"repository not found (workdir {workdir} is gone)"
 

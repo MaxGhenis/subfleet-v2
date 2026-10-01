@@ -154,6 +154,64 @@ def test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted(
     assert store.read_bytes() == b"S" * 4096 and os.lstat(store).st_nlink == 1
 
 
+def _cache_linked_job(w: World, job_id: str) -> tuple[Path, Path, Path]:
+    """A job whose tree holds a uv cache (regenerable output: deleted with the
+    tree, never archived, so its manifest entries have no sha256) one of whose
+    files is hard-linked twice: into the tree's own data, which sorts, and so
+    is deleted, before `sub/` (uv's hardlink link mode, a cache inside the
+    project), and into a virtualenv outside the tree."""
+    wt = w.job(job_id)
+    (wt / ".gitignore").write_text(".uv-cache/\n")
+    cache = wt / "sub" / ".uv-cache"
+    (cache / "archive-v0" / "abc").mkdir(parents=True)
+    (cache / "CACHEDIR.TAG").write_bytes(rfs.CACHEDIR_SIGNATURE + b"\n")
+    cached = cache / "archive-v0" / "abc" / "mod.py"
+    cached.write_bytes(b"M" * 4096)
+    os.link(cached, wt / "a-installed.py")
+    outside = w.base / "other-venv" / "mod.py"
+    outside.parent.mkdir()
+    os.link(cached, outside)
+    return wt, cached, outside
+
+
+@pytest.mark.parametrize("when", ["only-the-sibling", "before-the-final-check", "after-the-commit"])
+def test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted(world, monkeypatch, when):
+    """Review of the note-1 fix. A regenerable file (here in a tagged uv
+    cache) is deleted without a copy, so its manifest entry has no sha256 to
+    compare its bytes with. When it had other links, a ctime moved by one of
+    them (the in-tree sibling unlinked first; another virtualenv linking the
+    same cache file) is no reason to keep it: the archive holds none of its
+    bytes whatever they are. Before this, it was put back at the final check
+    or set aside in conflicts instead of freed."""
+    w = world
+    wt, cached, outside = _cache_linked_job(w, "job-uv")
+    step = "final_check" if when == "before-the-final-check" else "publish"
+    original = getattr(rarch.Retirement, step)
+
+    def link_again(self) -> None:
+        os.link(outside, outside.parent / "mod-again.py")         # moves the shared inode's ctime
+
+    def hooked(self):
+        if step == "final_check":
+            link_again(self)
+            return original(self)
+        original(self)
+        link_again(self)
+
+    if when != "only-the-sibling":
+        monkeypatch.setattr(rarch.Retirement, step, hooked)
+    result = run(w)
+    assert result["pruned"] == ["job-uv"] and result["reclaimed"] == ["job-uv"], result
+    manifest = json.loads((w.root / "archive" / "job-uv" / "manifest.json").read_text())
+    listed = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
+    assert listed["sub/.uv-cache/archive-v0/abc/mod.py"].get("regen") and \
+        "sha256" not in listed["sub/.uv-cache/archive-v0/abc/mod.py"]
+    assert listed["a-installed.py"]["sha256"] == hashlib.sha256(b"M" * 4096).hexdigest()
+    assert not wt.exists()
+    assert not (w.root / "retention-conflicts" / "job-uv").exists()
+    assert outside.read_bytes() == b"M" * 4096
+
+
 class _Stop(Exception):
     pass
 
@@ -490,6 +548,9 @@ def test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it(world):
 
 # --- note 4: the workdir is gone ------------------------------------------------------------
 
+SALVAGE_REF = "refs/subfleet-salvage/detached-20260929T120000Z-a1"
+
+
 def _lane_job(w: World, job_id: str, *, salvage: bool = False) -> tuple[Path, Path, str]:
     """A job submitted from a lane checkout (a linked worktree of the
     repository), with a commit only its own tree's HEAD names; then the lane
@@ -510,9 +571,11 @@ def _lane_job(w: World, job_id: str, *, salvage: bool = False) -> tuple[Path, Pa
     git(tree, "commit", "--quiet", "-m", "private")
     private = git(tree, "rev-parse", "HEAD")
     if salvage:
+        # Named as the daemon names it (`salvage.py`): branch, reservation second,
+        # attempt; recorded with the digest the daemon records (`Daemon._salvage`).
         w.attempt(job_id)
-        git(w.repo, "update-ref", f"refs/subfleet-salvage/detached-{job_id}-a1", private)
-        w.store.add_artifact(f"{job_id}/a1", "salvage", f"refs/subfleet-salvage/detached-{job_id}-a1", "d", 0)
+        git(w.repo, "update-ref", SALVAGE_REF, private)
+        w.store.add_artifact(f"{job_id}/a1", "salvage", SALVAGE_REF, rarch.salvage_digest(private), 0)
     git(w.repo, "worktree", "remove", "--force", str(lane))
     shutil.rmtree(tree)
     assert not lane.exists() and (w.repo / ".git" / "worktrees" / job_id).is_dir()
@@ -615,13 +678,108 @@ def test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_o
     w = world
     _lane_job(w, "job-x", salvage=True)
     git(w.repo, "worktree", "prune")
-    git(w.repo, "update-ref", "-d", "refs/subfleet-salvage/detached-job-x-a1")
+    git(w.repo, "update-ref", "-d", SALVAGE_REF)
     other = tmp_path / "other-repo"
     git(tmp_path, "init", "--quiet", str(other))
     _another_job_from(w, "job-other", other)
     result = run(w, referenced_job_ids=["job-other"])
     assert result["pruned"] == [], result
     assert "repository not found" in result["deferred"]["job-x"]
+
+
+def _repository_with_the_same_salvage_ref(tmp_path: Path, name: str) -> tuple[Path, str]:
+    """Another project whose job was reserved in the same second: its salvage
+    ref has the same name and names its own commit."""
+    other = tmp_path / name
+    git(tmp_path, "init", "--quiet", "-b", "main", str(other))
+    (other / "b.txt").write_text("B\n")
+    git(other, "add", "b.txt")
+    git(other, "commit", "--quiet", "-m", "B")
+    (other / "b.txt").write_text("B's salvage\n")
+    git(other, "commit", "--quiet", "-am", "B's salvage")
+    commit = git(other, "rev-parse", "HEAD")
+    git(other, "update-ref", SALVAGE_REF, commit)
+    return other, commit
+
+
+@pytest.mark.parametrize("own_repository_known", [False, True], ids=["only-the-other", "both"])
+def test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs(world, tmp_path, own_repository_known):
+    """Review of the note-4 fix: salvage refs are named by branch, second and
+    attempt, so two jobs of different repositories reserved in the same second
+    share a name. A repository is the job's only when its ref names the commit
+    the row recorded: the other one is never taken, and nothing is written
+    into it; with the job's own repository known too, the job retires with its
+    own salvage."""
+    w = world
+    _, _, private = _lane_job(w, "job-a", salvage=True)
+    git(w.repo, "worktree", "prune")
+    other, theirs = _repository_with_the_same_salvage_ref(tmp_path, "a-other-repo")     # listed first
+    _another_job_from(w, "job-b", other)
+    pinned = ["job-b"]
+    if own_repository_known:
+        _another_job_from(w, "job-own", w.repo)
+        pinned.append("job-own")
+    result = run(w, referenced_job_ids=pinned)
+    assert not git(other, "for-each-ref", "refs/subfleet-archive/"), "an anchor was written into another repository"
+    if not own_repository_known:
+        assert result["pruned"] == [], result
+        assert "repository not found" in result["deferred"]["job-a"]
+        return
+    assert result["pruned"] == ["job-a"], result
+    manifest = json.loads((w.root / "archive" / "job-a" / "manifest.json").read_text())
+    assert [s["commit"] for s in manifest["salvage"]] == [private] and private != theirs
+    assert _in_bundle(w, "job-a", private)
+
+
+def test_an_unreadable_registration_of_another_job_does_not_stop_the_search(world, tmp_path):
+    """Review of the note-4 fix: listing the repositories the store's jobs are
+    in reads every tree's registration; one another job's gitfile names under
+    an unreadable directory is skipped, not an error for every job searched."""
+    w = world
+    tree, lane, private = _lane_job(w, "job-lane")
+    _another_job_from(w, "job-other", w.repo)
+    unreadable = w.job("job-y")
+    locked = tmp_path / "locked"
+    (locked / "admin").mkdir(parents=True)
+    (unreadable / ".git").write_text(f"gitdir: {locked / 'admin'}\n")
+    os.chmod(locked, 0)
+    try:
+        result = run(w, referenced_job_ids=["job-other", "job-y"])
+    finally:
+        os.chmod(locked, 0o700)
+    assert "job-lane" in result["pruned"], result
+    assert _in_bundle(w, "job-lane", private)
+
+
+def test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in(world, monkeypatch):
+    """Review of the note-2 fix: a tree gone at `begin` and moved back between
+    `quarantine`'s presence check and its renames is never renamed into
+    quarantine (it would be archived without its registration); the final
+    check sees it back and keeps the job, and the next pass retires it with
+    its registration."""
+    w = world
+    wt, private = _job_with_private_commit(w, "job-t")
+    elsewhere = w.base / "elsewhere"
+    git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    original_save = rarch.Retirement.save
+
+    def save(self, **changes):
+        original_save(self, **changes)
+        if changes.get("state") == "quarantining" and elsewhere.exists():
+            git(w.repo, "worktree", "move", str(elsewhere), str(wt))     # back, right after the check
+
+    monkeypatch.setattr(rarch.Retirement, "save", save)
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["pruned"] == [], first
+    assert "came back" in first["deferred"]["job-t"]
+    assert _registration_works(wt) and git(wt, "rev-parse", "HEAD") == private
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    second = run(w, state=state, clock=clock)
+    assert second["pruned"] == ["job-t"], second
+    assert not w.admin("job-t").exists()
+    manifest = json.loads((w.root / "archive" / "job-t" / "manifest.json").read_text())
+    assert manifest["git"]["admin"] and "worktree" in manifest["trees"]
 
 
 def test_a_job_whose_repository_cannot_be_found_says_so(world):

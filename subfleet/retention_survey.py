@@ -160,10 +160,10 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
-        salvage = defaultdict(list)
-        for row in store.query("SELECT r.artifact_id,r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
-                               "WHERE r.role='salvage'"):
-            salvage[row["job_id"]].append(row["path"])
+        salvage: dict[str, dict[str, str]] = defaultdict(dict)       # job -> salvage ref -> recorded digest
+        for row in store.query("SELECT r.artifact_id,r.path,r.sha256,a.job_id FROM artifacts r "
+                               "JOIN attempts a USING(attempt_id) WHERE r.role='salvage' ORDER BY r.artifact_id"):
+            salvage[row["job_id"]][row["path"]] = row["sha256"]
     finally:
         store.close()
     rows: dict[str, dict[str, Any]] = {}
@@ -196,7 +196,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             info["manifest_bytes"] = jobdir["manifest_bytes"]
         if worktree is not None and not info.get("pin"):
             seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
-            _preflight(info, job, worktree, root, salvage.get(job_id, []), remotes_cache, remote_less, seen,
+            _preflight(info, job, worktree, root, salvage.get(job_id, {}), remotes_cache, remote_less, seen,
                        lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees), known)
         if worktree is not None and info["worktree_exists"] and sizes:
             wt = _walk_sizes(worktree, info.pop("_omit", None))
@@ -346,7 +346,7 @@ def _source_common(job: dict[str, Any]) -> Path | None:
     return Path(os.path.realpath(Path(workdir) / out.decode("utf-8", "surrogateescape").strip()))
 
 
-def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: list[str],
+def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: Path, salvage_refs: dict[str, str],
                cache: dict[Any, Any], remote_less: int | None = None, seen: int | None = None,
                live: Any = None, known: Any = None) -> None:
     """The per-job checks of `Retirement.begin`, read-only, for a tree that is
@@ -356,12 +356,14 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
     size an earlier attempt's bundle had), is kept (`remote-less-history`). `live(tree)` says whether a job whose tree that
     is still has rows or a journal (`rarch.host_absent`). `known()` lists the
     repositories the store's jobs are in (`rarch.known_repositories`), for a
-    job whose tree and workdir are both gone."""
+    job whose tree and workdir are both gone. `salvage_refs` maps each salvage
+    ref of the job to the digest its row recorded."""
     live = live or (lambda host: True)
     known = known or (lambda: [])
     head = None
     lost = None
     found = None
+    inferred = False
     if os.path.lexists(worktree):
         reg, why = rgit.registration(worktree)
         where = rgit.gitfile_admin(worktree)[0] if why == "admin-missing" else None
@@ -382,8 +384,9 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             return cache[("salvage", str(common))]
 
         reg, found, lost = (rarch.source_of_gone_tree(job, worktree, known, listing,
-                                                      [r for r in salvage_refs if isinstance(r, str)])
+                                                      {r: d for r, d in salvage_refs.items() if isinstance(r, str)})
                             if workdir else (None, None, None))
+        inferred = bool(workdir) and not os.path.isdir(workdir)
         why = "tree-gone"
         where = Path(os.path.realpath(workdir)) if reg is None and workdir and not os.path.isdir(workdir) else None
     if reg is None:
@@ -430,7 +433,7 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
         for ref in salvage_refs:
             commit = rgit.resolve(common, ref) if isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/") \
                 else None
-            if commit is None:
+            if commit is None or (inferred and rarch.salvage_digest(commit) != salvage_refs[ref]):
                 info.setdefault("issue", "salvage not archivable")
                 break
             commits.append(commit)
@@ -578,10 +581,10 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root),
                                    root=root)
-        salvage = defaultdict(list)
-        for row in store.query("SELECT r.path,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
-                               "WHERE r.role='salvage'"):
-            salvage[row["job_id"]].append(row["path"])
+        salvage: dict[str, dict[str, str]] = defaultdict(dict)
+        for row in store.query("SELECT r.path,r.sha256,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
+                               "WHERE r.role='salvage' ORDER BY r.artifact_id"):
+            salvage[row["job_id"]][row["path"]] = row["sha256"]
     finally:
         store.close()
     candidates = []
@@ -606,7 +609,7 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     for job, worktree in picked:
         t0 = time.monotonic()
         info: dict[str, Any] = {"job_id": job["job_id"], "created_at": job["created_at"], "worktree": str(worktree)}
-        _preflight(info, job, worktree, root, salvage.get(job["job_id"], []), cache, remote_less)
+        _preflight(info, job, worktree, root, salvage.get(job["job_id"], {}), cache, remote_less)
         omit = info.pop("_omit", None)
         ignored = fmt = None
         reg, _ = rgit.registration(worktree)
