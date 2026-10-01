@@ -51,11 +51,11 @@ the others are read from the code cited.
    `provider_request_id` (C-27.1), the same value. The app joins by message and
    exact provider request, including when the list arrives first or the event
    log is replayed, so identical display text cannot attach a replacement
-   approval to a stale card. Only a view from a daemon older than both fields,
-   which names no request, is joined by message, kind and display (the event's
-   data minus `request_id`, `kind`, `options` is the stored `display`); a card
-   that is not pending then lets go of an approval the daemon still lists as
-   pending. Either way the card is answered by its immutable approval id.
+   approval to a stale card. A view from a daemon older than both fields,
+   which names no request, stays on an independent actionable card keyed by
+   immutable approval id. Unmatched event cards have no answer controls; a
+   whole pending-list reconciliation withdraws them. Kind and display alone
+   never join cards, so a legacy replacement cannot inherit stale drafts.
 
 6. **A withdrawn approval has no event and no change row.** When a turn ends,
    the driver withdraws pending requests (`_end` returns them as `resolved`)

@@ -224,16 +224,13 @@ def test_c27_5_a_card_known_from_approval_list_first_is_ordered_by_when_it_was_a
     assert result["pending_items"] == ["approval:m1:ap-early", later]
 
 
-@pytest.mark.parametrize("request_ids", [True, False], ids=["view-names-request", "older-daemon"])
-def test_c27_5_a_listed_card_moves_to_where_its_request_came(core_probe, request_ids):
-    """Joined to its event, a card `approval.list` made first sits below what the
-    turn did before asking, whether the view names its request or not (reviews
-    of 6e1b505 and ed1f40fe)."""
+def test_c27_5_a_listed_card_moves_to_where_its_request_came(core_probe):
+    """Exact request identity joins a list-first card below the turn's work."""
     log = Log()
     log.add("m1", "accepted")
     log.add("m1", "text", block="0", text="Let me clean up.")
     ask(log, "m1", "perm-j", "rm j")
-    view = listed("ap-j", "m1", "rm j", 3, request_id="perm-j" if request_ids else None)
+    view = listed("ap-j", "m1", "rm j", 3, request_id="perm-j")
     result = fold(core_probe, [{"receipts": [receipt("m1", 1, "running")]}, {"approvals": [view]}, log.page()])
     assert [item["type"] for item in items_of(result, "m1")] == ["person", "text", "approval"]
     row = items_of(result, "m1", "approval")[0]
@@ -361,32 +358,29 @@ def test_c27_5_opening_again_reads_before_scrolling_and_an_empty_history_page_mo
     assert quiet["scrolls"][-1] is None
 
 
-def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe):
-    """One turn asks for `git status` twice; the first is answered, the second
-    waits, and the app opens the conversation afresh. With the request id on the
-    daemon's views each card joins its own approval; from an older daemon, whose
-    views join by display, a card that is not pending lets go of an approval the
-    daemon says is pending, so Review still reaches the waiting one (independent
-    review of fa30c51)."""
-    for request_ids in (True, False):
-        log = Log()
-        log.add("m1", "accepted")
-        ask(log, "m1", "r1", "git status")
-        log.add("m1", "approval.resolved", request_id="r1", decision="allow")
-        waiting = ask(log, "m1", "r2", "git status")
-        view = listed("ap2", "m1", "git status", 3, request_id="r2" if request_ids else None)
-        steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"pending": [view]}, log.page(), log.page(),
-                 {"pending": [view]}]
-        result = fold(core_probe, steps)
-        pending = [item for item in result["items"] if item["id"] in result["pending_items"]]
-        assert len(pending) == 1 and pending[0]["card"]["approval_id"] == "ap2", request_ids
-        assert pending[0]["card"]["request_id"] == "r2", request_ids
-        answered = [item["card"] for item in items_of(result, "m1", "approval") if item["card"]["state"] != "pending"]
-        assert [card["request_id"] for card in answered] == ["r1"], request_ids
-        # Named by its request, the listed card is the waiting one, moved to its event;
-        # from an older daemon the event made it, and the listed card became r1's.
-        assert result["pending_items"] == (["approval:m1:ap2"] if request_ids else [waiting]), request_ids
-        assert rows_of(result, "m1")[-1] == result["pending_items"][0], request_ids
+@pytest.mark.parametrize("request_ids", [True, False], ids=["view-names-request", "older-daemon"])
+def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe, request_ids):
+    """Modern views join exactly; legacy views retain their own immutable card."""
+    log = Log()
+    log.add("m1", "accepted")
+    ask(log, "m1", "r1", "git status")
+    log.add("m1", "approval.resolved", request_id="r1", decision="allow")
+    waiting = ask(log, "m1", "r2", "git status")
+    view = listed("ap2", "m1", "git status", 3, request_id="r2" if request_ids else None)
+    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"pending": [view]}, log.page(), log.page(),
+             {"pending": [view]}]
+    result = fold(core_probe, steps)
+    pending = [item for item in result["items"] if item["id"] in result["pending_items"]]
+    assert len(pending) == 1 and pending[0]["card"]["approval_id"] == "ap2"
+    assert pending[0]["card"]["request_id"] == ("r2" if request_ids else None)
+    assert result["pending_items"] == ["approval:m1:ap2"]
+    event_cards = {item["card"]["request_id"]: item["card"] for item in items_of(result, "m1", "approval")
+                   if item["card"]["request_id"]}
+    assert event_cards["r1"]["state"] == "answered:allow"
+    if not request_ids:
+        assert event_cards["r2"]["approval_id"] is None and event_cards["r2"]["state"] == "withdrawn"
+    else:
+        assert rows_of(result, "m1")[-1] == result["pending_items"][0]
 
 
 def test_c27_5_review_brings_a_question_into_view_and_opens_the_sheet_only_for_a_tool_request(core_probe):
@@ -427,26 +421,42 @@ def test_c27_5_asking_again_for_the_same_conversation_asks_again(core_probe):
     assert result["scrolls"] == [None, None, None, card, card, None]
 
 
-def test_c27_5_a_card_made_again_after_letting_go_has_its_own_row(core_probe):
-    """From an older daemon: the listed card took the first of two identical
-    requests and was answered; the daemon still lists the approval as pending
-    before the second request's event is read, so a new card is made for it.
-    The row of the card that let go keeps its id; the new one has its own
-    (SwiftUI shows each id once), and the second request's event joins it."""
+@pytest.mark.parametrize("list_first", [True, False], ids=["list-first", "event-first"])
+def test_c27_5_legacy_replacement_never_reuses_an_old_questions_draft_row(core_probe, list_first):
+    """A fresh legacy list can precede the replacement's events. Identical
+    questions keep different SwiftUI row identities, preventing stale drafts
+    from being authenticated as the replacement request."""
     log = Log()
     log.add("m1", "accepted")
-    ask(log, "m1", "r1", "git status")
-    log.add("m1", "approval.resolved", request_id="r1", decision="allow")
-    view = listed("ap2", "m1", "git status", 3)
-    first = log.page()
-    ask(log, "m1", "r2", "git status")
-    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, {"pending": [view]}, first,
-                               {"pending": [view]}, log.page()])
-    ids = [item["id"] for item in result["items"]]
-    assert len(ids) == len(set(ids))
-    cards = [item["card"] for item in items_of(result, "m1", "approval")]
-    assert [(card["request_id"], card["state"]) for card in cards] == [("r1", "answered:allow"), ("r2", "pending")]
-    assert cards[1]["approval_id"] == "ap2" and result["review_label"] == "Review"
+    question = {"questions": [{"question": "Which color?", "options": [{"label": "Blue"}]}]}
+    log.add("m1", "approval.requested", request_id="q-old", kind="question", **question,
+            options=["answer", "deny"])
+    old_page = log.page()
+    old_view = {**listed("ap-old", "m1", "unused", 2), "kind": "question", "display": question,
+                "options": ["answer", "deny"]}
+    new_view = {**old_view, "approval_id": "ap-new", "created_at": ts(4)}
+    steps = [{"receipts": [receipt("m1", 1, "approval-needed")]}, old_page,
+             {"pending": [old_view], "snapshot": True}]
+    log.add("m1", "approval.resolved", request_id="q-old", decision="answer")
+    log.add("m1", "approval.requested", request_id="q-new", kind="question", **question,
+            options=["answer", "deny"])
+    later = log.page()
+    if list_first:
+        steps += [{"pending": [new_view], "snapshot": True}, later, {"pending": [new_view]}]
+    else:
+        steps += [later, {"pending": [new_view], "snapshot": True}]
+    result = fold(core_probe, steps)
+    cards = {item["id"]: item["card"] for item in items_of(result, "m1", "approval")}
+    assert cards["approval:m1:q-old"]["approval_id"] is None
+    assert cards["approval:m1:q-old"]["actionable"] is False
+    assert cards["approval:m1:ap-old"]["state"] == "withdrawn"
+    assert cards["approval:m1:q-new"]["approval_id"] is None
+    assert cards["approval:m1:q-new"]["state"] == "withdrawn"
+    assert cards["approval:m1:ap-new"]["request_id"] is None
+    assert cards["approval:m1:ap-new"]["actionable"] is True
+    assert result["pending_items"] == ["approval:m1:ap-new"]
+    assert result["review_label"] == "Review" and result["review_opens_sheet"] is False
+    assert len(cards) == 4
 
 
 def test_c27_5_a_view_joins_the_card_of_its_own_request_in_any_order(core_probe):
@@ -888,4 +898,5 @@ def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(cor
                                            "kind": "approval.resolved", "ts": ts(next_seq),
                                            "data": {"request_id": answered["request"], "decision": "allow"}}],
                                "next": next_seq, "reset": False}})
+        extra.append({"pending": [a["view"] for aid, a in case["pending"].items() if aid not in reached]})
     assert sorted(reached) == sorted(case["pending"]) and len(reached) == len(set(reached))

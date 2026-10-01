@@ -27,7 +27,7 @@ struct ApprovalCardView: View {
                 }
             }
             if card.kind == "question" {
-                if card.isPending {
+                if card.isActionable {
                     QuestionCardView(model: model, conversationID: conversationID, card: card)
                 } else {
                     ForEach(Array(card.questions.enumerated()), id: \.offset) { _, question in
@@ -62,7 +62,7 @@ struct ApprovalCardView: View {
                 if let reason = card.display.reason ?? card.display.description {
                     Text(reason).font(.callout).foregroundStyle(.secondary)
                 }
-                if card.isPending {
+                if card.isActionable {
                     HStack {
                         Button("Details / add a note", action: review).buttonStyle(.link)
                         Spacer()
@@ -76,6 +76,9 @@ struct ApprovalCardView: View {
                         if sending { ProgressView().controlSize(.small) }
                     }.disabled(sending)
                 }
+            }
+            if card.isPending && !card.isActionable {
+                Text("Waiting for the request to be identified…").font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(12)

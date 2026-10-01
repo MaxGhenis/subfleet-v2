@@ -747,16 +747,16 @@ final class UIModel: ObservableObject {
         }
         state.apply(approvals: approvals, conversationID: conversationID)
         // The card joined to one of the daemon's pending approvals, or none: another
-        // pending approval of the same kind is not this one (C-27.5). A view that names
-        // its request must name this one; a view from a daemon older than the request
-        // id names none, and the timeline joined it by kind and display (C-27.1, C-27.5).
+        // pending approval of the same kind is not this one (C-27.5). A missing
+        // provider id cannot authenticate an event card: its legacy approval is
+        // answered on its own immutable approval-id card (C-27.1).
         let matches = state.timelines[conversationID]?.turns[messageID]?.pendingApprovals.filter {
             $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
         } ?? []
         guard matches.count == 1, let id = matches.first?.approvalID,
               approvals.contains(where: {
                   $0.approval_id == id && $0.message_id == messageID && $0.conversation_id == conversationID
-                      && ($0.requestID.map { $0 == requestID } ?? true)
+                      && $0.requestID == requestID
                       && $0.state == "pending" && $0.kind == card.kind && $0.display == card.display
               }) else {
             problem = "That approval is no longer pending."

@@ -62,6 +62,8 @@ struct ApprovalCard: Equatable {
     var state: State
 
     var isPending: Bool { state == .pending }
+    /// An event summary alone cannot identify the approval the person answers.
+    var isActionable: Bool { isPending && approvalID != nil }
     var questions: [ApprovalQuestion] { display.questions }
 }
 
@@ -550,22 +552,9 @@ struct Timeline: Equatable {
                 var row = turn.items.remove(at: index)
                 row.ts = event.ts ?? row.ts
                 turn.items.append(row)
-            } else if let index = turn.items.firstIndex(where: {
-                // Known from a view without the request id (an older daemon): by kind and display.
-                if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
-                return false
-            }), case .approval(var card) = turn.items[index].content {
-                // Known from `approval.list` first: it moves to where the request came,
-                // below what the turn did before asking.
-                card.requestID = requestID
-                var row = turn.items.remove(at: index)
-                row.content = .approval(card)
-                row.ts = event.ts ?? row.ts
-                turn.items.append(row)
             } else {
                 let card = ApprovalCard(requestID: requestID,
-                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display,
-                                                                    requestID: requestID),
+                                        approvalID: knownApprovalID(in: turn, requestID: requestID),
                                         kind: kind, display: display, options: options, state: .pending)
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
@@ -787,10 +776,9 @@ struct Timeline: Equatable {
     // MARK: Approvals
 
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
-    /// events made (which carry the provider's request id): by the exact request id a
-    /// view carries (summaries alone cannot tell a withdrawn request from its
-    /// replacement, C-27.1), or, only from a daemon older than that id, by message,
-    /// kind and display; an approval with no card yet gets one.
+    /// events made (which carry the provider's request id): by message and exact
+    /// request id. Summaries cannot identify a request (C-27.1). A legacy view
+    /// without that id gets its own card, keyed by its immutable approval id.
     mutating func attach(approvals: [ApprovalView]) {
         for approval in approvals where approval.conversation_id == conversationID {
             knownApprovals[approval.approval_id] = approval
@@ -798,15 +786,6 @@ struct Timeline: Equatable {
             guard var turn = turns[approval.message_id] else { continue }
             let state: ApprovalCard.State = approval.state == "pending" ? .pending
                 : approval.state == "withdrawn" ? .withdrawn : .answered(nil)
-            // A card that is not pending cannot hold an approval the daemon says is: that
-            // hold was a guess by display (two identical requests in one turn), so let go.
-            if approval.state == "pending", let index = turn.items.firstIndex(where: {
-                if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id && !card.isPending }
-                return false
-            }), case .approval(var card) = turn.items[index].content {
-                card.approvalID = nil
-                turn.items[index].content = .approval(card)
-            }
             if let index = turn.items.firstIndex(where: {
                 if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id }
                 return false
@@ -816,8 +795,8 @@ struct Timeline: Equatable {
                 turn.items[index].content = .approval(card)
             } else if let index = turn.items.firstIndex(where: { item in
                 guard case .approval(let card) = item.content, card.approvalID == nil else { return false }
-                if let requestID = approval.requestID { return card.requestID == requestID }
-                return card.kind == approval.kind && card.display == approval.display
+                guard let requestID = approval.requestID else { return false }
+                return card.requestID == requestID && card.kind == approval.kind && card.display == approval.display
                     && (card.isPending || approval.state != "pending")
             }), case .approval(var card) = turn.items[index].content {
                 card.approvalID = approval.approval_id
@@ -828,10 +807,7 @@ struct Timeline: Equatable {
                 let card = ApprovalCard(requestID: approval.requestID, approvalID: approval.approval_id,
                                         kind: approval.kind, display: approval.display, options: approval.options,
                                         state: .pending)
-                // A row id is shown once (SwiftUI's ForEach): a card that let go of this
-                // approval keeps the id it was made with.
-                var rowID = "approval:\(approval.message_id):\(approval.approval_id)"
-                if turn.items.contains(where: { $0.id == rowID }) { rowID += ":\(turn.items.count)" }
+                let rowID = "approval:\(approval.message_id):\(approval.approval_id)"
                 turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
             }
@@ -842,8 +818,10 @@ struct Timeline: Equatable {
 
     /// The daemon's whole pending set for this conversation (`approval.list`,
     /// `conversation.open`): a card joined to an approval it no longer lists is
-    /// withdrawn, since an approval never returns to pending. That covers what no
-    /// event says: an attempt that ended without `result`, or was admitted again.
+    /// withdrawn, since an approval never returns to pending. An event card that
+    /// the list cannot identify is withdrawn too: legacy views remain actionable
+    /// on their own cards, never on an old event card's drafted answers. That covers
+    /// an attempt that ended without `result`, or was admitted again.
     mutating func reconcile(pending approvals: [ApprovalView]) {
         let listed = Set(approvals.filter { $0.conversation_id == conversationID && $0.state == "pending" }
             .map(\.approval_id))
@@ -852,7 +830,7 @@ struct Timeline: Equatable {
             var changed = false
             for index in turn.items.indices {
                 guard case .approval(var card) = turn.items[index].content, card.isPending,
-                      let approvalID = card.approvalID, !listed.contains(approvalID) else { continue }
+                      card.approvalID.map({ !listed.contains($0) }) ?? true else { continue }
                 card.state = .withdrawn
                 turn.items[index].content = .approval(card)
                 changed = true
@@ -861,21 +839,17 @@ struct Timeline: Equatable {
         }
     }
 
-    /// The id of a known approval for a card an event is making: same message,
-    /// not yet held by another card of the turn; the one with the event's request
-    /// id, or, from an older daemon, the oldest with the same kind and display.
-    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay,
-                                 requestID: String?) -> String? {
+    /// The id of a known approval for an event card: same message and exact
+    /// request id, not already held by another card. Display text is not identity.
+    private func knownApprovalID(in turn: TurnTimeline, requestID: String?) -> String? {
+        guard let requestID else { return nil }
         let held = Set(turn.items.compactMap { item -> String? in
             if case .approval(let card) = item.content { return card.approvalID }
             return nil
         })
-        let free = knownApprovals.values.filter { $0.message_id == turn.messageID && !held.contains($0.approval_id) }
-        if let requestID, let exact = free.first(where: { $0.requestID == requestID }) { return exact.approval_id }
-        return free
-            .filter { $0.requestID == nil && $0.kind == kind && $0.display == display }
-            .min { ($0.created_at, $0.approval_id) < ($1.created_at, $1.approval_id) }?
-            .approval_id
+        return knownApprovals.values.first {
+            $0.message_id == turn.messageID && $0.requestID == requestID && !held.contains($0.approval_id)
+        }?.approval_id
     }
 
     /// Every card still waiting for the person.

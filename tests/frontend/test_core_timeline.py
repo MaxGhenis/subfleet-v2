@@ -252,14 +252,11 @@ def test_replacement_approval_with_identical_display_cannot_take_the_stale_cards
 
 
 @pytest.mark.parametrize("list_first", [False, True])
-def test_legacy_approval_list_without_request_ids_joins_its_card_by_kind_and_display(core_probe, tmp_path, harness,
+def test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card(core_probe, tmp_path, harness,
                                                                                      list_first):
-    """A view from a daemon older than the request id names no request (neither
-    `request_id` nor `provider_request_id`): in either order it joins the event's
-    card by message, kind and display, so the one card is answerable by its
-    immutable approval id (C-27.5, docs/desktop/app-needs.md 5). A view that names
-    its request joins only that request's card, so a replacement with identical
-    display never takes a stale card (the test above; C-27.1)."""
+    """A legacy view cannot identify an event card by its display. Its separate
+    approval-id card remains actionable; a whole-list reconciliation withdraws
+    unmatched event cards (C-27.1, C-27.5)."""
     cid = harness.create()["conversation_id"]
     mid = harness.submit(cid, "run it")["message_id"]
     turn = harness.attempt(cid, mid)
@@ -270,11 +267,12 @@ def test_legacy_approval_list_without_request_ids_joins_its_card_by_kind_and_dis
         approval.pop("provider_request_id")
         approval.pop("request_id")
     steps = [{"page": page(harness, cid)}, {"approvals": approvals}]
-    result = fold(core_probe, tmp_path, cid, list(reversed(steps)) if list_first else steps)
-    cards = [item["card"] for item in items_of(result, mid, "approval")]
-    assert len(cards) == 1
-    assert cards[0]["request_id"] == "perm-legacy" and cards[0]["approval_id"] == approvals[0]["approval_id"]
-    assert cards[0]["state"] == "pending"
+    ordered = list(reversed(steps)) if list_first else steps
+    result = fold(core_probe, tmp_path, cid, ordered + [{"pending": approvals}])
+    cards = {item["card"]["request_id"]: item["card"] for item in items_of(result, mid, "approval")}
+    assert len(cards) == 2
+    assert cards["perm-legacy"]["approval_id"] is None and cards["perm-legacy"]["state"] == "withdrawn"
+    assert cards[None]["approval_id"] == approvals[0]["approval_id"] and cards[None]["state"] == "pending"
 
 
 def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path, harness):
