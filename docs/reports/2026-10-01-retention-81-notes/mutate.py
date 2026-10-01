@@ -135,6 +135,21 @@ MUTANTS = [
      'if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None:',
      [NOTES + "::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
       NOTES + "::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job"]),
+    ("M22 note 4: an existing broken workdir skips source fallback",
+     "subfleet/retention_archive.py",
+     '        common = (rgit.common_dir(Path(workdir), cancel=cancel)\n                  if workdir_common is _UNRESOLVED_COMMON else workdir_common)\n        if common is not None:',
+     '        common = (rgit.common_dir(Path(workdir), cancel=cancel)\n                  if workdir_common is _UNRESOLVED_COMMON else workdir_common)\n        if common is None:\n            return None, None, None\n        if common is not None:',
+     [NOTES + "::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle"]),
+    ("M23 note 4: the pass trusts salvage inferred from a broken present workdir",
+     "subfleet/retention_archive.py",
+     'inferred = workdir_common is None',
+     'inferred = False',
+     [NOTES + "::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded"]),
+    ("M24 note 4: the survey trusts salvage inferred from a broken present workdir",
+     "subfleet/retention_survey.py",
+     'inferred = bool(workdir) and workdir_common is None',
+     'inferred = False',
+     [NOTES + "::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded"]),
 ]
 
 

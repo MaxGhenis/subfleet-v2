@@ -598,7 +598,7 @@ def test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it(world):
 SALVAGE_REF = "refs/subfleet-salvage/detached-20260929T120000Z-a1"
 
 
-def _lane_job(w: World, job_id: str, *, salvage: bool = False) -> tuple[Path, Path, str]:
+def _lane_job(w: World, job_id: str, *, salvage: bool = False, broken_lane: bool = False) -> tuple[Path, Path, str]:
     """A job submitted from a lane checkout (a linked worktree of the
     repository), with a commit only its own tree's HEAD names; then the lane
     checkout is removed and the job's tree deleted, its registration left in
@@ -623,9 +623,14 @@ def _lane_job(w: World, job_id: str, *, salvage: bool = False) -> tuple[Path, Pa
         w.attempt(job_id)
         git(w.repo, "update-ref", SALVAGE_REF, private)
         w.store.add_artifact(f"{job_id}/a1", "salvage", SALVAGE_REF, rarch.salvage_digest(private), 0)
-    git(w.repo, "worktree", "remove", "--force", str(lane))
+    if broken_lane:
+        lane_reg, why = rgit.registration(lane)
+        assert lane_reg is not None and why is None
+        shutil.rmtree(lane_reg.admin)       # directory and .git remain, but git cannot resolve the workdir
+    else:
+        git(w.repo, "worktree", "remove", "--force", str(lane))
     shutil.rmtree(tree)
-    assert not lane.exists() and (w.repo / ".git" / "worktrees" / job_id).is_dir()
+    assert lane.exists() == broken_lane and (w.repo / ".git" / "worktrees" / job_id).is_dir()
     return tree, lane, private
 
 
@@ -688,6 +693,39 @@ def test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ance
     assert result["pruned"] == ["job-sub"], result
     assert not (w.repo / ".git" / "worktrees" / "job-sub").exists()
     assert _in_bundle(w, "job-sub", private)
+
+
+@pytest.mark.parametrize("salvage", [False, True], ids=["private-head", "with-salvage"])
+def test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle(world, salvage):
+    """A linked workdir whose own admin was removed is still a directory.
+    Its dangling gitfile identifies the source of the gone job's private HEAD,
+    which must be anchored and bundled before its rows or registration retire.
+    """
+    from subfleet.retention_survey import survey
+    w = world
+    tree, lane, private = _lane_job(w, "job-broken-lane", salvage=salvage, broken_lane=True)
+    assert lane.is_dir() and (lane / ".git").is_file() and rgit.common_dir(lane) is None
+    report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["would_retire"]["jobs"] == 1 and report["kept"]["jobs_by_reason"] == {}, report
+    result = run(w)
+    assert result["pruned"] == ["job-broken-lane"], result
+    assert _in_bundle(w, "job-broken-lane", private)
+    assert not w.admin("job-broken-lane").exists()
+
+
+def test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded(world):
+    """A recovered registration does not make a replaced salvage ref valid."""
+    from subfleet.retention_survey import survey
+    w = world
+    tree, lane, private = _lane_job(w, "job-broken-ref", salvage=True, broken_lane=True)
+    git(w.repo, "update-ref", SALVAGE_REF, w.head())
+    report = survey(w.root, holders=False, sample_throughput=False,
+                    budgets={"detached": (0, 0), "turn": (0, 0)})
+    assert report["would_retire"]["jobs"] == 0, report
+    assert report["kept"]["jobs_by_reason"] == {"salvage not archivable": 1}, report
+    result = run(w)
+    assert result["pruned"] == [] and "not the commit its row recorded" in result["deferred"]["job-broken-ref"], result
+    assert w.store.get_job("job-broken-ref") is not None and w.admin("job-broken-ref").is_dir()
 
 
 def test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled(world):
