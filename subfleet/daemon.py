@@ -35,6 +35,7 @@ from typing import Any, Callable
 
 from . import __version__
 from . import capacity, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from .adapters import claude_mcp
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -878,6 +879,11 @@ class Daemon:
         values = {k: v for k, v in job.items() if k in names}
         values.update(sandbox=Sandbox(job["sandbox"]), exclusions=tuple(json.loads(job["exclusions"])))
         values.update(network=bool((self.policy.get("network") or {}).get("codex_workspace_write", False)))
+        # C-12.9: every attempt of the job, its first and each retry, starts the
+        # servers its row names, from the copy submit kept beside it.
+        servers = tuple(json.loads(job.get("mcp_servers") or "[]"))
+        values.update(mcp_servers=servers, mcp_config=(
+            str(self.root / "jobs" / job["job_id"] / claude_mcp.JOB_CONFIG_NAME) if servers else None))
         values.update(overrides)
         return JobSpec(**values)
 
@@ -1448,6 +1454,9 @@ class Daemon:
                     raise ValueError(f"unknown tier {args.tier}")
                 if not model and not args.task and not args.pinned_lane:
                     raise ValueError("submit requires pinned_model, pinned_lane or task")
+                # C-12.9: the MCP servers first, so the pin and the chain below see
+                # a job that runs only where a launch starts them, on Claude.
+                mcp_servers = claude_mcp.validate_names(args.mcp_servers or ())
                 # C-11.2: resolved as admission resolves it (same lanes, and the
                 # job's provider narrows a name two providers share), then kept as
                 # the lane id, so no later roster change can make it ambiguous.
@@ -1458,8 +1467,16 @@ class Daemon:
                 # change or this upgrade. Operator authorization was always bound
                 # to the enrolled lane's immutable id, and its digest still is.
                 digest_pin = pinned_lane if reason is not None else args.pinned_lane
-                task_model = model or (self.policy["chains"][args.task][self.policy["tiers"].index(args.tier or "standard")]
-                                       if args.task else next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None))
+                if model:
+                    task_model = model
+                elif args.task:
+                    chain = scheduler.mcp_chain(self.policy, self.policy["chains"][args.task][
+                        self.policy["tiers"].index(args.tier or "standard"):], {"mcp_servers": mcp_servers})
+                    task_model = chain[0] if chain else None
+                else:
+                    task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
+                if mcp_servers:
+                    self._refuse_mcp(mcp_servers, sandbox, task_model, lane, turn)
                 if task_model is None:
                     raise ValueError(f"pinned_lane: policy has no model for provider {lane.provider}")
                 provider = self.policy["models"][task_model]["provider"]
@@ -1467,6 +1484,7 @@ class Daemon:
                     raise ValueError("pinned lane and model providers disagree")
                 if lane:
                     self._validate_home(lane)
+                mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
                 caps = self.policy["caps"]
                 max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
                 max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
@@ -1480,7 +1498,7 @@ class Daemon:
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
-                    unmeasured_reserve_reason=reason)
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -1516,7 +1534,8 @@ class Daemon:
                           workdir=str(workdir), workdir_head=head, out_path=out,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
-                          max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow())
+                          max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
+                          mcp_servers=json.dumps(list(mcp_servers)))
             values["review_root"] = review_root
             if args.dry_run:
                 return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop=self._desktop_identity()))}
@@ -1545,9 +1564,20 @@ class Daemon:
                 # C-26.1, IR-12: a turn waits for its workspace at admission (the
                 # `worktree:` lease), it is never refused here.
                 cleared = None
+            if mcp_servers and mcp_found is None:
+                # Only a retry of an accepted request gets here without entries
+                # (`_mcp_entries`), and only when its job was pruned meanwhile.
+                raise AdapterError(f"--mcp {', '.join(mcp_servers)}: the workdir no longer offers them",
+                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id")
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
+            if mcp_servers:
+                # C-12.9: the entries every attempt and resume of this job starts.
+                self._publish("mcp-config", jobdir / claude_mcp.JOB_CONFIG_NAME,
+                              json_bytes(mcp_found["document"]))
             manifest = {"job": values}
+            if mcp_servers:
+                manifest["mcp"] = mcp_found["sources"]
             if batch:
                 manifest["batch"] = batch
             if resume:
@@ -1599,7 +1629,8 @@ class Daemon:
                             if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
-                         **({"batch": batch} if batch else {})}
+                         **({"batch": batch} if batch else {}),
+                         **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -1623,7 +1654,8 @@ class Daemon:
         longer resolves to one lane is answered from the lane it was accepted
         on, and its digest then decides.
         """
-        job_provider = scheduler.pin_provider(self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier})
+        job_provider = scheduler.pin_provider(self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier,
+                                                            "mcp_servers": list(args.mcp_servers or ())})
         roster = self._pin_roster()
         flag = args.pinned_provider if args.pinned_provider in ("claude", "codex") else None
         if flag and not any(lane["lane_id"] == args.pinned_lane for lane in roster):
@@ -1659,6 +1691,60 @@ class Daemon:
         """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""
         return isinstance(request_id, str) and self.store.one(
             "SELECT 1 FROM jobs WHERE request_id=?", (request_id,)) is not None
+
+    def _refuse_mcp(self, names: tuple[str, ...], sandbox: Sandbox, task_model: str | None,
+                    lane: Lane | None, turn: dict | None) -> None:
+        """C-12.9, C-6.5: a job that names MCP servers is refused unless a launch
+        will start them: a writable Claude launch. It is never accepted without
+        them, and a read-only job never gains them."""
+        listed = ", ".join(names)
+        if turn is not None:
+            raise ValueError("a conversation turn names no MCP servers; its settings decide them (C-12.9)")
+        if sandbox != Sandbox.WORKSPACE_WRITE:
+            raise AdapterError(f"--mcp {listed}: a read-only job starts no MCP servers (C-12.9)",
+                               fix="pass -s workspace-write for a job that needs them, or drop --mcp")
+        provider = lane.provider if lane else (self.policy["models"][task_model]["provider"] if task_model else None)
+        if provider != scheduler.MCP_PROVIDER:
+            where = (f"this job runs on {provider}" if provider
+                     else "this job's chain from its tier has no Claude model")
+            raise AdapterError(f"--mcp {listed}: only a Claude launch starts MCP servers, and {where} (C-12.9)",
+                               fix="pin a Claude model (-m opus, -m sonnet) or a --tier whose chain has one, "
+                                   "or drop --mcp")
+
+    def _mcp_entries(self, args: protocol.SubmitArgs, names: tuple[str, ...], workdir: Path,
+                     resume: dict | None) -> dict | None:
+        """C-12.9: the entries of the named servers and where each came from.
+
+        Found as Claude Code would find them for the workdir (`claude_mcp`); a
+        resume takes its source's entries unchanged instead. An unknown name is
+        exit 2, except for a retry of an accepted request (C-6.2), which is
+        answered from its job whatever the files say now: None then.
+        """
+        if resume is not None:
+            return self._resumed_mcp(resume["source_job_id"], names)
+        try:
+            found = claude_mcp.resolve(workdir, names)
+        except claude_mcp.UnknownServer:
+            if self._accepted_request(args.request_id):
+                return None
+            raise
+        return {"document": claude_mcp.config_document(found), "sources": claude_mcp.sources(found)}
+
+    def _resumed_mcp(self, source_id: str, names: tuple[str, ...]) -> dict:
+        """C-12.9: a resume starts its source's MCP servers, from the source's own copy."""
+        path = self.root / "jobs" / source_id / claude_mcp.JOB_CONFIG_NAME
+        try:
+            servers = json.loads(read_regular(path, 4 << 20))["mcpServers"]
+            entries = {name: servers[name] for name in names}
+            if not all(isinstance(entry, dict) for entry in entries.values()):
+                raise ValueError("an entry is not an object")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise AdapterError(f"resume: the MCP servers {source_id} named ({', '.join(names)}) cannot be read "
+                               f"from {path}: {exc}", fix="submit a fresh job naming them with --mcp") from None
+        recorded = (self._read_json(self.root / "jobs" / source_id / "manifest.json") or {}).get("mcp")
+        recorded = recorded if isinstance(recorded, dict) else {}
+        return {"document": claude_mcp.config_document(entries),
+                "sources": {name: recorded.get(name) or {"source": str(path)} for name in names}}
 
     def _accepted_pin(self, request_id: str) -> dict | None:
         """The lane an already accepted request was pinned to, when that is a lane id (C-6.2)."""
@@ -1700,6 +1786,17 @@ class Daemon:
         # that was an allocated worktree containing uncommitted provider work.
         # Independent allows continuing a cancelled source without reviving its
         # parent's old cancellation request (C-7.3).
+        # C-12.9: a resume starts exactly the MCP servers its source did (none
+        # unless it named some); it cannot add, drop or swap one.
+        recorded = tuple(json.loads(source.get("mcp_servers") or "[]"))
+        try:
+            asked = claude_mcp.validate_names(args.mcp_servers or ())
+        except ValueError as exc:
+            raise protocol.ProtocolError(str(exc)) from exc
+        if asked and asked != recorded:
+            raise AdapterError(f"a resume starts its source's MCP servers ({', '.join(recorded) or 'none'}), "
+                               f"not {', '.join(asked)} (C-12.9)",
+                               fix="resume without --mcp, or submit a fresh job naming the servers it needs")
         source_manifest = self._read_json(self.root / "jobs" / source["job_id"] / "manifest.json") or {}
         preamble = source_manifest.get("preamble")
         if preamble is None:
@@ -1710,7 +1807,7 @@ class Daemon:
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
-            independent=True, allow_tmp=True, no_preamble=not preamble)
+            independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
         resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
                   "native_session_id": native, "lane_id": attempt["lane_id"],
                   "model_id": attempt["model_requested"]}
@@ -2097,8 +2194,12 @@ class Daemon:
             workspace = self.store.one(
                 "SELECT ts,kind,data_json FROM events WHERE job_id=? AND kind IN "
                 "('job.workspace_deferred','job.workspace_failed') ORDER BY event_id DESC LIMIT 1", (a.job_id,))
-            return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
-                                               **json.loads(workspace["data_json"])} if workspace else None),
+            # C-12.9: the row names the job's MCP servers; where each came from is in its manifest.
+            mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
+                   if job.get("mcp_servers") not in (None, "[]") else None)
+            return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
+                    "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
+                                   **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
@@ -3024,7 +3125,7 @@ class Daemon:
         prompt = directory / "prompt.md"
         self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
         spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
-                          sandbox=Sandbox.READ_ONLY, out_path=None)
+                          sandbox=Sandbox.READ_ONLY, out_path=None, mcp_servers=(), mcp_config=None)
         launch = adapter.build_launch(spec, holder, directory, lane, credential_env,
                                       model["id"], model.get("effort"), prompt,
                                       self._guard_override(adapter, lane, str(directory),

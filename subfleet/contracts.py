@@ -359,6 +359,11 @@ class JobSpec:
     # (`network.codex_workspace_write`), not the job row; Claude's writable
     # launch has it already, and read-only and isolated launches never do.
     network: bool = False
+    # C-12.9, d714: the MCP servers a writable Claude launch starts, none unless
+    # the job named them (`run --mcp`), and the daemon's copy of their entries
+    # (`jobs/<job>/mcp.json`). Read-only and isolated launches start none.
+    mcp_servers: tuple[str, ...] = ()
+    mcp_config: str | None = None
 
 
 @dataclass(frozen=True)

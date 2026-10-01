@@ -39,7 +39,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 Row = dict[str, Any]
 
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
@@ -70,6 +70,8 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     ),
     # A per-job operator authorization; old jobs retain no authorization.
     5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
+    # C-12.9, d714: the MCP servers a job named; an older job named none.
+    6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
 }
 
 
