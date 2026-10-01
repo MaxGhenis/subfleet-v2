@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 
+import hypothesis
+import hypothesis.strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module
@@ -814,6 +816,199 @@ def test_c13_1_a_job_cancelled_after_a_salvage_that_succeeded_names_only_the_att
     workdir, job_id = retried(daemon, harness, monkeypatch, salvage_fails=False)
     daemon.dispatch("kill", {"job_id": job_id})
     assert job_notices(daemon, job_id)[0].split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE]
+
+
+A2_LINE = "attempt a2: transient, rc=0: fixture transport disconnected"
+
+
+def a2_ran_and_its_salvage_failed(daemon, harness, monkeypatch):
+    """a1's salvage failed and a2 was reserved on the held start (a1's work). a2 then wrote
+    more work, ended transient, and its own salvage failed as a1's did: the job waits for a3."""
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    _, a2 = daemon.store.list_attempts(job_id)
+    daemon._pending_launches.discard(a2["attempt_id"])
+    adir = daemon.root / "jobs" / job_id / "a2"
+    adir.mkdir(mode=0o700)
+    (workdir / "new-by-a2.txt").write_text("a2 work\n")
+    a2 = receipt_fixture(daemon, a2, adir)
+
+    def slow(*args, **kwargs):
+        raise SalvageError("git add timed out after 60 s", transient=True)
+    with monkeypatch.context() as failing:
+        failing.setattr(daemon_module, "salvage", slow)
+        for _ in range(1, SALVAGE_TRIES):
+            with pytest.raises(SalvageError):
+                daemon._finalize(a2)
+        daemon._finalize(a2)
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+    assert json.loads(daemon.store.get_attempt(a2["attempt_id"])["evidence_json"])["salvage_error"] == A1_SALVAGE
+    daemon.store.update_job(job_id, next_check_at=None)
+    return workdir, job_id
+
+
+@pytest.mark.parametrize("held", [False, True], ids=["while-waiting", "after-a3s-start-was-held"])
+def test_c13_1_a_retry_whose_own_salvage_failed_says_where_its_work_is(state_daemon, monkeypatch, held):
+    """Review of the P2 fix: a2's own start snapshot, the ref holding a1's work, is a2's
+    salvage artifact, and `_earlier_attempt` read it as what a2's salvage saved, so a2's
+    failed salvage lost `the worktree is kept` and the notice never said where a2's work
+    is (a2's ref does not hold it). Cancelled while it waited, the notice now says the
+    worktree is kept; cancelled after a3's admission held a2's work, it names that ref."""
+    daemon, harness = state_daemon
+    workdir, job_id = a2_ran_and_its_salvage_failed(daemon, harness, monkeypatch)
+    a2_ref, a3_ref = (f"refs/subfleet-salvage/{job_id}-a{seq}-baseline" for seq in (2, 3))
+    if held:
+        with monkeypatch.context() as full:
+            full.setitem(daemon.policy["caps"], "max_active_attempts", 0)
+            daemon._admit()
+        assert len(daemon.store.list_attempts(job_id)) == 2
+    daemon.dispatch("kill", {"job_id": job_id})
+    assert daemon.store.get_job(job_id)["state"] == "cancelled"
+    lines = job_notices(daemon, job_id)[0].split("\n")[1:]
+    if held:
+        assert lines == ["cancelled while waiting to retry", A2_LINE, A1_SALVAGE,
+                         f"the worktree after attempt a2 is held under {a3_ref}"]
+        assert salvage_refs(workdir) == [a2_ref, a3_ref]
+        assert git(workdir, "show", f"{a3_ref}:new-by-a2.txt") == "a2 work"
+    else:
+        assert lines == ["cancelled while waiting to retry", A2_LINE, f"{A1_SALVAGE}; the worktree is kept: {workdir}"]
+        assert salvage_refs(workdir) == [a2_ref]
+    assert git(workdir, "ls-tree", "--name-only", a2_ref, "new-by-a2.txt") == ""     # a2's own ref holds a1's work
+    assert (workdir / "new-by-a2.txt").read_text() == "a2 work\n"
+
+
+def test_c13_1_a_retry_whose_provider_never_started_names_the_attempt_before_it(state_daemon, monkeypatch):
+    """Review of the P2 fix, its P3-1: a2 was reserved on a1's held start and the checkout
+    was switched to main before a2 launched, so the launch-time re-check refused it (rc 7):
+    a spawn error, finalized `unknown` and never retried. No provider ran, so a2 changed
+    nothing, but its notice named only a2, and nothing of a1's failed salvage or the ref
+    holding a1's work, which the same refusal at admission names."""
+    from subfleet.daemon import Daemon
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    a1, a2 = daemon.store.list_attempts(job_id)
+    ref = f"refs/subfleet-salvage/{job_id}-a2-baseline"
+    git(workdir, "branch", "-m", "main")
+    register("codex", FakeAdapter)               # a spawn error is `unknown`, as both real adapters read it
+    Daemon._launch(daemon, daemon.store.get_attempt(a2["attempt_id"]))      # the fixture forbids scheduled launches
+    assert daemon._children == {}
+    receipt = json.loads((daemon.root / "jobs" / job_id / "a2" / "exit.json").read_text())
+    assert receipt["child_pid"] is None and receipt["spawn_error"].startswith("writable job refused on main")
+    daemon._finalize(daemon.store.get_attempt(a2["attempt_id"]))
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7)
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == [
+        "attempt a2: unknown, rc=7: writable job refused on main; fix: Check out a task branch before "
+        "submitting a writable job.; unattested", A1_LINE, A1_SALVAGE, f"the worktree after attempt a1 is held under {ref}"]
+    assert [row["path"] for row in daemon.store.list_artifacts(a2["attempt_id"]) if row["role"] == "salvage"] == [ref]
+    assert not [row for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"]
+
+
+def test_c13_1_a_retry_whose_provider_ran_names_only_itself(state_daemon, monkeypatch):
+    """The control: a spawn error whose receipt names a child (the provider started, and a
+    conversation relay failed after it) may have changed the worktree, so only the attempt
+    is named, as for any attempt that reached finalization."""
+    daemon, harness = state_daemon
+    workdir, job_id = retried(daemon, harness, monkeypatch)
+    daemon._admit()
+    _, a2 = daemon.store.list_attempts(job_id)
+    daemon._pending_launches.discard(a2["attempt_id"])
+    adir = daemon.root / "jobs" / job_id / "a2"
+    adir.mkdir(mode=0o700)
+    for name in ("stdout", "stderr", "lane.log"):
+        (adir / name).write_bytes(b"")
+    receipt = {"rc": 127, "signal": None, "wall_s": .1, "child_pid": 4242, "finished_at": daemon_module.utcnow(),
+               "spawn_error": "[Errno 32] Broken pipe"}
+    (adir / "exit.json").write_text(json.dumps(receipt))
+    register("codex", FakeAdapter)
+    daemon._begin_finalizing(a2, receipt)
+    daemon._finalize(daemon.store.get_attempt(a2["attempt_id"]))
+    assert job_notices(daemon, job_id)[0].split("\n")[1:] == ["attempt a2: unknown, rc=127: [Errno 32] Broken pipe; "
+                                                              "unattested"]
+
+
+def test_c13_1_a_malformed_held_event_is_left_out_never_a_reason_a_cancel_fails(state_daemon, monkeypatch):
+    """Review of the P2 fix, its P3-2: only a held event's ref, commit and seq were checked,
+    so a `skipped` of the wrong shape raised out of `kill` (`TypeError`) and the job stayed
+    `waiting`, and a commit with a lone surrogate would have raised at its `encode()`. Each
+    such event is left out; the cancel commits and names the well-formed one."""
+    daemon, harness = state_daemon
+    workdir, job_id, ref = held_while_waiting(daemon, harness, monkeypatch)
+    [a1] = daemon.store.list_attempts(job_id)
+    [good] = events(daemon, job_id, "salvage.baseline_held")
+    other = "refs/subfleet-salvage/other-a2-baseline"
+    malformed = ["not json", "", json.dumps(["a list"]), json.dumps(None),
+                 json.dumps({**good, "ref": other, "skipped": ["x"]}),
+                 json.dumps({**good, "ref": other, "skipped": {"count": "1", "paths": []}}),
+                 json.dumps({**good, "ref": other, "skipped": {"count": 1, "paths": ["\udc80"]}}),
+                 json.dumps({**good, "ref": other, "skipped": {"count": 1}}),
+                 json.dumps({**good, "ref": other, "commit": "\ud800" * 40}),
+                 json.dumps({**good, "ref": other, "commit": "not hex"}),
+                 json.dumps({**good, "ref": other, "seq": "2"}),
+                 json.dumps({**good, "ref": other, "seq": True}),
+                 json.dumps({**good, "ref": "refs/subfleet-salvage/\ud800"}),
+                 json.dumps({**good, "ref": "refs/subfleet-salvage/x\nsecond line"}),
+                 json.dumps({**good, "ref": ""})]
+    with daemon.store.transaction("test.malformed_events", job_id=job_id) as tx:
+        for data in malformed:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                       (daemon_module.utcnow(), "salvage.baseline_held", job_id, a1["attempt_id"], data))
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    assert daemon.store.get_job(job_id)["state"] == "cancelled"
+    [notice] = job_notices(daemon, job_id)
+    assert notice.split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE, A1_SALVAGE,
+                                      f"the worktree after attempt a1 is held under {ref}"]
+    assert [row["path"] for row in daemon.store.list_artifacts(a1["attempt_id"]) if row["role"] == "salvage"] == [ref]
+
+
+#: Any text: surrogates and control characters included, which JSON's `\\u` escapes carry.
+ANY_TEXT = st.text(st.characters(exclude_categories=()), max_size=12)
+JSON = st.recursive(st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | ANY_TEXT,
+                    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(ANY_TEXT, inner, max_size=3),
+                    max_leaves=8)
+#: Each field of a held event: what `_pin_baseline` writes, near misses, and anything at all.
+HELD_FIELD = {
+    "ref": st.sampled_from(["refs/subfleet-salvage/j-a2-baseline", "refs/x\udc80", "refs/x\ny"]) | ANY_TEXT | JSON,
+    "commit": (st.sampled_from(["a" * 40, "0123456789abcdef" * 4, "A" * 40, "a" * 41])
+               | st.text(alphabet="0123456789abcdefg\ud800", min_size=38, max_size=66) | JSON),
+    "seq": st.integers() | JSON,
+    "after": JSON,
+    "skipped": (st.fixed_dictionaries({"count": st.integers(0, 9),
+                                       "paths": st.lists(st.sampled_from(["newpkg/", "x\udc80/", "a\nb/"]),
+                                                         max_size=3)})
+                | st.fixed_dictionaries({"count": st.integers() | JSON, "paths": st.lists(ANY_TEXT | JSON, max_size=3)})
+                | JSON),
+}
+HELD_EVENT = st.dictionaries(st.sampled_from(sorted(HELD_FIELD)), st.just(None), max_size=5).flatmap(
+    lambda keys: st.fixed_dictionaries({key: HELD_FIELD[key] for key in keys}))
+
+
+@hypothesis.settings(deadline=None, max_examples=400)
+@hypothesis.example({"ref": "refs/subfleet-salvage/j-a2-baseline", "commit": "a" * 40, "seq": 2, "after": "x",
+                     "skipped": {"count": 7, "paths": ["newpkg/"]}})
+@hypothesis.given(HELD_EVENT | JSON)
+def test_c13_1_any_held_event_is_named_in_valid_utf8_or_left_out(data):
+    """Invariant over any JSON a `salvage.baseline_held` event could hold: `_held_event` never
+    raises, and what it keeps renders as `_earlier_attempt` uses it (`_held_line`, the
+    artifact's digest of the commit) in text SQLite can store, the ref on one line."""
+    held = daemon_module._held_event(json.dumps(data))
+    if held is None:
+        return
+    line = daemon_module.Daemon._held_line({"workdir": "/w", "worktree": None}, held)
+    line.encode("utf-8")
+    daemon_module.hashlib.sha256(held["commit"].encode()).hexdigest()
+    assert "\n" not in line and held["ref"] in line
+
+
+def test_c13_1_a_held_event_as_pin_baseline_writes_it_is_kept():
+    """The invariant above is not met by leaving everything out."""
+    written = {"ref": "refs/subfleet-salvage/j-a2-baseline", "commit": "0123456789abcdef" * 4, "seq": 2,
+               "after": "attempt-1", "skipped": {"count": 7, "paths": ["newpkg/", "x\\xff/"]}}
+    assert daemon_module._held_event(json.dumps(written)) == written
+    assert daemon_module._held_event(json.dumps({**written, "commit": "a" * 40})) is not None
+    assert daemon_module._held_event(json.dumps({key: written[key] for key in ("ref", "commit", "seq")})) is not None
 
 
 @pytest.mark.parametrize("transient", [True, False])

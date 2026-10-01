@@ -141,6 +141,32 @@ def _left_out(skipped: dict) -> str:
     return f"{count} nested repositor{'y' if count == 1 else 'ies'} with no commit, kept only in the worktree: {shown}"
 
 
+def _held_event(data_json: str | None) -> dict | None:
+    """C-13.1: a `salvage.baseline_held` event's data as `_pin_baseline` writes it, else
+    None: a ref that is one line of valid UTF-8 (`path_text`), a commit in hex, a seq
+    that is a number, and `skipped`, when there is one, as `_skipped` makes it from
+    `path_text` paths. A notice is written from it inside the transaction that cancels
+    or fails a job, so an event that is anything else is left out, never a reason that
+    transaction cannot commit: a `skipped` that was not checked raised out of `kill`, and
+    so would a commit holding a lone surrogate, at its `encode()` (review of the P2 fix)."""
+    try:
+        data = json.loads(data_json or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    ref, commit, seq, skipped = data.get("ref"), data.get("commit"), data.get("seq"), data.get("skipped", {})
+    text = lambda value: isinstance(value, str) and value == path_text(value)   # noqa: E731
+    if not (text(ref) and ref and isinstance(commit, str) and len(commit) in (40, 64)
+            and not commit.strip("0123456789abcdef") and type(seq) is int):
+        return None
+    if skipped != {} and not (isinstance(skipped, dict) and set(skipped) == {"count", "paths"}
+                              and type(skipped["count"]) is int and isinstance(skipped["paths"], list)
+                              and all(text(path) for path in skipped["paths"])):
+        return None
+    return data
+
+
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -4802,20 +4828,18 @@ class Daemon:
         recorded = {row[0] for row in tx.execute(
             "SELECT r.path FROM artifacts r JOIN attempts a USING(attempt_id) WHERE a.job_id=? AND r.role='salvage'",
             (job["job_id"],)).fetchall()}
-        events = []
-        for (data,) in tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held' "
-                                  "ORDER BY event_id", (job["job_id"],)).fetchall():
-            try:
-                data = json.loads(data)
-            except ValueError:
-                continue
-            if (isinstance(data, dict) and isinstance(data.get("ref"), str) and isinstance(data.get("commit"), str)
-                    and isinstance(data.get("seq"), int)):
-                events.append(data)     # anything else is never a reason a cancel or a failure cannot be recorded
+        events = [held for (data,) in tx.execute(
+            "SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held' ORDER BY event_id",
+            (job["job_id"],)).fetchall() if (held := _held_event(data)) is not None]
         lines = ""
         for last in reversed(earlier):
+            evidence = json.loads(last["evidence_json"] or "{}")
+            # The attempt's own start snapshot (`baseline_ref`) holds the work of the
+            # attempt before it, never its own: counted as its salvage, a retry whose
+            # own salvage failed lost "the worktree is kept" (review of the P2 fix).
             own = [dict(row) for row in tx.execute("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
-                                                   (last["attempt_id"],)).fetchall()]
+                                                   (last["attempt_id"],)).fetchall()
+                   if row["path"] != evidence.get("baseline_ref")]
             held = []
             for data in events:
                 if data.get("after") != last["attempt_id"]:
@@ -4829,8 +4853,7 @@ class Daemon:
             rc = "-" if last["rc"] is None else last["rc"]
             lines += (f"\nattempt a{last['seq']}: {last['outcome_class'] or 'unknown'}, rc={rc}: "
                       f"{last['outcome_detail'] or '-'}"
-                      + self._salvage_summary(job, own + [artifact for _, artifact in held],
-                                              json.loads(last["evidence_json"] or "{}"))
+                      + self._salvage_summary(job, own + [artifact for _, artifact in held], evidence)
                       + "".join("\n" + self._held_line(job, data) for data, _ in held))
             if last["attempt_id"] not in unlaunched:
                 break
@@ -5076,6 +5099,14 @@ class Daemon:
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
                 summary += self._salvage_summary(job, salvage_artifacts, salvage_evidence)
+                if receipt and receipt.get("spawn_error") and receipt.get("child_pid") is None:
+                    # C-13.1, C-15.1: no provider ran (refused on main at launch, a home
+                    # or credential that could not be resolved, a binary that could not
+                    # be spawned), so nothing changed in the worktree, and the attempt
+                    # before it is named as for one that never launched (review of the
+                    # P2 fix: a1's failed salvage and the ref holding its work were in
+                    # no notice).
+                    summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
