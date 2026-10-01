@@ -4032,12 +4032,14 @@ class Daemon:
                             waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested + blocked)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
-                            # A key it only needs free (`blocked`) is queued for as `queue_for`
-                            # says: a writer held off by turns queues for their folder.
+                            # A key it only needs free (`blocked`) is never queued for: turns
+                            # share their folder, so no turn takes it from another, and no
+                            # detached job takes a turn's row. It is among the keys the waiter
+                            # waits for, so a job holding it is never held behind the waiter.
                             hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
-                            queue_for(contested + blocked + queued, job["job_id"])
+                            queue_for(contested + queued, job["job_id"])
                             rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
