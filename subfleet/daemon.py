@@ -551,6 +551,7 @@ class Daemon:
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
                              deliver=self._timer_notice)
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
+        self.timers.probe_record = self._probe_record            # C-18.1: the probe holding a lane, by name
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
@@ -924,7 +925,7 @@ class Daemon:
                     "jobs": self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")}
             # Probe reservations are explicit leases, not invented in-flight attempt
             # counts. A recovered probe keeps its lane unavailable until containment.
-            leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+            leases = self.store.query(capacity.PROBE_LEASES)
             records = {row["holder"]: self._probe_record(row["holder"]) for row in leases}
             # C-6.3: the newest reading in this state. Every reading added after it
             # has a greater id while it stands (`_route_rows`).
@@ -940,12 +941,8 @@ class Daemon:
         view = capacity.build_view(**rows["view"], reading_ttl_s=self.policy["caps"]["reading_ttl_s"],
                                    desktop=desktop, now=now, desktop_in_use=desktop_in_use)
         view["desktop_in_use"] = desktop_in_use
-        leases = rows["probe_leases"]
-        view["unavailable_lanes"] = {row["lease_key"].split(":")[1]: row["holder"] for row in leases}
-        view["reserved_probes"] = len(leases)
-        for lane in view["lanes"]:
-            if holder := view["unavailable_lanes"].get(lane["lane_id"]):
-                lane["probe_state"] = (rows["probe_records"].get(holder) or {}).get("state", "uncertain")
+        # `status.json` lays the same leases over the timer's snapshot (C-18.1).
+        capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         return self.timers.enrich_view(view, rows["timers"])
 
     def _session_rows(self) -> dict | None:
