@@ -113,8 +113,10 @@ def test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back
         counts = service._route_evaluations
         assert counts["old"] == 0 and counts["again"] == 0 and counts["deferred"] == 0
         assert counts["rejudged"] == 0             # no Claude lane was ever looked at
-        # The younger job competes for codex-1, unmeasured and so one slot: it waits for a slot, not a clock.
-        assert service._holds["younger"]["reason"] != "route-moved"
+        # The younger job competes for codex-1. With no cap (C-6.4, the default since
+        # 2026-09-27) it is placed beside the older one; under a cap it waits for a
+        # slot. Either way it never waits on a clock.
+        assert service._holds.get("younger", {}).get("reason") != "route-moved"
 
 
 def test_c6_3_a_reservation_records_the_evidence_an_evaluation_there_would(tmp_path):
@@ -221,7 +223,7 @@ def test_c26_9_a_stream_of_turns_never_keeps_an_older_writable_job_from_its_prob
             complete(service, turn)
             turn = successor
         assert probes == [(detached, "codex-1", "lane:codex-1:slot:0")]      # one probe, on the first pass
-        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+        assert slot_of(service, detached) == "lane:codex-1:slot:1"          # `slot:0` is the probe's alone
 
 
 def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe(tmp_path):
@@ -239,7 +241,30 @@ def test_c26_9_a_turn_of_the_same_tier_never_keeps_a_writable_job_from_its_probe
         assert [row["lane_id"] for row in service.store.list_attempts(detached)] == ["codex-1"]
         assert [job for job, _, _ in probes] == [detached]
         assert slot_of(service, turn) == "lane:codex-1:slot:turn-0"
-        assert slot_of(service, detached) == "lane:codex-1:slot:0"
+        assert slot_of(service, detached) == "lane:codex-1:slot:1"
+
+
+def test_c11_4_detached_work_never_keeps_an_older_writable_job_from_its_probe(tmp_path):
+    """The uncap plan's review: with no per-lane cap a busy lane nearly always had an
+    attempt on `slot:0`, the one lease an admission probe takes, so an older writable
+    job waiting to probe lost it to each later job that needed no probe. Detached
+    attempts number from `slot:1` now: a read-only job runs on codex-1, a writable job
+    behind it is probed at once, beside it, and a third job runs beside both."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        one_unmeasured_lane(service, harness, patch)
+        probes = []
+        probing(service, patch, probes)
+        first = submit(service, harness, pinned_model="astra", tier="easy")
+        service._admit()
+        assert slot_of(service, first) == "lane:codex-1:slot:1"
+        writable = submit(service, harness, pinned_model="astra", tier="easy", sandbox="workspace-write",
+                          in_place=True)
+        later = submit(service, harness, pinned_model="astra", tier="easy")
+        service._admit()
+        assert probes == [(writable, "codex-1", "lane:codex-1:slot:0")]      # probed while `first` runs
+        assert slot_of(service, writable) == "lane:codex-1:slot:2"
+        assert slot_of(service, later) == "lane:codex-1:slot:3"
+        assert not service.store.one("SELECT 1 FROM leases WHERE lease_key='lane:codex-1:slot:0'")
 
 
 def test_c26_9_a_turn_held_off_a_lane_by_a_probe_is_looked_at_when_the_probe_ends(tmp_path):
@@ -770,14 +795,15 @@ def as_before(service, patch) -> None:
     order (a turn before the detached jobs of its own tier only), and the route evaluated
     again, whole, inside the reserving transaction, at the reservation's clock, as e053b2c
     did whenever a commit had landed since its early evaluation. Turn slots are numbered
-    apart from detached ones, as here: with one numbering e053b2c let turns of a writable
-    job's own tier keep it from its probe (the test above), which is a hold this change
-    removes, not a bar to hold it to."""
+    apart from detached ones, and detached ones from 1, as here: with one numbering
+    e053b2c let turns of a writable job's own tier keep it from its probe (the test
+    above), and detached attempts on `slot:0` did the same to a writable job behind them
+    (review of the uncap plan), holds this code removes, not a bar to hold it to."""
     evaluate = Daemon._pick.__get__(service)
 
     def numbered_apart(tx, lane_id, turn):
         prefix = f"lane:{lane_id}:slot:" + ("turn-" if turn else "")
-        slot = 0
+        slot = 0 if turn else 1
         while tx.execute("SELECT 1 FROM leases WHERE lease_key=?", (f"{prefix}{slot}",)).fetchone():
             slot += 1
         return f"{prefix}{slot}"

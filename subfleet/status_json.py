@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .capacity import identity_blocked
+from .capacity import desktop_excluded, identity_blocked
 from .guardian import atomic_publish
 
 
@@ -47,7 +47,7 @@ def lane_verdict(lane: Mapping[str, Any]) -> str:
 def dispatchable(lane: Mapping[str, Any]) -> bool:
     if (not lane.get("enabled", True) or lane.get("owner", "v2") != "v2"
             or lane.get("canonical") is False or lane.get("duplicate_of")
-            or lane.get("provider") == "claude" and lane.get("desktop")):
+            or lane.get("provider") == "claude" and desktop_excluded(lane)):
         return False
     if "dispatchable" in lane:
         return bool(lane["dispatchable"])
@@ -133,9 +133,9 @@ def scoped_windows(lane: Mapping[str, Any], model_names: Mapping[str, str] | Non
 
 def claude_earliest_reset(accounts: list[Mapping[str, Any]], now: datetime) -> str | None:
     """C-29.6, D-27: the soonest future reset of an account window on a Claude lane
-    admission could use (enabled, owned by v2, not the desktop login, identity not
-    mismatched). A reset already past says the reading is old, not when capacity
-    returns.
+    admission could use (enabled, owned by v2, not the desktop login while Claude
+    Code uses it (C-10.3), identity not mismatched). A reset already past says the
+    reading is old, not when capacity returns.
 
     A lane whose credential proved to hold another account (C-10.6) stays enabled
     (`daemon._record_identity` only marks it) and keeps its last bound readings as
@@ -143,7 +143,8 @@ def claude_earliest_reset(accounts: list[Mapping[str, Any]], now: datetime) -> s
     `scheduler` reason `identity-mismatch`), so its reset is not when capacity
     returns. An auth-dead lane is already disabled wherever auth-dead is found."""
     resets = [instant(window["reset_at"]) for account in accounts
-              if account.get("enrolled") and account.get("owner", "v2") == "v2" and not account.get("active")
+              if account.get("enrolled") and account.get("owner", "v2") == "v2"
+              and not (account.get("active") and account.get("desktop_in_use", True) is not False)
               and not identity_blocked(account)
               for window in account.get("windows", ())
               if window["scope"] == "account" and window.get("reset_at")]
@@ -317,6 +318,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                     live["stale"] = live["stale"] or row["stale"]
                     live["source"] = "stale-provider" if live["stale"] else "provider"
             claude.append({**common, "email": str(email), "active": bool(lane.get("desktop", False)),
+                           "desktop_in_use": lane.get("desktop_in_use"),
                            "enrolled": bool(lane.get("enabled", True)), "probe": probe, "live": live,
                            "oauth_status": verdict, "windows": scoped_windows(lane, model_names)})
     available = [lane for lane in codex if lane["dispatchable"]]

@@ -840,6 +840,9 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var options: [String]
     var created_at: String
     var state: String
+    /// The provider's request id, as the `approval.requested` event carries it
+    /// (C-27.5); nil from a daemon older than the field.
+    var request_id: String?
 
     var id: String { approval_id }
 }

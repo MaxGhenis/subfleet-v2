@@ -1,9 +1,15 @@
 """`scheduler.evaluate` as it was at e053b2c, before it was split into `prepare`,
-`judge_lane` and `rank_key` (C-6.3). Kept verbatim as the reference the split is
-tested against (`tests/unit/test_route_check.py`); nothing else uses it."""
+`judge_lane` and `rank_key` (C-6.3). Kept as the reference the split is tested
+against (`tests/unit/test_scheduler_split.py`); nothing else uses it.
+
+It changes only where the contract does, and then in its own words, never by
+calling the code under test: null caps (C-26.9, then C-6.4 on 2026-09-27), the
+load band and the desktop lane's place (C-11.3, C-10.3), each written here again
+so the differential test compares two implementations."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -12,8 +18,38 @@ from subfleet.capacity import fresh_provider, identity_blocked
 from subfleet.contracts import DEFAULT_CAPS, HEADROOM_FLOOR, Decision
 from subfleet.policy import PolicyError, resolve_model
 from subfleet.scheduler import (ACTIVE_ATTEMPTS, RouteError, _earliest_reset, _future_closure,
-                                _higher_model_scopes, _identities, _iso, _parent_blocks, _row, _time,
+                                _higher_model_scopes, _identities, _iso, _row, _time,
                                 _unmeasured_reserve_reason, reserve_verdict, resolve_lane)
+
+
+def reference_parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
+    """Every ancestor whose descendants have as many attempts in flight as the
+    parent cap allows; no cap (null or absent) blocks nothing."""
+    limit = (policy.get("caps") or {}).get("max_active_attempts_per_parent")
+    if limit is None:
+        return []
+    jobs = {_row(item)["job_id"]: _row(item) for item in view.get("jobs", ())}
+    if job.get("job_id"):
+        jobs[job["job_id"]] = job
+
+    def ancestors(item: Mapping[str, Any]) -> list[str]:
+        found: list[str] = []
+        parent = item.get("parent_job_id")
+        while parent and parent not in found:
+            found.append(parent)
+            parent = jobs.get(parent, {}).get("parent_job_id")
+        return found
+
+    mine = ancestors(job)
+    counts = {parent: 0 for parent in mine}
+    for item in view.get("attempts", ()):
+        attempt = _row(item)
+        if attempt.get("state") not in ACTIVE_ATTEMPTS:
+            continue
+        for parent in ancestors(jobs.get(attempt.get("job_id"), {})):
+            if parent in counts:
+                counts[parent] += 1
+    return [f"parent:{parent}" for parent in sorted(counts) if counts[parent] >= int(limit)]
 
 
 def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
@@ -80,13 +116,16 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             if attempt.get("state") in ACTIVE_ATTEMPTS and (attempt.get("job_id") in turn_jobs) == is_turn:
                 identity = attempt["lane_id"]
                 in_flight[identity] = in_flight.get(identity, 0) + 1
-    capacity_blocks = _parent_blocks(policy, view, job)
+    capacity_blocks = reference_parent_blocks(policy, view, job)
     if is_turn:
         fleet_turns = conversation_caps.get("max_active_turns")
         if fleet_turns is not None and sum(in_flight.values()) >= int(fleet_turns):
             capacity_blocks.append("fleet")
-    elif sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
+    elif (caps.get("max_active_attempts") is not None
+          and sum(in_flight.values()) + view.get("reserved_probes", 0) >= int(caps["max_active_attempts"])):
         capacity_blocks.append("fleet")
+    # C-11.3: the load band's width; the default is 2, and null is no bands.
+    spread = (policy.get("admission") or {}).get("lane_spread", 2)
     evaluations: list[dict[str, Any]] = []
     messages: list[str] = []
     chosen_lane = chosen_model = None
@@ -119,9 +158,14 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                 detail["stranded_scopes"] = sorted({row["scope"] for row in closures
                     if row["lane_id"] == identity and row["scope"] in higher_scopes
                     and _future_closure(row, now)})
+            if lane.get("desktop"):
+                detail["desktop"] = True
             if _identities(lane) & excluded:
                 reasons.append("excluded")
-            if lane.get("desktop") and not job.get("allow_desktop"):
+            # C-10.3: the desktop login's lane is refused while Claude Code uses it,
+            # and while nobody said whether it does.
+            in_use = lane.get("desktop_in_use")
+            if lane.get("desktop") and in_use is not False and not job.get("allow_desktop"):
                 reasons.append("desktop")
             if (job.get("kind") == "turn" and model["provider"] == "claude"
                     and lane.get("credential_kind") == "home"):
@@ -141,9 +185,17 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             lane_measured = any(row["lane_id"] == identity and fresh_provider(
                 row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
             lane_turns = conversation_caps.get("turn_slots_per_lane")
-            slot_cap = ((None if lane_turns is None else int(lane_turns)) if is_turn else
-                        caps["max_in_flight_per_lane"] if lane_measured else
-                        min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
+            per_lane, unmeasured = caps.get("max_in_flight_per_lane"), caps.get("max_in_flight_unmeasured")
+            if is_turn:
+                slot_cap = None if lane_turns is None else int(lane_turns)
+            elif lane_measured:
+                slot_cap = per_lane
+            elif per_lane is None:
+                slot_cap = unmeasured
+            elif unmeasured is None:
+                slot_cap = per_lane
+            else:
+                slot_cap = min(per_lane, unmeasured)
             if identity in view.get("unavailable_lanes", {}):
                 detail["slot_block"] = view["unavailable_lanes"][identity]
             if (capacity_blocks or (slot_cap is not None and in_flight.get(identity, 0) >= slot_cap)
@@ -182,21 +234,25 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
 
         def comparator(identity: str) -> tuple:
             row = details[identity]
+            # C-10.3: the desktop lane last; C-26.2: then a turn's own lane first.
+            last = row.get("desktop", False)
             if affinity is not None:
                 # C-26.2: a conversation keeps the account that served its last
                 # turn while that account stays a candidate (prompt cache).
-                return (identity != affinity, *base_comparator(identity, row))
-            return base_comparator(identity, row)
+                return (last, identity != affinity, *base_comparator(identity, row))
+            return (last, *base_comparator(identity, row))
 
         def base_comparator(identity: str, row: dict) -> tuple:
+            # C-11.3: lanes fill in bands of `spread` attempts, then as before.
+            band = 0 if spread is None else row["in_flight"] // int(spread)
             if model["provider"] == "codex":
-                return (not row["measured"], row["seven_day_reset"] or "9999", identity)
+                return (band, not row["measured"], row["seven_day_reset"] or "9999", identity)
             reserve = row.get("reserve") or {}
             stranded = bool(row.get("stranded_scopes"))
             if reserve.get("slack") is not None:
                 # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-                return (not stranded, not row["measured"], -reserve["slack"], row["in_flight"], identity)
-            return (not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
+                return (band, not stranded, not row["measured"], -reserve["slack"], row["in_flight"], identity)
+            return (band, not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)
         if candidates:

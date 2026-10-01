@@ -70,6 +70,12 @@ def main() -> int:
     # C-10.6, C-10.3: the profile endpoint is a fixture and the desktop app's
     # keychain item is never read — this harness runs under a real HOME.
     fake_profile.install()
+    # C-6.13: nor is the host's load, which belongs to whatever else it runs:
+    # the machine guard reads a quiet machine unless a test stages a reading.
+    import subfleet.machine
+    staged = root / "machine.json"
+    subfleet.machine.read = lambda: (json.loads(staged.read_text()) if staged.exists() else
+                                     {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0})
 
     def hook(boundary: str, job_id: str, attempt_id: str) -> None:
         if boundary not in {args.crash_at, args.hold_at}:

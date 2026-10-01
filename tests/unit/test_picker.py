@@ -9,6 +9,7 @@ from subfleet import cli, compat, picker
 from subfleet.capacity import build_view
 from subfleet.client import DaemonUnavailable
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.caps import capped
 
 
 NOW = "2026-09-20T16:00:00Z"
@@ -17,7 +18,9 @@ LATER = "2026-09-21T16:00:00Z"
 
 @pytest.fixture
 def policy():
-    return load_policy(DEFAULT_POLICY_PATH)
+    """The count caps of before 2026-09-27 (`tests/caps.py`): these cases rank
+    lanes under them, and a policy may still set them."""
+    return capped(load_policy(DEFAULT_POLICY_PATH))
 
 
 def lane(name="codex-1", **kw):

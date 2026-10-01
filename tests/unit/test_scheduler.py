@@ -9,6 +9,7 @@ import pytest
 from subfleet.capacity import build_view
 from subfleet.contracts import Exit
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+from tests.caps import capped
 from subfleet.scheduler import (evaluate, exit_code, ordered_jobs, probe_required,
                                 resolve_lane, waiting_metadata)
 
@@ -22,15 +23,19 @@ SIX_DAYS = "2026-09-11T10:33:00Z"
 def policy():
     """The shipped policy with the reserve rule (C-11.7) switched off: these cases
     describe admission mechanics that the rule sits on top of. `reserve_policy`
-    below is the policy as shipped, for the reserve cases."""
-    loaded = load_policy(DEFAULT_POLICY_PATH)
+    below is the policy as shipped, for the reserve cases. Both keep the count
+    caps of before 2026-09-27 (`tests/caps.py`): most of these cases, the 06:33
+    one of C-11.6 among them, were observed or written under them, and a policy
+    may still set them. `tests/unit/test_scheduler_uncapped.py` covers the
+    shipped default, which has none."""
+    loaded = capped(load_policy(DEFAULT_POLICY_PATH))
     loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
     return loaded
 
 
 @pytest.fixture
 def reserve_policy():
-    return load_policy(DEFAULT_POLICY_PATH)
+    return capped(load_policy(DEFAULT_POLICY_PATH))
 
 
 def lane(identity="claude-1", **changes):
@@ -283,11 +288,15 @@ def test_fifo_within_tier_preserves_same_second_submission_order(policy):
 
 
 def test_parent_descendants_share_one_concurrency_bound(policy):
-    """C-6.4; plan amendment 11: grandchildren cannot evade their root parent's cap."""
+    """C-6.4; plan amendment 11: grandchildren cannot evade their root parent's cap,
+    when the policy sets one. By default there is none (2026-09-27)."""
     jobs = [job(job_id="parent"), job(job_id="child-a", parent_job_id="parent"),
             job(job_id="child-b", parent_job_id="parent"),
             job(job_id="grandchild-a", parent_job_id="child-a")]
     snapshot = view([lane("claude-1"), lane("claude-2")], attempts=[attempt("claude-1", "grandchild-a")], jobs=jobs)
+    uncapped = evaluate(policy, snapshot, job(job_id="grandchild-b", parent_job_id="child-b"))
+    assert uncapped.chosen_lane is not None and uncapped.evaluations[0]["capacity_blocks"] == []
+    policy["caps"]["max_active_attempts_per_parent"] = 1
     result = evaluate(policy, snapshot, job(job_id="grandchild-b", parent_job_id="child-b"))
     assert exit_code(result) == Exit.NO_LANE
     assert result.evaluations[0]["capacity_blocks"] == ["parent:parent"]
@@ -555,6 +564,7 @@ def test_unmeasured_reserve_authorization_preserves_other_rejections(reserve_pol
     elif guard == "lane-slot": attempts = [attempt("claude-1")]
     elif guard == "fleet-cap": attempts = [attempt("codex-1", f"active-{i}") for i in range(4)]
     elif guard == "parent-cap":
+        reserve_policy["caps"]["max_active_attempts_per_parent"] = 1
         changes["parent_job_id"] = "parent"
         attempts = [attempt("codex-1")]
         jobs = [{"job_id": "parent"}, {"job_id": "running-job", "parent_job_id": "parent"}]
