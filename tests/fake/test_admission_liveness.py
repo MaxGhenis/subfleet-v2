@@ -745,6 +745,46 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
         assert service.store.list_attempts(newer), service._holds.get(newer)
 
 
+@pytest.mark.parametrize("older_clock", ["future", "due"])
+def test_c6_9_a_lease_freed_mid_pass_goes_to_the_detached_job_that_waited_for_it(tmp_path, older_clock):
+    """C-6.9 (release/217's #72: the lease queue "asks no job's kind"), kept through the
+    merge with the shared-folder change, which had queued turns only. An older detached
+    job waits for an output path another holder has; the holder lets go after the pass
+    has passed the older job, and a newer job wanting the path is looked at next. The
+    newer job waits, queued behind the older one, which takes the path on the next pass.
+    Submit refuses a second job on one live output path, or a held one (C-6.5), so the
+    holder's lease is taken after the older job's submit and the newer job's path is set
+    on its row, as a pass meets such jobs. Each of the older job's paths is forced: on
+    its clock (`future`) or looked at (`due`)."""
+    from subfleet.daemon import after, utcnow
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        out = str(harness.root / "shared-out.md")
+        key = f"out:{out}"
+        older = submit(service, harness, out_path=out)
+        assert service.store.acquire_lease(key, "someone-else")       # taken after submit, which refuses a held path
+        service._admit()
+        assert service._holds[older]["reason"] == "lease-held" and service._holds[older]["leases"] == [key]
+        newer = submit(service, harness)
+        service.store.update_job(newer, out_path=out)
+        _clock(service, older, after(3600) if older_clock == "future" else utcnow())
+        real = service._workspace
+
+        def holder_lets_go(job):
+            if job["job_id"] == newer:
+                service.store.release_leases("someone-else")
+            return real(job)
+        patch.setattr(service, "_workspace", holder_lets_go)
+        service._admit()
+        hold = service._holds[newer]
+        assert not service.store.list_attempts(newer), hold
+        assert hold["reason"] == "lease-held" and hold["queued"] == [key] and hold["queued_behind"] == [older]
+        patch.setattr(service, "_workspace", real)
+        service._admit()
+        assert service.store.list_attempts(older), service._holds.get(older)
+        assert not service.store.list_attempts(newer)
+
+
 def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
     """Three turns wait for one lease (their conversation's): a lease freed mid-pass is
     queued for the oldest, both later turns name the oldest, and the lease then passes to
