@@ -1,0 +1,266 @@
+Archive-b selected retention validation
+Latest selected-node result: 55 passed, 0 failing nodes, 0 skipped. Original flaky attempt remains preserved below; the corrected default10 property passed.
+Workspace: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont
+Selection: 54 exact archive unit nodes plus 1 archive-property node; 19 sequential foreground TTY groups; unit groups have 3 nodes; property runs alone.
+Environment explicitly set by driver: UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache; SUBFLEET_RETENTION_QOS=inherit.
+Post-run inherited RETENTION_PROP_EXAMPLES=None; archive property EXAMPLES defaults to 10 at tests/unit/test_retention_archive_properties.py:37.
+All owned foreground sessions were awaited to completion. No source/test/helper edits or commits were made by this verification run.
+
+Initial attempt: 54 passed, 1 failed, 0 skipped. All 54 archive unit nodes passed. The sole archive-property node failed with Hypothesis FlakyFailure after a first-call maintenance assertion that did not reproduce on retry.
+Failure: ops=[('delete-tracked',)]; test_retention_archive_properties.py:150 expected pruned=['job-prop'], got []; occurs before scratch source deletion or restore.
+Property pytest duration: 1367.04 s. Supervisor duration: 1471.32 s; exit 1. One 550 s budget overrun; ps inspection unavailable ([Errno 1] Operation not permitted), so supervisor continued foreground waiting. This is an actual test failure, not termination at the budget.
+
+Source provenance:
+Parent-supplied initial revision label: a1f8d055. This label could not be resolved by git show in this assigned worktree after the run; it is not asserted as this worktree's verified HEAD.
+Verified current assigned-worktree HEAD: 2e7f910d4172fb552c2ab6de856bb0feb675f354. Working-tree source is reported separately because it differs from the committed blob.
+Last pre-run working-tree source SHA256 from completed mutation snapshot, which matched then-main: c544cb4097f1ad85d7805f966fd4af1f9c43790f71feb937ed291b8bec1b069e.
+Post-run working-tree retention_archive.py SHA256: 5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; last modification UTC: 2026-10-01T18:45:04.162816+00:00.
+Root authorized one controlled production-source fix during these ongoing slices. Import-time hashes were not captured by the already-running driver. Per-slice hash context below is inferred only from the final source modification time, log file creation/end times, and prior verified source snapshot; the slice straddling that change remains ambiguous.
+Post-run property test SHA256: dde0dab1846c829eedd1ef76976cef2f7581294206eabc49d7a513fd17b6fff2.
+
+Timing-cause inspection (hypothesis, not confirmed from original truncated result):
+Property helper at :149 calls maintenance without a clock or slice override. retention.py:58 gives SLICE_S=120.0; :359–360 uses time.monotonic and slice_s=SLICE_S. :558 gives archive clock()+slice_s; :566–567 records parked jobs in in_flight and leaves them unpruned. retention_archive.py:1171–1181 parks after work when that real-clock deadline is reached. Under host load a correct pass can therefore violate the property's single-call pruning assumption.
+No rerun performed as part of these original 55 nodes; root assessment is pending. Full failure output is retained in archive-b-19.txt.
+
+archive-b-01: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-01.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]' 'tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]' 'tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-01.txt
+Log creation UTC: 2026-10-01T18:37:54.863726+00:00; log final modification UTC: 2026-10-01T18:39:33.402230+00:00
+Source hash context: inferred pre-update SHA256=c544cb4097f1ad85d7805f966fd4af1f9c43790f71feb937ed291b8bec1b069e; not sampled at import
+Result: exit=0; supervisor elapsed=98.54 s; 3 passed in 78.36s (0:01:18)
+
+archive-b-02: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-02.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]' 'tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]' 'tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-02.txt
+Log creation UTC: 2026-10-01T18:39:46.307849+00:00; log final modification UTC: 2026-10-01T18:42:28.236419+00:00
+Source hash context: inferred pre-update SHA256=c544cb4097f1ad85d7805f966fd4af1f9c43790f71feb937ed291b8bec1b069e; not sampled at import
+Result: exit=0; supervisor elapsed=161.93 s; 3 passed in 128.78s (0:02:08)
+
+archive-b-03: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-03.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest' 'tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept' 'tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-03.txt
+Log creation UTC: 2026-10-01T18:43:01.398369+00:00; log final modification UTC: 2026-10-01T18:46:25.995564+00:00
+Source hash context: source-update boundary crossed; import-time SHA256 unknown
+Result: exit=0; supervisor elapsed=204.56 s; 3 passed in 163.61s (0:02:43)
+
+archive-b-04: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-04.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]' 'tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle' 'tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-04.txt
+Log creation UTC: 2026-10-01T18:46:33.986540+00:00; log final modification UTC: 2026-10-01T18:54:36.293438+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=482.26 s; 3 passed in 451.53s (0:07:31)
+
+archive-b-05: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-05.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins' 'tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other' 'tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-05.txt
+Log creation UTC: 2026-10-01T18:54:46.017521+00:00; log final modification UTC: 2026-10-01T18:56:53.449697+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=127.43 s; 3 passed in 114.29s (0:01:54)
+
+archive-b-06: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-06.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed' 'tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside' 'tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-06.txt
+Log creation UTC: 2026-10-01T18:57:16.796301+00:00; log final modification UTC: 2026-10-01T19:01:11.904811+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=235.11 s; 3 passed in 205.74s (0:03:25)
+
+archive-b-07: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-07.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it' 'tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job' 'tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-07.txt
+Log creation UTC: 2026-10-01T19:01:22.204165+00:00; log final modification UTC: 2026-10-01T19:07:06.310103+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=344.11 s; 3 passed in 301.91s (0:05:01)
+
+archive-b-08: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-08.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept' 'tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job' 'tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-08.txt
+Log creation UTC: 2026-10-01T19:07:28.521980+00:00; log final modification UTC: 2026-10-01T19:09:13.394346+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=104.95 s; 3 passed in 81.57s (0:01:21)
+
+archive-b-09: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-09.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored' 'tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job' 'tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-09.txt
+Log creation UTC: 2026-10-01T19:09:25.105333+00:00; log final modification UTC: 2026-10-01T19:11:23.231478+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=118.14 s; 3 passed in 86.01s (0:01:26)
+
+archive-b-10: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-10.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_archive_check_detects_damage' 'tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable' 'tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-10.txt
+Log creation UTC: 2026-10-01T19:11:28.514655+00:00; log final modification UTC: 2026-10-01T19:14:24.083503+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=175.45 s; 3 passed in 151.03s (0:02:31)
+
+archive-b-11: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-11.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass' 'tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores' 'tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-11.txt
+Log creation UTC: 2026-10-01T19:14:45.334466+00:00; log final modification UTC: 2026-10-01T19:17:45.044138+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=179.52 s; 3 passed in 152.54s (0:02:32)
+
+archive-b-12: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-12.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing' 'tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration' 'tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-12.txt
+Log creation UTC: 2026-10-01T19:17:59.753568+00:00; log final modification UTC: 2026-10-01T19:21:05.513513+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=185.63 s; 3 passed in 157.76s (0:02:37)
+
+archive-b-13: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-13.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are' 'tests/unit/test_retention_archive.py::test_byte_copies_count_as_added' 'tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-13.txt
+Log creation UTC: 2026-10-01T19:21:14.981852+00:00; log final modification UTC: 2026-10-01T19:25:03.302242+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=228.32 s; 3 passed in 193.80s (0:03:13)
+
+archive-b-14: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-14.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_the_history_limit_is_for_repositories_without_a_network_remote' 'tests/unit/test_retention_archive.py::test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job' 'tests/unit/test_retention_archive.py::test_the_survey_keeps_what_the_history_limit_keeps'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-14.txt
+Log creation UTC: 2026-10-01T19:25:19.172142+00:00; log final modification UTC: 2026-10-01T19:31:08.540080+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=349.25 s; 3 passed in 309.48s (0:05:09)
+
+archive-b-15: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-15.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that' 'tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went' 'tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-15.txt
+Log creation UTC: 2026-10-01T19:31:15.982047+00:00; log final modification UTC: 2026-10-01T19:35:10.643882+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=234.62 s; 3 passed in 196.67s (0:03:16)
+
+archive-b-16: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-16.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none' 'tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none' 'tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-16.txt
+Log creation UTC: 2026-10-01T19:35:16.053528+00:00; log final modification UTC: 2026-10-01T19:38:34.086832+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=197.96 s; 3 passed in 170.26s (0:02:50)
+
+archive-b-17: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-17.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names' 'tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now' 'tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-17.txt
+Log creation UTC: 2026-10-01T19:38:42.811342+00:00; log final modification UTC: 2026-10-01T19:40:41.987612+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=119.17 s; 3 passed in 84.80s (0:01:24)
+
+archive-b-18: 3 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-18.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does' 'tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass' 'tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-18.txt
+Log creation UTC: 2026-10-01T19:41:02.236779+00:00; log final modification UTC: 2026-10-01T19:44:58.121913+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=0; supervisor elapsed=235.90 s; 3 passed in 187.17s (0:03:07)
+
+archive-b-19: 1 node(s)
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-19.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted'
+Log: docs/reports/2026-10-01-retention-81-notes/archive-b-19.txt
+Log creation UTC: 2026-10-01T19:45:07.549255+00:00; log final modification UTC: 2026-10-01T20:09:39.251472+00:00
+Source hash context: inferred post-update SHA256=5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c; not sampled at import
+Result: exit=1; supervisor elapsed=1471.32 s; 1 failed in 1367.04s (0:22:47)
+
+Initial aggregate: 54 passed, 1 failed, 0 skipped across 55 exact nodes; all 19 foreground supervisors exited and were awaited.
+
+
+Property harness follow-up
+Root-authorized source edit confined to tests/unit/test_retention_archive_properties.py: import existing Clock; pass fresh Clock() to the archive oracle; preserve complete result repr in assertion. Each clock remains at1000.0, while all real filesystem/Git/archive/restore assertions continue. No production code was edited by this child. Root was notified immediately when source was frozen, before awaiting these follow-up checks.
+Frozen production archive SHA256: 5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c. Frozen property-test SHA256: 885e4d46afe053eeebd475cd47bba4b39df80758569df0616712b5303ea57b6a.
+Parent reports local commit metadata4f528dad for this frozen Clock edit; this is kept separate from the earlier ordinary git HEAD/provenance observation.
+Original Hypothesis FlakyFailure remains classified as flaky/unreproduced: actual deferred/in_flight fields were truncated in that traceback. The original-default focused case passed, and controlled time advance independently confirms valid parking can violate this single-pass assertion.
+
+archive-b-delete-tracked-diagnostic.txt
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-delete-tracked-diagnostic.txt' '550' 'uv' 'run' 'python' '-u' '-c' 'import hashlib,json,os,time
+from pathlib import Path
+from subfleet import retention,retention_archive as rarch
+from tests.unit import test_retention_archive_properties as props
+original=retention.maintenance
+def inspected(*args,**kwargs):
+    started=time.monotonic()
+    result=original(*args,**kwargs)
+    print("MAINTENANCE_ELAPSED_SECONDS",time.monotonic()-started,flush=True)
+    print("FULL_MAINTENANCE_RESULT",json.dumps(result,sort_keys=True,default=str),flush=True)
+    print("FULL_JOURNALS",json.dumps(rarch.journals(Path(args[1])),sort_keys=True,default=str),flush=True)
+    return result
+retention.maintenance=inspected
+print("RETENTION_PROP_EXAMPLES",repr(os.environ.get("RETENTION_PROP_EXAMPLES")),flush=True)
+print("PROPERTY_DEFAULT_EXAMPLES",props.EXAMPLES,flush=True)
+print("WORKING_TREE_ARCHIVE_SHA256",hashlib.sha256(Path("subfleet/retention_archive.py").read_bytes()).hexdigest(),flush=True)
+props.test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted.hypothesis.inner_test(ops=[("delete-tracked",)])
+print("FOCUSED_DELETE_TRACKED_ORACLE_PASSED",flush=True)
+'
+Result: exit=0; supervisor elapsed=199.86 s
+FULL_MAINTENANCE_RESULT {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "conflicts": [], "deferred": {}, "errors": [], "freed_bytes": 0, "freed_disk_bytes": 0, "in_flight": [], "jobs_after": 0, "more": false, "pin_reasons": {}, "pools": {"detached": {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 1, "max_bytes": 0, "max_jobs": 0, "unknown_size": 0, "unmeasured": 0}, "turn": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 0, "bytes_before": 0, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 0, "max_bytes": 4294967296, "max_jobs": 2000, "unknown_size": 0, "unmeasured": 0}}, "progressed": true, "protected": [], "pruned": ["job-prop"], "reclaimed": ["job-prop"]}
+FULL_JOURNALS {}
+
+archive-b-clock-budget-diagnostic.txt
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-clock-budget-diagnostic.txt' '550' 'uv' 'run' 'python' '-u' '-c' 'import json,time
+from pathlib import Path
+from subfleet import retention,retention_archive as rarch
+from tests.unit.retention_world import Clock
+from tests.unit import test_retention_archive_properties as props
+clock=Clock()
+original_tick=rarch._Builder._tick
+original_maintenance=retention.maintenance
+advanced=False
+captured={}
+def tick(self):
+    global advanced
+    if self.work and not advanced:
+        clock.advance(retention.SLICE_S+1)
+        advanced=True
+        print("CONTROLLED_CLOCK_ADVANCED_PAST_DEFAULT_SLICE",clock(),flush=True)
+    return original_tick(self)
+def maintenance(*args,**kwargs):
+    kwargs["clock"]=clock
+    result=original_maintenance(*args,**kwargs)
+    captured.update(result)
+    print("FULL_MAINTENANCE_RESULT",json.dumps(result,sort_keys=True,default=str),flush=True)
+    print("FULL_JOURNALS",json.dumps(rarch.journals(Path(args[1])),sort_keys=True,default=str),flush=True)
+    return result
+rarch._Builder._tick=tick
+retention.maintenance=maintenance
+print("CONTROLLED_BUDGET_EXPERIMENT: simulate clock advancing beyond the default120 s slice after first progress record; no filesystem source edits",flush=True)
+try:
+    props.test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted.hypothesis.inner_test(ops=[("delete-tracked",)])
+except AssertionError as error:
+    print("EXPECTED_SINGLE_PASS_ORACLE_ASSERTION",str(error),flush=True)
+    assert advanced and captured["pruned"]==[] and captured["in_flight"]==["job-prop"] and captured["errors"]==[] and captured["deferred"]=={}
+    print("CONTROLLED_DEFAULT_SLICE_PARK_CONFIRMED",flush=True)
+else:
+    raise AssertionError("Expected single-pass property assertion after controlled valid parking")
+'
+Result: exit=0; supervisor elapsed=144.34 s
+FULL_MAINTENANCE_RESULT {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 19547, "bytes_before": 19547, "conflicts": [], "deferred": {}, "errors": [], "freed_bytes": 0, "freed_disk_bytes": 0, "in_flight": ["job-prop"], "jobs_after": 1, "more": true, "pin_reasons": {}, "pools": {"detached": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 19547, "bytes_before": 19547, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 1, "jobs_before": 1, "max_bytes": 0, "max_jobs": 0, "unknown_size": 0, "unmeasured": 0}, "turn": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 0, "bytes_before": 0, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 0, "max_bytes": 4294967296, "max_jobs": 2000, "unknown_size": 0, "unmeasured": 0}}, "progressed": true, "protected": [], "pruned": [], "reclaimed": []}
+FULL_JOURNALS {"job-prop": {"admin": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git/worktrees/job-prop", "admin_remnant": false, "archive": null, "attempts": 1, "baseline": "cf015e27d0ee421dbce69b907642463f56d81444", "check1": true, "common": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git", "failures": 0, "job_dir": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/state/jobs/job-prop", "job_id": "job-prop", "lock": {"created": true, "path": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project/.git/worktrees/job-prop/locked", "text": "subfleet retention: job-prop\n"}, "moved": {"job": true, "worktree": true}, "object_format": "sha1", "pool": "detached", "salvage": [], "schema": 1, "started_at": "2026-10-01T20:38:47Z", "state": "quarantined", "updated_at": "2026-10-01T20:38:49Z", "workdir": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/home/project", "worktree": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-h2_nex2o/state/worktrees/job-prop", "worktree_present": true}}
+Controlled clock advance past120 s confirms valid parking: no pruning, in_flight job-prop, empty errors/deferred, quarantined journal failures0. This is causal reproduction of the budget-dependent oracle, not reproduction of the original nondeterministic first call.
+
+archive-b-delete-tracked-clock-check.txt
+Command: 'env' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-delete-tracked-clock-check.txt' '550' 'uv' 'run' 'python' '-u' '-c' 'import hashlib,json,os,time
+from pathlib import Path
+from subfleet import retention
+from tests.unit import test_retention_archive_properties as props
+original=retention.maintenance
+def inspected(*args,**kwargs):
+    clock=kwargs.get("clock")
+    print("ORACLE_CLOCK",type(clock).__name__,"start",clock(),flush=True)
+    started=time.monotonic()
+    result=original(*args,**kwargs)
+    print("MAINTENANCE_ELAPSED_SECONDS",time.monotonic()-started,flush=True)
+    print("ORACLE_CLOCK_END",clock(),flush=True)
+    print("FULL_MAINTENANCE_RESULT",json.dumps(result,sort_keys=True,default=str),flush=True)
+    return result
+retention.maintenance=inspected
+print("RETENTION_PROP_EXAMPLES",repr(os.environ.get("RETENTION_PROP_EXAMPLES")),flush=True)
+print("PROPERTY_DEFAULT_EXAMPLES",props.EXAMPLES,flush=True)
+print("PROPERTY_SOURCE_SHA256",hashlib.sha256(Path("tests/unit/test_retention_archive_properties.py").read_bytes()).hexdigest(),flush=True)
+props.test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted.hypothesis.inner_test(ops=[("delete-tracked",)])
+print("FOCUSED_DELETE_TRACKED_FIXED_CLOCK_ORACLE_PASSED",flush=True)
+'
+Result: exit=0; supervisor elapsed=18.40 s
+FULL_MAINTENANCE_RESULT {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "conflicts": [], "deferred": {}, "errors": [], "freed_bytes": 0, "freed_disk_bytes": 0, "in_flight": [], "jobs_after": 0, "more": false, "pin_reasons": {}, "pools": {"detached": {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 1, "max_bytes": 0, "max_jobs": 0, "unknown_size": 0, "unmeasured": 0}, "turn": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 0, "bytes_before": 0, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 0, "max_bytes": 4294967296, "max_jobs": 2000, "unknown_size": 0, "unmeasured": 0}}, "progressed": true, "protected": [], "pruned": ["job-prop"], "reclaimed": ["job-prop"]}
+Full filesystem/Git/source-removal/restore oracle passed; fresh Clock stayed1000.0 from start to end.
+
+archive-b-property-clock-check.txt
+Command: 'env' '-u' 'RETENTION_PROP_EXAMPLES' 'UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache' 'SUBFLEET_RETENTION_QOS=inherit' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py' '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/archive-b-property-clock-check.txt' '550' 'uv' 'run' 'pytest' '-q' 'tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted'
+Result: exit=0; supervisor elapsed=440.28 s; 1 passed in 407.61s (0:06:47)
+RETENTION_PROP_EXAMPLES explicitly removed from inherited env; module default10 examples; unchanged frozen production/test hashes verified.
+
+Exact selection union audit: archive-a56 + archive-b55 are disjoint;111 unique exact nodes =109 archive unit cases +2 archive-property cases. Archive-b selected55 now all have a passing latest result. Parent archive-a aggregate reports its56 passing results.
+Owned process audit: initial driver cell78 completed all19 sequential TTY supervisors; every child was awaited. Diagnostic TTY49186, controlled-budget TTY76991, focused fixedClock TTY15373, corrected-property TTY78850 each exited0 and were awaited. All artifact/provenance read/write commands also exited and were awaited. No active owned test process remains.
+No further source edits, tests, or reruns were performed after the planned corrected default10 property completed. No combined mutation report was edited by this child.

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None] tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility] tests/unit/test_retention_qos.py::test_a_clamped_git_runs
+...                                                                      [100%]
+3 passed in 72.71s (0:01:12)
+
+Exit: 0; elapsed: 148.90s

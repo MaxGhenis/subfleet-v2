@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[new-edit] tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]
+...                                                                      [100%]
+3 passed in 73.30s (0:01:13)
+
+Exit: 0; elapsed: 93.27s

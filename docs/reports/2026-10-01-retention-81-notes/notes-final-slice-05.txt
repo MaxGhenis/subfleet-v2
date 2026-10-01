@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+...                                                                      [100%]
+3 passed in 172.51s (0:02:52)
+
+Exit: 0; elapsed: 195.16s

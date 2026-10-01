@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True] tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+...                                                                      [100%]
+3 passed in 290.83s (0:04:50)
+
+Exit: 0; elapsed: 316.24s

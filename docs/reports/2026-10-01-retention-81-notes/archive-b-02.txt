@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence] tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued] tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]
+...                                                                      [100%]
+3 passed in 128.78s (0:02:08)
+
+Exit: 0; elapsed: 161.93s

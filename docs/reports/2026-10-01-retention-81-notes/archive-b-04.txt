@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration] tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move
+...                                                                      [100%]
+3 passed in 451.53s (0:07:31)
+
+Exit: 0; elapsed: 482.26s

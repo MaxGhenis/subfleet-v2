@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_a_directory_whose_case_changed_on_disk_keeps_its_tracked_edits tests/unit/test_retention_regenerable.py::test_the_sampled_estimate_nets_what_the_archive_adds
+..                                                                       [100%]
+2 passed in 108.30s (0:01:48)
+
+Exit: 0; elapsed: 136.65s

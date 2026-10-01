@@ -1,0 +1,7 @@
+Command: uv run pytest -q tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository
+.                                                                        [100%]
+1 passed in 1192.65s (0:19:52)
+
+Check exceeded 550s. Exact-child inspection: [Errno 1] Operation not permitted: 'ps'
+
+Exit: 0; elapsed: 1253.41s

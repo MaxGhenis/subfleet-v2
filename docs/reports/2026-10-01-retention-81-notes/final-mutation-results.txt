@@ -1,13 +1,13 @@
 FINAL: 25 valid mutants killed; 0 unresolved survivors or unapplied patterns.
 Coverage: M1–M24 plus M7b. M21 covers absent NULL allocations; M22–M24 cover existing broken workdir fallback and inferred digest checks in retirement/survey.
 Every latest kill is an explicit AssertionError with pytest exit 1 and no collection/import error or timeout. Corrected combined M6, timing-forced M7, and explicit manifest-field M16 reruns supersede the initial diagnostic runs recorded below.
-13 local kills and 9 independently verified kills were run in separate isolated snapshots; no main source was mutated. All copied sources restored; both temporary copies and every test state root removed. All owned processes awaited to exit; no signals needed.
+13 local kills, 9 independently verified kills, and 3 final broken-workdir kills were run in separate isolated snapshots; no main source was mutated. All copied sources restored; all three temporary copies and every test state root removed. All owned mutation processes awaited to exit; no signals needed.
 Full independent pytest output: final-mutation-part-m11-m15.txt.
 
 Final mutation verification (2026-10-01).
 Isolated snapshot of current source/tests inside assigned workspace; main checkout never mutated.
 Copied subfleet/, tests/, pyproject.toml and current mutate.py; isolated harness timeout changed from 900 to 550 seconds and full pytest outputs captured.
-All 21 mutation patterns occur exactly once. Hypothesis uses its default 200 examples.
+All 21 patterns in the initial snapshot occur exactly once (final harness: 25). Hypothesis uses its default 200 examples.
 TMPDIR=.retention-mutation-check/.mutation-tmp; PYTHONPATH=.retention-mutation-check.
 Source snapshot sha256:
 {

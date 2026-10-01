@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]
+...                                                                      [100%]
+3 passed in 30.73s
+
+Exit: 0; elapsed: 79.74s

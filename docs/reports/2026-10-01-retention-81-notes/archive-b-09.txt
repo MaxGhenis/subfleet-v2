@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock
+...                                                                      [100%]
+3 passed in 86.01s (0:01:26)
+
+Exit: 0; elapsed: 118.14s

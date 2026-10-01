@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable
+...                                                                      [100%]
+3 passed in 221.92s (0:03:41)
+
+Exit: 0; elapsed: 259.36s

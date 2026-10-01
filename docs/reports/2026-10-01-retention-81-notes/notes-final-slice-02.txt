@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+...                                                                      [100%]
+3 passed in 278.91s (0:04:38)
+
+Exit: 0; elapsed: 343.05s

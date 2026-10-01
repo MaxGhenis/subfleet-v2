@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]
+...                                                                      [100%]
+3 passed in 157.99s (0:02:37)
+
+Exit: 0; elapsed: 201.35s

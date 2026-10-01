@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates] tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]
+...                                                                      [100%]
+3 passed in 101.97s (0:01:41)
+
+Exit: 0; elapsed: 138.44s

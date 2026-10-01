@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json
+...                                                                      [100%]
+3 passed in 157.76s (0:02:37)
+
+Exit: 0; elapsed: 185.63s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]
+...                                                                      [100%]
+3 passed in 163.61s (0:02:43)
+
+Exit: 0; elapsed: 204.56s

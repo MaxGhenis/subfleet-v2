@@ -1,0 +1,7 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it
+...                                                                      [100%]
+3 passed in 585.57s (0:09:45)
+
+Check exceeded 550s. Exact-child inspection: [Errno 1] Operation not permitted: 'ps'
+
+Exit: 0; elapsed: 616.22s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]
+.                                                                        [100%]
+1 passed in 104.41s (0:01:44)
+
+Exit: 0; elapsed: 151.40s

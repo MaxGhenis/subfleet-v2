@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds
+...                                                                      [100%]
+3 passed in 386.18s (0:06:26)
+
+Exit: 0; elapsed: 458.02s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up
+...                                                                      [100%]
+3 passed in 196.67s (0:03:16)
+
+Exit: 0; elapsed: 234.62s

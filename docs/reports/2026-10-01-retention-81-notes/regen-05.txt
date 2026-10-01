@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_ignore_rules_that_change_during_the_archive_defer_the_job tests/unit/test_retention_regenerable.py::test_a_file_written_into_regenerable_output_after_the_check_is_kept tests/unit/test_retention_regenerable.py::test_a_replaced_tool_entry_is_archived
+...                                                                      [100%]
+3 passed in 173.75s (0:02:53)
+
+Exit: 0; elapsed: 197.96s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[container-symlink] tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_without_salvage_is_archived_before_removal tests/unit/test_retention_worktrees.py::test_c13_4_retention_resumes_after_worktree_removed_before_row_commit
+...                                                                      [100%]
+3 passed in 54.07s
+
+Exit: 0; elapsed: 95.12s

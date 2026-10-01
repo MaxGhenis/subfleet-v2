@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are tests/unit/test_retention_archive.py::test_byte_copies_count_as_added tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job
+...                                                                      [100%]
+3 passed in 193.80s (0:03:13)
+
+Exit: 0; elapsed: 228.32s

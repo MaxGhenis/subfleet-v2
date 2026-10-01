@@ -1,0 +1,7 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py -k registered_tree_moved or undiscovered_repository or unrecorded_allocation_in
+.....
+Check exceeded 550s and its owned child was reaped.
+
+Exit: 124; elapsed: 550.15s
+.                                                                   [100%]
+6 passed, 27 deselected in 590.18s (0:09:50)

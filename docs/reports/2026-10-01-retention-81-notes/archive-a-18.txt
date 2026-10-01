@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]
+...                                                                      [100%]
+3 passed in 176.10s (0:02:56)
+
+Exit: 0; elapsed: 226.57s

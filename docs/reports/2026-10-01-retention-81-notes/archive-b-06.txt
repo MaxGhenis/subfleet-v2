@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor
+...                                                                      [100%]
+3 passed in 205.74s (0:03:25)
+
+Exit: 0; elapsed: 235.11s

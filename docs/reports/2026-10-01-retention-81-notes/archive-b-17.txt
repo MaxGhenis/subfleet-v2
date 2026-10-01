@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name
+...                                                                      [100%]
+3 passed in 84.80s (0:01:24)
+
+Exit: 0; elapsed: 119.17s

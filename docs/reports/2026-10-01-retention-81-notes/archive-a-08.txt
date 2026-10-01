@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch
+...                                                                      [100%]
+3 passed in 228.01s (0:03:48)
+
+Exit: 0; elapsed: 246.60s

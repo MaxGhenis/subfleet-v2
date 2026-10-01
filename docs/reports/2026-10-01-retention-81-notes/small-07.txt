@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends
+...                                                                      [100%]
+3 passed in 58.36s
+
+Exit: 0; elapsed: 96.03s

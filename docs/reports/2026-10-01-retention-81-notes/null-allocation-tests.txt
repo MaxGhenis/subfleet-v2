@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py -k allocation_whose_tree_is_gone or allocation_returning_during
+..                                                                       [100%]
+2 passed, 33 deselected in 177.12s (0:02:57)
+
+Exit: 0; elapsed: 283.99s

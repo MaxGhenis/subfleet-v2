@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin] tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]
+...                                                                      [100%]
+3 passed in 196.90s (0:03:16)
+
+Exit: 0; elapsed: 230.12s

@@ -2,7 +2,7 @@
 
 Revision 5, 2026-10-01: the four notes the parallel effort (#81) left on
 #76, each reproduced against real repositories and fixed (section 2;
-`docs/reports/2026-10-01-retention-81-notes.md`).
+`docs/reports/2026-10-01-retention-81-notes/completion.txt`).
 Revision 4, 2026-09-30: as built after the final review of e50716e8
 (`~/reviews/retention-2026-09-28/final-review-opus3-a2-scratch/REVIEW.md`);
 section 2 lists what changed. Revision 3, 2026-09-29, followed the in-session
@@ -157,8 +157,8 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
                                        removed at publish, since a published archive never resumes)
 <state>/archive/<job>/                 the verified archive, published once the rows are gone:
     manifest.json    every entry of every tree: path, lstat signature, and the sha256 and stored name,
-                     the omitted blob id, or the regenerable mark (with the sha256 a RECORD vouched
-                     for); link targets; hard-link groups; the salvage commits; the regenerable
+                     the omitted blob id, or the regenerable mark (with sha256 for every multi-link
+                     file and for RECORD proofs); link targets; hard-link groups; salvage commits; regenerable
                      directories; the totals (section 11)
     summary.json     totals, for `retention archives`
     files/           the stored files (clones), named by the signature of the version archived
@@ -491,8 +491,9 @@ keeps its data); a listed, unchanged file is unlinked. A file whose inode had
 other links when it was archived, and whose ctime alone moved (unlinking a
 sibling link moves it, mid-deletion or in a deletion an interruption left half
 done), is read again and unlinked only if its bytes still hash to the archived
-sha256; one whose bytes differ, or for which the archive recorded none
-(regenerable bytecode or a cache file), goes to conflicts. Until revision 5
+sha256; one whose bytes differ, or for which an older manifest recorded none
+(such as regenerable bytecode), goes to conflicts. New manifests record a
+digest for every multi-link regenerable file without storing its bytes. Until revision 5
 such a file was matched without its ctime, so a same-size write whose mtime
 was put back was unlinked (#81's note 1). A
 directory is emptied (made owner-writable first if it was read-only) and

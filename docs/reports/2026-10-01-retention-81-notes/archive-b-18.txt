@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit
+...                                                                      [100%]
+3 passed in 187.17s (0:03:07)
+
+Exit: 0; elapsed: 235.90s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+...                                                                      [100%]
+3 passed in 190.87s (0:03:10)
+
+Exit: 0; elapsed: 231.65s

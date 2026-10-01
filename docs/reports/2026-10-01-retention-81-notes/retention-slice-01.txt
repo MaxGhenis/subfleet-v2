@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit] tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling] tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check] tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]
+......                                                                   [100%]
+6 passed in 405.41s (0:06:45)
+
+Exit: 0; elapsed: 453.15s

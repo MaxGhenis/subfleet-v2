@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background] tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]
+...                                                                      [100%]
+3 passed in 60.01s (0:01:00)
+
+Exit: 0; elapsed: 136.03s

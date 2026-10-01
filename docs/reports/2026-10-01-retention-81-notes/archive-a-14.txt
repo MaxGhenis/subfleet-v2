@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]
+...                                                                      [100%]
+3 passed in 89.17s (0:01:29)
+
+Exit: 0; elapsed: 125.18s

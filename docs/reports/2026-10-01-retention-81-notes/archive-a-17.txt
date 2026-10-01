@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]
+...                                                                      [100%]
+3 passed in 231.61s (0:03:51)
+
+Exit: 0; elapsed: 309.09s
