@@ -547,6 +547,33 @@ def test_c27_5_the_queue_shows_in_the_order_the_daemon_sends_it(core_probe):
     assert [item["type"] for item in result["items"] if item["message_id"] == "m3"] == ["notice"]
 
 
+def test_c27_5_the_queue_prioritizes_repairs_then_missed_steers_then_ordinary_messages(core_probe):
+    """Combined C-24.8/C-24.9/C-27.5: display matches the daemon's queue,
+    including sequence order within each priority and a steer that missed H."""
+    log = Log()
+    log.add("host", "accepted")
+    log.add("host", "steer.missed", message_id="missed-1", why="stopped")
+    log.add("host", "steer.missed", message_id="missed-2", why="stopped")
+    log.add("host", "turn.completed", state="interrupted")
+    receipts = [receipt("host", 1, "interrupted"), receipt("ordinary-1", 2, "queued"),
+                {**receipt("missed-1", 3, "queued"), "state_reason": "steer-missed: stopped"},
+                receipt("repair-1", 4, "queued", origin="unblock-note"),
+                {**receipt("missed-2", 5, "queued"), "state_reason": "steer-missed: stopped"},
+                receipt("repair-2", 6, "queued", origin="unblock-note"),
+                receipt("ordinary-2", 7, "queued")]
+    events = log.page()
+    result = fold(core_probe, [{"receipts": receipts}, events])
+    assert result["display_order"] == ["host", "repair-1", "repair-2", "missed-1", "missed-2",
+                                       "ordinary-1", "ordinary-2"]
+    # Once a missed steer begins its own turn it leaves the queue and keeps its
+    # actual begin position, ahead of all work still queued.
+    log.add("missed-1", "accepted")
+    ran = fold(core_probe, [{"receipts": receipts}, events, log.page(),
+                            {"receipts": [receipt("missed-1", 3, "running")]}])
+    assert ran["display_order"] == ["host", "missed-1", "repair-1", "repair-2", "missed-2",
+                                    "ordinary-1", "ordinary-2"]
+
+
 def test_c27_5_an_unblock_note_that_ran_first_stays_above_the_turn_after_it(core_probe):
     """The note runs before the queued person message (C-24.8); once that message's
     turn runs, the note stays where it ran and the new turn is followed (review
@@ -635,7 +662,10 @@ def timelines(draw):
             continues, origin = draw(st.sampled_from(mids)), "failover"
         # Live states twice as often, so cards stay pending in more timelines.
         final[mid] = draw(st.sampled_from(STATES + ["running", "approval-needed", "queued"]))
-        receipts.append(receipt(mid, index + 1, final[mid], origin=origin, continues=continues))
+        row = receipt(mid, index + 1, final[mid], origin=origin, continues=continues)
+        if final[mid] == "queued" and draw(st.booleans()):
+            row["state_reason"] = "steer-missed: stopped"
+        receipts.append(row)
     log, steps, truth, ended = Log(), [], {}, set()
     for _ in range(draw(st.integers(0, 16))):
         mid = draw(st.sampled_from(mids))
@@ -712,14 +742,22 @@ def waits_in_queue(snapshot: dict, mid: str) -> bool:
             and turn["first_event"] is None and rows_of(snapshot, mid) in ([], [f"person:{mid}"]))
 
 
+def queue_priority(turn: dict) -> int:
+    if turn["origin"] in REPAIR_ORIGINS:
+        return 0
+    if (turn["state_reason"] or "").startswith("steer-missed:"):
+        return 1
+    return 2
+
+
 def reference_display_order(snapshot: dict) -> list[str]:
     """The rule, written again: turns in the order they began (first event); a
     message that never began right after the latest that began among the
     messages before it; the no-message rows last of those; queued messages last,
-    in the order the daemon sends them (`next_dispatchable`: repairs first)."""
+    in the order the daemon sends them (repairs, missed steers, ordinary)."""
     order, turns = snapshot["order"], snapshot["turns"]
     queue = [mid for mid in order if waits_in_queue(snapshot, mid)]
-    waiting = sorted(queue, key=lambda mid: turns[mid]["origin"] not in REPAIR_ORIGINS)
+    waiting = sorted(queue, key=lambda mid: queue_priority(turns[mid]))
     latest, keyed = 0, []
     for place, mid in enumerate(order):
         if mid in queue:
@@ -766,7 +804,7 @@ def check_snapshot(snapshot: dict) -> None:
     # The display rule, as statements...
     waiting = [mid for mid in snapshot["order"] if waits_in_queue(snapshot, mid)]
     assert shown[len(shown) - len(waiting):] == sorted(
-        waiting, key=lambda mid: (turns[mid]["origin"] not in REPAIR_ORIGINS, snapshot["order"].index(mid)))
+        waiting, key=lambda mid: (queue_priority(turns[mid]), snapshot["order"].index(mid)))
     begun = [mid for mid in shown if turns[mid]["first_event"] is not None and mid != CONVERSATION_KEY]
     assert begun == sorted(begun, key=lambda mid: turns[mid]["first_event"])
     for mid in shown:

@@ -1024,11 +1024,18 @@ struct Timeline: Equatable {
     /// (C-24.8) below the person's turn that ran after it. A message that never
     /// began (withdrawn, refused, or a continuation not yet sent) sits right
     /// after the latest turn that began among the messages before it. The queue
-    /// shows in the order the daemon sends it, a repair message first.
+    /// shows in dispatch order: repair messages, missed steers, then ordinary
+    /// messages, retaining sequence order within each group (C-24.9).
     var displayOrder: [String] {
         let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
-        let repair = { (id: String) in Timeline.repairOrigins.contains(self.turns[id]?.origin ?? "") }
-        let waiting = queue.filter(repair) + queue.filter { !repair($0) }
+        func priority(_ id: String) -> Int {
+            if Timeline.repairOrigins.contains(turns[id]?.origin ?? "") { return 0 }
+            if turns[id]?.stateReason?.hasPrefix("steer-missed:") == true { return 1 }
+            return 2
+        }
+        let waiting = queue.enumerated().sorted {
+            (priority($0.element), $0.offset) < (priority($1.element), $1.offset)
+        }.map(\.element)
         let queued = Set(waiting)
         var latest = 0
         var placed: [(id: String, key: (Int, Int, Int))] = []
