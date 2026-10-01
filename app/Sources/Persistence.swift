@@ -112,6 +112,17 @@ struct Draft: Codable, Equatable {
     var updated_at: String
 }
 
+/// The draft after Esc took a steer back (C-24.9): its words ahead of whatever
+/// the draft held, and its images staged again, so they survive leaving the
+/// conversation and quitting the app, not only the composer on screen.
+func recalledDraft(_ existing: Draft?, text: String, staged: [StagedAttachment], now: String) -> Draft {
+    let held = existing?.text ?? ""
+    let merged = held.isEmpty ? text : text.isEmpty ? held : text + "\n\n" + held
+    var attachments = existing?.attachments ?? []
+    for image in staged where !attachments.contains(image) { attachments.append(image) }
+    return Draft(text: merged, attachments: attachments, settings: existing?.settings, updated_at: now)
+}
+
 final class DraftStore {
     let directory: URL
 

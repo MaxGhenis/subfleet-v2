@@ -46,8 +46,8 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native, canonical_uuid,
-    validate_settings, widens, steered_into,
+    LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native,
+    canonical_uuid, steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -688,23 +688,48 @@ class ConversationService:
             return self._cancel(args)
 
     def op_message_steer(self, args, peer) -> dict:
-        """Claim a queued message durably, then let the runner deliver it (C-24.9)."""
+        """Claim a queued message durably, then let the runner deliver it (C-24.9).
+
+        `into`, when given, is the host the person steered into (the turn the app
+        showed running): a steer that arrives after that turn ended (a retry, a
+        resend after the app restarted) is refused rather than joining another."""
         self._person(peer, "steering a running turn")
         mid = canonical_uuid(args["message_id"])
         if args["message_id"] != mid:
             raise ConversationError("bad-message-id", "message_id must be a canonical lowercase UUID")
+        into = args.get("into")
+        if into is not None and (not isinstance(into, str) or canonical_uuid(into) != into):
+            raise ConversationError("bad-message-id", "into must be a canonical lowercase UUID")
         with self._stop_lock(mid), self._handover(mid), self._lock:
             message = self.store.message(mid)
             if message["state"] in (STEERING, STEERED):
                 return self._receipt(message)
             if message["state"] != QUEUED or message["origin"] != "person":
                 raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
+            try:
+                steerable = steerable_text(self.store.message_text(message))
+            except OSError:
+                steerable = False       # a text that cannot be read cannot be delivered either
+            if not steerable:
+                # C-24.9, DESIGN.md section 9: a `/` command or `!` shell input waits
+                # for the turn to end, as in Claude Code; the app never offers it.
+                raise ConversationError("not-steerable", "a slash command or shell input waits for the turn to end",
+                                        code=7)
             host = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? "
                                   "AND state IN ('running','approval-needed') ORDER BY seq DESC LIMIT 1",
                                   (message["conversation_id"],))
-            runner = self._runner_for_message(host["message_id"]) if host else None
+            if into is not None and (host is None or host["message_id"] != into):
+                raise ConversationError("no-live-turn", "the turn it was steered into has ended", code=7)
+            if host is None:
+                raise ConversationError("no-live-turn", "the conversation has no live turn", code=7)
+            runner = self._runner_for_message(host["message_id"])
             if runner is None:
-                raise ConversationError("no-live-turn", "the conversation has no live turn with a runner", code=7)
+                # The turn is live, but no runner has it yet (the daemon is taking it back
+                # after a restart) or any more (it is settling): it cannot take a steer at
+                # this moment, which a client may ask again about (C-29.7), rather than
+                # hear that the turn it steered into has ended.
+                raise ConversationError("not-steerable", "the running turn has no runner to take a steer now",
+                                        code=7)
             if not runner.steerable:
                 raise ConversationError("not-steerable", "the provider cannot take a steer now", code=7)
             self.store.claim_steer(mid, host["message_id"])
@@ -1770,7 +1795,8 @@ class ConversationService:
                         # or handed off while it waits; a claim recovered after a crash
                         # goes back to `queued` (review of 6290a51, finding 2).
                         back = QUEUED if prior_state == QUEUED or prior_reason == CLAIMED else WAITING
-                        self.store.set_state(mid, back, reason=None if back == QUEUED else prior_reason,
+                        self.store.set_state(mid, back, reason=prior_reason if back == WAITING
+                                             else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
                     self._defer(self.store.message(mid), why)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
@@ -1830,6 +1856,17 @@ class ConversationService:
         if message["state"] != WAITING or message.get("state_reason") != reason:
             self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), unbound=True)
 
+    def _missed_mark(self, mid: str, prior_reason: str | None) -> str | None:
+        """The reason a released claim puts back: a missed steer's `steer-missed:`
+        mark, which the queue orders by (C-24.5), else none. A claim a crash left
+        (`dispatching`) no longer holds the reason it replaced; the message's last
+        change back to `queued` does."""
+        if prior_reason == CLAIMED:
+            row = self.store.one("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                 "ORDER BY seq DESC LIMIT 1", (mid, QUEUED))
+            prior_reason = row["state_reason"] if row else None
+        return prior_reason if (prior_reason or "").startswith(MISSED_STEER) else None
+
     def _defer(self, message: dict, why: str) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,
         says why, and is not submitted again until its backoff passes."""
@@ -1838,7 +1875,12 @@ class ConversationService:
             count = self._deferred.get(mid, (0, 0.0))[0] + 1
             delay = min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (count - 1))
             self._deferred[mid] = (count, self.clock() + delay)
-        reason = f"deferred: {why}"[:200]
+        reason = f"deferred: {why}"
+        if message["state"] == QUEUED and (message.get("state_reason") or "").startswith(MISSED_STEER):
+            # A steer that missed its turn runs next (C-24.5): the queue orders by
+            # this mark, so a deferral of its own turn keeps it.
+            reason = f"{MISSED_STEER} {reason}"
+        reason = reason[:200]
         if message.get("state_reason") != reason:
             self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
         if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
@@ -2119,20 +2161,28 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        # Serialize settlement with the person's stop (so an outcome cannot read the
-        # message before the stop and apply an unfinished block after it) and with
-        # steer claims (none between our children snapshot and the host's
-        # settlement). Lock order as everywhere: stop, then handover, then _lock.
-        with self._stop_lock(runner.message_id), self._lock:
-            self._settle_outcome(runner)
+        # Serialized with the person's stop from the evidence read through the host's
+        # settlement, so an outcome cannot read the message before the stop and apply
+        # an unfinished block after it (C-24.7, C-24.8). The evidence is read outside
+        # the service lock: `reconcile.gather` may list the provider's projects and
+        # scan transcripts, and every poll, dispatch, adoption and op that takes the
+        # lock would wait behind it (steer review, finding 14). The service lock is
+        # held from the snapshot of the host's steers through the host's own
+        # settlement, so no steer is claimed for a host that is settling (C-24.9);
+        # once the driver has an outcome none can be anyway, as its runner is no
+        # longer steerable. Lock order as everywhere: stop, then handover, then
+        # _lock. The runner never takes message handover locks here.
+        with self._stop_lock(runner.message_id):
+            turn, settlement = self._settlement(runner)
+            with self._lock:
+                self._settle_outcome(runner, turn, settlement)
 
-    def _settle_outcome(self, runner: TurnRunner) -> None:
-        """Settle a message from its turn (D-12, D-14, C-24.6, C-24.8, C-26.7).
-        The decision is `reconcile.settle`'s; this applies it."""
+    def _settlement(self, runner: TurnRunner) -> tuple[dict, reconcile.Settlement]:
+        """A turn's outcome (`turn.json`) and what it settles its message as
+        (D-12, D-14, C-24.6, C-24.8, C-26.7). The decision is `reconcile.settle`'s."""
         turn = read_turn(runner.adir) or {}
         message = self.store.message(runner.message_id)
-        conversation = self.store.conversation(runner.conversation_id)
-        provider = conversation["provider"]
+        provider = self.store.conversation(runner.conversation_id)["provider"]
         # The readmissions used up so far: this message's other turn jobs a provider
         # reached, less its waits for another writer (reviews of 6290a51, finding 3,
         # and of 3c1a34e, finding 4).
@@ -2141,6 +2191,13 @@ class ConversationService:
             turn, provider=provider, turn_seq=used,
             gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
             person_stopped=bool(message.get("stop_requested_at")))
+        return turn, settlement
+
+    def _settle_outcome(self, runner: TurnRunner, turn: dict, settlement: reconcile.Settlement) -> None:
+        """Apply a settlement: the host's steers first, then the host (C-24.6, C-24.9)."""
+        message = self.store.message(runner.message_id)
+        conversation = self.store.conversation(runner.conversation_id)
+        provider = conversation["provider"]
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),
                   "lane_id": runner.attempt.get("lane_id"), "model": turn.get("served_model")}
         steer_unknown = self._settle_steers(runner, turn, served, host_block=settlement.block)
@@ -2168,12 +2225,13 @@ class ConversationService:
             # limited message failed without it; it cannot dispatch while the
             # original is live.
             self._continue_elsewhere(conversation, message)
-        if settlement.block or steer_unknown:
+        block = "delivery-unknown" if steer_unknown else settlement.block
+        if block and self.store.conversation(conversation["conversation_id"])["blocked_by"] != block:
             # Before the message settles, so a settlement cut short (close() refusing
             # what a late runner writes) leaves it live, for a replay to settle whole,
-            # never settled with its conversation unblocked (C-24.8).
-            self.store.update_conversation(conversation["conversation_id"],
-                                           blocked_by="delivery-unknown" if steer_unknown else settlement.block)
+            # never settled with its conversation unblocked (C-24.8). A settlement run
+            # again writes nothing new: no second change row for the watch feed.
+            self.store.update_conversation(conversation["conversation_id"], blocked_by=block)
         if settlement.readmit:
             self.store.set_state(message["message_id"], WAITING, reason=settlement.reason, expect=live,
                                  turn_seq=message["turn_seq"] + 1, job_id=None)
