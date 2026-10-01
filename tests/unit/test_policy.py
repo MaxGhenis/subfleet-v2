@@ -133,7 +133,8 @@ def test_defaults_preserve_optional_caps_and_floor(tmp_path, policy_data):
     """C-6.4, C-11.1, C-11.3: omitted cap fields and floor use contract defaults."""
     policy_data["caps"] = {"max_active_attempts_per_parent": 2}
     policy = load_policy(write_policy(tmp_path, policy_data))
-    assert all(policy["caps"][key] == value for key, value in DEFAULT_CAPS.items())
+    assert all(policy["caps"][key] == value for key, value in DEFAULT_CAPS.items()
+               if key != "max_active_attempts_per_parent")
     assert policy["caps"]["reading_ttl_s"] == READING_TTL_S
     assert policy["caps"]["max_tokens_observed"] is None
     assert policy["caps"]["max_active_attempts_per_parent"] == 2
@@ -292,6 +293,48 @@ def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy
                                                 after_result_s=4.0, approval_wait_s=3600.0)
 
 
+def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path, policy_data):
+    """C-26.9: a policy that does not set the turn caps has none (null); null and a
+    positive whole number are both kept; `turn_cap` reads a missing key as no cap."""
+    from subfleet.policy import TURN_CAPS, turn_cap
+
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert {key: loaded["conversations"][key] for key in TURN_CAPS} == {
+        "max_active_turns": None, "turn_slots_per_lane": None}
+    del policy_data["conversations"]
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["conversations"]["max_active_turns"] is None
+    assert turn_cap(loaded["conversations"], "turn_slots_per_lane") is None
+    policy_data["conversations"] = {"max_active_turns": 4, "turn_slots_per_lane": None}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert turn_cap(loaded["conversations"], "max_active_turns") == 4
+    assert turn_cap(loaded["conversations"], "turn_slots_per_lane") is None
+    assert turn_cap({}, "max_active_turns") is None and turn_cap(None, "turn_slots_per_lane") is None
+    with pytest.raises(KeyError):
+        turn_cap({"compact_per_tick": 20}, "compact_per_tick")
+
+
+@pytest.mark.parametrize("section,error_key", [
+    ({"max_active_turns": 0}, "conversations.max_active_turns"),
+    ({"max_active_turns": -1}, "conversations.max_active_turns"),
+    ({"max_active_turns": True}, "conversations.max_active_turns"),
+    ({"max_active_turns": "3"}, "conversations.max_active_turns"),
+    ({"turn_slots_per_lane": 1.5}, "conversations.turn_slots_per_lane"),
+    ({"turn_slots_per_lane": float("inf")}, "conversations.turn_slots_per_lane"),
+    # Null means "no cap" for the two turn caps only.
+    ({"compact_per_tick": None}, "conversations.compact_per_tick"),
+    ({"approval_wait_s": None}, "conversations.approval_wait_s"),
+])
+def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_key):
+    """C-26.9, C-11.1: a turn cap is null or a positive whole number; nothing else is."""
+    policy_data["conversations"] = section
+    path = tmp_path / "custom-policy.json"
+    path.write_text(json.dumps(policy_data), encoding="utf-8")
+    with pytest.raises(PolicyError) as caught:
+        load_policy(path)
+    assert caught.value.key == error_key
+
+
 @pytest.mark.parametrize("section,error_key", [
     ([], "conversations"),
     ({"stop_sigint_after_s": 0}, "conversations.stop_sigint_after_s"),
@@ -312,4 +355,82 @@ def test_invalid_conversation_clocks_name_the_key(tmp_path, policy_data, section
     path.write_text(json.dumps(policy_data), encoding="utf-8")
     with pytest.raises(PolicyError) as caught:
         load_policy(path)
+    assert caught.value.key == error_key
+
+
+def test_concurrency_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path, policy_data):
+    """C-6.4 (2026-09-27): a policy that does not set a concurrency cap has none; null
+    and a positive whole number are both kept; `cap` reads a missing key as no cap,
+    and `lane_slot_cap` has no fixed 1 beneath the unmeasured cap."""
+    from subfleet.policy import CONCURRENCY_CAPS, cap, lane_slot_cap
+
+    for key in CONCURRENCY_CAPS:
+        policy_data["caps"].pop(key, None)
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert {key: loaded["caps"][key] for key in CONCURRENCY_CAPS} == dict.fromkeys(CONCURRENCY_CAPS)
+    assert all(cap(loaded["caps"], key) is None for key in CONCURRENCY_CAPS)
+    assert cap({}, "max_active_attempts") is None and cap(None, "max_in_flight_per_lane") is None
+    assert lane_slot_cap(loaded["caps"], True) is None and lane_slot_cap(loaded["caps"], False) is None
+    policy_data["caps"].update(max_active_attempts=64, max_in_flight_per_lane=6, max_in_flight_unmeasured=None)
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert cap(loaded["caps"], "max_active_attempts") == 64
+    assert lane_slot_cap(loaded["caps"], True) == 6 and lane_slot_cap(loaded["caps"], False) == 6
+    loaded["caps"]["max_in_flight_unmeasured"] = 3
+    assert lane_slot_cap(loaded["caps"], False) == 3
+    loaded["caps"].update(max_in_flight_per_lane=None)
+    assert lane_slot_cap(loaded["caps"], False) == 3 and lane_slot_cap(loaded["caps"], True) is None
+    with pytest.raises(KeyError):
+        cap(loaded["caps"], "max_attempts")
+
+
+@pytest.mark.parametrize("key,value", [
+    ("max_active_attempts", 0), ("max_in_flight_per_lane", -1), ("max_in_flight_unmeasured", True),
+    ("max_active_attempts_per_parent", "2"), ("max_active_attempts", 2.5),
+    ("max_attempts", None), ("max_wall_s", None),              # not concurrency: never null
+])
+def test_invalid_caps_name_the_key(tmp_path, policy_data, key, value):
+    """C-6.4, C-11.1: a concurrency cap is null or a positive whole number; every
+    other cap is a positive whole number."""
+    policy_data["caps"][key] = value
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == f"caps.{key}"
+
+
+def test_admission_settings_default_and_validate(tmp_path, policy_data):
+    """C-6.13, C-10.3, C-11.3: the `admission` section's defaults, and what it keeps."""
+    from subfleet.policy import ADMISSION_DEFAULTS, admission_settings
+
+    policy_data.pop("admission", None)
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
+    assert admission_settings({})["lane_spread"] == 2
+    policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0}
+    policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["session"] is None
+
+
+@pytest.mark.parametrize("section,error_key", [
+    ([], "admission"),
+    ({"lane_spred": 2}, "admission.lane_spred"),
+    ({"lane_spread": 0}, "admission.lane_spread"),
+    ({"lane_spread": 1.5}, "admission.lane_spread"),
+    ({"lane_spread": True}, "admission.lane_spread"),
+    ({"desktop_recent_s": -1}, "admission.desktop_recent_s"),
+    ({"desktop_recent_s": float("inf")}, "admission.desktop_recent_s"),
+    ({"machine_guard": []}, "admission.machine_guard"),
+    ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
+    ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),
+    ({"machine_guard": {"background": {"load_per_cpu": 0}}}, "admission.machine_guard.background.load_per_cpu"),
+    ({"machine_guard": {"session": {"memory_pressure": "normal"}}}, "admission.machine_guard.session.memory_pressure"),
+    ({"machine_guard": {"session": {"load": 3}}}, "admission.machine_guard.session.load"),
+])
+def test_invalid_admission_settings_name_the_key(tmp_path, policy_data, section, error_key):
+    """C-6.13, C-11.1: a turn is never held, so no guard names `attended`; the rest
+    are refused with the key named."""
+    policy_data["admission"] = section
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
     assert caught.value.key == error_key

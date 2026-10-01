@@ -1241,7 +1241,8 @@ def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, 
         while time.monotonic() < deadline and "interrupt" not in tags:
             time.sleep(0.02)
         assert order == ["handed over", "stop recorded"]
-        assert tags == ["init", "user-message", "interrupt"] and not runner.withheld
+        # C-26.8: `get_settings` follows the message this runner sent.
+        assert tags == ["init", "user-message", "settings", "interrupt"] and not runner.withheld
         runner.stop()
         assert runner.finished.wait(5)
     finally:
@@ -1591,7 +1592,7 @@ def test_a_refused_cancel_never_stops_the_turn_it_lost_to(world, monkeypatch):
             svc.op_message_cancel({"message_id": mid}, None)
         assert refused.value.reason == "too-late"
         race.finish()
-        assert race.tags == ["init", "user-message"] and race.runners[0].driver.outcome is None
+        assert race.tags == ["init", "user-message", "settings"] and race.runners[0].driver.outcome is None
         assert set(race.stops) <= {None} and svc.store.message(mid)["stop_requested_at"] is None
     finally:
         svc.close()

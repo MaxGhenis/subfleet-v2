@@ -74,6 +74,9 @@ struct ComposerOptions: Equatable {
     var models: [ModelChoice]
     var selectedModel: ModelEntry?
     var efforts: [String]
+    /// What "Default" resolves to for the selected model (C-26.8), when the daemon
+    /// applies one; nil when the provider's own default applies.
+    var defaultEffort: String? = nil
     /// False when no turn has reported the model's efforts yet (D-19: accepted
     /// as unverified and checked by the driver before the message is sent).
     var effortsObserved: Bool
@@ -106,6 +109,7 @@ func makeComposerOptions(provider: String, settings: ConversationSettings, model
                                 widens: PermissionPolicy.widens(from: settings.permission, to: policy.rawValue))
     }
     return ComposerOptions(models: choices, selectedModel: selected, efforts: efforts,
+                           defaultEffort: selected?.conversation_default_effort,
                            effortsObserved: selected?.efforts != nil, fastSupported: selected?.fast.supported,
                            fastNote: note, permissions: permissions)
 }
@@ -229,7 +233,11 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
         warnings.append("Fast was asked for; this turn ran at standard speed")
     }
     let account = served.account ?? served.lane_id.flatMap { laneLabels[$0] ?? $0 }
-    return ServedChip(account: account, model: served.model, effort: served.effort ?? turn.settings?.effort,
+    // C-26.8: the effort the provider reported applying ("none": its own default).
+    // When it reported nothing, what was asked for is shown as unconfirmed.
+    let asked = served.effort_requested ?? turn.settings?.effort
+    let effort = served.effort == "none" ? "default effort" : served.effort ?? asked.map { "\($0) (unconfirmed)" }
+    return ServedChip(account: account, model: served.model, effort: effort,
                       fast: fast, warnings: warnings)
 }
 
@@ -326,6 +334,7 @@ struct ConversationStoreState: Equatable {
         var timeline = timelines[id] ?? Timeline(conversationID: id)
         timeline.apply(receipts: open.messages)
         timeline.attach(approvals: open.pending_approvals)
+        timeline.reconcile(pending: open.pending_approvals)
         timelines[id] = timeline
     }
 
@@ -334,6 +343,8 @@ struct ConversationStoreState: Equatable {
         if let conversationID, timelines[conversationID] == nil {
             timelines[conversationID] = Timeline(conversationID: conversationID)
         }
+        // Its events are read again from where they stopped (C-27.5).
+        if let conversationID { timelines[conversationID]?.startReading() }
     }
 
     @discardableResult
@@ -365,6 +376,7 @@ struct ConversationStoreState: Equatable {
     mutating func apply(approvals: [ApprovalView], conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.attach(approvals: approvals)
+        timeline.reconcile(pending: approvals)
         timelines[conversationID] = timeline
         pendingApprovals[conversationID] = approvals.filter { $0.state == "pending" }.count
     }
@@ -560,9 +572,11 @@ struct ConversationStoreState: Equatable {
 
     // MARK: Composer, stop, banner, chip
 
-    func composerOptions(for conversationID: String) -> ComposerOptions? {
+    /// The composer's choices for `settings` (the composer's unsaved picks) or else
+    /// the conversation's saved ones: efforts and the default follow the picked model.
+    func composerOptions(for conversationID: String, settings: ConversationSettings? = nil) -> ComposerOptions? {
         guard let conversation = conversation(conversationID) else { return nil }
-        return makeComposerOptions(provider: conversation.provider, settings: conversation.settings,
+        return makeComposerOptions(provider: conversation.provider, settings: settings ?? conversation.settings,
                                    models: models[conversation.provider] ?? [], capabilities: availability.capabilities)
     }
 

@@ -55,6 +55,7 @@ def test_revoked_home_is_excluded_from_the_real_scheduler_without_disabling_epoc
         daemon = Daemon.__new__(Daemon)
         daemon.store, daemon.policy, daemon.timers = store, policy, timer
         daemon.policy_digest = "test-policy"
+        daemon._reset_admission_state()                  # C-10.3: the desktop signal's cache
         daemon._probe_record = lambda _: None
         timer.metadata[lane.lane_id] = {'probe_status':'revoked', 'verdict':'auth-revoked', 'revoked_epoch':'old'}
         try:

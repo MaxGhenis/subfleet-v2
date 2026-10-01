@@ -1497,6 +1497,10 @@ def test_a_runner_still_going_when_close_stops_waiting_writes_nothing_more(
     root = svc.root
     runner, hold, _ = held_runner(svc, monkeypatch, tmp_path, where)
     errors = thread_errors(monkeypatch)
+    if where != "final flush":
+        # Exercise close() while this write is already in progress. A runner
+        # still waiting for its relay handshake may stop before it reads stdout.
+        assert hold.entered.wait(30), f"the runner never reached its {where}"
     closer = threading.Thread(target=svc.close)
     with caplog.at_level(logging.INFO, logger="test-conversations"):
         closer.start()

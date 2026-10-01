@@ -24,6 +24,7 @@ from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
 from subfleet.procs import Containment, ProcessIdentity
+from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -79,6 +80,19 @@ def test_c6_2_state_concurrent_duplicate_requests_create_one_job(state_daemon):
     assert len({reply["job_id"] for reply in replies}) == 1
     assert sum(reply["created"] for reply in replies) == 1
     assert len(daemon.store.list_jobs()) == 1
+
+
+def test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one(state_daemon):
+    """C-6.4 (2026-09-28, Max: "remove *all* caps"): `max_child_jobs` is null by
+    default, so a parent may have any number of children; set, it refuses the next."""
+    from subfleet.adapters.base import AdapterError
+    daemon, harness = state_daemon
+    parent = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    children = [daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))["job_id"] for _ in range(12)]
+    assert len(set(children)) == 12
+    daemon.policy["caps"]["max_child_jobs"] = 12
+    with pytest.raises(AdapterError, match="max_child_jobs"):
+        daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))
 
 
 def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
@@ -231,6 +245,7 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
 def test_c6_3_state_concurrent_submit_admission_owns_one_slot(state_daemon):
     """C-6.3, C-6.4 simultaneous submissions reserve exactly one attempt on an unmeasured lane."""
     daemon, harness = state_daemon
+    capped(daemon.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     barrier = threading.Barrier(2)
     args = [harness.submit_args(), harness.submit_args()]
 

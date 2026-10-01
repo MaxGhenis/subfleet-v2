@@ -47,6 +47,10 @@ if Path(sys.argv[0]).name == "subfleetd":
     codex_http.install()
     import urllib.request
     urllib.request.urlopen = codex_http.reject_network
+    # C-6.13: the host's load belongs to whatever else it runs; the machine
+    # guard reads a quiet machine here (tests/conftest.py's QUIET_MACHINE).
+    import subfleet.machine
+    subfleet.machine.read = lambda: {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0}
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)

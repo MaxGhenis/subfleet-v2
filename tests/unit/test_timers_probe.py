@@ -536,3 +536,34 @@ def test_c29_6_a_conversation_reader_failure_never_stops_the_status_write(rig, m
     assert payload["conversations"]["available"] is False and payload["conversations"]["error"] == error
     assert payload["conversations"]["counts"] is None
     assert "claude" in payload and "jobs" in payload
+
+
+def test_a_lane_that_raises_never_leaves_another_lanes_hold(rig, monkeypatch):
+    """Review of PR #72: a probe future that raised before the cycle's `finally`
+    left every other lane's `slot:0` held until a restart. Every holder is
+    released, and the error still surfaces."""
+    timer, store, _, adapter, enroll = rig
+    first, second = enroll("codex-1"), enroll("codex-2")
+    original = timer._probe_lane
+
+    def probe(lane):
+        if lane.lane_id == second.lane_id:
+            raise RuntimeError("database is locked")
+        return original(lane)
+    monkeypatch.setattr(timer, "_probe_lane", probe)
+    with pytest.raises(RuntimeError, match="database is locked"):
+        timer.probe_cycle()
+    assert store.list_leases() == [] and not timer.active_holders
+
+
+@pytest.mark.parametrize("in_use,dispatchable", [(None, False), (True, False), (False, True)])
+def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, dispatchable):
+    """C-10.3, C-18.2: `status.json` is built from the timers' snapshot; it judges the
+    desktop login's lane with the daemon's in-use signal (review of PR #72's plan: it
+    read the lane excluded while admission placed work there). No signal is use."""
+    timer, store, _, _, _ = rig
+    store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
+                        Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    timer.desktop_in_use = None if in_use is None else (lambda: in_use)
+    row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
+    assert row["dispatchable"] is dispatchable

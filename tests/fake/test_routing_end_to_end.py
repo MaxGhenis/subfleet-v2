@@ -13,6 +13,8 @@ from subfleet.adapters import registry
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Outcome, OutcomeClass, Reading, ReadingLabel
 from subfleet.daemon import Daemon, after, utcnow
 from subfleet.store import Store
+from tests.caps import capped
+from tests.claude_code import claude_code_active
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -42,6 +44,9 @@ def routing_state(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+    # C-10.3: these cases were written while the desktop lane was always refused;
+    # they keep Claude Code using the desktop login, which refuses it still.
+    claude_code_active(monkeypatch, tmp_path / "claude")
     service = Daemon(root)
     try:
         yield service, harness
@@ -95,6 +100,7 @@ def test_c11_5_socket_submission_and_cli_why_print_recorded_walk(daemon):
 def test_c6_4_second_unmeasured_job_waits_with_persisted_reason(routing_state):
     """C-6.4, C-4.1, C-11.5: attempts reserve one blind slot and explain waiting."""
     service, harness = routing_state
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     first = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
     second = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
     service._admit()
@@ -246,6 +252,7 @@ def test_c11_2_promoted_transient_retry_keeps_the_requested_model(routing_state)
 def test_c6_4_capacity_waiter_cannot_be_overtaken_within_its_tier(routing_state):
     """C-4.1, C-6.4; amendment 11: a recheck delay never forfeits FIFO seniority."""
     service, harness = routing_state
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     first = service.dispatch("submit", harness.submit_args())["job_id"]
     second = service.dispatch("submit", harness.submit_args())["job_id"]
     service.store.update_job(first, state="waiting", wait_reason="capacity", next_check_at=after(30))

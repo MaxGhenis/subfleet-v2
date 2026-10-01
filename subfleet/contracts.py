@@ -37,6 +37,11 @@ GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DI
 GIT_PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
                     "GIT_ICASE_PATHSPECS")
 
+# C-23.14: the most characters the credential scrubber matches in one call. A
+# longer text is matched as a head and a tail excerpt within the same bound; a
+# handoff brief is scrubbed whole, so its section caps must fit it (C-23.36).
+SCRUB_MAX_CHARS = 256 * 1024
+
 
 class JobState(str, enum.Enum):  # C-4.1
     QUEUED = "queued"
@@ -195,23 +200,31 @@ class Exit(enum.IntEnum):
 
 # --- Defaults (C-6.4, C-9, C-11.3, C-18.1) -----------------------------------
 
-DEFAULT_CAPS: dict[str, int] = {
+DEFAULT_CAPS: dict[str, int | None] = {
     "gate_max_rounds": 4,
-    "max_active_attempts": 4,
-    "max_in_flight_per_lane": 2,
-    "max_in_flight_unmeasured": 1,
+    # C-6.4: every count cap is null by default, which is no cap: a job waits
+    # only for a lane that can take it, and is refused only for what it is, never
+    # for a count Subfleet imposes (Max, 2026-09-27: "we should uncap everything
+    # and instead use prioritization"; 2026-09-28: "remove *all* caps"). A
+    # positive whole number in `policy.json` still sets one. `policy.cap` is
+    # their one reader.
+    "max_active_attempts": None,
+    "max_in_flight_per_lane": None,
+    "max_in_flight_unmeasured": None,
+    "max_active_attempts_per_parent": None,
     "max_wall_s": 21600,
     "max_attempts": 3,
-    "max_child_jobs": 8,
+    "max_child_jobs": None,             # C-6.4: children one parent may create in all
     # C-6.8: one git call's cap while admission prepares a workspace, the cap on
     # `git worktree add`, and how many consecutive transient preparation
     # failures a job waits out before it fails.
     "workspace_git_timeout_s": 60,
     "worktree_add_timeout_s": 180,
     "workspace_retry_max": 8,
-    # C-6.5: live writable jobs one session may hold at once; a runaway backstop,
-    # not a throttle (`max_active_attempts` bounds what runs).
-    "max_writable_per_session": 8,
+    # C-6.5: live writable jobs one session may hold at once (null: no count;
+    # the refusals of a second writer in one checkout and of a second live
+    # instance of one session are not counts and stay).
+    "max_writable_per_session": None,
 }
 # C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
 WORKSPACE_RETRY_BASE_S = 5
