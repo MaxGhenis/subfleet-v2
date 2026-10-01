@@ -1,0 +1,23 @@
+Fake timer acceptance test fixes
+
+Original evidence: full-suite-diagnostic-4f528.txt:1173–1683.
+All four integrated-cycle variants timed out before their first action within5s; the hung-usage case never reached its opener within2s; socket status returned ok but last_run=None after an unconditional0.25s sleep. These failures concern readiness, before the behavior assertions. Some failure cleanup also left _control alive after a3s join.
+
+Source explanation: daemon.py:2707–2715 schedules recovery on a worker before timer ticks; :2779–2794 finishes recovery and starts timers. The real control worker may start late under the observed host load. Test readiness conditions now have60s budgets; socket status waits for a real probe last_run instead of sleeping0.25s. The real daemon/control/socket/SQL and timer paths remain in use. Cleanup signals stopping, joins owned control/serve threads for60s, and asserts they exited.
+
+The first corrected module run retained every original numeric API/shutdown bound and yielded5passed,1failed,1skipped. The remaining hung-usage failure showed shutdown returning in2.903s while an HTTP callback was deliberately held for60s; the control thread terminated. Its API<1s assertion passed. C-16.4 (docs/acceptance-contract.md:266) requires workers/deadlines and no blocking on provider/probe/ps; it does not declare a2s full Daemon.close bound. Daemon.close:5486–5526 also drains pools, stores and related threads.
+
+With root approval, the final hung fixture permits10s for full close, retains API<1s, and adds a causal check: the fake opener's returned event must still be unset after real close. It then releases the opener, observes its return, and asserts status.json was not published. The previous2s assertion therefore changed; this is not described as every original assertion remaining unchanged. All integrated reset cooldown, exact action/count, auth-dead, recovery, notice, payload and keepalive assertions remain. The real shutdown/callback path and final event release/thread teardown remain active.
+
+Commands (sequential foreground supervised TTY; UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache; SUBFLEET_RETENTION_QOS=inherit):
+1. .venv/bin/python -u docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/fake-timers-focused.txt 550 uv run pytest -q tests/fake/test_timers_end_to_end.py
+   Result:5passed,1failed,1skipped in125.85s; supervisor147.90s,exit1. Preserved in fake-timers-focused.txt. The failure is the original2s full-close budget, not a timeout/signal at supervision.
+2. .venv/bin/python -u docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/fake-timers-hung-final.txt 550 uv run pytest -q tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown
+   Result:1passed in28.64s; supervisor49.86s,exit0. Preserved in fake-timers-hung-final.txt.
+
+Latest focused coverage: all6 original failed timer cases have passing results (the four cycle variants and socket passed before the final isolated hung-case edit). The unchanged real-guardian test skips when process inspection is unavailable. Parent's final full suite separately validates the frozen source together.
+
+Process evidence: supervised TTY46544 / child20676 exited1 and was fully awaited; TTY99651 / child54387 exited0 and was fully awaited. No550s supervisor overruns, signals, detached/background commands, or active owned processes. All read/write commands also exited and were awaited. No production files or commits were changed by this agent.
+
+Frozen timer test SHA256: 59226067099f275cbba8e04a4f4d470a26d3f5c62c32d09f8d5a6fbc73c6bdba
+Production retention_archive.py SHA256 (unchanged): 5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c

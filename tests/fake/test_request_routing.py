@@ -113,19 +113,25 @@ def test_a_closing_daemon_answers_every_wait_before_it_hangs_up(served):
     answers = []
 
     def wait():
-        answers.append(request(path, "wait", timeout=30, job_ids=["20260925-000000-open"], deadline_s=60))
+        answers.append(request(path, "wait", timeout=90, job_ids=["20260925-000000-open"], deadline_s=120))
     waiters = [threading.Thread(target=wait) for _ in range(4)]
     for waiter in waiters:
         waiter.start()
-    deadline = time.monotonic() + 5
-    while daemon.wait_hub.watched < 4 and time.monotonic() < deadline:
-        time.sleep(.01)
-    assert daemon.wait_hub.watched == 4
-    started = time.monotonic()
-    daemon.close()
-    for waiter in waiters:
-        waiter.join(10)
-    assert len(answers) == 4
-    for reply, _seconds in answers:
-        assert reply["ok"] and reply["result"] == {"timeout": True}, reply
-    assert time.monotonic() - started < 8
+    try:
+        deadline = time.monotonic() + 60
+        while daemon.wait_hub.watched < 4 and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert daemon.wait_hub.watched == 4
+        started = time.monotonic()
+        daemon.close()
+        for waiter in waiters:
+            waiter.join(10)
+        assert len(answers) == 4
+        for reply, _seconds in answers:
+            assert reply["ok"] and reply["result"] == {"timeout": True}, reply
+        assert time.monotonic() - started < 8
+    finally:
+        daemon.close()
+        for waiter in waiters:
+            waiter.join(10)
+        assert not any(waiter.is_alive() for waiter in waiters)

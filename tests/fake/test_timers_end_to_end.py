@@ -17,13 +17,15 @@ from subfleet.daemon import Daemon
 from subfleet.timers import iso
 
 
-def until(fn, timeout=5):
+def until(fn, timeout=60):
+    # These are readiness waits, not response-time assertions: the real control
+    # loop first schedules recovery on a worker, which may start late under load.
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         if value := fn():
             return value
         time.sleep(.01)
-    raise AssertionError('timer condition did not arrive')
+    raise AssertionError(f'timer condition did not arrive within {timeout}s')
 
 
 @pytest.fixture
@@ -135,34 +137,44 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
         assert not set(ids) & {row['notice_id'] for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']}
     finally:
         daemon.stopping.set()
-        thread.join(3)
+        thread.join(60)
         assert not thread.is_alive()
 
 
 def test_hung_usage_cannot_block_api_or_shutdown(daemon):
     """C-16.4 C-18.1: a blocked injectable HTTP opener cannot block control or late-publish."""
     codex(daemon, 1)
-    entered, release = threading.Event(), threading.Event()
+    entered, release, returned = threading.Event(), threading.Event(), threading.Event()
     def opener(request, timeout):
         entered.set()
-        release.wait(5)
+        # Keep the fake HTTP call blocked until the close assertions finish,
+        # even if the test observer is scheduled late. Cleanup releases it.
+        release.wait(60)
+        returned.set()
         return 200, b'{"rate_limit":{"limit_reached":false}}'
     daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
     thread = threading.Thread(target=daemon._control, daemon=True)
     thread.start()
     try:
-        assert entered.wait(2)
+        assert entered.wait(60)
         begin = time.monotonic()
         assert daemon.dispatch('daemon.status', {})['timers']['probe']
         assert time.monotonic() - begin < 1
         daemon.close()
         thread.join(2)
         assert not thread.is_alive()
-        assert time.monotonic() - begin < 2
+        # Closing also drains unrelated pools and stores. Allow their scheduling
+        # cost while proving it never waited for the still-blocked HTTP callback.
+        assert time.monotonic() - begin < 10
+        assert not returned.is_set(), 'shutdown waited for the blocked usage read'
+        release.set()
+        assert returned.wait(60)
         assert not (daemon.root / 'status.json').exists()
     finally:
         release.set()
-        thread.join(2)
+        daemon.stopping.set()
+        thread.join(60)
+        assert not thread.is_alive()
 
 
 def test_socket_timer_status(daemon):
@@ -176,7 +188,7 @@ def test_socket_timer_status(daemon):
     thread.start()
     try:
         until(lambda: (daemon.root / 'daemon.sock').exists())
-        time.sleep(.25)
+        until(lambda: daemon.dispatch('daemon.status', {})['timers']['probe']['last_run'])
         with socket.socket(socket.AF_UNIX) as sock:
             sock.settimeout(2)
             sock.connect(str(daemon.root / 'daemon.sock'))
@@ -185,7 +197,8 @@ def test_socket_timer_status(daemon):
         assert result['ok'] and result['result']['timers']['probe']['last_run']
     finally:
         daemon.stopping.set()
-        thread.join(3)
+        thread.join(60)
+        assert not thread.is_alive()
 
 
 def test_keepalive_uses_real_guardian_when_process_inspection_allowed(monkeypatch):

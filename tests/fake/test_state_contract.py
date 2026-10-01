@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -37,6 +37,8 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, "unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
@@ -95,7 +97,7 @@ def test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one(state_daemon
         daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))
 
 
-def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
+def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon, monkeypatch):
     """C-7.3, C-7.4 cancelling a queued parent atomically cancels dependent descendants only."""
     daemon, harness = state_daemon
 
@@ -106,10 +108,24 @@ def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches
     child = submit(parent_job_id=parent)
     grandchild = submit(parent_job_id=child)
     independent = submit(parent_job_id=parent, independent=True)
+    family = (parent, child, grandchild)
+    notice = daemon._notice
+    observed = []
+
+    def notice_before_commit(tx, job, summary):
+        # C-7.3 requires one transaction, regardless of the seconds it spans.
+        # An independent reader must see the whole family queued until commit.
+        assert {harness.job(member)["state"] for member in family} == {"queued"}
+        assert all(harness.job(member)["cancel_requested_at"] is None for member in family)
+        observed.append(job["job_id"])
+        notice(tx, job, summary)
+
+    monkeypatch.setattr(daemon, "_notice", notice_before_commit)
     daemon.dispatch("kill", {"job_id": parent})
-    cancelled = [daemon.store.get_job(job) for job in (parent, child, grandchild)]
+    cancelled = [harness.job(job) for job in family]
     assert {job["state"] for job in cancelled} == {"cancelled"}
-    assert len({job["cancel_requested_at"] for job in cancelled}) == 1
+    assert all(job["cancel_requested_at"] is not None for job in cancelled)
+    assert set(observed) == set(family)
     assert daemon.store.get_job(independent)["state"] == "queued"
     assert daemon.store.get_job(independent)["cancel_requested_at"] is None
     assert len(daemon.store.list_notices()) == 3

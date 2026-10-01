@@ -1,0 +1,39 @@
+Command: uv run pytest -q tests/fake/test_timers_end_to_end.py
+....F.s                                                                  [100%]
+=================================== FAILURES ===================================
+_________________ test_hung_usage_cannot_block_api_or_shutdown _________________
+
+daemon = <subfleet.daemon.Daemon object at 0x3036804cc10>
+
+    def test_hung_usage_cannot_block_api_or_shutdown(daemon):
+        """C-16.4 C-18.1: a blocked injectable HTTP opener cannot block control or late-publish."""
+        codex(daemon, 1)
+        entered, release = threading.Event(), threading.Event()
+        def opener(request, timeout):
+            entered.set()
+            # Keep the fake HTTP call blocked until the close assertions finish,
+            # even if the test observer is scheduled late. Cleanup releases it.
+            release.wait(60)
+            return 200, b'{"rate_limit":{"limit_reached":false}}'
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+            assert entered.wait(60)
+            begin = time.monotonic()
+            assert daemon.dispatch('daemon.status', {})['timers']['probe']
+            assert time.monotonic() - begin < 1
+            daemon.close()
+            thread.join(2)
+            assert not thread.is_alive()
+>           assert time.monotonic() - begin < 2
+E           assert (155271.598388166 - 155268.695021541) < 2
+E            +  where 155271.598388166 = <built-in function monotonic>()
+E            +    where <built-in function monotonic> = time.monotonic
+
+tests/fake/test_timers_end_to_end.py:165: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown
+1 failed, 5 passed, 1 skipped in 125.85s (0:02:05)
+
+Exit: 1; elapsed: 147.90s

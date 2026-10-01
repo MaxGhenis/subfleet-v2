@@ -47,8 +47,10 @@ raise SystemExit(main(sys.argv[1:]))
     env.update(HOME=str(home), PICK_OUTPUT=str(picked), CHILD_LOG=str(child_log), CALL_LOG=str(call_log),
                PATH="/usr/bin:/bin")
     def run(*args, **values):
+        # This checks forwarding and authentication, not native CLI startup latency.
+        # The real guard imports the CLI; allow it to start on a loaded runner.
         return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
-                              input="prompt on stdin\n", capture_output=True, text=True, timeout=5)
+                              input="prompt on stdin\n", capture_output=True, text=True, timeout=60)
     def calls():
         return [json.loads(line) for line in call_log.read_text().splitlines()] if call_log.exists() else []
     return run, picked, child_log, calls, native, real
