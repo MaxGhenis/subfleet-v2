@@ -61,17 +61,17 @@ New test repair: `05ced045e3955073b0a45aaadf7d1ca94b571f89`,
 commit. Both new commits carry
 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-The managed sandbox denied `git add` because the assigned checkout's shared
-index is outside its writable roots:
-`/Users/maxghenis/subfleet-v2/.git/worktrees/20260930-115146-salvage-r3-cont3-r2/index.lock`.
-The assigned checkout therefore still points at `01df8041`. To preserve real
-commits without writing outside the workspace, the two new commits live on
-`fix/salvage-r3-cont3` in the workspace-local Git metadata at
-`build/verification-continuation/commits.git`, with `01df8041` as their parent.
-They are exported in
-`docs/reports/2026-10-01-salvage-r3-review-fixes.bundle`; that checkpoint is the
-bundle's only prerequisite. The normal worktree still contains the complete
-changes for Subfleet to preserve. Nothing was pushed or rewritten.
+The builder's sandbox could not write the shared git index, so it made the two
+commits in workspace-local metadata and exported a bundle. On 2026-10-01 the bundle
+was verified and imported: both commits are on `fix/salvage-r3-cont3` (PR #100),
+followed by the merge of release/217 `f1bd2ab5` as `a914f38d`. The bundle and the
+workspace-local metadata are not in the tree.
+
+After the merge, six `_workspace` mocks that #72 added to
+`tests/fake/test_admission_liveness.py` returned three values where this branch
+returns four; they now supply the empty `skipped` list too (found by the
+independent review of `a914f38d`: 12 `test_c26_9_*` failures, 24 of 24 passing after).
+The suite totals below predate the merge; the review of `a914f38d` ran 7,336 tests.
 
 ## Verification
 
