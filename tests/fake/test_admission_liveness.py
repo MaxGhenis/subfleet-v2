@@ -663,6 +663,33 @@ def test_c8_4_a_read_only_turn_waits_for_a_retention_fence_only(tmp_path):
         assert _live(service, reader), service._holds.get(reader)
 
 
+def test_c6_9_c24_5_a_turn_waiting_for_a_folder_a_retrying_turn_holds_never_holds_it_back(tmp_path):
+    """The merge of release/217 (#72) with this change: a waiter carries the keys it waits
+    for another holder to release, so that no job waits behind a waiter for a lease the
+    job itself holds (C-6.9). A turn's `blocked` keys are among them. A turn placed by a
+    daemon from before shared folders holds `worktree:<folder>` as a job-held lease, which
+    its retry keeps. With a turn cap set (so C-6.9's hold applies among turns) an older
+    turn in that folder waits for the key; the retrying turn must not be held
+    `behind-older-job` behind it, or each waits for the other until `max_wall_s`."""
+    from subfleet import folders
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        service.policy["conversations"].update({"max_active_turns": 50, "turn_slots_per_lane": 50})
+        _checkout(harness)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        older = _turn_in(service, harness, 0, workdir=harness.workdir)
+        retrying = _turn_in(service, harness, 1, workdir=harness.workdir)
+        target = service._write_target(service._job(retrying), str(harness.workdir))
+        assert service.store.acquire_lease(folders.exclusive_key(target), retrying)    # kept from its first attempt
+        service._admit_turns()
+        assert service._holds[older]["reason"] == "lease-held"
+        assert service._holds[older]["leases"] == [folders.exclusive_key(target)]
+        assert _live(service, retrying), service._holds.get(retrying)
+        _end(service, retrying)
+        service.store.update_job(older, next_check_at=None)
+        service._admit_turns()
+        assert _live(service, older), service._holds.get(older)
+
+
 def _clock(service, job_id, when):
     service.store.update_job(job_id, next_check_at=when)
 
