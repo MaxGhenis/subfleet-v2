@@ -11,13 +11,13 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107611580>
             pinned_model="haiku", in_place=True, mcp_servers=["selected"])
         first_spec = observe_launch(daemon, first, monkeypatch)
         assert first_spec.mcp_servers == ("selected",)
-    
+
         class Limited(FakeAdapter):
             def classify(self, *args):
                 return Outcome(OutcomeClass.LIMITED, "fixture limit", closure=Closure(
                     first["lane_id"], "account", after(3600), ClosureReason.PROVIDER_LIMIT,
                     ClockSource.REPORTED, "fixture"))
-    
+
         with monkeypatch.context() as patch:
             patch.setattr(module, "get_adapter", lambda _: Limited())
             daemon._finalize(receipt_fixture(daemon, first, adir, rc=4))
@@ -32,7 +32,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107611580>
         retry_spec = observe_launch(daemon, attempts[1], monkeypatch)
 >       assert retry_spec.mcp_servers == first_spec.mcp_servers == ("selected",)
 E       AssertionError: assert () == ('selected',)
-E         
+E
 E         Right contains one more item: 'selected'
 E         Use -v to get more diff
 

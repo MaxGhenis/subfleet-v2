@@ -12,8 +12,8 @@ resume = False
 >       assert visible_servers(launch) == {}
                ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/test_claude_mcp_launch.py:51: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_claude_mcp_launch.py:51:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 launch = Launch(argv=('claude', '-p', '--model', 'claude-opus-5', '--session-id', '310a5f8f-acb8-47b8-8c18-edc3c2176179', '--ou...a5f8f-acb8-47b8-8c18-edc3c2176179.jsonl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects'})
 
@@ -37,8 +37,8 @@ resume = True
 >       assert visible_servers(launch) == {}
                ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/test_claude_mcp_launch.py:51: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_claude_mcp_launch.py:51:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 launch = Launch(argv=('claude', '-p', '--resume', 'existing-session', '--model', 'claude-opus-5', '--output-format', 'stream-js...onl', 'transcript_offset': 0, 'projects_dir': '/Users/maxghenis/.claude/projects', 'resumed_from': 'existing-session'})
 

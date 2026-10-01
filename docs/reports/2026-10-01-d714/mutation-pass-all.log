@@ -13,7 +13,7 @@ resume = False
         launch = launch_job(tmp_path, names=("gitnexus", "notes"), servers=servers, resume=resume)
 >       assert visible_servers(launch) == {name: servers[name] for name in ("gitnexus", "notes")}
 E       AssertionError: assert {'gitnexus': ...le.test/mcp'}} == {'gitnexus': ...le.test/mcp'}}
-E         
+E
 E         Omitting 2 identical items, use -vv to show
 E         Left contains 1 more item:
 E         {'messages': {'command': 'send'}}
@@ -33,7 +33,7 @@ resume = True
         launch = launch_job(tmp_path, names=("gitnexus", "notes"), servers=servers, resume=resume)
 >       assert visible_servers(launch) == {name: servers[name] for name in ("gitnexus", "notes")}
 E       AssertionError: assert {'gitnexus': ...le.test/mcp'}} == {'gitnexus': ...le.test/mcp'}}
-E         
+E
 E         Omitting 2 identical items, use -vv to show
 E         Left contains 1 more item:
 E         {'messages': {'command': 'send'}}
