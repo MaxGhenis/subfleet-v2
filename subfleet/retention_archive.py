@@ -336,11 +336,13 @@ class Retirement:
                 elif reg is None and why != "no-gitfile":
                     raise Defer("registration", DEFER_PERMANENT_S, why or "")
             elif job.get("workdir"):
+                workdir_common = (rgit.common_dir(Path(job["workdir"]), cancel=self.ctx.cancel)
+                                  if os.path.isdir(job["workdir"]) else None)
+                inferred = workdir_common is None
                 reg, common, lost = source_of_gone_tree(
                     job, worktree, self.ctx.known_repositories, self.ctx.salvage_refs,
                     {row["path"]: row["sha256"] for row in salvage_rows if isinstance(row["path"], str)},
-                    cancel=self.ctx.cancel)
-                inferred = not os.path.isdir(job["workdir"])
+                    cancel=self.ctx.cancel, workdir_common=workdir_common)
                 if reg is None and inferred:
                     self._not_without_host(Path(os.path.realpath(job["workdir"])), worktree)
                 if lost and lost.startswith("tree away:"):
@@ -971,9 +973,13 @@ def salvage_digest(commit: str) -> str:
     return hashlib.sha256(commit.encode()).hexdigest()
 
 
+_UNRESOLVED_COMMON = object()
+
+
 def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[], list[Path]],
                         salvage_refs: Callable[[Path], dict[str, str]], wanted: dict[str, str], *,
-                        cancel: threading.Event | None = None) -> tuple[rgit.Registration | None, Path | None, str | None]:
+                        cancel: threading.Event | None = None,
+                        workdir_common: Any = _UNRESOLVED_COMMON) -> tuple[rgit.Registration | None, Path | None, str | None]:
     """(registration, repository, None) for a job whose tree is gone, or with
     None in place of what was not found, and why the repository was not.
 
@@ -989,10 +995,14 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     20260929T120000Z-a1`), which two jobs of different repositories reserved
     in the same second share. Before, such a job retired with no anchor while
     its registration stayed behind, or was kept for ever as `salvage not
-    archivable` (#81's note on #76)."""
+    archivable` (#81's note on #76). A caller that already resolved the
+    workdir's repository passes `workdir_common` (None when unreadable), so
+    git is run only once for that resolution. An existing but broken linked
+    workdir uses the same fallback as a missing one."""
     workdir = job.get("workdir")
     if workdir and os.path.isdir(workdir):
-        common = rgit.common_dir(Path(workdir), cancel=cancel)
+        common = (rgit.common_dir(Path(workdir), cancel=cancel)
+                  if workdir_common is _UNRESOLVED_COMMON else workdir_common)
         if common is not None:
             reg = rgit.registration_in(common, worktree)
             if reg is not None:
@@ -1000,7 +1010,7 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
             away = rgit.moved_tree(common, worktree)
             if away is not None:
                 return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
-        return None, common, None
+            return None, common, None
     candidates: list[Path] = []
     near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None
     for common in ([near] if near is not None else []) + list(known()):
