@@ -340,6 +340,92 @@ def test_settlement_reads_its_evidence_outside_the_service_lock_and_holds_it_ove
     assert svc.store.message(host)["state"] == "interrupted"
 
 
+def _ended_without_result(svc, tmp_path):
+    """A Claude host whose turn ended without `result`, and its outcome directory."""
+    import json
+    cid = conversation(svc)
+    host = submit(svc, cid)
+    svc.store.set_state(host, "running")
+    adir = tmp_path / "outcome"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "failed", "ended_by": "eof",
+                                                "reason": "ended-without-result"}))
+    return cid, host, adir
+
+
+def _delivered():
+    from subfleet.conversations import service as service_module
+    return service_module.reconcile.Evidence(acknowledged=True, frame="written", process_gone=True,
+                                             native="found", session_exists=True)
+
+
+def _free_elsewhere(lock) -> bool:
+    """Whether another thread could take `lock` now."""
+    got = []
+
+    def take():
+        if lock.acquire(timeout=1):
+            lock.release()
+            got.append(True)
+    other = threading.Thread(target=take)
+    other.start()
+    other.join(10)
+    return got == [True]
+
+
+def test_settlement_holds_the_hosts_stop_lock_from_its_evidence_through_its_settlement(svc, tmp_path, monkeypatch):
+    """The 2.1.10 merge of C-24.7/C-24.8 with steer review finding 14: a person's stop of
+    the host is serialized with the whole settlement, its evidence read included, so no
+    stop is recorded between the read of `stop_requested_at` and the block the settlement
+    applies; the service lock stays free while the evidence is read."""
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import EndedRunner
+    cid, host, adir = _ended_without_result(svc, tmp_path)
+    seen = {}
+
+    def gather(*args, **kwargs):
+        seen["stop lock free"] = _free_elsewhere(svc._stop_lock(host))
+        seen["service lock free"] = _free_elsewhere(svc._lock)
+        return _delivered()
+    monkeypatch.setattr(service_module.reconcile, "gather", gather)
+    svc._on_outcome(EndedRunner(adir, host, cid))
+    assert seen == {"stop lock free": False, "service lock free": True}
+    assert svc.store.conversation(cid)["blocked_by"] == "unfinished-turn"
+    assert _free_elsewhere(svc._stop_lock(host))
+
+
+def test_a_stop_asked_while_the_settlement_reads_its_evidence_waits_and_finds_the_turn_settled(
+        svc, tmp_path, monkeypatch):
+    """C-24.7/C-24.8 through the merge: a person's Stop that arrives while the settlement
+    reads its evidence (outside the service lock) waits for the settlement, then finds the
+    message no longer running. The unfinished-turn block the settlement applied therefore
+    never follows a recorded personal stop."""
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import EndedRunner
+    cid, host, adir = _ended_without_result(svc, tmp_path)
+    answers = []
+
+    def stop():
+        try:
+            answers.append(svc.op_turn_interrupt({"message_id": host}, None))
+        except ConversationError as exc:
+            answers.append(exc.reason)
+    asked = threading.Thread(target=stop)
+
+    def gather(*args, **kwargs):
+        asked.start()
+        asked.join(0.5)
+        answers.append("waiting" if asked.is_alive() else "answered during the evidence read")
+        return _delivered()
+    monkeypatch.setattr(service_module.reconcile, "gather", gather)
+    svc._on_outcome(EndedRunner(adir, host, cid))
+    asked.join(10)
+    assert answers == ["waiting", "not-running"]
+    message = svc.store.message(host)
+    assert message["state"] == "failed" and message.get("stop_requested_at") is None
+    assert svc.store.conversation(cid)["blocked_by"] == "unfinished-turn"
+
+
 def dispatch_order(svc, cid, host) -> list[str]:
     """What the dispatcher runs after the host settles, one turn at a time."""
     svc.store.set_state(host, "complete")
