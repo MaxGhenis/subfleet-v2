@@ -767,6 +767,10 @@ struct MessageSubmitArgs: Codable, Equatable {
 }
 
 struct MessageStatusArgs: Codable, Equatable {
+    /// The most ids one call answers: the daemon reads only the first 200
+    /// (service.py `op_message_status`).
+    static let limit = 200
+
     var message_ids: [String]
 }
 
