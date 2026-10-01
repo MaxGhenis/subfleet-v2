@@ -214,12 +214,28 @@ CLI_TOO_OLD_RE = re.compile(
     re.IGNORECASE,
 )
 
-# An explicit organisation block: the account exists and still cannot serve lanes.
+# Claude Code refusing subscription access: the account cannot serve lanes. The
+# text recorded for it names an organisation setting ("Your organization has
+# disabled Claude subscription access for Claude Code ...", claude-13 and claude-14
+# on 2026-09-23, claude-5 on 2026-09-30), with error kind `oauth_org_not_allowed`.
+# Yet it matched at re-enrolment on 2026-10-01 for five accounts whose
+# subscriptions Max had cancelled and let expire. So the refusal is quoted verbatim,
+# both known causes are named, and nothing here claims to know which applies.
 ORG_BLOCK_RE = re.compile(
     r"organization has disabled Claude subscription access"
     r"|organization has disabled|subscription access for Claude Code"
     r"|does not have access to Claude",
     re.IGNORECASE,
+)
+
+#: The `error` kind Claude Code stamps on that refusal (`claude_stream.ERROR_KINDS`).
+ORG_BLOCK_ERROR_KIND = "oauth_org_not_allowed"
+
+#: Both known causes of the refusal, neither asserted, and what ends it.
+ORG_BLOCK_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; `subfleet lanes enroll` succeeds once the account is "
+    "subscribed with Claude Code allowed."
 )
 
 # Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
@@ -271,12 +287,34 @@ def _scrub_non_limit(text: str) -> str:
     return text
 
 
+#: The longest line a `detail` quotes whole.
+LINE_EXCERPT_MAX = 300
+
+
 def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
-    """The line the match landed on, trimmed, so a `detail` names its own evidence."""
+    """The line the match landed on, trimmed, so a `detail` names its own evidence.
+
+    A line longer than `LINE_EXCERPT_MAX` is cut to a window that still holds the
+    whole match, and each cut end is marked with an ellipsis: a long line must
+    never lose the very words that classified it.
+    """
     start = corpus.rfind("\n", 0, match.start()) + 1
     end = corpus.find("\n", match.end())
-    line = corpus[start : end if end != -1 else len(corpus)].strip()
-    return line[:300] if line else match.group(0)
+    raw = corpus[start : end if end != -1 else len(corpus)]
+    line = raw.strip()
+    if not line:
+        return match.group(0)
+    if len(line) <= LINE_EXCERPT_MAX:
+        return line
+    offset = start + len(raw) - len(raw.lstrip())
+    found_at, found_end = match.start() - offset, match.end() - offset
+    if found_end <= LINE_EXCERPT_MAX:
+        low = 0
+    else:
+        spare = max(0, LINE_EXCERPT_MAX - (found_end - found_at))
+        low = max(0, min(found_at - spare // 2, len(line) - LINE_EXCERPT_MAX))
+    high = max(low + LINE_EXCERPT_MAX, found_end)
+    return ("…" if low else "") + line[low:high] + ("…" if high < len(line) else "")
 
 
 def model_matches_requested(served: str | None, requested: str | None) -> bool:
@@ -865,6 +903,13 @@ class ClaudeAdapter(Adapter):
         summary = parse_stream(stdout)
         corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
 
+        # C-9.3: a refusal of subscription access is auth-dead with or without
+        # `system/init`, and a fresh token cannot answer it. Claude Code's own words
+        # are quoted, and the cause is not guessed (`ORG_BLOCK_CAUSES`).
+        refusal = _subscription_refusal(corpus, summary)
+        if refusal is not None:
+            raise AdapterError(f"claude: {refusal.statement()}", code=5,
+                               fix=ORG_BLOCK_CAUSES)
         if not summary.has_init:
             detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
             raise AdapterError(
@@ -874,13 +919,6 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store it "
                     f"as the keychain item {credential.ref}"
                 ),
-            )
-        if ORG_BLOCK_RE.search(corpus):
-            raise AdapterError(
-                "claude: the organisation has disabled Claude Code subscription access "
-                "for this account",
-                code=5,
-                fix="ask the account's admin to enable Claude Code access",
             )
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
@@ -1581,13 +1619,15 @@ class ClaudeAdapter(Adapter):
                 answered={"cli": "version gate in the provider's own output"},
             )
 
-        # 1. Authentication (C-9.3).
-        match = ORG_BLOCK_RE.search(corpus)
-        if match:
+        # 1. Authentication (C-9.3). A refusal of subscription access is quoted as
+        #    Claude Code said it, with the known causes and no guess between them.
+        refusal = _subscription_refusal(corpus, summary)
+        if refusal is not None:
             return finish(
                 OutcomeClass.AUTH_DEAD,
-                f"auth-dead: {_first_line_containing(corpus, match)}",
-                answered={"auth": "explicit organisation block"},
+                f"auth-dead: {refusal.statement()}. {ORG_BLOCK_CAUSES}",
+                answered={"auth": f"subscription access refused ({refusal.source})"},
+                refusal={"verbatim": refusal.line, "source": refusal.source},
             )
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
@@ -1973,6 +2013,57 @@ def _decode(value: Any) -> str:
 def _first_auth_phrase(corpus: str) -> str | None:
     match = AUTH_SIGNATURE_RE.search(corpus) or ORG_BLOCK_RE.search(corpus)
     return _first_line_containing(corpus, match) if match else None
+
+
+@dataclass(frozen=True)
+class SubscriptionRefusal:
+    """Claude Code refusing subscription access, as its own evidence (C-9.3).
+
+    `line` is the refusal line verbatim, `error_kinds` every distinct `error` kind
+    the stream carried. Neither names a cause: `ORG_BLOCK_CAUSES` lists the known
+    ones without choosing.
+    """
+
+    line: str | None
+    error_kinds: tuple[str, ...]
+    source: str          # "text" (ORG_BLOCK_RE) or "error-kind" (ORG_BLOCK_ERROR_KIND)
+
+    def statement(self) -> str:
+        evidence = []
+        if self.line:
+            evidence.append(f'verbatim: "{self.line}"')
+        else:
+            evidence.append("no refusal text in the stream")
+        if self.error_kinds:
+            evidence.append(f"error_kinds: {', '.join(self.error_kinds)}")
+        return (
+            "Claude Code refused subscription access for this account "
+            f"({'; '.join(evidence)})"
+        )
+
+
+def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRefusal | None:
+    """The refusal when Claude Code's text or its error kind says so, else None.
+
+    The text wins when present, because it is what Claude Code actually said; a
+    refusal carried only by `oauth_org_not_allowed` quotes the first line of the
+    message that carried it, so a reworded refusal is still quoted, not paraphrased.
+    """
+    kinds = tuple(dict.fromkeys(summary.error_kinds))
+    match = ORG_BLOCK_RE.search(corpus)
+    if match:
+        return SubscriptionRefusal(_first_line_containing(corpus, match), kinds, "text")
+    if ORG_BLOCK_ERROR_KIND not in kinds:
+        return None
+    for message in summary.assistants:
+        if message.error != ORG_BLOCK_ERROR_KIND:
+            continue
+        found = re.search(r"\S", message.text)
+        if found:
+            return SubscriptionRefusal(
+                _first_line_containing(message.text, found), kinds, "error-kind",
+            )
+    return SubscriptionRefusal(None, kinds, "error-kind")
 
 
 def _closure_clock(
