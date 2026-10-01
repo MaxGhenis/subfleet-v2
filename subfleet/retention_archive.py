@@ -210,14 +210,18 @@ def owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
     that `_workspace` allocated before the reserving transaction recorded it
     (C-6.12): a job that ended in between, cancelled while it waited, has that
     tree and no row naming it (four live jobs on 2026-09-29; #81's note on
-    #76), and without this it was never archived or freed."""
+    #76), and without this it was never archived or freed. A committed
+    baseline means admission could have allocated that path: keep its lease
+    and journal identity even while it is absent, so a moved checkout, an
+    existing registration, or a returning allocation cannot be overlooked.
+    No bytes at an absent path are touched."""
     if job.get("in_place") or job.get("sandbox") != "workspace-write":
         return None
     allocated_root = state_root / "worktrees"
     path = job.get("worktree")
     if not path:
         unrecorded = allocated_root / job["job_id"]
-        if not os.path.lexists(unrecorded):
+        if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None and not job.get("workdir_head"):
             return None
         path = str(unrecorded)
     # A symlinked container must not turn an external directory into our owner
@@ -339,6 +343,13 @@ class Retirement:
                 inferred = not os.path.isdir(job["workdir"])
                 if reg is None and inferred:
                     self._not_without_host(Path(os.path.realpath(job["workdir"])), worktree)
+                if lost and lost.startswith("tree away:"):
+                    raise Defer("tree away", DEFER_CHANGED_S, lost.removeprefix("tree away: "))
+                if lost and not salvage_rows:
+                    # No source means no way to bundle a private HEAD still
+                    # held by an undiscovered registration. Keep the rows so
+                    # a later pass can retire it once its source is available.
+                    raise Defer("repository not found", DEFER_PERMANENT_S, lost)
             if reg is not None:
                 common = reg.common
             elif common is None and job.get("workdir") and os.path.isdir(job["workdir"]):
@@ -982,7 +993,14 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     workdir = job.get("workdir")
     if workdir and os.path.isdir(workdir):
         common = rgit.common_dir(Path(workdir), cancel=cancel)
-        return (rgit.registration_in(common, worktree) if common is not None else None), common, None
+        if common is not None:
+            reg = rgit.registration_in(common, worktree)
+            if reg is not None:
+                return reg, common, None
+            away = rgit.moved_tree(common, worktree)
+            if away is not None:
+                return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+        return None, common, None
     candidates: list[Path] = []
     near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None
     for common in ([near] if near is not None else []) + list(known()):
@@ -992,6 +1010,10 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
         reg = rgit.registration_in(common, worktree, named=True)
         if reg is not None:
             return reg, common, None
+    for common in candidates:
+        away = rgit.moved_tree(common, worktree)
+        if away is not None:
+            return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
     if wanted:
         for common in candidates:
             listing = salvage_refs(common)
@@ -1248,8 +1270,10 @@ class _Builder:
               denied: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Every entry of one tree, archived, omitted or (the worktree only)
         regenerable (`rfs.RegenerableWalk`): listed with its signature, which
-        the final check and verified deletion need, but neither read nor stored
-        (d635 disk relief). Returns the entries and the regenerable records."""
+        the final check and verified deletion need. Multi-link regenerable
+        files also carry a digest to distinguish a sibling's unlink from a
+        write; their bytes are never stored (d635 disk relief). Returns the
+        entries and the regenerable records."""
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
@@ -1280,6 +1304,8 @@ class _Builder:
                         entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
                     elif t == "f":
                         entry["size"] = st.st_size
+                        if st.st_nlink > 1 and "sha256" not in entry:
+                            entry["sha256"] = self._digest(entry, st, parent, name)
                     entries.append(entry)
                     continue
                 if t == "l":
@@ -1323,8 +1349,8 @@ class _Builder:
             raise rfs.TreeError("changed", f"{entry['p']} vanished") from None
         try:
             before = os.fstat(fd)
-            if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):
-                raise rfs.TreeError("changed", f"{entry['p']} was replaced")
+            if not rfs.same_content_signature(st, before) or not stat.S_ISREG(before.st_mode):
+                raise rfs.TreeError("changed", f"{entry['p']} changed before it was read")
             digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
             if not rfs.same_content_signature(before, os.fstat(fd)):
                 raise rfs.TreeError("changed", f"{entry['p']} changed while it was read")
