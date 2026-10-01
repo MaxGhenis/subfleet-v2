@@ -119,6 +119,23 @@ bin/sf2 runs show JOB_ID --out
 bin/sf2 resume JOB_ID 'Continue with these additional instructions.'
 ```
 
+Writable detached Claude jobs start with no MCP servers. Opt one job into the
+servers it needs by repeating `--mcp NAME`:
+
+```sh
+bin/sf2 run -m opus -s workspace-write -C /path/to/work -p prompt.md --mcp GitNexus --mcp docs --json
+bin/sf2 runs show JOB_ID --json
+```
+
+The daemon resolves the named servers from Claude Code's configuration for the
+submitted workdir, refuses unknown names, and keeps exactly those entries with
+the job. Retries and resumes keep the same set even if the original settings
+change. `runs show` displays the opt-in. Batch manifests use `mcp = ["GitNexus",
+"docs"]`. A job that names servers must use Claude and `workspace-write`;
+read-only jobs and isolated reviews retain their empty MCP configuration.
+Subfleet.app conversation turns keep their existing behavior. See the
+[MCP configuration sources and launch audit](docs/reference/claude-mcp.md).
+
 Resume binds to the source attempt's provider session, lane, model, and workspace.
 It refuses unavailable native sessions and active or quarantined source jobs.
 For new work, routing only promotes along the task's configured chain. Claude

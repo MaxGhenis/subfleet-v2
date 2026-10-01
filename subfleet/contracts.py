@@ -215,6 +215,11 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+#: C-11.8: how long a pinned lane must go on refusing its job for a standing
+#: reason before the caller is told it never will: a state that lasts one pass
+#: (a re-enrolment between its two commits, a registry read that failed once)
+#: tells nobody anything false.
+PIN_NOTICE_AFTER_S = 60
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
@@ -359,6 +364,11 @@ class JobSpec:
     # (`network.codex_workspace_write`), not the job row; Claude's writable
     # launch has it already, and read-only and isolated launches never do.
     network: bool = False
+    # C-12.9, d714: the MCP servers a writable Claude launch starts, none unless
+    # the job named them (`run --mcp`), and the daemon's copy of their entries
+    # (`jobs/<job>/mcp.json`). Read-only and isolated launches start none.
+    mcp_servers: tuple[str, ...] = ()
+    mcp_config: str | None = None
 
 
 @dataclass(frozen=True)

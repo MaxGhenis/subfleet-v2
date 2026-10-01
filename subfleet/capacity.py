@@ -11,7 +11,7 @@ import json
 import math
 import os
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -434,11 +434,66 @@ def credential_latched(lane: Mapping[str, Any]) -> bool:
         "revoked", "auth-revoked", "expired-token", "no-auth")
 
 
+def credential_gone(lane: Mapping[str, Any]) -> bool:
+    """C-11.8: a latched credential only a person brings back, by logging in again or
+    re-enrolling (a new credential epoch): revoked, no login at all, or a Codex
+    lane's expired token whose one heal for this epoch has run and left it expired
+    (`heal_spent`, set by the timers' probe, C-23.47). Any other expired token
+    latches the lane's slot too (`credential_latched`) but may still come back by
+    itself: before its heal, or on a Claude home lane, whose heal the timers retry
+    every 20 minutes, so it is not this."""
+    return (lane.get("revoked_epoch") is not None
+            or lane.get("probe_status") in ("revoked", "auth-revoked", "no-auth")
+            or lane.get("provider") == "codex" and lane.get("probe_status") == "expired-token"
+            and bool(lane.get("heal_spent")))
+
+
 def identity_blocked(lane: Mapping[str, Any]) -> bool:
     """C-10.6: a lane whose own credential proved to hold a different account is
     not a candidate until an operator re-enrols it. Nothing else about the lane —
     not a fresh reading, not an empty slot — releases it."""
     return str(lane.get("identity_status") or "") == IdentityStatus.MISMATCH.value
+
+
+#: C-11.4, C-18.1: every probe (admission's, a timer's turn or read, a
+#: re-enrolment's) holds its lane's `lane:<lane id>:slot:0` under a holder named
+#: `probe:...`, and admission honours each such lease (`Daemon._capacity_view`).
+PROBE_LEASES = "SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'"
+
+
+def mark_probe_leases(view: dict[str, Any], leases: Iterable[Any],
+                      record: Callable[[str], Mapping[str, Any] | None] | None = None) -> dict[str, Any]:
+    """C-5.7a, C-11.4, C-18.1: lay the probe leases admission honours over a view.
+
+    A lane whose slot a probe holds is unavailable (`unavailable_lanes` names the
+    holder) for as long as the lease is held: an admission probe or a timer's
+    turn for its seconds, a quarantined probe until a census finds it empty
+    (C-5.7a), however long that takes. Every probe lease counts toward the
+    fleet's `max_active_attempts` (`reserved_probes`). Each lane a probe holds
+    carries `probe_holder` and `probe_state`, the state of that holder's newest
+    record (`record(holder)`), or `uncertain` when no record names it: a
+    timer's usage read writes none, and a timer's turn writes its first only
+    after it took the lease. A turn's newest record reads `completed` from the
+    moment it is written until the timer releases the lease. A lane already
+    unavailable for another reason keeps that reason, whichever of the two is
+    laid first.
+    """
+    rows = [_row(item) for item in leases]
+    held: dict[str, str] = {}
+    for row in rows:
+        kind, _, rest = str(row["lease_key"]).partition(":")
+        if kind == "lane":
+            held.setdefault(rest.partition(":")[0], row["holder"])
+    unavailable = view.setdefault("unavailable_lanes", {})
+    for lane_id, holder in held.items():
+        unavailable.setdefault(lane_id, holder)
+    view["reserved_probes"] = len(rows)
+    for lane in view["lanes"]:
+        holder = held.get(lane["lane_id"])
+        if holder is not None:
+            lane["probe_holder"] = holder
+            lane["probe_state"] = ((record(holder) if record is not None else None) or {}).get("state", "uncertain")
+    return view
 
 
 def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:

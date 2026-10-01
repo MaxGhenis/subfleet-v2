@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import desktop_excluded, fresh_provider, identity_blocked
+from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
@@ -132,12 +132,38 @@ def current_lane_id(lanes: Iterable[Any], lane_id: str, *, follow: bool = True) 
     return str(found["lane_id"]) if found else lane_id
 
 
+#: C-12.9: the provider whose launch gives a job the MCP servers it names.
+MCP_PROVIDER = "claude"
+
+
+def job_mcp_servers(job: Any) -> tuple[str, ...]:
+    """C-12.9: the MCP servers a job named, from its row (JSON text) or a mapping."""
+    value = _row(job).get("mcp_servers")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise RouteError("mcp_servers: the job's record is not a list of names") from None
+    return tuple(value or ())
+
+
+def mcp_chain(policy: Mapping[str, Any], chain: Iterable[str], job: Any) -> list[str]:
+    """C-12.9: the models of `chain` a job may run on. A job that names MCP
+    servers runs only where a launch can start them, on a Claude model; any
+    other job keeps its whole chain."""
+    chain = list(chain)
+    if not job_mcp_servers(job):
+        return chain
+    return [name for name in chain if policy["models"][name]["provider"] == MCP_PROVIDER]
+
+
 def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
     """C-11.2: the provider a lane-pinned job must run on, as `evaluate` decides it.
 
     A pinned job evaluates one model: its pinned model, else the first model of
-    its task's chain from its tier. None when the job names neither, so only
-    the lane can say, or when the policy cannot tell (`evaluate` reports that).
+    its task's chain from its tier that it may run on (C-12.9). None when the
+    job names neither, so only the lane can say, or when the policy cannot tell
+    (`evaluate` reports that).
     """
     job = _row(job)
     try:
@@ -147,7 +173,8 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
-            return policy["models"][policy["chains"][task][tiers.index(tier)]]["provider"]
+            chain = mcp_chain(policy, policy["chains"][task][tiers.index(tier):], job)
+            return policy["models"][chain[0]]["provider"] if chain else None
     except (PolicyError, ValueError, KeyError, IndexError):
         pass
     return None
@@ -463,6 +490,13 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = policy["chains"][task][policy["tiers"].index(tier or default):]
     else:
         chain = []
+    if chain and job_mcp_servers(job):
+        # C-12.9: only a Claude launch starts the MCP servers the job named. A
+        # policy edit since submit can leave none; that waits, as C-6.12 says.
+        chain = mcp_chain(policy, chain, job)
+        if not chain:
+            raise RouteError("mcp_servers: this job names MCP servers, which only a Claude launch "
+                             "starts, and its chain has no Claude model", policy_dependent=True)
     # C-11.2: a pinned job evaluates one model, the first of its chain, so a lane
     # of any other provider could never take it (`pin_provider` says the same).
     selected = (resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None,
@@ -470,6 +504,9 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     if not chain and selected:
+        if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
+            raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
+                             f"and lane {pin!r} is a {selected['provider']} lane")
         model_name = next((name for name, model in policy["models"].items()
                            if model["provider"] == selected["provider"]), None)
         if model_name is None:
@@ -477,7 +514,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                               f"lane {pin!r} has provider {selected['provider']!r} with no models in policy")
         chain = [model_name]
     elif not chain:
-        chain = [next(iter(policy["models"]))]
+        chain = (mcp_chain(policy, policy["models"], job) or [next(iter(policy["models"]))])[:1]
     if pin:
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
@@ -606,6 +643,172 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
             # is not a candidate for it.
             reasons.append(f"reserve:{reserved}:probe-required")
     return reasons, detail
+
+
+#: C-11.8: what `judge_lane` refuses a lane for that no wait for capacity ends.
+#: The job's own exclusions, a turn's config directory and a v1 owner never
+#: change on their own; the desktop login while Claude Code uses it, a disabled
+#: lane and a credential that proved to hold another account (C-10.6) change
+#: only when a person acts, and so does a latched credential `capacity.credential_gone`
+#: holds of: revoked or missing, or a Codex token whose one heal for its login ran
+#: and left it expired (C-23.47). Any other expired token may still heal by
+#: itself, so it is not standing. A slot, a reading, the floor and the reserve
+#: are capacity, which comes back by itself. A closure is a hold only when it ends
+#: more than `admission.pin_hold_far_s` out; before that it is a wait.
+STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch")
+
+#: C-6.12: what evaluating a route may raise; the job's, never the caller's.
+_ROUTE_RAISES = (ValueError, KeyError, TypeError, AttributeError, IndexError)
+
+
+def standing_refusals(reasons: Iterable[str], detail: Mapping[str, Any], lane: Mapping[str, Any] | None,
+                      closures: Iterable[Mapping[str, Any]], now: datetime, far_s: float) -> list[str]:
+    """C-11.8: which of one lane's refusals no wait for capacity ends.
+
+    `reasons` and `detail` are what `judge_lane` found for the lane (a rejection
+    row carries both), `lane` its row, and `closures` the rows it read: a
+    `closed:<scope>:<until>` reason counts when the closure it names ends more
+    than `far_s` seconds after `now`, and a latched credential when only a person
+    brings it back (`capacity.credential_gone` of the row; with no row, never)."""
+    rows = {f"closed:{row['scope']}:{row['until_at']}": row for row in closures}
+    found = [reason for reason in reasons if reason in STANDING_REFUSALS or reason in rows
+             and (_time(rows[reason]["until_at"]) - now).total_seconds() > far_s]
+    if detail.get("slot_block") == "credential-latched" and lane is not None and credential_gone(lane):
+        found.append("credential-latched")
+    return found
+
+
+def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any] | None:
+    """C-11.8: why the lane a job is pinned to can never admit it, or None.
+
+    The pin is resolved and its lane judged exactly as `evaluate` resolves and
+    judges it (`prepare`, `judge_lane`), and only the standing refusals are kept
+    (`standing_refusals`); a pin that names no lane is `unknown`. So whenever
+    this names a reason, `evaluate` over any view with the same lane rows,
+    closures and latched credentials chooses no lane for the job, whatever the
+    readings, the attempts in flight, the probes and the caps.
+
+    None for a job with no lane pin, for a lane refused for capacity only, and
+    for a job whose route cannot be evaluated at all (C-6.12 settles that one).
+    Reads the view's `now`, `lanes` (marked and merged as a view marks them),
+    `closures` and `unavailable_lanes`, and nothing else."""
+    job = _row(job)
+    if not job.get("pinned_lane"):
+        return None
+    try:
+        setup = prepare(policy, view, job)
+        lane = setup["selected"]
+        if lane is None:
+            return {"lane_id": str(setup["pin"]), "reasons": ["unknown"], "closures": []}
+        closures = [row for row in (_row(item) for item in view.get("closures", ()))
+                    if row.get("lane_id") == lane["lane_id"]]
+        reasons, detail = judge_lane(setup, setup["chain"][0], lane, (), closures, in_flight=0,
+                                     unavailable=view.get("unavailable_lanes") or {})
+        found = standing_refusals(reasons, detail, lane, closures, setup["now"],
+                                  admission_settings(policy)["pin_hold_far_s"])
+    except _ROUTE_RAISES:
+        return None
+    if not found:
+        return None
+    held = [{"scope": row["scope"], "until_at": row["until_at"], "reason": row.get("reason")}
+            for row in closures if f"closed:{row['scope']}:{row['until_at']}" in found]
+    return {"lane_id": lane["lane_id"], "reasons": found, "closures": held,
+            **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {})}
+
+
+def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
+                 memo: dict | None = None) -> list[str] | None:
+    """C-11.8, C-6.9: the standing refusals that keep every lane from a job now,
+    whatever capacity does, or None when some lane could take it once capacity
+    comes back.
+
+    A lane-pinned job is its pinned lane's (`pin_unadmittable`). Any other job
+    must be refused for a standing reason by every lane of every model its chain
+    could walk (`prepare`, `model_lanes`, `judge_lane`), as `refused_for_good`
+    reads the same thing off a decision; a model with no lane is `no-lanes`.
+    `view` is what `pin_unadmittable` reads. `memo`, kept for one pass, answers
+    again for a model and the few job fields a standing refusal turns on
+    (exclusions, `allow_desktop`, a turn): a queue of like jobs costs one look
+    per model. None too for a job whose route cannot be evaluated (C-6.12)."""
+    job = _row(job)
+    if job.get("pinned_lane"):
+        found = pin_unadmittable(policy, view, job)
+        return found["reasons"] if found else None
+    try:
+        setup = prepare(policy, view, job)
+        far = admission_settings(policy)["pin_hold_far_s"]
+        closures: dict[str, list[dict[str, Any]]] = {}
+        for item in view.get("closures", ()):
+            row = _row(item)
+            closures.setdefault(row.get("lane_id"), []).append(row)
+        found: list[str] = []
+        for short in setup["chain"]:
+            key = (short, frozenset(setup["excluded"]), bool(job.get("allow_desktop")), setup["is_turn"])
+            if memo is not None and key in memo:
+                refusals = memo[key]
+            else:
+                refusals = []
+                lanes = model_lanes(setup, short)
+                if not lanes:
+                    refusals.append("no-lanes")
+                for lane in lanes:
+                    reasons, detail = judge_lane(setup, short, lane, (), closures.get(lane["lane_id"], ()),
+                                                 in_flight=0, unavailable=view.get("unavailable_lanes") or {})
+                    standing = standing_refusals(reasons, detail, lane, closures.get(lane["lane_id"], ()),
+                                                 setup["now"], far)
+                    if not standing:
+                        refusals = None
+                        break
+                    refusals.extend(standing)
+                if memo is not None:
+                    memo[key] = refusals
+            if refusals is None:
+                return None
+            found.extend(refusals)
+    except _ROUTE_RAISES:
+        return None
+    return list(dict.fromkeys(found))
+
+
+def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str, Any] | None,
+                     job: Any, lanes: Iterable[Any] = ()) -> list[str] | None:
+    """C-11.8, C-6.9: the standing refusals that keep every lane a decision walked
+    from its job, or None when some lane could take the job once capacity comes
+    back (or one was chosen).
+
+    Every lane of every model walked must be refused for a standing reason
+    (`standing_refusals`). A model with no lane to walk is `unknown` for a pinned
+    job (its pin names no lane) and `no-lanes` otherwise (no lane of that
+    provider is enrolled). A job so refused holds no other job back (C-6.9).
+    `lanes` are the rows a latched credential is judged on (`capacity.credential_gone`):
+    a decision carries no lane's credential, and with no row a latch is never standing."""
+    value = _row(decision) if decision is not None else {}
+    evaluations = value.get("evaluations") or ()
+    if not evaluations or value.get("chosen_lane"):
+        return None
+    far = admission_settings(policy)["pin_hold_far_s"]
+    pinned = bool(_row(job).get("pinned_lane"))
+    rows_by_id = {row["lane_id"]: row for row in (_row(item) for item in lanes)}
+    found: list[str] = []
+    try:
+        for evaluation in evaluations:
+            if evaluation.get("candidates"):
+                return None
+            rows = evaluation.get("rejections") or ()
+            if not rows:
+                found.append("unknown" if pinned else "no-lanes")
+                continue
+            now = _time(evaluation["evaluated_at"])
+            for row in rows:
+                standing = standing_refusals(row.get("reasons") or [row.get("reason")], row,
+                                             rows_by_id.get(row.get("lane_id")), evaluation.get("closures") or (),
+                                             now, far)
+                if not standing:
+                    return None
+                found.extend(standing)
+    except _ROUTE_RAISES:
+        return None
+    return list(dict.fromkeys(found))
 
 
 def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mapping[str, Any]) -> tuple:

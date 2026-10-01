@@ -165,7 +165,10 @@ def test_c6_11_the_log_says_when_jobs_are_pending_and_nothing_is_placed(fleet):
     assert len(lines) == 1
     assert re.search(r"2 jobs pending, none placed for 6\d s", lines[0])      # 61 s, or 62 on a slow runner
     assert "1 lanes open (codex-1)" in lines[0]
-    assert "behind-older-job x1" in lines[0] and "no-lanes x1" in lines[0] and f"first in line {stuck}" in lines[0]
+    # C-11.8 (intended since 2026-09-30): no Claude lane is enrolled, so no lane can
+    # ever admit the older job and it holds the newer one back no longer; each is
+    # held for what it is. Before, the newer read `behind-older-job`.
+    assert "no-lanes x2" in lines[0] and "behind-older-job" not in lines[0] and f"first in line {stuck}" in lines[0]
     age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
     service._admit()
     assert len(log_lines(service)) == 2                              # and again every ten minutes while it lasts

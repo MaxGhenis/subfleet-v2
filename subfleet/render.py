@@ -194,7 +194,74 @@ _HOLD_TEXT = {
                    "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
     "machine-busy": "the machine is saturated ({machine}) and the guard holds {class} jobs at the door until it "
                     "is not; admission.machine_guard sets the thresholds (C-6.13)",
+    "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
+                        "and {ends} (C-11.8)",
 }
+
+#: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
+_PIN_REFUSALS = {
+    "unknown": "no lane named {lane} is enrolled",
+    "excluded": "the job's own exclusions (-x) name {lane}",
+    "desktop": "{lane} is the Claude desktop app's login, and Claude Code is using it or cannot be told not "
+               "to be (C-10.3); only --allow-desktop lets a job run there",
+    "config-dir": "{lane} has its own config directory, where the conversation's transcript is not (C-26.2)",
+    "owner-v1": "{lane} is owned by Subfleet v1",
+    "disabled": "{lane} is disabled",
+    "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
+    "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
+                          "or a re-enrolment ends",
+    "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "
+                                        "login ran and left it so (C-23.47): only a new login or a "
+                                        "re-enrolment ends it",
+    "no-lanes": "no lane of the model's provider is enrolled",
+}
+
+
+def pin_refusals(stuck: Mapping[str, Any]) -> str:
+    """C-11.8: why a pinned lane can never admit its job, in words: each standing
+    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named."""
+    lane = stuck.get("lane_id") or "the lane"
+    closures = {f"closed:{row['scope']}:{row['until_at']}": row for row in stuck.get("closures") or ()}
+    parts = []
+    for reason in stuck.get("reasons") or ():
+        closure = closures.get(reason)
+        if closure is not None:
+            parts.append(f"{lane} is closed for {closure['scope']}"
+                         + (f" ({closure['reason']})" if closure.get("reason") else "") + f" until {closure['until_at']}")
+        elif str(reason).startswith("closed:"):
+            parts.append(f"{lane} is {reason}")
+        else:
+            status = stuck.get("probe_status") or "unusable"
+            text = _PIN_REFUSALS.get(f"{reason}:{status}") or _PIN_REFUSALS.get(reason, reason)
+            parts.append(text.format(lane=lane, probe_status=status))
+    return "; ".join(parts) or "it refuses the job"
+
+
+def pin_ends(fail_at: str | None) -> str:
+    """C-11.8: what becomes of a job whose pinned lane can never admit it."""
+    return (f"it fails with rc 3 at {fail_at} unless the lane can take it by then" if fail_at
+            else "it waits until that changes")
+
+
+def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> str:
+    """C-11.8: the one notice a job gets when its pinned lane can never admit it.
+
+    Not a C-15.1 notice (the job has not ended): a service notice to the
+    session that submitted it, which the session hooks surface (C-15.2)."""
+    lane = stuck.get("lane_id") or "its lane"
+    return (f"{job_id}: waiting; its pinned lane {lane} can never admit it: {pin_refusals(stuck)}.\n"
+            f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then `subfleet kill {job_id}`; "
+            f"or make {lane} usable again (re-enable or re-enrol it, release its hold, or stop using the desktop "
+            f"login in Claude Code, as the reason says). "
+            f"Meanwhile {pin_ends(fail_at)}, and it holds no other job back (C-11.8).")
+
+
+def pin_failure(stuck: Mapping[str, Any], since: str | None) -> str:
+    """C-11.8: the summary of the terminal notice of a job failed for its pin (C-15.1)."""
+    lane = stuck.get("lane_id") or "its lane"
+    return (f"no lane: its pinned lane {lane} could never admit it"
+            + (f" from {since} on" if since else "") + f": {pin_refusals(stuck)}; "
+            "fix: resubmit it unpinned, or pinned to another lane (-a or -H) (C-11.8)")
 
 
 def _machine(hold: Mapping[str, Any]) -> str:
@@ -244,10 +311,16 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
+            if reason == "pin-unadmittable":
+                fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries", "class"), "?"),
+                 "conversation_id", "native_session_id", "tries", "class", "lane_id"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "pin-unadmittable":
+                lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
+                             f"`subfleet kill {standing.get('job_id')}`; or make {hold.get('lane_id') or 'the lane'} "
+                             f"usable again" + (f"; unadmittable since {hold['since']}" if hold.get("since") else ""))
             if reason == "lease-held" and hold.get("queued_behind"):
                 # C-6.9, C-26.9: FIFO on a lease; a lease an older job waits for is kept for it.
                 lines.append("Queued behind: " + ", ".join(hold["queued_behind"])
@@ -255,6 +328,10 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                              + " takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")
+        if hold.get("for_good"):
+            # C-11.8, C-6.9: every lane it could use refuses it for a reason no wait ends.
+            lines.append("Every lane it could use refuses it for a reason no wait ends ("
+                         + ", ".join(hold["for_good"]) + "); it holds no other job back (C-11.8)")
     else:
         lines.append("Held: no admission pass has reached this job yet")
     if recheck:
