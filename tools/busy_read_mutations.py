@@ -120,6 +120,24 @@ MUTATIONS = {
             if wrote is missing and before is not missing:
                 self._set_verdict(lane.lane_id, before)
 """),
+    "only the put-back, not the check, is under the verdicts' lock": (TIMERS, RESTORE, """            if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
+                with self._verdicts:
+                    self._set_verdict(lane.lane_id, before)
+"""),
+    "a verdict is replaced without the verdicts' lock": (
+        TIMERS, "        with self._verdicts:\n            if verdict is None:\n", "        if True:\n            if verdict is None:\n"),
+    "an attempt's auth-dead verdict bypasses the verdicts' lock": (
+        TIMERS, "        self.store.add_event('timer.verdict', lane_id=lane_id, data=meta)\n        self._set_verdict(lane_id, meta)\n",
+        "        self.store.add_event('timer.verdict', lane_id=lane_id, data=meta)\n        self.metadata[lane_id] = meta\n"),
+    "the publication's verdict is noted after its transaction ends": (
+        TIMERS, "                    raise\n                wrote = self.metadata.get(lane.lane_id)\n        except BaseException:\n",
+        "                    raise\n            wrote = self.metadata.get(lane.lane_id)\n        except BaseException:\n"),
+    "a fenced read is filed as withheld": (
+        TIMERS, "                elif (published := self._publish_busy(lane, probe, opened)) is None:\n",
+        "                elif not (published := self._publish_busy(lane, probe, opened)):\n"),
+    "every published busy read is named as fenced": (
+        TIMERS, "                elif not published:\n                    fenced.append(lane.lane_id)\n",
+        "                else:\n                    fenced.append(lane.lane_id)\n"),
     "a fenced read is not named on the cycle's event": (
         TIMERS, "                elif not published:\n                    fenced.append(lane.lane_id)\n", ""),
     "only idle reads count toward offline": (
