@@ -14,7 +14,8 @@ that text. The kinds:
   reset; the detail names the earliest.
 - `usage-unknown`: no fresh usage reading says whether a lane may take it.
 - `no-lane`: no lane can take it for a reason no wait ends by itself
-  (disabled, signed in to another account, excluded, needs a probe).
+  (disabled, signed in to another account, excluded, needs a probe), or the
+  lane a Codex conversation keeps refuses it so (C-11.8's `pin-unadmittable`).
 - `lease`: another job holds something it needs; the detail names that job,
   and the conversation's title when it is a turn.
 - `blocked`, `workspace`, `route`, `admission`, `placed`: the conversation is
@@ -30,6 +31,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
+
+from .. import render
 
 #: A job bound to its message, before admission's first look at it.
 SUBMITTED = "admission: sent to the daemon, which has not placed it yet"
@@ -205,4 +208,10 @@ def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],
         return "admission: the daemon looks at it again shortly"
     if reason == "parent-cap":
         return "capacity: its parent job already has as many attempts running as its cap allows"
+    if reason == "pin-unadmittable":
+        # C-11.8: a Codex conversation keeps its lane (C-26.2), and that lane refuses the
+        # turn for a reason no wait ends. A turn is never failed for it (C-26.12).
+        lane = hold.get("lane_id") or "its lane"
+        return (f"no-lane: this conversation's lane {lane} cannot take it ({render.pin_refusals(hold)}); "
+                "it waits until that changes")
     return lanes_reason(hold.get("lanes"), reason)

@@ -160,3 +160,26 @@ def test_i3_a_note_before_its_message_is_bound_is_tried_again_soon(tmp_path):
             notes.note_holds({job_id: failing, other_job: {"reason": "route-moved"}}, seq=10**6 + 2)
         assert reason(service, other).startswith("admission: its lane changed")
         patch.setattr(notes, "_who", real)
+
+
+def test_i3_a_turn_whose_lane_can_never_take_it_names_the_lane_and_why(tmp_path):
+    """C-11.8 (release/217's #85) meets I3: a Codex conversation keeps its lane (C-26.2),
+    so its turn is pinned there, and a pin that lane can never admit is held
+    `pin-unadmittable`. The message names the lane and the refusal, is not capacity, and
+    the turn is placed once the lane is usable again (it is never failed, C-26.12)."""
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        _checkout(harness)
+        for lane_id in CODEX:
+            measure(service, lane_id)
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        service.store.update_lane(CODEX[0], enabled=0)
+        _, mid, job_id = message_in(service, harness, "Pinned")
+        assert service.store.get_job(job_id)["pinned_lane"] == CODEX[0]
+        service._admit_turns()
+        assert service._holds[job_id]["reason"] == "pin-unadmittable"
+        assert reason(service, mid) == (f"no-lane: this conversation's lane {CODEX[0]} cannot take it "
+                                        f"({CODEX[0]} is disabled); it waits until that changes")
+        service.store.update_lane(CODEX[0], enabled=1)
+        service._admit_turns()
+        assert _live(service, job_id), service._holds.get(job_id)
+        assert reason(service, mid) == waits.PLACED

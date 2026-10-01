@@ -77,6 +77,19 @@ def test_a_lease_names_its_holder_and_a_settled_message_needs_no_reason():
     assert waits.hold_reason({"reason": "message-settled"}, describe=describe, who=str) is None
 
 
+def test_a_lane_a_codex_conversation_keeps_that_can_never_take_it_is_named_with_why():
+    """C-11.8 (release/217's #85): a Codex turn is pinned to its conversation's lane, and a
+    pin that lane can never admit is held `pin-unadmittable`. Before the merge took this
+    into account the message read "every lane that can take it is pin-unadmittable"."""
+    closed = "closed:account:2027-01-01T00:00:00Z"
+    hold = {"reason": "pin-unadmittable", "lane_id": "codex-2", "reasons": ["disabled", closed],
+            "closures": [{"scope": "account", "until_at": "2027-01-01T00:00:00Z", "reason": "usage"}],
+            "since": "2026-10-01T08:00:00Z", "fail_at": None}
+    assert waits.hold_reason(hold, describe=str, who=str) == (
+        "no-lane: this conversation's lane codex-2 cannot take it (codex-2 is disabled; codex-2 is closed for "
+        "account (usage) until 2027-01-01T00:00:00Z); it waits until that changes")
+
+
 HOLDS = st.one_of(
     st.builds(lambda reason: {"reason": reason},
               st.sampled_from(["attempt-live", "route-moved", "probe-pending", "approval", "uncertain", "waiting",
@@ -87,6 +100,11 @@ HOLDS = st.one_of(
     st.builds(lambda n: {"reason": "fleet-full", "max_active_attempts": n}, st.integers(1, 9)),
     st.builds(lambda job: {"reason": "slot-kept", "kept_for": job}, st.just("20260929-120000-a")),
     st.builds(lambda job: {"reason": "behind-older-job", "behind": job}, st.just("20260929-120000-a")),
+    st.builds(lambda reasons: {"reason": "pin-unadmittable", "lane_id": "x1", "reasons": reasons, "closures": [],
+                               "since": "2026-10-01T08:00:00Z", "fail_at": None},       # C-11.8, a Codex turn's lane
+              st.lists(st.sampled_from(["disabled", "excluded", "desktop", "identity-mismatch", "unknown",
+                                        "credential-latched", "closed:account:2027-01-01T00:00:00Z"]),
+                       min_size=1, max_size=3, unique=True)),
 )
 LANE_ROWS = st.lists(st.tuples(st.sampled_from(["c1", "c2", "c3", "c4"]),
                                st.lists(st.sampled_from(ROOM + STANDING + CLOSED), min_size=1, max_size=3)),
