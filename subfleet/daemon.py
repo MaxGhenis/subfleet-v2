@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, host_pressure, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -96,7 +96,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job"})
+                            "probe-pending", "behind-older-job", "host-pressure"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -417,6 +417,8 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.15: the host's compressor occupancy, read before a pass and never in one.
+        self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -726,6 +728,11 @@ class Daemon:
         for lane in view["lanes"]:
             if holder := view["unavailable_lanes"].get(lane["lane_id"]):
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
+        # C-6.15: the reading the last admission pass took; nothing is read here,
+        # because a view is also built inside the reserving transaction.
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         return self.timers.enrich_view(view)
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
@@ -2573,6 +2580,11 @@ class Daemon:
         # A pass that raises leaves both as the last whole pass left them: half
         # a hold set would read as "nothing left pending" and end the idle
         # stretch with the queue untouched. C-5.10 logs and paces the failure.
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            # C-6.15: one `vm_stat` per `sample_s`, before the pass and outside
+            # its transactions (C-3.3); off, the default, nothing is started.
+            self._host_pressure.refresh(pressure["sample_s"])
         self._admit_pass(holds, tally)
         self._holds = holds
         self._note_admission(tally, holds)
@@ -2846,6 +2858,7 @@ class Daemon:
                         label = "fleet-full" if live >= cap else "slot-kept"
                     hold = {"reason": label,
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
+                            **(scheduler.host_pressure_evidence(decision) if label == "host-pressure" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     rechecks = self._capacity_wait(

@@ -16,6 +16,7 @@ from typing import Any
 from .capacity import fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
+from . import host_pressure
 from .policy import PolicyError, resolve_model
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -295,6 +296,37 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
     return reason.strip()
 
 
+def host_pressure_hold(policy: Mapping[str, Any], view: Mapping[str, Any], active: int) -> dict[str, Any] | None:
+    """C-6.15: what holds a new attempt while the host's memory is under pressure, or None.
+
+    Only a policy that switches `host_pressure.enabled` on holds anything, only
+    on a reading the view carries, and only while `active` attempts are in
+    flight: with none, nothing this fleet started is adding to the pressure and
+    nothing it will finish can relieve it, so the next job always starts. A host
+    that cannot be read holds nothing.
+    """
+    settings = host_pressure.settings(policy)
+    reading = view.get("host_pressure")
+    if not settings["enabled"] or active <= 0 or not reading:
+        return None
+    occupied = reading.get("compressor_bytes")
+    limit = settings["compressor_max_gib"]
+    if occupied is None or occupied <= limit * host_pressure.GIB:
+        return None
+    return {"compressor_gib": round(occupied / host_pressure.GIB, 1), "compressor_max_gib": limit,
+            "active_attempts": active}
+
+
+def host_pressure_evidence(decision: Decision | Mapping[str, Any] | None) -> dict[str, Any]:
+    """C-6.11: the reading a `host-pressure` hold reports, from the decision that met it."""
+    if decision is None:
+        return {}
+    for evaluation in _row(decision).get("evaluations", ()):
+        if evaluation.get("host_pressure"):
+            return {key: evaluation["host_pressure"][key] for key in ("compressor_gib", "compressor_max_gib")}
+    return {}
+
+
 def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
     """C-11.2–C-11.6: walk upward, applying every rejection before comparison."""
     job = _row(job)
@@ -354,6 +386,9 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     capacity_blocks = _parent_blocks(policy, view, job)
     if sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
+    pressure = host_pressure_hold(policy, view, sum(in_flight.values()))
+    if pressure:
+        capacity_blocks.append("host-pressure")
     evaluations: list[dict[str, Any]] = []
     messages: list[str] = []
     chosen_lane = chosen_model = None
@@ -459,6 +494,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "readings": scoped_readings,
                             "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
                             "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
+                            **({"host_pressure": pressure} if pressure else {}),
                             "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
@@ -639,7 +675,8 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
 
     A lane rejected only for `no-slot` would take the job if it had room, so
     room is the cause: `fleet-full` when the fleet cap made it so, `parent-cap`
-    for a parent's, else `no-slot`. When every lane has a standing reason the
+    for a parent's, `host-pressure` when only the host's memory holds it
+    (C-6.15), else `no-slot`. When every lane has a standing reason the
     label is the commonest of those, and the cap is beside the point: a probe's
     reservation counts toward the fleet cap, so a job that no lane admits anyway
     would otherwise read `fleet-full` for the second each probe runs.
@@ -664,7 +701,9 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
     if room_only:
         if "fleet" in blocks:
             return "fleet-full"
-        return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"
+        if any(str(block).startswith("parent:") for block in blocks):
+            return "parent-cap"
+        return "host-pressure" if "host-pressure" in blocks else "no-slot"
     if not counts:
         return "no-lanes"
     return max(sorted(counts), key=lambda label: counts[label])
