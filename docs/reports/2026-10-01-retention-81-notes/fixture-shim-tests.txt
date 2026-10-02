@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_codex_shim.py
+...............................                                          [100%]
+31 passed in 164.05s (0:02:44)
+
+Exit: 0; elapsed: 183.77s

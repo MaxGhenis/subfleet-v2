@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_archive_check_detects_damage tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree
+...                                                                      [100%]
+3 passed in 151.03s (0:02:31)
+
+Exit: 0; elapsed: 175.45s

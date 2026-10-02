@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit] tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish] tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log
+...                                                                      [100%]
+3 passed in 339.82s (0:05:39)
+
+Exit: 0; elapsed: 364.61s

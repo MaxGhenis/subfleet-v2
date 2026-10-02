@@ -1,0 +1,20 @@
+Representative unit constructor preflight A
+
+Three actual constructor representatives confirmed the previously identified sandbox dependency. Before their semantic bodies, all raised subfleet.procs.InspectionError: macOS boot identity is unavailable at procs.py:93, called by Daemon.__init__:481. Initial result:1failed2errors,22.16s pytest/33.98s supervisor,exit1. Full tracebacks remain in unit-constructor-preflight-a-original.txt.
+
+Test-only fixes:
+- test_wait_hub.py and test_store_readers.py now have module-local identity fixtures for orchestration/store tests. boot_id returns a fixed synthetic UUID; proc_start asserts the requested PID is the current test process, then supplies its deterministic start. No shared conftest or production reader changed.
+- test_daemon_inspection_load.py supplies boot/start only inside a constructor-scoped monkeypatch.context. Real procs functions are restored before each test installs its FakePs _read seam. Its process-table/environment-cost/failure oracles still exercise production inspection code; the fixture clears the boot cache before them, as before.
+
+The same three representative tests then passed,3passed6.34s pytest/13.54s supervisor,exit0. The inspection representative checked shared-table call counts and no environment dumps; the other representatives executed their real wait/store bodies. No semantic assertion, explicit unavailable test, or timing budget changed by these fixes. No extra module/full-suite runs were performed.
+
+Commands (sequential foreground supervised TTY,3 exact nodes per group):
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python -u docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-preflight-a-original.txt 550 uv run pytest -q tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python -u docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-preflight-a-fixed.txt 550 uv run pytest -q tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+
+Frozen source hashes:
+tests/unit/test_wait_hub.py SHA256 6bdfc77638cd73a60c5e28914d8f60d333f2c52c65b59cd52d752ede03da5a0d
+tests/unit/test_daemon_inspection_load.py SHA256 8da7384cc0b4b2801c3dbe28d1cf6050b996d8865d869e3d365159011a22e06c
+tests/unit/test_store_readers.py SHA256 d3f7fffce2158d1f04c6998517c4075b393e0e09d737c53655a97cb3fb18b3f4
+
+Process evidence: original TTY29431 / child74034 exited1 and was fully awaited; fixed TTY53380 / child86998 exited0 and was fully awaited. No550s threshold overruns or signals, no background/detached commands, and no active owned test processes. Read/write commands also completed and were awaited. No production changes or commits by this agent. Child subset evidence is separate in unit-constructor-preflight-b.txt.

@@ -1,0 +1,84 @@
+Command: uv run pytest -q tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted ___
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/tests/unit/test_retention_archive_properties.py", line 200, in test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+  |     HealthCheck.too_slow])
+  |     
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | hypothesis.errors.FlakyFailure: Hypothesis test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted(ops=[('delete-tracked',)]) produces unreliable results: Failed on the first call but did not on a subsequent one (1 sub-exception)
+  | Failing test case: test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted(
+  |     ops=[('delete-tracked',)],
+  | )
+  | Failed to reproduce exception. Expected: 
+  | ops = [('delete-tracked',)]
+  | 
+  |     @settings(max_examples=EXAMPLES, deadline=None, phases=PHASES, suppress_health_check=[HealthCheck.function_scoped_fixture,
+  |                                                                             HealthCheck.too_slow])
+  |     @given(st.lists(op, min_size=1, max_size=14))
+  |     def test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted(ops):
+  |         base = Path(tempfile.mkdtemp(prefix="retention-prop-scratch-"))
+  |         w = World(base)          # a temporary directory: scratch, nothing omitted
+  |         try:
+  | >           _retire_and_check(w, ops, delete_source=True)
+  | 
+  | tests/unit/test_retention_archive_properties.py:206: 
+  | _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+  | 
+  | w = World(base=PosixPath('/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-kyt4fu2v'), trusted=True...7mgc7l1r0416cy7m0000gn/T/retention-prop-scratch-kyt4fu2v/state'), store=<subfleet.store.Store object at 0x261d92f8850>)
+  | ops = [('delete-tracked',)], delete_source = True
+  | 
+  |     def _retire_and_check(w: World, ops, *, delete_source: bool) -> None:
+  |         wt = w.job("job-prop")
+  |         sentinel = w.base / "outside"
+  |         sentinel.write_text("outside the job\n")
+  |         apply(wt, ops)
+  |         expected = reachable(wt)
+  |         before = snapshot(wt)
+  |         groups = inode_groups(wt)
+  |         result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0, holders=lambda watches, **_: {})
+  | >       assert result["pruned"] == ["job-prop"], result
+  | E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 19547, 'bytes_after': 19547, ...}
+  | E       assert [] == ['job-prop']
+  | E         
+  | E         Right contains one more item: 'job-prop'
+  | E         Use -v to get more diff
+  | 
+  | tests/unit/test_retention_archive_properties.py:150: AssertionError
+  | 
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+    |     result = self.execute_once(data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 1161, in execute_once
+    |     result = self.test_runner(data, run)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 828, in default_executor
+    |     return function(data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 1118, in run
+    |     return test(*args, **kwargs)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/tests/unit/test_retention_archive_properties.py", line 200, in test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+    |     HealthCheck.too_slow])
+    |     
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/hypothesis/core.py", line 1013, in test
+    |     return self.test(*args, **kwargs)
+    |            ~~~~~~~~~^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/tests/unit/test_retention_archive_properties.py", line 206, in test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+    |     _retire_and_check(w, ops, delete_source=True)
+    |     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/tests/unit/test_retention_archive_properties.py", line 150, in _retire_and_check
+    |     assert result["pruned"] == ["job-prop"], result
+    | AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 19547, 'bytes_after': 19547, ...}
+    | assert [] == ['job-prop']
+    |   
+    |   Right contains one more item: 'job-prop'
+    |   Use -v to get more diff
+    +------------------------------------
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+1 failed in 1367.04s (0:22:47)
+
+Check exceeded 550s. Exact-child inspection: [Errno 1] Operation not permitted: 'ps'
+
+Exit: 1; elapsed: 1471.32s

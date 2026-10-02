@@ -1,0 +1,12 @@
+0000000000000000000000000000000000000000 2e7f910d4172fb552c2ab6de856bb0feb675f354 Max Ghenis <mghenis@gmail.com> 1790872729 -0400
+2e7f910d4172fb552c2ab6de856bb0feb675f354 2e7f910d4172fb552c2ab6de856bb0feb675f354 Max Ghenis <mghenis@gmail.com> 1790872758 -0400	reset: moving to HEAD
+2e7f910d4172fb552c2ab6de856bb0feb675f354 bc87c5f3ae9458c2b6bf135ea15d6b22e6bcb58c Max Ghenis <mghenis@gmail.com> 1790875593 -0400	commit: Finish retention safety checks for hardlinks and missing allocations
+bc87c5f3ae9458c2b6bf135ea15d6b22e6bcb58c a1f8d0550d736a46d8c3ce7140a647fb92c638bd Max Ghenis <mghenis@gmail.com> 1790878396 -0400	commit: Keep retention timing probes focused as move guards overlap
+a1f8d0550d736a46d8c3ce7140a647fb92c638bd c6da766ee5d002b3683c4995bbc4ab1afd457316 Max Ghenis <mghenis@gmail.com> 1790881231 -0400	commit: Recover private history through broken linked workdirs
+c6da766ee5d002b3683c4995bbc4ab1afd457316 2fe3f74bf20b296d303447f9945bfdeb7d131a71 Max Ghenis <mghenis@gmail.com> 1790882037 -0400	commit: Document retention note classifications and verified mutations
+2fe3f74bf20b296d303447f9945bfdeb7d131a71 84b8f4b921b6e1612dfeeab6e215ab1a8abc7519 Max Ghenis <mghenis@gmail.com> 1790886072 -0400	commit: Make query and CLI fixtures deterministic under restricted inspection
+84b8f4b921b6e1612dfeeab6e215ab1a8abc7519 4f528dadb44ac64c30892ac02db3cb34361f0649 Max Ghenis <mghenis@gmail.com> 1790887261 -0400	commit: Keep archive round-trip properties independent of slice scheduling
+4f528dadb44ac64c30892ac02db3cb34361f0649 e4247870216b5b64b32f00bb55b36e27422ff3a3 Max Ghenis <mghenis@gmail.com> 1790888915 -0400	commit: Record complete retention coverage and foreground verification evidence
+e4247870216b5b64b32f00bb55b36e27422ff3a3 ef37a0c80db5d43828634b7149f761af8c9b2e04 Max Ghenis <mghenis@gmail.com> 1790890844 -0400	commit: Verify fixture lifecycle through explicit readiness and observations
+ef37a0c80db5d43828634b7149f761af8c9b2e04 519f8c38a877201d005981cd2a86d58ba72c4321 Max Ghenis <mghenis@gmail.com> 1790890876 -0400	commit: Observe owned children in session and catalog lifecycle fixtures
+519f8c38a877201d005981cd2a86d58ba72c4321 a6a74a56235463d7e88354df1a4c05069e9212ff Max Ghenis <mghenis@gmail.com> 1790891132 -0400	commit: Provide local identity observations for daemon constructor fixtures

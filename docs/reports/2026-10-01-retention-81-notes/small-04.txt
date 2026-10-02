@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_worktrees.py::test_c13_4_retention_never_removes_in_place_workdir tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[outside] tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[symlink]
+...                                                                      [100%]
+3 passed in 95.29s (0:01:35)
+
+Exit: 0; elapsed: 140.62s

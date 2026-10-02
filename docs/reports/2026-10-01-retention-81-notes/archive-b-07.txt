@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte
+...                                                                      [100%]
+3 passed in 301.91s (0:05:01)
+
+Exit: 0; elapsed: 344.11s

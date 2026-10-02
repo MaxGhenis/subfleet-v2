@@ -1,0 +1,7 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored
+.                                                                        [100%]
+1 passed in 1117.25s (0:18:37)
+
+Check exceeded 550s. Exact-child inspection: [Errno 1] Operation not permitted: 'ps'
+
+Exit: 0; elapsed: 1149.88s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.mypy_cache] tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.pytest_cache] tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.ruff_cache]
+...                                                                      [100%]
+3 passed in 19.18s
+
+Exit: 0; elapsed: 37.81s

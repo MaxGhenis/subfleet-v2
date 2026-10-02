@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc
+...                                                                      [100%]
+3 passed in 212.83s (0:03:32)
+
+Exit: 0; elapsed: 248.23s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/fake/test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued tests/fake/test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job tests/fake/test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+...                                                                      [100%]
+3 passed in 63.65s (0:01:03)
+
+Exit: 0; elapsed: 82.85s

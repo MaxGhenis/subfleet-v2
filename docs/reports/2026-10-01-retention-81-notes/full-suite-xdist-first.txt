@@ -1,0 +1,2357 @@
+Command: uv run pytest -q
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+......................F.......F......F.........F.......F...........F.... [  6%]
+.....F..........F.........F..........F.........F.......F.......F.......F [  7%]
+.........F...............F..........F.....F.........F.......F........... [  8%]
+F..........F...............F...............F........F..F.....F.......... [  9%]
+...F...........F.........F...........F......................F........... [ 10%]
+....................................................F................... [ 11%]
+.............F..........................F.........................F..... [ 12%]
+.......................................F................................ [ 13%]
+.....F............................................F....................F [ 14%]
+............................F..............................F............ [ 15%]
+.......................F......................F........F.........F...... [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+.................F...................................................... [ 19%]
+...................................................F.................... [ 20%]
+..............FF.......F........F.............F.......F......F
+=================================== FAILURES ===================================
+____________ test_the_probe_record_is_the_newest_for_its_holder[0] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n0')
+seed = 0
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[1] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n1')
+seed = 1
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[2] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n2')
+seed = 2
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[3] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n3')
+seed = 3
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[4] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n4')
+seed = 4
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[5] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n5')
+seed = 5
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[6] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n6')
+seed = 6
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[7] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n7')
+seed = 7
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[8] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n8')
+seed = 8
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[9] _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n9')
+seed = 9
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[10] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n10')
+seed = 10
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[11] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n11')
+seed = 11
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[12] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n12')
+seed = 12
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[13] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n13')
+seed = 13
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[14] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n14')
+seed = 14
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[15] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n15')
+seed = 15
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[16] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n16')
+seed = 16
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[17] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n17')
+seed = 17
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[18] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n18')
+seed = 18
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[19] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n19')
+seed = 19
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[20] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n20')
+seed = 20
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[21] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n21')
+seed = 21
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[22] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n22')
+seed = 22
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[23] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n23')
+seed = 23
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+________________ test_a_lock_whose_holder_is_dead_is_no_daemon _________________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x3a246181d40>
+root = PosixPath('/tmp/sf-45nwynf4')
+capsys = <_pytest.capture.CaptureFixture object at 0x3a23a8f4110>
+workdir = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw0/test_a_lock_whose_holder_is_de0/repo')
+
+    def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir):
+        """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
+        daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
+        (root / "daemon.lock").write_text(json.dumps(
+            {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
+             "version": "2.0.0a0"}))
+>       assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
+E       AssertionError: assert 0 == 69
+E        +  where 0 = run_cli(['run', '-m', 'opus', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw0/test_a_lock_whose_holder_is_de0/repo', 'hi'])
+
+tests/unit/test_cli.py:612: AssertionError
+----------------------------- Captured stdout call -----------------------------
+20260905-120000-demo
+----------------------------- Captured stderr call -----------------------------
+subfleet run: dispatched job=20260905-120000-demo request=cfb11845-e76f-4c13-adca-b22b7e838cbe (sync — outside a Claude session)
+  out: /tmp/sf-45nwynf4/jobs/20260905-120000-demo/a1/deliverable.md
+  log: /tmp/sf-45nwynf4/jobs/20260905-120000-demo/a1/lane.log
+  waiting inline; if this session restarts: subfleet wait 20260905-120000-demo
+  status: subfleet runs --mine · details: subfleet runs show 20260905-120000-demo · cancel: subfleet kill 20260905-120000-demo
+subfleet wait: 20260905-120000-demo SUCCEEDED · - · lane=- · - · out=-
+____________ test_the_probe_record_is_the_newest_for_its_holder[24] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n24')
+seed = 24
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[25] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n25')
+seed = 25
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[26] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n26')
+seed = 26
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[27] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n27')
+seed = 27
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[28] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n28')
+seed = 28
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[29] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n29')
+seed = 29
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[30] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n30')
+seed = 30
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[31] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n31')
+seed = 31
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[32] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n32')
+seed = 32
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[33] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n33')
+seed = 33
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[34] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n34')
+seed = 34
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[35] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n35')
+seed = 35
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[36] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n36')
+seed = 36
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[37] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n37')
+seed = 37
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[38] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n38')
+seed = 38
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+____________ test_the_probe_record_is_the_newest_for_its_holder[39] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_is_the_n39')
+seed = 39
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_the_probe_record_is_the_newest_for_its_holder(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+______________ test_a_probe_record_with_a_nan_is_still_the_newest ______________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_a_probe_record_with_a_nan0')
+
+    def test_a_probe_record_with_a_nan_is_still_the_newest(tmp_path):
+        """The json_valid guard alone would have skipped it and returned the older one."""
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:147: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+_____________ test_a_probe_payload_that_is_not_json_is_passed_over _____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_a_probe_payload_that_is_n0')
+
+    def test_a_probe_payload_that_is_not_json_is_passed_over(tmp_path):
+        """No writer makes one (every payload is json.dumps of a dict). The old walk raised
+        on reaching it, for every holder older than it; the lookup now passes over it."""
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:161: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+______ test_a_probe_payload_with_a_repeated_key_is_never_another_holders _______
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_a_probe_payload_with_a_re0')
+
+    def test_a_probe_payload_with_a_repeated_key_is_never_another_holders(tmp_path):
+        """Review of 1516f3b: SQLite reads a repeated key's first value (the index, and
+        json_valid accepts the payload), Python its last. No writer makes such a payload;
+        if one were there, the lookup must not return it as another holder's record,
+        as the index's hit alone did. It is found under its first value only, so the
+        last value's holder gets its previous record (the old walk returned this one).
+        Being the newest indexed row under its first value, it also hides that
+        holder's older records (C-3.7 names both differences; review of 0e43105)."""
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+________________ test_the_probe_record_lookup_uses_its_indexes _________________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_lookup_u0')
+
+    def test_the_probe_record_lookup_uses_its_indexes(tmp_path):
+        """Review of 5841d8b, finding 3: 8.20 ms a lookup over 6.5k events, 0.08 ms with the index."""
+        from subfleet.daemon import PROBE_RECORD
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+___________ test_the_probe_record_lookup_does_not_grow_with_history ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_the_probe_record_lookup_d0')
+
+    def test_the_probe_record_lookup_does_not_grow_with_history(tmp_path):
+        """Thousands of other holders' records, and a lookup for one with none (as each
+        Timers `probe:timer:*` lease is): SQLite reads a handful of rows, not every one."""
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:222: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+_______________ test_batches_and_submissions_are_found_by_job_id _______________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_batches_and_submissions_a0')
+
+    def test_batches_and_submissions_are_found_by_job_id(tmp_path):
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:303: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+______________ test_an_identity_mismatch_names_the_rendering_trap ______________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+root = PosixPath('/tmp/sf-c4ytjs8z')
+capsys = <_pytest.capture.CaptureFixture object at 0x3a23a8fe310>
+workdir = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw0/test_an_identity_mismatch_name0/repo')
+
+    def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+        """C-5.3 a start time that differs is reported with why, not just as dead.
+    
+        The recorded value is rendered by whoever wrote it, so a mismatch is either
+        a reused pid or two sides rendering `lstart` in different locales; the
+        message has to let a reader tell those apart.
+        """
+        (root / "daemon.lock").write_text(json.dumps(
+            {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
+        assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
+        captured = capsys.readouterr().err
+>       assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
+E       assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in 'subfleet: no daemon at /tmp/sf-c4ytjs8z/daemon.sock: [Errno 2] No such file or directory\n  fix: subfleet daemon start\n'
+
+tests/unit/test_cli.py:1347: AssertionError
+__________ test_session_events_are_the_newest_per_kind_and_session[0] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne0')
+seed = 0
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+_______________ test_a_daemon_busy_to_the_end_is_a_wait_timeout ________________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x3a246183f00>
+capsys = <_pytest.capture.CaptureFixture object at 0x3a23a8fdc90>
+
+    def test_a_daemon_busy_to_the_end_is_a_wait_timeout(daemon, capsys):
+        """F8: the retries stay inside `--timeout`, which ends in 124 as a timeout does,
+        and says the daemon was busy."""
+        import time as _time
+        poll = busy_then(lambda request: terminal(), 10**6)
+        daemon({"wait": poll})
+        started = _time.monotonic()
+        assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
+        assert _time.monotonic() - started < 5
+>       assert 2 <= len(poll.calls) <= 8, len(poll.calls)            # backed off, not a spin
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: 1
+E       assert 2 <= 1
+E        +  where 1 = len([Request(op='wait', args={'job_ids': ['20260905-120000-demo'], 'mine': None, 'last': False, 'deadline_s': 1}, id='', v=1)])
+E        +    where [Request(op='wait', args={'job_ids': ['20260905-120000-demo'], 'mine': None, 'last': False, 'deadline_s': 1}, id='', v=1)] = <function busy_then.<locals>.handler at 0x3a2461869c0>.calls
+
+tests/unit/test_cli.py:1408: AssertionError
+----------------------------- Captured stderr call -----------------------------
+subfleet wait: waiting for 1 job(s): 20260905-120000-demo
+subfleet wait: the daemon was still busy (the daemon is serving 512 connections); the jobs are unaffected
+subfleet wait: 20260905-120000-demo still running after 2s (timeout)
+__________ test_session_events_are_the_newest_per_kind_and_session[1] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne1')
+seed = 1
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+__________ test_session_events_are_the_newest_per_kind_and_session[2] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne2')
+seed = 2
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+__________ test_session_events_are_the_newest_per_kind_and_session[3] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne3')
+seed = 3
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+__________ test_session_events_are_the_newest_per_kind_and_session[4] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne4')
+seed = 4
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+__________ test_session_events_are_the_newest_per_kind_and_session[5] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5052/popen-gw2/test_session_events_are_the_ne5')
+seed = 5
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_session_events_are_the_newest_per_kind_and_session(tmp_path, seed):
+        rng = random.Random(seed)
+>       daemon = Daemon(tmp_path / "state")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store_contention_queries.py:420: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+============================= slowest 10 durations =============================
+24.29s call     tests/unit/test_store_contention_queries.py::test_the_reading_candidates_are_few_when_timestamps_are_canonical
+15.53s call     tests/unit/test_sessions_handoff_excerpts.py::test_within_the_budget_it_is_scrub_then_truncate
+12.67s call     tests/unit/test_compat.py::test_every_v1_invocation_maps_to_the_recorded_disposition[notify-mode-bypass-hello]
+12.25s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-20-blank-lines]
+11.42s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-20-quoted-below]
+10.78s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-20-reminder-between]
+10.71s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-12-quoted-below]
+10.45s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-16-bearer]
+10.26s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-20-value-below]
+10.12s call     tests/unit/test_sessions_handoff_excerpts.py::test_a_value_whose_name_is_above_the_tail_cut_is_not_shown[-40-header]
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[0]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[1]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[2]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[3]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[4]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[5]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[6]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[7]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[8]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[9]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[10]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[11]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[12]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[13]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[14]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[15]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[16]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[17]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[18]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[19]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[20]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[21]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[22]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[23]
+FAILED tests/unit/test_cli.py::test_a_lock_whose_holder_is_dead_is_no_daemon
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[24]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[25]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[26]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[27]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[28]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[29]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[30]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[31]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[32]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[33]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[34]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[35]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[36]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[37]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[38]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[39]
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_record_with_a_nan_is_still_the_newest
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_payload_that_is_not_json_is_passed_over
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_payload_with_a_repeated_key_is_never_another_holders
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_uses_its_indexes
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_does_not_grow_with_history
+FAILED tests/unit/test_store_contention_queries.py::test_batches_and_submissions_are_found_by_job_id
+FAILED tests/unit/test_cli.py::test_an_identity_mismatch_names_the_rendering_trap
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[0]
+FAILED tests/unit/test_cli.py::test_a_daemon_busy_to_the_end_is_a_wait_timeout
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[1]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[2]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[3]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[4]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[5]
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/threading.py:373: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+55 failed, 1519 passed in 737.11s (0:12:17)
+
+Exit: 2; elapsed: 777.96s

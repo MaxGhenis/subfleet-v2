@@ -1,0 +1,400 @@
+FINAL: 25 valid mutants killed; 0 unresolved survivors or unapplied patterns.
+Coverage: M1–M24 plus M7b. M21 covers absent NULL allocations; M22–M24 cover existing broken workdir fallback and inferred digest checks in retirement/survey.
+Every latest kill is an explicit AssertionError with pytest exit 1 and no collection/import error or timeout. Corrected combined M6, timing-forced M7, and explicit manifest-field M16 reruns supersede the initial diagnostic runs recorded below.
+13 local kills, 9 independently verified kills, and 3 final broken-workdir kills were run in separate isolated snapshots; no main source was mutated. All copied sources restored; all three temporary copies and every test state root removed. All owned mutation processes awaited to exit; no signals needed.
+Full independent pytest output: final-mutation-part-m11-m15.txt.
+
+Final mutation verification (2026-10-01).
+Isolated snapshot of current source/tests inside assigned workspace; main checkout never mutated.
+Copied subfleet/, tests/, pyproject.toml and current mutate.py; isolated harness timeout changed from 900 to 550 seconds and full pytest outputs captured.
+All 21 patterns in the initial snapshot occur exactly once (final harness: 25). Hypothesis uses its default 200 examples.
+TMPDIR=.retention-mutation-check/.mutation-tmp; PYTHONPATH=.retention-mutation-check.
+Source snapshot sha256:
+{
+  "subfleet/retention_cli.py": "1615916ad0ff2e6a326f1f6ed736223aad294a4f5168fa059947d0a134f68a10",
+  "subfleet/retention_survey.py": "4ed1d0449c6588ece1c727910e6e80016a097256a3d0abc4534657c3bb2c9d84",
+  "subfleet/retention_archive.py": "22c386987daa5c75a4e2910ae597157f9aa6f4d19382ba3c2d04224ae30c86f1",
+  "subfleet/retention_fs.py": "278c8db8a28d1ab0eda0802d6412461822d78f3335745550e24f9b4b96438599",
+  "subfleet/retention_git.py": "25a4645ddda4e7e7e3d8270f786ec5ee9ce198f85b713e93b17382ef9274d467",
+  "subfleet/retention_holders.py": "718eb6ef0d32ca3d779f38269aaba7ce1dec92898ca74b96fe255d84f463029b",
+  "subfleet/retention.py": "6a3d366e75482a362e47c6177e29a5b81ed6929c449b525ca5fe1de4d842a968",
+  "subfleet/retention_qos.py": "3885aa9f0c23074a292c87be7128e1c6561f2207b576789213d2d5b4184264d5"
+}
+
+=== Foreground mutation slice: M1 M2 M3 M4 M5 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M1 M2 M3 M4 M5
+M1 note 1: unchanged() ignores ctime again for a file that had other links: KILLED (207 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] | 1 failed in 149.16s (0:02:29)
+M2 note 1: still_archived trusts a ctime-only move without comparing the bytes: KILLED (141 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] | 1 failed in 114.06s (0:01:54)
+M3 note 1: verified deletion strict on ctime (no content check: the over-strict fix): KILLED (158 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted | 1 failed in 109.69s (0:01:49)
+M4 note 1: the final check accepts a ctime-only move without the bytes: KILLED (156 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] | 1 failed in 110.31s (0:01:50)
+M5 note 1: the content check also for a file that had one link: KILLED (476 s) FAILED tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds | 1 failed in 408.92s (0:06:48)
+
+5 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 1142.77s
+
+Snapshot update after M5: copied owned_worktree guard now retains expected daemon path for an absent NULL allocation when workdir_head is recorded; copied M9 pattern updated identically. Copied current notes test file including absent-allocation registration and return-during-source-lookup cases. Other copied source remains unchanged.
+Updated retention_archive.py sha256: 70ea77cef06a553f4db38fbf069a4fceb80b7ecf2f77f87edb180378e15cb80b
+Updated notes tests sha256: 2541df62c4e7887f6f779062c9520678b88a78e0018d130e9df7864d9a5716c8
+Added isolated M21 to undo the expected NULL-allocation path guard and run its two new regressions. Subsequent slices use one mutant each to remain below ten minutes. Initial grouped M1-M5 orchestration took 1142.77s under load; each individual pytest child was below ten minutes (longest M5=408.92s test time).
+
+=== Foreground mutation slice: M6 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M6
+M6 note 2: no check for a tree another tool holds aside: SURVIVED (179 s) 1 passed in 139.71s (0:02:19)
+
+0 killed, 1 survived or not applied
+Harness exit status: 1; slice elapsed: 182.82s
+
+=== Foreground mutation slice: M7 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M7
+M7 note 2: no presence check between begin and quarantine: KILLED (103 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration | 1 failed in 74.34s (0:01:14)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 106.95s
+
+M6 originally survived because generic moved_tree independently defers the same sweep quarantine; this demonstrates overlapping guards. Updated isolated M6 and M8 to disable both sibling and generic move guards so the mutation actually removes note-2 safety. Updated only M7 return-before-quarantine test to suppress generic moved_tree, forcing its intended timing window. M7 first invocation may have imported the test before this timing-harness correction; verify and rerun if needed.
+
+=== Foreground mutation slice: M6 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M6
+M6 note 2: no check for a tree another tool holds aside: KILLED (141 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back | 1 failed in 96.01s (0:01:36)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 142.99s
+
+=== Foreground mutation slice: M7 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M7
+M7 note 2: no presence check between begin and quarantine: KILLED (167 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration | 1 failed, 1 passed in 130.48s (0:02:10)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 172.03s
+
+=== Foreground mutation slice: M7b ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M7b
+M7b note 2: the final check does not see a gone tree come back: KILLED (154 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job | 1 failed in 98.46s (0:01:38)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 159.42s
+
+=== Foreground mutation slice: M8 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M8
+M8 note 2: the survey does not see a tree held aside: KILLED (131 s) FAILED tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds | 1 failed in 93.50s (0:01:33)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 135.74s
+
+=== Foreground mutation slice: M9 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M9
+M9 note 3: no unrecorded allocation is owned: KILLED (130 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it | 1 failed in 84.47s (0:01:24)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 139.05s
+
+=== Foreground mutation slice: M10 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M10
+M10 note 3: no worktree-in-use pin for an unrecorded allocation: KILLED (179 s) FAILED tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it | 1 failed in 121.16s (0:02:01)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 188.44s
+
+=== Foreground mutation slice: M16 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M16
+M16 note 1: a regenerable hardlink is not hashed for a ctime-only move: KILLED (304 s) FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling] | 1 failed in 224.79s (0:03:44)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 319.55s
+
+M16 first run exposed expected missing manifest sha256 through KeyError at the assertion expression. Replaced direct sha256 indexing with .get only in isolated assertion so schema absence produces explicit AssertionError; rerunning for strict assertion-based kill evidence.
+
+=== Foreground mutation slice: M16 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M16
+M16 note 1: a regenerable hardlink is not hashed for a ctime-only move: KILLED (239 s) FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling] | 1 failed in 179.77s (0:02:59)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 242.79s
+
+=== Foreground mutation slice: M17 ===
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M17
+M17 note 4: a salvage ref name is accepted without its recorded commit digest: KILLED (179 s) FAILED tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other] | 1 failed in 129.30s (0:02:09)
+
+1 killed, 0 survived or not applied
+Harness exit status: 0; slice elapsed: 188.00s
+
+=== Validated final local mutation evidence (13 cases) ===
+M1: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted', 'tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds']
+FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+tests/unit/test_retention_81_notes.py:108: AssertionError
+E           AssertionError: {'pruned': ['job-hl'], 'errors': [], 'bytes_before': 32420, 'bytes_after': 0, ...}
+
+M2: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted', 'tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds']
+FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+tests/unit/test_retention_81_notes.py:108: AssertionError
+E           AssertionError: {'pruned': ['job-hl'], 'errors': [], 'bytes_before': 32420, 'bytes_after': 0, ...}
+
+M3: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted', 'tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds', 'tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree']
+FAILED tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted
+tests/unit/test_retention_81_notes.py:153: AssertionError
+E       AssertionError: assert not True
+
+M4: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted']
+FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+tests/unit/test_retention_81_notes.py:108: AssertionError
+E           AssertionError: {'pruned': ['job-hl'], 'errors': [], 'bytes_before': 32420, 'bytes_after': 0, ...}
+
+M5: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds']
+FAILED tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds
+tests/unit/test_retention_81_notes.py:383: AssertionError
+E                   AssertionError: d changed (its ctime) but was deleted
+
+M6: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back']
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back
+tests/unit/test_retention_81_notes.py:436: AssertionError
+E       AssertionError: {'pruned': ['job-q'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+
+M7: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration', 'tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration']
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration
+tests/unit/test_retention_81_notes.py:497: AssertionError
+E       AssertionError: {'pruned': ['job-qa'], 'errors': [], 'bytes_before': 20181, 'bytes_after': 0, ...}
+
+M7b: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job']
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job
+tests/unit/test_retention_81_notes.py:526: AssertionError
+E       AssertionError: {'pruned': ['job-qm'], 'errors': [], 'bytes_before': 16, 'bytes_after': 0, ...}
+
+M8: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds']
+FAILED tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds
+tests/unit/test_retention_81_notes.py:543: AssertionError
+E       AssertionError: {'jobs_by_reason': {}, 'worktrees_by_reason': {}, 'worktree_bytes_by_reason': {}}
+
+M9: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it']
+FAILED tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it
+tests/unit/test_retention_81_notes.py:573: AssertionError
+E       AssertionError: {'total': 1, 'with_job_rows': 0, 'orphans_never_touched': 1, 'orphans': ['job-cut']}
+
+M10: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it']
+FAILED tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it
+tests/unit/test_retention_81_notes.py:591: AssertionError
+E       AssertionError: assert 'job-cut2' not in ['job-cut2']
+
+M16: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted']
+FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]
+tests/unit/test_retention_81_notes.py:202: AssertionError
+E       AssertionError: assert None == '93858543f595844d3db1a4af138bec928802beacaed0f618aef6ec25ccbbf9bf'
+
+M17: KILLED, pytest exit 1; explicit AssertionError; no collection/import error.
+Command: ['/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', 'tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs']
+FAILED tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]
+tests/unit/test_retention_81_notes.py:773: AssertionError
+E           AssertionError: assert 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1: in /Users/maxghenis/.subfleet/worktrees/2...nis/pytest-15/test_a_salvage_ref_of_the_same0/a-other-repo/.git it names 11277d4970ab, not the commit its row recorded'
+
+All 13 local latest results are explicit assertion kills. Original M6 redundant-guard survival, initial M7 pre-correction timing failure, and initial M16 missing-sha256 KeyError are superseded by the corrected reruns above.
+Every copied retention source file matches its unmutated snapshot hash after harness restoration. All owned commands were awaited to completion; no cleanup signals required.
+Removed local isolated mutation checkout and all test state roots.
+
+=== Independently validated final mutation evidence (9 cases) ===
+
+M11 note 4: the repositories retention knows are not searched
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 ../.venv/bin/python -u mutate.py M11
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=137.362; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'for common in ([near] if near is not None else []) + list(known()):'
+Replacement: 'for common in ([near] if near is not None else []):'
+Concise assertion excerpt:
+>       assert report["would_retire"]["jobs"] == 2, report["kept"]          # job-other is pinned only in the pass
+E       AssertionError: {'jobs_by_reason': {'repository not found': 1}, 'worktrees_by_reason': {}, 'worktree_bytes_by_reason': {'repository not found': 0}}
+E       assert 1 == 2
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+1 failed in 90.84s (0:01:30)
+
+M12 note 4: the workdir's nearest ancestor is not searched
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M12
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=96.860; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None'
+Replacement: 'near = None'
+Concise assertion excerpt:
+>       assert result["pruned"] == ["job-sub"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...}
+E       assert [] == ['job-sub']
+E         
+E         Right contains one more item: 'job-sub'
+E         Use -v to get more diff
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+1 failed in 66.19s (0:01:06)
+
+M13 note 4: no repository by the job's salvage refs
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M13
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=97.814; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: '    if wanted:\n        for common in candidates:'
+Replacement: '    if False:\n        for common in candidates:'
+Concise assertion excerpt:
+>       assert "job-pr" in result["pruned"], result
+E       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 4, 'bytes_after': 4, ...}
+E       assert 'job-pr' in []
+FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+1 failed in 59.58s
+
+M14 note 4: any known repository taken as the job's (salvage refs not required)
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M14
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=117.040; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):'
+Replacement: 'if True:'
+Concise assertion excerpt:
+>       assert "repository not found" in result["deferred"]["job-x"]
+E       AssertionError: assert 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1'
+FAILED tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+1 failed in 85.29s (0:01:25)
+
+M15 note 4: the reason does not say the repository was not found
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M15
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=116.339; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'f"{ref}: {lost}" if lost else str(ref))'
+Replacement: 'str(ref))'
+Concise assertion excerpt:
+>       assert "salvage not archivable" in reason and "repository not found" in reason
+E       AssertionError: assert ('salvage not archivable' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1' and 'repository not found' in 'salvage not archivable: refs/subfleet-salvage/detached-20260929T120000Z-a1')
+FAILED tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+1 failed in 80.00s (0:01:19)
+
+M19 note 2: a registration moved outside the sibling quarantine is ignored
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M19
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=178.405; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_git.py
+Old pattern: '    the caller keeps the job and never acts on that checkout or registration.\n    """\n    pattern'
+Replacement: '    the caller keeps the job and never acts on that checkout or registration.\n    """\n    return None\n    pattern'
+Concise assertion excerpt:
+>       assert any(reason.startswith("tree away") for reason in report["kept"]["jobs_by_reason"]), report
+E       AssertionError: {'state_root': '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check...-01T17:57:49Z', 'budgets': {'detached': {'max_jobs': 0, 'max_bytes': 0}, 'turn': {'max_jobs': 0, 'max_bytes': 0}}, ...}
+E       assert False
+E        +  where False = any(<generator object test_a_registered_tree_moved_elsewhere_keeps_its_job.<locals>.<genexpr> at 0x451a0305f60>)
+FAILED tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]
+1 failed in 122.22s (0:02:02)
+
+M20 note 4: an undiscovered source without salvage retires without its anchor
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M20
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=216.059; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if lost and not salvage_rows:'
+Replacement: 'if False:'
+Concise assertion excerpt:
+>       assert first["pruned"] == [] and "repository not found" in first["deferred"]["job-undiscovered"], first
+E       AssertionError: {'pruned': ['job-undiscovered'], 'errors': [], 'bytes_before': 4, 'bytes_after': 0, ...}
+E       assert (['job-undiscovered'] == []
+E         
+E         Left contains one more item: 'job-undiscovered'
+E         Use -v to get more diff)
+FAILED tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled
+1 failed in 140.75s (0:02:20)
+
+M21 note 3: an absent NULL worktree allocation ignores its expected HEAD
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M21
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=102.172; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None and not job.get("workdir_head"):'
+Replacement: 'if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None:'
+Concise assertion excerpt:
+>       assert _in_bundle(w, "job-unrecorded-gone", private)
+E       AssertionError: assert False
+E        +  where False = _in_bundle(World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation...st-of-maxghenis/pytest-7/test_an_unrecorded_allocation_0/state'), store=<subfleet.store.Store object at 0x39eb8195b90>), 'job-unrecorded-gone', '71bfb8383294f6472e19c9b329524a51b06e087d')
+FAILED tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration
+1 failed in 74.87s (0:01:14)
+
+M18 note 1: the digest may hash a different version than the regenerability proof
+Working directory: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-mutation-check-m11
+Command: env PYTHONPATH="$PWD" TMPDIR="$PWD/tmp" PYTHONDONTWRITEBYTECODE=1 RETENTION_PROP_EXAMPLES=200 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M18
+Pytest subprocess: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept
+Result: KILLED; pattern_count=1; pytest_returncode=1; duration_seconds=210.417; assertion verified; no collection/import/error/timeout failure.
+Mutated file: subfleet/retention_archive.py
+Old pattern: 'if not rfs.same_content_signature(st, before) or not stat.S_ISREG(before.st_mode):'
+Replacement: 'if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):'
+Concise assertion excerpt:
+>       assert result["pruned"] == [] and "changed before it was read" in result["deferred"]["job-proof"], result
+E       AssertionError: {'pruned': ['job-proof'], 'errors': [], 'bytes_before': 24235, 'bytes_after': 0, ...}
+E       assert (['job-proof'] == []
+E         
+E         Left contains one more item: 'job-proof'
+E         Use -v to get more diff)
+FAILED tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept
+1 failed in 149.77s (0:02:29)
+
+Final cleanup verified: .retention-mutation-check and .retention-mutation-check-m11 are absent; no owned process remains active.
+
+=== Final existing-broken-workdir mutations at c6da766e (3 cases) ===
+Positive regressions: broken-workdir-tests.txt, 3 passed in 194.17s; supervisor exit0, elapsed233.79s.
+Isolated copy refreshed from final main source/tests; mutated only there. Patterns M22/M23/M24 each occur once.
+Copied harness disabled its subprocess timeout, preserved full pytest output; foreground supervisors retained time-budget diagnostics.
+
+M22: KILLED; expected AssertionError verified, source restored; supervisor exit0.
+Command: ['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m22-mutation.txt', '550', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-u', 'mutate.py', 'M22']
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M22
+M22 note 4: an existing broken workdir skips source fallback: KILLED (87 s) FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head] | 1 failed in 61.17s (0:01:01)
+
+1 killed, 0 survived or not applied
+
+Exit: 0; elapsed: 92.19s
+
+Assertion excerpts:
+E       AssertionError: assert False
+tests/unit/test_retention_81_notes.py:712: AssertionError
+FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]
+
+M23: KILLED; expected AssertionError verified, source restored; supervisor exit0.
+Command: ['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m23-mutation.txt', '550', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-u', 'mutate.py', 'M23']
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M23
+M23 note 4: the pass trusts salvage inferred from a broken present workdir: KILLED (200 s) FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded | 1 failed in 170.05s (0:02:50)
+
+1 killed, 0 survived or not applied
+
+Exit: 0; elapsed: 203.80s
+
+Assertion excerpts:
+E       AssertionError: {'pruned': ['job-broken-ref'], 'errors': [], 'bytes_before': 4, 'bytes_after': 0, ...}
+E       assert (['job-broken-ref'] == []
+tests/unit/test_retention_81_notes.py:727: AssertionError
+FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded
+
+M24: KILLED; expected AssertionError verified, source restored; supervisor exit0.
+Command: ['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/run_check.py', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/docs/reports/2026-10-01-retention-81-notes/m24-mutation.txt', '550', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python', '-u', 'mutate.py', 'M24']
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M24
+M24 note 4: the survey trusts salvage inferred from a broken present workdir: KILLED (72 s) FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded | 1 failed in 54.97s
+
+1 killed, 0 survived or not applied
+
+Exit: 0; elapsed: 73.67s
+
+Assertion excerpts:
+E       AssertionError: {'state_root': '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-m22-check/tmp/...-01T19:05:28Z', 'budgets': {'detached': {'max_jobs': 0, 'max_bytes': 0}, 'turn': {'max_jobs': 0, 'max_bytes': 0}}, ...}
+E       assert 1 == 0
+tests/unit/test_retention_81_notes.py:724: AssertionError
+FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded
+
+All three new mutants and supervisors exited normally; isolated .retention-m22-check removed. No mutation process remains.

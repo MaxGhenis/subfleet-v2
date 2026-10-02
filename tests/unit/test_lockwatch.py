@@ -27,6 +27,16 @@ from subfleet.lockwatch import LockWatch, WatchedLock
 from subfleet.store import Store
 
 
+def daemon_for_test(root):
+    """Leave process readers untouched after this daemon is constructed."""
+    pid, real_start = os.getpid(), daemon_module.procs.proc_start
+    with pytest.MonkeyPatch.context() as identity:
+        identity.setattr(daemon_module.procs, "boot_id", lambda: "lockwatch-boot")
+        identity.setattr(daemon_module.procs, "proc_start", lambda found: (
+            "lockwatch-start" if found == pid else real_start(found)))
+        return Daemon(root)
+
+
 class Clock:
     def __init__(self):
         self.now = 1000.0
@@ -251,7 +261,7 @@ def test_the_store_serializes_on_a_watched_lock(tmp_path):
 
 @pytest.fixture
 def daemon(tmp_path):
-    core = Daemon(tmp_path / "state")
+    core = daemon_for_test(tmp_path / "state")
     yield core
     core.close()
 
@@ -331,8 +341,8 @@ def test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it(tmp_path):
     """Review of 78a8476: the newer daemon's lock said `stack_dumps` while SIGUSR1
     was ignored. Its `SIG_IGN` replaced the older daemon's handler, and
     `faulthandler.register` over a live registration only changes the file."""
-    older = Daemon(tmp_path / "older")
-    newer = Daemon(tmp_path / "newer")
+    older = daemon_for_test(tmp_path / "older")
+    newer = daemon_for_test(tmp_path / "newer")
     try:
         assert daemon_module._STACK_DUMPS() is newer
         start = len(log_text(newer)), len(log_text(older))
@@ -349,7 +359,7 @@ def test_a_signal_after_the_daemon_lets_the_handler_go_ends_nothing(tmp_path):
     """C-3.6: a daemon built on the main thread leaves SIGUSR1 ignored, not at its
     default action, when it closes: a `daemon stacks` that read the lock just
     before the flag was dropped signals a process that no longer dumps."""
-    core = Daemon(tmp_path / "state")
+    core = daemon_for_test(tmp_path / "state")
     assert disposition(signal.SIGUSR1) == "handler"
     core.close()
     assert disposition(signal.SIGUSR1) == "ignore", disposition(signal.SIGUSR1)

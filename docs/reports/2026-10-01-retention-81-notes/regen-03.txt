@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_a_dist_info_goes_whole_or_not_at_all tests/unit/test_retention_regenerable.py::test_an_install_from_a_server_on_this_machine_vouches_for_nothing tests/unit/test_retention_regenerable.py::test_a_tool_caches_own_files_are_dropped_and_nothing_else
+...                                                                      [100%]
+3 passed in 202.82s (0:03:22)
+
+Exit: 0; elapsed: 233.60s

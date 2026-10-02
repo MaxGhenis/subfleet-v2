@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]
+.                                                                        [100%]
+1 passed in 45.73s
+
+Exit: 0; elapsed: 89.60s

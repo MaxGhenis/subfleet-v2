@@ -1,0 +1,24 @@
+Workspace-local commit bundle
+
+The assigned checkout's shared Git metadata is read-only in this sandbox.
+Commits use local metadata with branch fix/retention-81-notes-cont; the assigned
+.git pointer and shared branches are unchanged. Each continuation commit has
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+
+Bundle: docs/reports/2026-10-01-retention-81-notes/completed.bundle
+Required prerequisite: 2e7f910d4172fb552c2ab6de856bb0feb675f354
+Included ref: refs/heads/fix/retention-81-notes-cont
+The final message identifies the verified final head. It is also available from
+git bundle list-heads docs/reports/2026-10-01-retention-81-notes/completed.bundle.
+
+The bundle is generated after the final evidence commit and verified against
+the original checkout's read-only repository. It is an untracked standalone
+artifact to avoid embedding a bundle recursively inside itself. The temporary
+local metadata is removed after final verification. No push or history rewrite.
+
+To inspect in a repository that already contains the prerequisite:
+git bundle verify <path-to-completed.bundle>
+git fetch <path-to-completed.bundle> refs/heads/fix/retention-81-notes-cont
+
+Fetching preserves the work as FETCH_HEAD for inspection; this task does not
+move the caller's branch or integrate it into another checkout.

@@ -603,8 +603,16 @@ def test_a_tmp_workdir_is_refused_with_exit_7(daemon, capsys):
 
 # --- daemon liveness (C-5.8) --------------------------------------------------
 
-def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir):
+def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir, monkeypatch):
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
+    from subfleet import client
+
+    def absent_start(pid):
+        assert pid == 999999
+        return ""                    # a successful inspection found no such pid
+
+    monkeypatch.setattr(client, "boot_id", lambda: "2")
+    monkeypatch.setattr(client, "proc_start", absent_start)
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -1333,13 +1341,20 @@ def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
     capsys.readouterr()
 
 
-def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, monkeypatch):
     """C-5.3 a start time that differs is reported with why, not just as dead.
 
     The recorded value is rendered by whoever wrote it, so a mismatch is either
     a reused pid or two sides rendering `lstart` in different locales; the
     message has to let a reader tell those apart.
     """
+    from subfleet import client
+
+    def current_start(pid):
+        assert pid == os.getpid()
+        return "Thu Oct  1 12:00:00 2026"
+
+    monkeypatch.setattr(client, "proc_start", current_start)
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
@@ -1396,16 +1411,35 @@ def test_kill_wait_asks_again_while_the_daemon_is_busy(daemon, capsys):
     capsys.readouterr()
 
 
-def test_a_daemon_busy_to_the_end_is_a_wait_timeout(daemon, capsys):
+def test_a_daemon_busy_to_the_end_is_a_wait_timeout(root, monkeypatch, capsys):
     """F8: the retries stay inside `--timeout`, which ends in 124 as a timeout does,
     and says the daemon was busy."""
-    import time as _time
-    poll = busy_then(lambda request: terminal(), 10**6)
-    daemon({"wait": poll})
-    started = _time.monotonic()
+    from types import SimpleNamespace
+    from subfleet.client import DaemonError
+
+    clock = SimpleNamespace(now=0.0, sleeps=[])
+
+    def sleep(seconds):
+        clock.sleeps.append(seconds)
+        clock.now += seconds
+
+    # Replace only this module's clock: socket and fixture thread clocks remain real.
+    monkeypatch.setattr(cli, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep))
+    calls = []
+
+    def call(op, args, **kwargs):
+        assert op == "wait"
+        assert 0 < kwargs["timeout"] <= 2 - clock.now
+        calls.append(args)
+        raise DaemonError(69, "the daemon is serving 512 connections", "try again shortly")
+
+    monkeypatch.setattr(cli, "_client", lambda *args, **kwargs: SimpleNamespace(call=call))
+    started = cli.time.monotonic()
     assert run_cli(["wait", JOB, "--timeout", "2"]) == 124
-    assert _time.monotonic() - started < 5
-    assert 2 <= len(poll.calls) <= 8, len(poll.calls)            # backed off, not a spin
+    assert cli.time.monotonic() - started < 5
+    assert 2 <= len(calls) <= 8, len(calls)            # backed off, not a spin
+    assert clock.sleeps == [0.25, 0.5, 1.0, 0.25]
+    assert clock.now == 2.0
     err = capsys.readouterr().err
     assert "still busy" in err and "still running" in err
 

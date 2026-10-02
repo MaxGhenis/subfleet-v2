@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back
+...                                                                      [100%]
+3 passed in 152.54s (0:02:32)
+
+Exit: 0; elapsed: 179.52s

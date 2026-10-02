@@ -1,0 +1,2192 @@
+Command: uv run pytest -q
+bringing up nodes...
+bringing up nodes...
+
+sssssss.ssssss.s.....sssss.......s.ssss.s..ss.sssssssssssssssssssssss... [  0%]
+ssssssssssss............................................s............... [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+.....ssss.sssssss....................................................... [  4%]
+............................................ss.........................F [  5%]
+..........................................s............................. [  6%]
+................................................s..........s..........F. [  7%]
+...................F.....F...F.......................................... [  8%]
+....................F................................................... [  9%]
+........................FF.F..F...F.F...F.F.FF.F..F..F.........F.....F.. [ 10%]
+..F..........FF......................................................... [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+..........................................F..............F.............. [ 14%]
+......F...............F.................F.........F.s................... [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+.......F..
+=================================== FAILURES ===================================
+_________ test_a_closing_daemon_answers_every_wait_before_it_hangs_up __________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+served = (<subfleet.daemon.Daemon object at 0x3cff62a0790>, PosixPath('/tmp/sfq-b44ii9lv/daemon.sock'))
+
+    def test_a_closing_daemon_answers_every_wait_before_it_hangs_up(served):
+        """C-15.5: waiters sleep until the hub wakes them, so `close` wakes them first and
+        lets each answer go out before it shuts the connections down."""
+        daemon, path = served
+        daemon.store.add_job(job_id="20260925-000000-open", request_id="r-open", payload_digest="d",
+                             kind="run", state="running", workdir="/tmp", prompt_path="/tmp/p.md",
+                             sandbox="read-only")
+        answers = []
+    
+        def wait():
+            answers.append(request(path, "wait", timeout=30, job_ids=["20260925-000000-open"], deadline_s=60))
+        waiters = [threading.Thread(target=wait) for _ in range(4)]
+        for waiter in waiters:
+            waiter.start()
+        deadline = time.monotonic() + 5
+        while daemon.wait_hub.watched < 4 and time.monotonic() < deadline:
+            time.sleep(.01)
+>       assert daemon.wait_hub.watched == 4
+E       assert 3 == 4
+E        +  where 3 = <subfleet.waits.WaitHub object at 0x3cff6350c10>.watched
+E        +    where <subfleet.waits.WaitHub object at 0x3cff6350c10> = <subfleet.daemon.Daemon object at 0x3cff62a0790>.wait_hub
+
+tests/fake/test_request_routing.py:123: AssertionError
+_________ test_world_shutdown_reaps_a_provider_still_writing_receipts __________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef1690>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff6ef1990...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x3cff61aa8f0>
+
+    def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypatch):
+        """Fixture cleanup waits for detached writers before deleting their root."""
+        service, _client, _home, _store, root, _policy, base = world
+        release = root / "release-provider"
+    
+        class HeldProvider(FakeAdapter):
+            def build_launch(self, *args, **kwargs):
+                launch = super().build_launch(*args, **kwargs)
+                program = ("from pathlib import Path\nimport sys, time\n"
+                           "print('fake provider ready', flush=True)\n"
+                           "while not Path(sys.argv[1]).exists(): time.sleep(.01)\n"
+                           "print('fake deliverable', flush=True)\n")
+                return replace(launch, argv=(sys.executable, "-c", program, str(release)))
+    
+        monkeypatch.setitem(adapter_registry._factories, "codex", HeldProvider)
+        run(service)
+        prompt = stage(root)("Exercise fixture shutdown.")
+        result = service.dispatch("submit", {
+            "request_id": str(uuid.uuid4()), "kind": "dispatch", "workdir": str(base),
+            "prompt_path": str(prompt), "sandbox": "read-only", "pinned_model": "astra",
+            "allow_tmp": True,
+        })
+        adir = root / "jobs" / result["job_id"] / "a1"
+>       until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+
+tests/fake/test_sessions_end_to_end.py:249: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function test_world_shutdown_reaps_a_provider_still_writing_receipts.<locals>.<lambda> at 0x3cff525e340>
+timeout = 10, describe = None
+
+    def until(predicate, timeout=10, describe=None):
+        """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            value = predicate()
+            if value:
+                return value
+            time.sleep(.02)
+>       raise AssertionError(f"condition timed out after {timeout}s"
+                             + (f": {describe()}" if describe else ""))
+E       AssertionError: condition timed out after 10s
+
+tests/fake/test_sessions_end_to_end.py:49: AssertionError
+____________________ test_revive_probes_lane_before_launch _____________________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef4210>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff696c410...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_revive_probes_lane_before_launch(world):
+        """C-23.20: revive admits a lane only on a `provider` reading taken in the
+        same pass — a stored reading never qualifies it on its own.
+    
+        Ledger row 189; 2026-08-25, three lanes the ledger called healthy were out
+        of Fable. In v2 the daemon owns the probe: `scheduler.probe_required` is
+        unconditional for a revive, so the decision the job records is measured.
+        """
+        from subfleet import scheduler
+        from subfleet.contracts import Decision
+        decision = Decision(("astra",), ({"model": "astra", "candidates": ["codex-1"],
+                                          "candidate_details": {"codex-1": {"measured": True}}},),
+                            "codex-1", "astra", "", "hash")
+        assert scheduler.probe_required(decision, {"kind": "revive", "sandbox": "read-only"})
+        assert not scheduler.probe_required(decision, {"kind": "dispatch",
+                                                       "sandbox": "read-only"})
+    
+        service, client, home, store_dir, root, policy, base = world
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                      opt_in=True, model="astra", now=fx.NOW)
+        assert result.admitted is True
+        assert service.store.query("SELECT * FROM events WHERE kind='probe.state'") == [], \
+            "nothing is measured until admission runs"
+    
+        service._admit()                                    # noqa: SLF001 - one pass
+    
+        # The probe ran in the pass that admitted the attempt, against the lane the
+        # attempt then reserved — not against a reading the ledger had lying around.
+        probes = service.store.query(
+            "SELECT * FROM events WHERE kind='probe.state' ORDER BY event_id")
+        assert probes, "a revive is not admitted without a probe in the same pass"
+        assert {row["lane_id"] for row in probes} == {"codex-1"}
+        assert {row["job_id"] for row in probes} == {result.job_id}
+    
+>       attempt = service.store.list_attempts(result.job_id)[0]
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/fake/test_sessions_end_to_end.py:500: IndexError
+_____________ test_revive_census_refreshed_and_skips_running_twin ______________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef4510>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff696cb10...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_revive_census_refreshed_and_skips_running_twin(world):
+        """C-23.55: a session has at most one live revive. The lease
+        `session:<id>:revive` is taken in the transaction that admits the attempt,
+        and a session that already holds it is skipped rather than launched again.
+    
+        Ledger row 192: on 2026-09-04 a headless revive twin ran alongside a live
+        session and re-dispatched its lanes. The census is the lease rows read
+        inside the admitting transaction, not a snapshot from the start of the pass.
+        """
+        service, client, home, store_dir, root, policy, base = world
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        first = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                     opt_in=True, model="astra", now=fx.NOW)
+        assert first.admitted is True
+        assert service.store.one("SELECT * FROM leases WHERE lease_key=?",
+                                 (revive_lease_key(ALICE),)) is None, \
+            "the lease is taken at admission, not at submit (C-23.55)"
+    
+        service._admit()                                    # noqa: SLF001 - one pass
+        lease = service.store.one("SELECT * FROM leases WHERE lease_key=?",
+                                  (revive_lease_key(ALICE),))
+>       assert lease is not None and lease["holder"] == first.job_id
+E       assert (None is not None)
+
+tests/fake/test_sessions_end_to_end.py:532: AssertionError
+________ test_a_revive_that_loses_the_lease_race_is_skipped_not_queued _________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef4810>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff63a7a50...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
+        """C-23.55: "a session that already holds it is skipped rather than launched
+        again" — and skipped means terminal, not patient.
+    
+        Submit refuses the ordinary second revive; this is the race it cannot see,
+        where the lease appears between the submission and the admission. Waiting
+        for the other revive to end would launch the twin the moment it did.
+        """
+        service, client, home, store_dir, root, policy, base = world
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                      opt_in=True, model="astra", now=fx.NOW)
+        assert result.admitted is True
+    
+        # The race: another revive of the same session takes the lease first.
+        assert service.store.acquire_lease(revive_lease_key(ALICE), "another-revive")
+        service._admit()                                    # noqa: SLF001 - one pass
+    
+        job = service.store.get_job(result.job_id)
+>       assert (job["state"], job["rc"]) == ("failed", 7)
+E       AssertionError: assert ('waiting', None) == ('failed', 7)
+E         
+E         At index 0 diff: 'waiting' != 'failed'
+E         Use -v to get more diff
+
+tests/fake/test_sessions_end_to_end.py:565: AssertionError
+__________ test_the_lease_is_session_scoped_and_released_with_the_job __________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef4b10>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff63a8dd0...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_the_lease_is_session_scoped_and_released_with_the_job(world):
+        """C-23.55 and C-6.3: the key names the session, the holder is the job, and
+        every existing holder-keyed release site frees it.
+    
+        The test waits for the release, not for the terminal state. A revive that
+        succeeds becomes terminal in `_finalize`'s transaction, and `_export` frees
+        its job-held leases in the next one; `finished` in `tests/fake/conftest.py`
+        waits out the same gap for `out:`. A check made when the state was first
+        seen landed between the two in a loaded full-suite run on 2026-09-24, and in
+        9 of 60 runs at a load average near 80, none of which ran out of time. Every
+        release site a revive can reach (`max_attempts` is 1) commits the terminal
+        state before or with the delete, so a lease gone while the job is not
+        terminal was released early: each poll reads the two in one statement, and
+        one that finds that fails.
+        """
+        service, client, home, store_dir, root, policy, base = world
+        run(service)
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                      opt_in=True, model="astra", now=fx.NOW)
+        assert result.admitted, result.reason
+    
+        def seen():
+            return service.store.one(
+                "SELECT state, rc, (SELECT holder FROM leases WHERE lease_key=?) AS holder "
+                "FROM jobs WHERE job_id=?", (revive_lease_key(ALICE), result.job_id))
+    
+        def where():
+            attempts = [a["state"] for a in service.store.list_attempts(result.job_id)]
+            return f"{seen()}, attempts {attempts}"
+    
+        def released():
+            now = seen()
+            ended = now["state"] in ("succeeded", "failed", "cancelled", "lost")
+            assert now["holder"] is not None or ended, f"released before the job ended: {now}"
+            return now["holder"] is None
+    
+>       assert until(lambda: seen()["holder"], timeout=stage_s(service),
+                     describe=where) == result.job_id
+
+tests/fake/test_sessions_end_to_end.py:615: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function test_the_lease_is_session_scoped_and_released_with_the_job.<locals>.<lambda> at 0x3cff3ce5dc0>
+timeout = 20
+describe = <function test_the_lease_is_session_scoped_and_released_with_the_job.<locals>.where at 0x3cff3ce57c0>
+
+    def until(predicate, timeout=10, describe=None):
+        """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            value = predicate()
+            if value:
+                return value
+            time.sleep(.02)
+>       raise AssertionError(f"condition timed out after {timeout}s"
+                             + (f": {describe()}" if describe else ""))
+E       AssertionError: condition timed out after 20s: {'state': 'waiting', 'rc': None, 'holder': None}, attempts []
+
+tests/fake/test_sessions_end_to_end.py:49: AssertionError
+____ test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one ____
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+world = (<subfleet.daemon.Daemon object at 0x3cff6ef3c10>, <tests.fake.test_sessions_end_to_end.Client object at 0x3cff63a7510...', 'astra'], ...}, 'fallback': 'upward-only', 'permissions': {'build': 'workspace-write', '*': 'read-only'}, ...}, ...)
+
+    def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world):
+        """C-23.54: a revive is an ordinary submission whose launch is
+        `--resume <session id>`. Starting a fresh conversation would look like a
+        revive and not be one."""
+        service, client, home, store_dir, root, policy, base = world
+        run(service)
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+        result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                      opt_in=True, model="astra", now=fx.NOW)
+>       attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
+                        timeout=stage_s(service))
+
+tests/fake/test_sessions_end_to_end.py:630: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one.<locals>.<lambda> at 0x3cff3dc54c0>
+timeout = 20, describe = None
+
+    def until(predicate, timeout=10, describe=None):
+        """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            value = predicate()
+            if value:
+                return value
+            time.sleep(.02)
+>       raise AssertionError(f"condition timed out after {timeout}s"
+                             + (f": {describe()}" if describe else ""))
+E       AssertionError: condition timed out after 20s
+
+tests/fake/test_sessions_end_to_end.py:49: AssertionError
+________ test_shim_forwards_model_and_original_argv[args0-gpt-6-astra] _________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626a680>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o0/home/.bun/bin/codex'))
+args = ('exec', '-m', 'gpt-6-astra', 'do the task'), model = 'gpt-6-astra'
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153259.75721775, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o0/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-m', 'gpt-6-astra', 'do the task']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_______ test_shim_forwards_model_and_original_argv[args1-gpt-5.6-terra] ________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x52146262dc0>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o1/home/.bun/bin/codex'))
+args = ('e', '--model=gpt-5.6-terra', '-'), model = 'gpt-5.6-terra'
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153274.624215666, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o1/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'e', '--model=gpt-5.6-terra', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+________ test_shim_forwards_model_and_original_argv[args2-gpt-6-astra] _________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626a740>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o2/home/.bun/bin/codex'))
+args = ('--model', 'gpt-6-astra', 'exec', '-'), model = 'gpt-6-astra'
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153282.911370875, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o2/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', '--model', 'gpt-6-astra', 'exec', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+________ test_shim_forwards_model_and_original_argv[args3-gpt-6-astra] _________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626c180>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o3/home/.bun/bin/codex'))
+args = ('exec', '-mgpt-6-astra', '-'), model = 'gpt-6-astra'
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153290.449044208, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o3/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-mgpt-6-astra', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+____________ test_shim_forwards_model_and_original_argv[args4-None] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626b880>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o4/home/.bun/bin/codex'))
+args = ('review', '--base', '--model', '-'), model = None
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153298.927176333, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o4/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'review', '--base', '--model', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+____________ test_shim_forwards_model_and_original_argv[args5-None] ____________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626c780>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o5/home/.bun/bin/codex'))
+args = ('exec', '--', '--model', 'not-a-model'), model = None
+
+    @pytest.mark.parametrize("args,model", [
+        (("exec", "-m", "gpt-6-astra", "do the task"), "gpt-6-astra"),
+        (("e", "--model=gpt-5.6-terra", "-"), "gpt-5.6-terra"),
+        (("--model", "gpt-6-astra", "exec", "-"), "gpt-6-astra"),
+        (("exec", "-mgpt-6-astra", "-"), "gpt-6-astra"),
+        (("review", "--base", "--model", "-"), None),
+        (("exec", "--", "--model", "not-a-model"), None),
+    ])
+    def test_shim_forwards_model_and_original_argv(shim, args, model):
+        """C-11.2: the picker sees explicit scope; provider argv and stdin stay exact."""
+        run, picked, child, calls, *_ = shim
+>       result = run(*args, CHILD_RC="13")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153308.160153916, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_shim_forwards_model_and_o5/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '--', '--model', 'not-a-model']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_ test_noninteractive_subscription_launch_removes_api_environment[False-exec] __
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x52146269600>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti0/home/.bun/bin/codex'))
+command = 'exec', explicit = False
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153316.207419666, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti0/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+___ test_noninteractive_subscription_launch_removes_api_environment[False-e] ___
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626e400>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti1/home/.bun/bin/codex'))
+command = 'e', explicit = False
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153323.663766583, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti1/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'e', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_ test_noninteractive_subscription_launch_removes_api_environment[False-review] _
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626fb40>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti2/home/.bun/bin/codex'))
+command = 'review', explicit = False
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153331.828356458, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti2/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'review', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+__ test_noninteractive_subscription_launch_removes_api_environment[True-exec] __
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x5214626ee80>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti3/home/.bun/bin/codex'))
+command = 'exec', explicit = True
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153338.645090958, orig_timeout = 5, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+___ test_noninteractive_subscription_launch_removes_api_environment[True-e] ____
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x521422127c0>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti4/home/.bun/bin/codex'))
+command = 'e', explicit = True
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153346.637110708, orig_timeout = 5, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'e', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_ test_noninteractive_subscription_launch_removes_api_environment[True-review] _
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x52142215c40>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_noninteractive_subscripti5/home/.bun/bin/codex'))
+command = 'review', explicit = True
+
+    @pytest.mark.parametrize("command", ["exec", "e", "review"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_noninteractive_subscription_launch_removes_api_environment(shim, command, explicit):
+        """C-10.2: subscription authentication cannot inherit API billing credentials."""
+        run, picked, child, calls, *_ = shim
+>       result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153354.332502416, orig_timeout = 5, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'review', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_ test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches _
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x3cff6ef8590>, <tests.fake.conftest.Harness object at 0x3cff61adc90>)
+
+    def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
+        """C-7.3, C-7.4 cancelling a queued parent atomically cancels dependent descendants only."""
+        daemon, harness = state_daemon
+    
+        def submit(**extra):
+            return daemon.dispatch("submit", harness.submit_args(**extra))["job_id"]
+    
+        parent = submit()
+        child = submit(parent_job_id=parent)
+        grandchild = submit(parent_job_id=child)
+        independent = submit(parent_job_id=parent, independent=True)
+        daemon.dispatch("kill", {"job_id": parent})
+        cancelled = [daemon.store.get_job(job) for job in (parent, child, grandchild)]
+        assert {job["state"] for job in cancelled} == {"cancelled"}
+>       assert len({job["cancel_requested_at"] for job in cancelled}) == 1
+E       AssertionError: assert 2 == 1
+E        +  where 2 = len({'2026-10-01T20:53:28Z', '2026-10-01T20:53:31Z'})
+
+tests/fake/test_state_contract.py:112: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4191736006032:daemon.py:536 store lock released after 3.6 s by MainThread (8415879552). Where it was held:
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/lib/python3.14t/site-packages/_pytest/python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/tests/fake/test_state_contract.py", line 109, in test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches
+    daemon.dispatch("kill", {"job_id": parent})
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/daemon.py", line 2149, in dispatch
+    return self.kill(protocol.coerce_args(protocol.KillArgs, args))
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/daemon.py", line 2566, in kill
+    with self.store.transaction("job.cancel_requested", job_id=args.job_id) as tx:
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/contextlib.py", line 148, in __exit__
+    next(self.gen)
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/store.py", line 226, in transaction
+    with self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+_________ test_known_api_home_refused_even_with_legacy_override[False] _________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x52142213b40>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_known_api_home_refused_ev0/home/.bun/bin/codex'))
+explicit = False
+
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_known_api_home_refused_even_with_legacy_override(shim, explicit):
+        """C-10.2: the actual native API checker guards picked and explicit homes."""
+        run, picked, child, calls, *_ = shim
+        (picked / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": "fake-test-key"}))
+>       result = run("exec", "-", SUBFLEET_ALLOW_API_LANE="1",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:106: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153371.060808875, orig_timeout = 5, stdout_seq = []
+stderr_seq = [b'codex-shim: CODEX_HOME unset -> /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_known_api_home_refused_ev0/home/lane with spaces (native v2 recommendation)\n']
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+_________ test_known_api_home_refused_even_with_legacy_override[True] __________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x521422151c0>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_known_api_home_refused_ev1/home/.bun/bin/codex'))
+explicit = True
+
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_known_api_home_refused_even_with_legacy_override(shim, explicit):
+        """C-10.2: the actual native API checker guards picked and explicit homes."""
+        run, picked, child, calls, *_ = shim
+        (picked / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": "fake-test-key"}))
+>       result = run("exec", "-", SUBFLEET_ALLOW_API_LANE="1",
+                     **({"CODEX_HOME": str(picked)} if explicit else {}))
+
+tests/unit/test_codex_shim.py:106: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153378.553605875, orig_timeout = 5, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', '-']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+__________ test_c4_4_state_missing_exit_receipt_never_accepts_success __________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x3cff6ef1090>, <tests.fake.conftest.Harness object at 0x3cff61ab370>)
+
+    def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+        """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
+        daemon, harness = state_daemon
+        job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
+        daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
+                                    pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
+        daemon._process_attempt(attempt["attempt_id"])
+        job = daemon.store.get_job(job_id)
+>       assert job["state"] == "lost" and job["accepted_attempt_id"] is None
+E       AssertionError: assert ('running' == 'lost'
+E         
+E         - lost
+E         + running)
+
+tests/fake/test_state_contract.py:327: AssertionError
+________________ test_explicit_home_skips_pick_but_keeps_guard _________________
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+shim = (<function shim.<locals>.run at 0x52142216c00>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/py...gc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5125/popen-gw2/test_explicit_home_skips_pick_0/home/.bun/bin/codex'))
+
+    def test_explicit_home_skips_pick_but_keeps_guard(shim):
+        """C-10.2: an identity pin cannot rotate or disable subscription validation."""
+        run, picked, child, calls, *_ = shim
+>       result = run("exec", "resume", "session", CODEX_HOME=str(picked), SUBFLEET_NO_AUTOPICK="1")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_codex_shim.py:131: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/bash', '/Users/maxghenis/.subfleet/workt...>
+endtime = 153398.227750708, orig_timeout = 5, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/bin/codex', 'exec', 'resume', 'session']' timed out after 5 seconds
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1268: TimeoutExpired
+______ test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False] ______
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef8a10>
+consume_timeout = False, observe_late = False
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+>           until(lambda: daemon.store.query('SELECT * FROM actions'))
+
+tests/fake/test_timers_end_to_end.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x3cff45fe880>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:26: AssertionError
+______ test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True] _______
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef8d10>
+consume_timeout = True, observe_late = False
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+>           until(lambda: daemon.store.query('SELECT * FROM actions'))
+
+tests/fake/test_timers_end_to_end.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x3cff6311200>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:26: AssertionError
+______ test_daemon_cycles_reset_alert_recovery_and_keepalive[True-False] _______
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9010>
+consume_timeout = False, observe_late = True
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+>           until(lambda: daemon.store.query('SELECT * FROM actions'))
+
+tests/fake/test_timers_end_to_end.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x3cff631dec0>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:26: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9010>
+consume_timeout = False, observe_late = True
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+            until(lambda: daemon.store.query('SELECT * FROM actions'))
+            until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
+            if observe_late:
+                # Reproduce a hosted runner that lets several real timer cycles
+                # finish before this test thread observes the initial result.
+                time.sleep(1.1)
+            actions = daemon.store.query('SELECT action_id,op_key,state FROM actions')
+            assert len(actions) == 1
+            assert actions[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
+            assert actions[0]['op_key'] == f"codex:{state['consume_accounts'][0]}:gift"
+            assert not daemon.store.get_lane(dead.lane_id).enabled
+            assert state['consumes'] == 1
+            until(lambda: state['keepalives'] == 1)
+            first_notices = daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']
+            assert first_notices
+            assert all(row['notice_id'] < 0 for row in first_notices)
+            state['limited'] = False
+            until(lambda: any('recovered' in row['text'].lower() for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']))
+            if consume_timeout:
+                until(lambda: daemon.store.query("SELECT 1 FROM events WHERE kind='action.reconciled'"))
+                assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'unknown'
+            time.sleep(.35)
+            assert state['consumes'] == 1 and state['dead_probes'] == 1 and state['keepalives'] == 1
+            assert daemon.store.query('SELECT action_id,op_key,state FROM actions') == actions
+            events = daemon.store.query("SELECT data_json FROM events WHERE kind='timer.keepalive'")
+            assert any('skipped-open' in row['data_json'] for row in events)
+            payload = json.loads((daemon.root / 'status.json').read_bytes())
+            assert payload['codex']['homes'] and payload['claude']['accounts']
+            assert 'five_hour_pct' not in payload['claude']['accounts'][0]['live']
+            assert daemon.dispatch('daemon.status', {})['timers']['probe']['last_run']
+            ids = [row['notice_id'] for row in first_notices]
+            daemon.dispatch('notice.ack', {'session_id':'test-operator', 'notice_ids':ids})
+            assert not set(ids) & {row['notice_id'] for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']}
+        finally:
+            daemon.stopping.set()
+            thread.join(3)
+>           assert not thread.is_alive()
+E           assert not True
+E            +  where True = is_alive()
+E            +    where is_alive = <Thread(Thread-13 (_control), started daemon 6165524480)>.is_alive
+
+tests/fake/test_timers_end_to_end.py:139: AssertionError
+_______ test_daemon_cycles_reset_alert_recovery_and_keepalive[True-True] _______
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9310>
+consume_timeout = True, observe_late = True
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+>           until(lambda: daemon.store.query('SELECT * FROM actions'))
+
+tests/fake/test_timers_end_to_end.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x3cff63187c0>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:26: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9310>
+consume_timeout = True, observe_late = True
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1)
+        codex(daemon, 2)
+        dead = codex(daemon, 3)
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+            until(lambda: daemon.store.query('SELECT * FROM actions'))
+            until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
+            if observe_late:
+                # Reproduce a hosted runner that lets several real timer cycles
+                # finish before this test thread observes the initial result.
+                time.sleep(1.1)
+            actions = daemon.store.query('SELECT action_id,op_key,state FROM actions')
+            assert len(actions) == 1
+            assert actions[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
+            assert actions[0]['op_key'] == f"codex:{state['consume_accounts'][0]}:gift"
+            assert not daemon.store.get_lane(dead.lane_id).enabled
+            assert state['consumes'] == 1
+            until(lambda: state['keepalives'] == 1)
+            first_notices = daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']
+            assert first_notices
+            assert all(row['notice_id'] < 0 for row in first_notices)
+            state['limited'] = False
+            until(lambda: any('recovered' in row['text'].lower() for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']))
+            if consume_timeout:
+                until(lambda: daemon.store.query("SELECT 1 FROM events WHERE kind='action.reconciled'"))
+                assert daemon.store.query('SELECT state FROM actions')[0]['state'] == 'unknown'
+            time.sleep(.35)
+            assert state['consumes'] == 1 and state['dead_probes'] == 1 and state['keepalives'] == 1
+            assert daemon.store.query('SELECT action_id,op_key,state FROM actions') == actions
+            events = daemon.store.query("SELECT data_json FROM events WHERE kind='timer.keepalive'")
+            assert any('skipped-open' in row['data_json'] for row in events)
+            payload = json.loads((daemon.root / 'status.json').read_bytes())
+            assert payload['codex']['homes'] and payload['claude']['accounts']
+            assert 'five_hour_pct' not in payload['claude']['accounts'][0]['live']
+            assert daemon.dispatch('daemon.status', {})['timers']['probe']['last_run']
+            ids = [row['notice_id'] for row in first_notices]
+            daemon.dispatch('notice.ack', {'session_id':'test-operator', 'notice_ids':ids})
+            assert not set(ids) & {row['notice_id'] for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']}
+        finally:
+            daemon.stopping.set()
+            thread.join(3)
+>           assert not thread.is_alive()
+E           assert not True
+E            +  where True = is_alive()
+E            +    where is_alive = <Thread(Thread-14 (_control), started daemon 6182350848)>.is_alive
+
+tests/fake/test_timers_end_to_end.py:139: AssertionError
+_________________ test_hung_usage_cannot_block_api_or_shutdown _________________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9610>
+
+    def test_hung_usage_cannot_block_api_or_shutdown(daemon):
+        """C-16.4 C-18.1: a blocked injectable HTTP opener cannot block control or late-publish."""
+        codex(daemon, 1)
+        entered, release = threading.Event(), threading.Event()
+        def opener(request, timeout):
+            entered.set()
+            release.wait(5)
+            return 200, b'{"rate_limit":{"limit_reached":false}}'
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+>           assert entered.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x3cff6e54510: unset>.wait
+
+tests/fake/test_timers_end_to_end.py:154: AssertionError
+___________________________ test_socket_timer_status ___________________________
+[gw0] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x3cff6ef9910>
+
+    def test_socket_timer_status(daemon):
+        """C-16.4 C-18.1: the actual Unix API reports timer runs when sandbox permits sockets."""
+        try:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.bind(str(daemon.root / 'socket-check'))
+        except PermissionError:
+            pytest.skip('sandbox denies Unix socket binding; daemon control tests still run')
+        thread = threading.Thread(target=daemon.serve_forever, daemon=True)
+        thread.start()
+        try:
+            until(lambda: (daemon.root / 'daemon.sock').exists())
+            time.sleep(.25)
+            with socket.socket(socket.AF_UNIX) as sock:
+                sock.settimeout(2)
+                sock.connect(str(daemon.root / 'daemon.sock'))
+                sock.sendall(b'{"v":1,"id":"timers","op":"daemon.status","args":{}}\n')
+                result = json.loads(sock.recv(200000))
+>           assert result['ok'] and result['result']['timers']['probe']['last_run']
+E           assert (True and None)
+
+tests/fake/test_timers_end_to_end.py:185: AssertionError
+_ test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone _
+[gw2] darwin -- Python 3.14.7 /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python
+
+runs = <test_conversation_catalog_lifecycle.Runs object at 0x521432cb010>
+identity = None, short_root = PosixPath('/tmp/sfc-bar87lt9')
+
+    def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone(
+            runs, identity, short_root):
+        """The control loop starts a catalog run; the daemon closes while it is in flight.
+        `close()` returns only once the run has ended, so no catalog process outlives it,
+        and after the root is removed nothing brings it back, even once a surviving run
+        could finish its scan and write."""
+        root = short_root
+        try:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.bind(str(root / "probe"))
+            (root / "probe").unlink()
+        except PermissionError:
+            pytest.skip("sandbox denies Unix socket binding")
+        daemon = Daemon(root, tick_s=.05)
+        thread = threading.Thread(target=daemon.serve_forever, daemon=True)
+        thread.start()
+        problems: list[str] = []
+        try:
+            runs.hold()
+            until(lambda: daemon.conversations._catalog_proc is not None, what="the service to record its run")
+            process = runs.track(daemon.conversations._catalog_proc)
+            assert process.poll() is None
+            daemon.stopping.set()                        # serve_forever's `finally` closes the daemon
+            thread.join(30)
+            assert not thread.is_alive(), "the daemon did not close"
+>           stray = catalog_pids(root)
+                    ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_conversation_catalog_lifecycle.py:368: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_conversation_catalog_lifecycle.py:57: in catalog_pids
+    out = subprocess.run(["/bin/ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:555: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: 255 args: ['/bin/ps', '-Ao', 'pid=,command=']>
+args = ['/bin/ps', '-Ao', 'pid=,command='], executable = b'/bin/ps'
+preexec_fn = None, close_fds = True, pass_fds = (), cwd = None, env = None
+startupinfo = None, creationflags = 0, shell = False, p2cread = -1
+p2cwrite = -1, c2pread = 15, c2pwrite = 16, errread = 17, errwrite = 18
+restore_signals = True, gid = None, gids = None, uid = None, umask = -1
+start_new_session = False, process_group = -1
+
+    def _execute_child(self, args, executable, preexec_fn, close_fds,
+                       pass_fds, cwd, env,
+                       startupinfo, creationflags, shell,
+                       p2cread, p2cwrite,
+                       c2pread, c2pwrite,
+                       errread, errwrite,
+                       restore_signals,
+                       gid, gids, uid, umask,
+                       start_new_session, process_group):
+        """Execute program (POSIX version)"""
+    
+        if isinstance(args, (str, bytes)):
+            args = [args]
+        elif isinstance(args, os.PathLike):
+            if shell:
+                raise TypeError('path-like args is not allowed when '
+                                'shell is true')
+            args = [args]
+        else:
+            args = list(args)
+    
+        if shell:
+            # On Android the default shell is at '/system/bin/sh'.
+            unix_shell = ('/system/bin/sh' if
+                      hasattr(sys, 'getandroidapilevel') else '/bin/sh')
+            args = [unix_shell, "-c"] + args
+            if executable:
+                args[0] = executable
+    
+        if executable is None:
+            executable = args[0]
+    
+        sys.audit("subprocess.Popen", executable, args, cwd, env)
+    
+        if (_USE_POSIX_SPAWN
+                and os.path.dirname(executable)
+                and preexec_fn is None
+                and (not close_fds or _HAVE_POSIX_SPAWN_CLOSEFROM)
+                and not pass_fds
+                and cwd is None
+                and (p2cread == -1 or p2cread > 2)
+                and (c2pwrite == -1 or c2pwrite > 2)
+                and (errwrite == -1 or errwrite > 2)
+                and not start_new_session
+                and process_group == -1
+                and gid is None
+                and gids is None
+                and uid is None
+                and umask < 0):
+            self._posix_spawn(args, executable, env, restore_signals, close_fds,
+                              p2cread, p2cwrite,
+                              c2pread, c2pwrite,
+                              errread, errwrite)
+            return
+    
+        orig_executable = executable
+    
+        # For transferring possible exec failure from child to parent.
+        # Data format: "exception name:hex errno:description"
+        # Pickle is not used; it is complex and involves memory allocation.
+        errpipe_read, errpipe_write = os.pipe()
+        # errpipe_write must not be in the standard io 0, 1, or 2 fd range.
+        low_fds_to_close = []
+        while errpipe_write < 3:
+            low_fds_to_close.append(errpipe_write)
+            errpipe_write = os.dup(errpipe_write)
+        for low_fd in low_fds_to_close:
+            os.close(low_fd)
+        try:
+            try:
+                # We must avoid complex work that could involve
+                # malloc or free in the child process to avoid
+                # potential deadlocks, thus we do all this here.
+                # and pass it to fork_exec()
+    
+                if env is not None:
+                    env_list = []
+                    for k, v in env.items():
+                        k = os.fsencode(k)
+                        if b'=' in k:
+                            raise ValueError("illegal environment variable name")
+                        env_list.append(k + b'=' + os.fsencode(v))
+                else:
+                    env_list = None  # Use execv instead of execve.
+                executable = os.fsencode(executable)
+                if os.path.dirname(executable):
+                    executable_list = (executable,)
+                else:
+                    # This matches the behavior of os._execvpe().
+                    executable_list = tuple(
+                        os.path.join(os.fsencode(dir), executable)
+                        for dir in os.get_exec_path(env))
+                fds_to_keep = set(pass_fds)
+                fds_to_keep.add(errpipe_write)
+                self.pid = _fork_exec(
+                        args, executable_list,
+                        close_fds, tuple(sorted(map(int, fds_to_keep))),
+                        cwd, env_list,
+                        p2cread, p2cwrite, c2pread, c2pwrite,
+                        errread, errwrite,
+                        errpipe_read, errpipe_write,
+                        restore_signals, start_new_session,
+                        process_group, gid, gids, uid, umask,
+                        preexec_fn)
+                self._child_created = True
+            finally:
+                # be sure the FD is closed no matter what
+                os.close(errpipe_write)
+    
+            self._close_pipe_fds(p2cread, p2cwrite,
+                                 c2pread, c2pwrite,
+                                 errread, errwrite)
+    
+            # Wait for exec to fail or succeed; possibly raising an
+            # exception (limited in size)
+            errpipe_data = bytearray()
+            while True:
+                part = os.read(errpipe_read, 50000)
+                errpipe_data += part
+                if not part or len(errpipe_data) > 50000:
+                    break
+        finally:
+            # be sure the FD is closed no matter what
+            os.close(errpipe_read)
+    
+        if errpipe_data:
+            try:
+                pid, sts = os.waitpid(self.pid, 0)
+                if pid == self.pid:
+                    self._handle_exitstatus(sts)
+                else:
+                    self.returncode = sys.maxsize
+            except ChildProcessError:
+                pass
+    
+            try:
+                exception_name, hex_errno, err_msg = (
+                        errpipe_data.split(b':', 2))
+                # The encoding here should match the encoding
+                # written in by the subprocess implementations
+                # like _posixsubprocess
+                err_msg = err_msg.decode()
+            except ValueError:
+                exception_name = b'SubprocessError'
+                hex_errno = b'0'
+                err_msg = 'Bad exception data from child: {!r}'.format(
+                              bytes(errpipe_data))
+            child_exception_type = getattr(
+                    builtins, exception_name.decode('ascii'),
+                    SubprocessError)
+            if issubclass(child_exception_type, OSError) and hex_errno:
+                errno_num = int(hex_errno, 16)
+                if err_msg == "noexec:chdir":
+                    err_msg = ""
+                    # The error must be from chdir(cwd).
+                    err_filename = cwd
+                elif err_msg == "noexec":
+                    err_msg = ""
+                    err_filename = None
+                else:
+                    err_filename = orig_executable
+                if errno_num != 0:
+                    err_msg = os.strerror(errno_num)
+                if err_filename is not None:
+>                   raise child_exception_type(errno_num, err_msg, err_filename)
+E                   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1990: PermissionError
+
+During handling of the above exception, another exception occurred:
+
+runs = <test_conversation_catalog_lifecycle.Runs object at 0x521432cb010>
+identity = None, short_root = PosixPath('/tmp/sfc-bar87lt9')
+
+    def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone(
+            runs, identity, short_root):
+        """The control loop starts a catalog run; the daemon closes while it is in flight.
+        `close()` returns only once the run has ended, so no catalog process outlives it,
+        and after the root is removed nothing brings it back, even once a surviving run
+        could finish its scan and write."""
+        root = short_root
+        try:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.bind(str(root / "probe"))
+            (root / "probe").unlink()
+        except PermissionError:
+            pytest.skip("sandbox denies Unix socket binding")
+        daemon = Daemon(root, tick_s=.05)
+        thread = threading.Thread(target=daemon.serve_forever, daemon=True)
+        thread.start()
+        problems: list[str] = []
+        try:
+            runs.hold()
+            until(lambda: daemon.conversations._catalog_proc is not None, what="the service to record its run")
+            process = runs.track(daemon.conversations._catalog_proc)
+            assert process.poll() is None
+            daemon.stopping.set()                        # serve_forever's `finally` closes the daemon
+            thread.join(30)
+            assert not thread.is_alive(), "the daemon did not close"
+            stray = catalog_pids(root)
+            if process.poll() is None:
+                problems.append("close() returned with its catalog run still running")
+            if stray:
+                problems.append(f"catalog processes outlived close(): {stray}")
+            shutil.rmtree(root)
+            runs.let_go()                                # a run that survived now finishes its scan
+            for pid in stray:
+                until(lambda: pid not in catalog_pids(root), what=f"catalog run {pid} to end")
+            time.sleep(.5)
+            if root.exists():
+                problems.append(f"the removed state root came back holding {sorted(os.listdir(root))}")
+            assert problems == [], "\n".join(problems)
+        finally:
+            daemon.stopping.set()
+            thread.join(30)
+>           for pid in catalog_pids(root):
+                       ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_conversation_catalog_lifecycle.py:384: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_conversation_catalog_lifecycle.py:57: in catalog_pids
+    out = subprocess.run(["/bin/ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:555: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: 255 args: ['/bin/ps', '-Ao', 'pid=,command=']>
+args = ['/bin/ps', '-Ao', 'pid=,command='], executable = b'/bin/ps'
+preexec_fn = None, close_fds = True, pass_fds = (), cwd = None, env = None
+startupinfo = None, creationflags = 0, shell = False, p2cread = -1
+p2cwrite = -1, c2pread = 15, c2pwrite = 16, errread = 17, errwrite = 18
+restore_signals = True, gid = None, gids = None, uid = None, umask = -1
+start_new_session = False, process_group = -1
+
+    def _execute_child(self, args, executable, preexec_fn, close_fds,
+                       pass_fds, cwd, env,
+                       startupinfo, creationflags, shell,
+                       p2cread, p2cwrite,
+                       c2pread, c2pwrite,
+                       errread, errwrite,
+                       restore_signals,
+                       gid, gids, uid, umask,
+                       start_new_session, process_group):
+        """Execute program (POSIX version)"""
+    
+        if isinstance(args, (str, bytes)):
+            args = [args]
+        elif isinstance(args, os.PathLike):
+            if shell:
+                raise TypeError('path-like args is not allowed when '
+                                'shell is true')
+            args = [args]
+        else:
+            args = list(args)
+    
+        if shell:
+            # On Android the default shell is at '/system/bin/sh'.
+            unix_shell = ('/system/bin/sh' if
+                      hasattr(sys, 'getandroidapilevel') else '/bin/sh')
+            args = [unix_shell, "-c"] + args
+            if executable:
+                args[0] = executable
+    
+        if executable is None:
+            executable = args[0]
+    
+        sys.audit("subprocess.Popen", executable, args, cwd, env)
+    
+        if (_USE_POSIX_SPAWN
+                and os.path.dirname(executable)
+                and preexec_fn is None
+                and (not close_fds or _HAVE_POSIX_SPAWN_CLOSEFROM)
+                and not pass_fds
+                and cwd is None
+                and (p2cread == -1 or p2cread > 2)
+                and (c2pwrite == -1 or c2pwrite > 2)
+                and (errwrite == -1 or errwrite > 2)
+                and not start_new_session
+                and process_group == -1
+                and gid is None
+                and gids is None
+                and uid is None
+                and umask < 0):
+            self._posix_spawn(args, executable, env, restore_signals, close_fds,
+                              p2cread, p2cwrite,
+                              c2pread, c2pwrite,
+                              errread, errwrite)
+            return
+    
+        orig_executable = executable
+    
+        # For transferring possible exec failure from child to parent.
+        # Data format: "exception name:hex errno:description"
+        # Pickle is not used; it is complex and involves memory allocation.
+        errpipe_read, errpipe_write = os.pipe()
+        # errpipe_write must not be in the standard io 0, 1, or 2 fd range.
+        low_fds_to_close = []
+        while errpipe_write < 3:
+            low_fds_to_close.append(errpipe_write)
+            errpipe_write = os.dup(errpipe_write)
+        for low_fd in low_fds_to_close:
+            os.close(low_fd)
+        try:
+            try:
+                # We must avoid complex work that could involve
+                # malloc or free in the child process to avoid
+                # potential deadlocks, thus we do all this here.
+                # and pass it to fork_exec()
+    
+                if env is not None:
+                    env_list = []
+                    for k, v in env.items():
+                        k = os.fsencode(k)
+                        if b'=' in k:
+                            raise ValueError("illegal environment variable name")
+                        env_list.append(k + b'=' + os.fsencode(v))
+                else:
+                    env_list = None  # Use execv instead of execve.
+                executable = os.fsencode(executable)
+                if os.path.dirname(executable):
+                    executable_list = (executable,)
+                else:
+                    # This matches the behavior of os._execvpe().
+                    executable_list = tuple(
+                        os.path.join(os.fsencode(dir), executable)
+                        for dir in os.get_exec_path(env))
+                fds_to_keep = set(pass_fds)
+                fds_to_keep.add(errpipe_write)
+                self.pid = _fork_exec(
+                        args, executable_list,
+                        close_fds, tuple(sorted(map(int, fds_to_keep))),
+                        cwd, env_list,
+                        p2cread, p2cwrite, c2pread, c2pwrite,
+                        errread, errwrite,
+                        errpipe_read, errpipe_write,
+                        restore_signals, start_new_session,
+                        process_group, gid, gids, uid, umask,
+                        preexec_fn)
+                self._child_created = True
+            finally:
+                # be sure the FD is closed no matter what
+                os.close(errpipe_write)
+    
+            self._close_pipe_fds(p2cread, p2cwrite,
+                                 c2pread, c2pwrite,
+                                 errread, errwrite)
+    
+            # Wait for exec to fail or succeed; possibly raising an
+            # exception (limited in size)
+            errpipe_data = bytearray()
+            while True:
+                part = os.read(errpipe_read, 50000)
+                errpipe_data += part
+                if not part or len(errpipe_data) > 50000:
+                    break
+        finally:
+            # be sure the FD is closed no matter what
+            os.close(errpipe_read)
+    
+        if errpipe_data:
+            try:
+                pid, sts = os.waitpid(self.pid, 0)
+                if pid == self.pid:
+                    self._handle_exitstatus(sts)
+                else:
+                    self.returncode = sys.maxsize
+            except ChildProcessError:
+                pass
+    
+            try:
+                exception_name, hex_errno, err_msg = (
+                        errpipe_data.split(b':', 2))
+                # The encoding here should match the encoding
+                # written in by the subprocess implementations
+                # like _posixsubprocess
+                err_msg = err_msg.decode()
+            except ValueError:
+                exception_name = b'SubprocessError'
+                hex_errno = b'0'
+                err_msg = 'Bad exception data from child: {!r}'.format(
+                              bytes(errpipe_data))
+            child_exception_type = getattr(
+                    builtins, exception_name.decode('ascii'),
+                    SubprocessError)
+            if issubclass(child_exception_type, OSError) and hex_errno:
+                errno_num = int(hex_errno, 16)
+                if err_msg == "noexec:chdir":
+                    err_msg = ""
+                    # The error must be from chdir(cwd).
+                    err_filename = cwd
+                elif err_msg == "noexec":
+                    err_msg = ""
+                    err_filename = None
+                else:
+                    err_filename = orig_executable
+                if errno_num != 0:
+                    err_msg = os.strerror(errno_num)
+                if err_filename is not None:
+>                   raise child_exception_type(errno_num, err_msg, err_filename)
+E                   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+
+../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1990: PermissionError
+============================= slowest 10 durations =============================
+564.40s call     tests/fake/test_admission_latency.py::test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there_agrees
+549.20s call     tests/fake/test_admission_latency.py::test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits
+348.50s call     tests/unit/test_admission_uncapped.py::test_a_pass_is_deterministic_whatever_order_rows_arrive_in
+340.10s call     tests/unit/test_admission_uncapped.py::test_jobs_are_considered_by_class_then_tier_then_age
+313.90s call     tests/unit/test_admission_uncapped.py::test_uncapped_evaluate_never_says_no_slot_for_want_of_a_count
+292.67s call     tests/unit/test_admission_uncapped.py::test_uncapped_every_admissible_job_is_placed_and_none_waits_for_a_count
+292.41s call     tests/unit/test_admission_uncapped.py::test_raising_or_removing_a_cap_never_places_fewer_jobs
+221.60s call     tests/unit/test_admission_uncapped.py::test_raising_a_cap_never_removes_a_candidate
+143.91s call     tests/unit/test_compat.py::test_no_compatibility_invocation_delegates_to_v1
+76.81s call     tests/fake/test_admission_liveness.py::test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everything
+=========================== short test summary info ============================
+FAILED tests/fake/test_request_routing.py::test_a_closing_daemon_answers_every_wait_before_it_hangs_up
+FAILED tests/fake/test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts
+FAILED tests/fake/test_sessions_end_to_end.py::test_revive_probes_lane_before_launch
+FAILED tests/fake/test_sessions_end_to_end.py::test_revive_census_refreshed_and_skips_running_twin
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+FAILED tests/fake/test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args0-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args1-gpt-5.6-terra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args2-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args3-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args4-None]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args5-None]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-exec]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-e]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-review]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-exec]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-e]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-review]
+FAILED tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches
+FAILED tests/unit/test_codex_shim.py::test_known_api_home_refused_even_with_legacy_override[False]
+FAILED tests/unit/test_codex_shim.py::test_known_api_home_refused_even_with_legacy_override[True]
+FAILED tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success
+FAILED tests/unit/test_codex_shim.py::test_explicit_home_skips_pick_but_keeps_guard
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False]
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True]
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-False]
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-True]
+FAILED tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown
+FAILED tests/fake/test_timers_end_to_end.py::test_socket_timer_status - asser...
+FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/threading.py:373: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+31 failed, 2203 passed, 80 skipped in 2004.11s (0:33:24)
+
+Exit: 2; elapsed: 2032.77s

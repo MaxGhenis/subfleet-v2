@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/fake/test_state_contract.py tests/fake/test_request_routing.py
+.......................................                                  [100%]
+39 passed in 143.85s (0:02:23)
+
+Exit: 0; elapsed: 166.04s

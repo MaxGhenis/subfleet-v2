@@ -19,6 +19,7 @@ its cases pin that table's cost; a probe keeps C-5.11's own pacing.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 
@@ -91,9 +92,19 @@ class FakePs:
 
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
-    core = Daemon(tmp_path / "state", inspect_interval_s=30)
-    # The constructor recorded this machine's real boot identity; the attempt
-    # below belongs to the fake one, so each test starts with nothing cached.
+    pid = os.getpid()
+
+    def current_start(asked):
+        assert asked == pid
+        return STARTED
+
+    # Only startup uses these observations. Each test then exercises the real
+    # process-inspection code against its own FakePs reader and failures.
+    with monkeypatch.context() as startup:
+        startup.setattr(procs, "boot_id", lambda: BOOT)
+        startup.setattr(procs, "proc_start", current_start)
+        core = Daemon(tmp_path / "state", inspect_interval_s=30)
+    # Every inspection oracle starts with nothing cached.
     procs.forget_boot_id()      # C-5.12's cache; conftest also clears it per test
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),

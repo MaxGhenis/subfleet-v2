@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[0] tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[0] tests/unit/test_store_contention_queries.py::test_batches_and_submissions_are_found_by_job_id
+...                                                                      [100%]
+3 passed in 108.83s (0:01:48)
+
+Exit: 0; elapsed: 190.23s

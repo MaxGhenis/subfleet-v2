@@ -1,0 +1,55 @@
+Command: uv run pytest -q tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5159/test_a_request_that_reaches_it0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x3ab898e3990>
+
+    def test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing(tmp_path, monkeypatch):
+        """C-24.3, C-25.3, on a real daemon: `Daemon.close()` waits for its requests pool,
+        but only after the conversation service has closed. A `message.submit` that had
+        read the store and not yet published its text then published it into the root
+        after close() (a text no row names), and failed on the closed database. Its text
+        is now refused (`store-closed`). Nothing it does outlives `Daemon.close()`, so the
+        removed root stays gone either way."""
+        from subfleet.daemon import Daemon
+        root = tmp_path / "state"
+>       daemon = Daemon(root, tick_s=.05)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_conversation_service.py:1907: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+1 failed in 9.24s
+
+Exit: 1; elapsed: 17.37s

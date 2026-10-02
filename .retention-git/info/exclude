@@ -1,0 +1,6 @@
+.retention-git/
+.retention-baseline-check/
+docs/reports/2026-10-01-retention-81-notes/completed.bundle
+.retention-mutation-check/
+
+.retention-m22-check/

@@ -383,12 +383,17 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
                     cache[("salvage", str(common))] = {}
             return cache[("salvage", str(common))]
 
+        workdir_common = rgit.common_dir(Path(workdir)) if workdir and os.path.isdir(workdir) else None
         reg, found, lost = (rarch.source_of_gone_tree(job, worktree, known, listing,
-                                                      {r: d for r, d in salvage_refs.items() if isinstance(r, str)})
+                                                      {r: d for r, d in salvage_refs.items() if isinstance(r, str)},
+                                                      workdir_common=workdir_common)
                             if workdir else (None, None, None))
-        inferred = bool(workdir) and not os.path.isdir(workdir)
+        inferred = bool(workdir) and workdir_common is None
         why = "tree-gone"
-        where = Path(os.path.realpath(workdir)) if reg is None and workdir and not os.path.isdir(workdir) else None
+        where = Path(os.path.realpath(workdir)) if reg is None and inferred else None
+        if lost and lost.startswith("tree away:"):
+            info["issue"] = lost
+            return
     if reg is None:
         if why not in ("no-gitfile", "admin-missing", "admin-remnant", "tree-gone"):
             info["issue"] = f"registration: {why}"
@@ -402,6 +407,8 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
         if common is None:
             if salvage_refs and not info.get("issue"):
                 info["issue"] = f"salvage not archivable: {lost}" if lost else "salvage not archivable"
+            elif lost and not info.get("issue"):
+                info["issue"] = f"repository not found: {lost}"
             return
     else:
         info["admin"] = str(reg.admin)

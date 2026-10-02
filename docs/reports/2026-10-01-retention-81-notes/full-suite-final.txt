@@ -1,0 +1,1 @@
+Command: uv run pytest -q

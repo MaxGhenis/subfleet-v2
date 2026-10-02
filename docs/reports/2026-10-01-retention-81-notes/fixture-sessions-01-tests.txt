@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/fake/test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts tests/fake/test_sessions_end_to_end.py::test_revive_probes_lane_before_launch tests/fake/test_sessions_end_to_end.py::test_revive_census_refreshed_and_skips_running_twin
+...                                                                      [100%]
+3 passed in 36.03s
+
+Exit: 0; elapsed: 57.62s

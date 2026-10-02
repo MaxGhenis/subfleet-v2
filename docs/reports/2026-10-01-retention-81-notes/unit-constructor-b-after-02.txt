@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+.                                                                        [100%]
+1 passed in 7.39s
+
+Exit: 0; elapsed: 11.38s

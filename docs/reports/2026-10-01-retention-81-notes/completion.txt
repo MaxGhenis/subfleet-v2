@@ -1,0 +1,141 @@
+Retention #81 notes completion — 2026-10-01
+
+Assignment: brief-retention-notes.md; continuation at 2e7f910d4172fb552c2ab6de856bb0feb675f354.
+All changes and isolated reproductions stayed in the assigned workspace. No live
+retention pass, daemon operation, caller checkout write, push, or history rewrite.
+
+Classifications at PR #76 baseline 52520723
+
+1. DEFECT P1: same-size writes to multi-link files with mtime restored pass the
+   old unchanged() check; newly written bytes are deleted without an archived
+   copy. Current checks: subfleet/retention_fs.py:75 and :101;
+   regenerable digest-only entries: subfleet/retention_archive.py:1317 and :1346.
+   Regression: tests/unit/test_retention_81_notes.py:79,
+   test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted.
+   Baseline after-the-commit parameter FAILS: conflicts bytes are absent.
+   observe.note1() finds NONE of the new bytes anywhere after retirement.
+
+2. DEFECT P1: a disk-guard move can prune the owning row, lose private commits,
+   or delete the registration of a still-live moved checkout, leaving dangling
+   .git. Current guards: subfleet/retention_archive.py:295, :489, :589, :1035;
+   arbitrary registered moves: subfleet/retention_git.py:229.
+   Regression: tests/unit/test_retention_81_notes.py:479,
+   test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration.
+   Baseline FAILS: job is pruned and admin removed; git move-back fails.
+   observe.note2a/b/c covers the whole-pass, return-before-quarantine, and
+   move-after-begin windows; note2b loses the private commit after prune/gc.
+
+3. DEFECT P2: a cancelled allocation whose jobs.worktree is NULL is leaked
+   with its registration after its row is pruned, unseen on the next pass.
+   Current owner and expected-path guard: subfleet/retention_archive.py:206.
+   Regression: tests/unit/test_retention_81_notes.py:563,
+   test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it.
+   Baseline FAILS: survey counts the allocation as orphaned. observe.note3()
+   confirms the tree/registration survive and the next pass overlooks them.
+   Additional cases cover worktree-in-use, moved allocations, absent private
+   registrations, and a tree returning during source lookup.
+
+4. DEFECT P1 (lost anchor/private history) and P2 (salvage indefinitely stuck):
+   a gone workdir loses the common directory and bundle, even when another
+   job identifies its surviving repository. Current discovery/digest checks:
+   subfleet/retention_archive.py:939, :979, :374;
+   survey agrees: subfleet/retention_survey.py:386.
+   Regression: tests/unit/test_retention_81_notes.py:656,
+   test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows.
+   Baseline FAILS: gone tree registration remains and private commit has no
+   bundle. observe.note4() confirms no anchor/bundle without salvage and the
+   same unexplained salvage deferral after advancing three days.
+   Inferred repositories must match every recorded commit digest; a same-name
+   salvage ref in another repository is insufficient. Undiscovered sources
+   keep their rows with an explicit reason and can retire when discovered.
+
+No note is refuted or covered by the six previously accepted residuals.
+Baseline commands, outputs, assertions, and probes: baseline-tests.txt.
+
+Changes
+
+Earlier retained commits ff202a0f and 6921884e implemented the four original
+notes. WIP checkpoint 2e7f910d preserved the digest, unreadable-registration,
+and returning-tree review fixes. This continuation completed the remaining
+regenerable hardlink/proof race, arbitrary move, undiscovered-source, and
+absent NULL-allocation cases.
+
+bc87c5f3ae9458c2b6bf135ea15d6b22e6bcb58c:
+  Finish retention safety checks for hardlinks and missing allocations.
+a1f8d0550d736a46d8c3ce7140a647fb92c638bd:
+  Keep retention timing probes focused as move guards overlap.
+c6da766ee5d002b3683c4995bbc4ab1afd457316:
+  Recover private history through broken linked workdirs.
+2fe3f74bf20b296d303447f9945bfdeb7d131a71:
+  Document retention note classifications and verified mutations.
+84b8f4b921b6e1612dfeeab6e215ab1a8abc7519:
+  Make query and CLI fixtures deterministic under restricted inspection.
+4f528dad:
+  Keep archive round-trip properties independent of slice scheduling.
+All commits include the requested Claude Opus 5.5 coauthor line.
+The contract and design sections 4, 15, and 16 describe the resulting behavior.
+The final edge review found an existing lane with a dangling .git was also
+silently retired without a bundle. It now uses the same conservative discovery
+as a missing lane. Its three regressions (two bundle cases and a replaced-ref
+case) pass in broken-workdir-tests.txt; mutation checks M22–M24 verify fallback,
+retirement digest enforcement, and survey digest enforcement independently.
+
+Mutation verification
+
+25 final valid assertion kills, no unresolved survivors or unapplied patterns.
+Each note and every additional source fix is covered. The new byte-preservation
+Hypothesis property uses 200 examples. Mutants are executed in isolated copies,
+never the source used by the final suite. final-mutation-results.txt includes
+exact commands, durations, assertions, hashes, and cleanup evidence.
+Redundant sibling/generic move guards require combined M6/M8 mutants; the
+initial one-guard survivor is documented and superseded. M7 timing suppression
+and M16 explicit missing-digest assertion were rerun successfully.
+
+Full-suite fixture corrections
+
+The first parallel full run encountered 55 fixture failures: 52 database query
+tests could not construct a daemon identity because kernel inspection is denied;
+two CLI tests needed explicit process-start observations; a CLI retry assertion
+depended on scheduling within two real seconds. Deterministic identity and clock
+inputs now leave the production decisions, query comparisons, timeout/backoff,
+and message assertions intact. Focused checks: 7 passes over 6 distinct nodes,
+no skips, in fixture-validation.txt. Production code was not changed for these.
+
+The scratch archive property initially reported FlakyFailure and the exact case
+passed on replay. A controlled clock advance beyond the default 120-second slice
+proved that legitimate parking (in_flight, no errors/deferrals, row preserved)
+breaks its immediate-pruning assertion. The round-trip helper now injects a fresh
+Clock; snapshot, inode-group, fresh-clone commit/blob and outside-sentinel oracles
+remain unchanged. Explicit slice/resume tests still advance their clocks. The
+original flaky run remains labeled unreproduced, rather than retrospectively
+claiming its exact reason. Both causal and replay diagnostics are committed.
+
+Standalone retention validation
+
+201 distinct collected cases have successful runs: 38 note regressions, 109
+archive unit cases plus 2 archive properties, 26 regenerable unit cases plus
+1 property, and 25 QoS/worktree/turn cases. No retention case is skipped.
+Use full-collection.txt for the current mapping; retention-collection.txt is an
+older 196-case snapshot. Notes logs, archive-a-results.txt, archive-b-results.txt,
+and retention-small-suites.txt contain the exact selections and results.
+
+The normal slices select at most three exact nodes; each property runs singly.
+The original under-ten-minute target was exceeded by successful archive-a10
+(616.22s), archive-a16 (734.43s), archive-a20 (1253.41s), and regen10 (1149.88s).
+The original failed scratch property took 1471.32s. Every command stayed in the
+foreground and was awaited to exit; threshold diagnostics did not detach or
+kill only uv. The corrected scratch property passed in 407.61s pytest / 440.28s
+supervision, below the 550-second threshold. Both archive properties retained
+their default 10 generated examples, and the regenerable property its default
+8 plus explicit cases. The separate new byte-preservation property uses 200.
+
+Some early archive slices precede the final broken-workdir source fix; their
+reports state that provenance. The complete full-suite run uses frozen source
+4f528dad throughout and will provide uniform final-source evidence.
+
+Full-suite and final commit/bundle details will be appended after all foreground
+checks exit. Superseded or interrupted logs are retained as evidence and are
+not counted as successful full-suite or supervised retention runs.
+
+Verdict on 52520723: #76 is safe only with these fixes, within the previously
+documented accepted residuals; it is unsafe as originally stood.

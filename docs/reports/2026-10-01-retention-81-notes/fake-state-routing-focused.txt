@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success tests/fake/test_request_routing.py::test_a_closing_daemon_answers_every_wait_before_it_hangs_up
+...                                                                      [100%]
+3 passed in 47.36s
+
+Exit: 0; elapsed: 61.89s

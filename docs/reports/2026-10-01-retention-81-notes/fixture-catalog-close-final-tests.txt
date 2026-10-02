@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+.                                                                        [100%]
+1 passed in 24.25s
+
+Exit: 0; elapsed: 41.57s

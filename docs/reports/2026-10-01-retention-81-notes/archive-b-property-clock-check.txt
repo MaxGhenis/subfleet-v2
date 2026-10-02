@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+.                                                                        [100%]
+1 passed in 407.61s (0:06:47)
+
+Exit: 0; elapsed: 440.28s

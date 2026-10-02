@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_installed_files_are_dropped_only_as_their_record_says tests/unit/test_retention_regenerable.py::test_bytecode_needs_its_magic_number_and_its_source tests/unit/test_retention_regenerable.py::test_nothing_under_node_modules_is_dropped
+...                                                                      [100%]
+3 passed in 130.05s (0:02:10)
+
+Exit: 0; elapsed: 160.97s

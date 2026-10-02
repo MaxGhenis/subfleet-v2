@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off
+...                                                                      [100%]
+3 passed in 91.56s (0:01:31)
+
+Exit: 0; elapsed: 122.76s

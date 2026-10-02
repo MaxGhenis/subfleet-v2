@@ -1,0 +1,134 @@
+Command: uv run pytest -q tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+FEF                                                                      [100%]
+==================================== ERRORS ====================================
+___ ERROR at setup of test_timers_write_to_the_store_outside_their_own_lock ____
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5156/test_timers_write_to_the_store0')
+
+    @pytest.fixture
+    def daemon(tmp_path):
+>       core = Daemon(tmp_path / "state")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_lockwatch.py:254: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+=================================== FAILURES ===================================
+___________ test_c10_3_no_desktop_login_means_no_credential_is_read ____________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5156/test_c10_3_no_desktop_login_me0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x42fbf553490>
+
+    def test_c10_3_no_desktop_login_means_no_credential_is_read(tmp_path, monkeypatch):
+        """C-10.3, C-10.5 with no desktop login recorded for this HOME there is no
+        desktop identity to verify, and the daemon reaches for no keychain item."""
+        asked = []
+>       daemon = Daemon(tmp_path, desktop_prober=lambda: asked.append(True))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_daemon_integration.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+_____ test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything _____
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-5156/test_c5_8a_close_arms_on_its_o0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x42fbf553d50>
+
+    def test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything(tmp_path, monkeypatch):
+        """C-5.8a: `close()` calls `on_stop` first, before `stopping` is set and
+        before it joins or drains anything, on the thread that is closing."""
+        from subfleet.daemon import Daemon
+>       daemon = Daemon(tmp_path / "root", desktop_prober=lambda: None)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_stop_watchdog.py:503: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:481: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def boot_id() -> str:
+        """Prefer kern.bootsessionuuid; boottime can move with wall-clock correction.
+    
+        One read of the UUID serves `BOOT_ID_TTL_S` (C-5.12). Nothing else is kept:
+        not a failed read, and not the boottime seconds returned in its place.
+        """
+        global _boot_cache
+        with _boot_lock:
+            cached = _boot_cache
+            if cached and time.monotonic() - cached[0] <= BOOT_ID_TTL_S:
+                return cached[1]
+    
+        def optional_read(argv):
+            try:
+                return _read(argv)
+            except InspectionError:
+                return ""
+        value = boot_identity.read_identity(optional_read)
+        if not value:
+>           raise InspectionError("macOS boot identity is unavailable")
+E           subfleet.procs.InspectionError: macOS boot identity is unavailable
+
+subfleet/procs.py:93: InspectionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read
+FAILED tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+ERROR tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock
+2 failed, 1 error in 23.63s
+
+Exit: 1; elapsed: 35.71s

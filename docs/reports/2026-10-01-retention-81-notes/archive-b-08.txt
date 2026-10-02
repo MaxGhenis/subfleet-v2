@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows
+...                                                                      [100%]
+3 passed in 81.57s (0:01:21)
+
+Exit: 0; elapsed: 104.95s

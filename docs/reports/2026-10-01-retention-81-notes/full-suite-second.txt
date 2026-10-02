@@ -1,0 +1,8 @@
+Command: uv run pytest -q
+sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss..s.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/scheduler.py:25: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+3 passed, 60 skipped in 1475.48s (0:24:35)
+
+Exit: 2; elapsed: 1571.03s

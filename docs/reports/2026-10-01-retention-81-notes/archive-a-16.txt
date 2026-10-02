@@ -1,0 +1,7 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]
+...                                                                      [100%]
+3 passed in 520.25s (0:08:40)
+
+Check exceeded 550s. Exact-child inspection: [Errno 1] Operation not permitted: 'ps'
+
+Exit: 0; elapsed: 734.43s

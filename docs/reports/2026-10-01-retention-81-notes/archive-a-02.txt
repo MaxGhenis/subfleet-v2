@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted
+...                                                                      [100%]
+3 passed in 352.50s (0:05:52)
+
+Exit: 0; elapsed: 386.14s

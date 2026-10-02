@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time
+...                                                                      [100%]
+3 passed in 342.70s (0:05:42)
+
+Exit: 0; elapsed: 361.89s

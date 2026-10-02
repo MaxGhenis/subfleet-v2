@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled tests/unit/test_retention_worktrees.py::test_c8_4_c13_4_retention_counts_archives_and_removes_clean_allocated_worktree
+...                                                                      [100%]
+3 passed in 200.01s (0:03:20)
+
+Exit: 0; elapsed: 255.17s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated] tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent
+...                                                                      [100%]
+3 passed in 127.11s (0:02:07)
+
+Exit: 0; elapsed: 224.07s

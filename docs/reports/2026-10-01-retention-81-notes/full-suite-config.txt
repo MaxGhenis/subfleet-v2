@@ -1,0 +1,23 @@
+Full suite application source: c6da766ee5d002b3683c4995bbc4ab1afd457316.
+Deterministic CLI/query fixtures: 84b8f4b9 (see fixture-validation.txt).
+Frozen final source: 4f528dad (archive round-trip property uses a fresh fake clock; see archive-b-clock-budget-diagnostic.txt). All production fixes remain at c6da766e.
+Final command: UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit PYTHONHASHSEED=0 PYTEST_ADDOPTS='-n4 --dist load --durations=10' uv run pytest -q
+Local-only test packages: pytest-xdist3.8.0, execnet2.1.2. No tracked dependency or application source change.
+Grouping documentation: https://pytest-xdist.readthedocs.io/en/stable/distribution.html
+Read-only fixture review: per-test/worker temporary roots, unique AF_UNIX sockets, worker-local env/caches and Swift compile paths. No shared passing-test state found. Duplicate-name failure diagnostics can overwrite /tmp/sf-failed entries; original per-worker stdout remains in the full log.
+The final scheduler distributes individual cases across four workers. A second review found no assertion dependency requiring a file's cases to stay together: module/session fixtures read source or build into worker-local roots; cleanup follows exact per-root PID receipts. Hypothesis, git, byte, and commit assertions remain unchanged. Default live-test opt-in remains off.
+Serial predecessor: full-suite-third.txt; interrupted through its owned foreground terminal,39passed60skipped, pytestexit2, supervisorawaited teardown. Earlier partial runs are also retained; none count as a successful full suite.
+First parallel predecessor: full-suite-xdist-first.txt; interrupted after 55 fixture failures and 1519 passes. All owned workers exited. Sandbox-denied identity inspection accounts for 54 failures; the remaining CLI retry failure depended on scheduling within two real seconds. These observations were corrected in test fixtures, with all focused assertions retained.
+All7349 nodes collected at final source: full-collection.txt, exit0.
+Final foreground execution: owned TTY78066; printed immediate child97503. The supervisor waits for normal pytest/xdist teardown; no timed kill or detached process.
+subfleet/retention_archive.py sha256 5b429d0efd34ba1fabed3467db7703e1f40ca8efcacee793994af8b017b1d74c
+subfleet/retention_survey.py sha256 cae7e05ea420df5a73d320edc677ca9d51054694d75a72ff0505be758f41431c
+subfleet/retention_fs.py sha256 278c8db8a28d1ab0eda0802d6412461822d78f3335745550e24f9b4b96438599
+subfleet/retention_git.py sha256 25a4645ddda4e7e7e3d8270f786ec5ee9ce198f85b713e93b17382ef9274d467
+tests/unit/test_retention_81_notes.py sha256 35fba316f35c7681ceaf06cfdecf5f861bdaf4362161849c739751825d10a44a
+
+Final fixture/property hashes:
+tests/unit/test_cli.py sha256 6454ba7bc6a567b9f74cc7f14b8944e02bf0654fd37d87741c6c627cc8465026
+tests/unit/test_store_contention_queries.py sha256 b847acf6f70737d50e88cddb5d39c310deab2f5b7c060ad8358e1c9e247ae2f4
+tests/unit/test_retention_archive_properties.py sha256 885e4d46afe053eeebd475cd47bba4b39df80758569df0616712b5303ea57b6a
+Imported package location: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/subfleet/__init__.py

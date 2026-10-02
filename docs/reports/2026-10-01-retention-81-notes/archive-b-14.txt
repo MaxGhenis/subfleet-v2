@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_the_history_limit_is_for_repositories_without_a_network_remote tests/unit/test_retention_archive.py::test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job tests/unit/test_retention_archive.py::test_the_survey_keeps_what_the_history_limit_keeps
+...                                                                      [100%]
+3 passed in 309.48s (0:05:09)
+
+Exit: 0; elapsed: 349.25s

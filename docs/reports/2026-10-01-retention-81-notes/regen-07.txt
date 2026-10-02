@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.uv-cache] tests/unit/test_retention_regenerable.py::test_ignored_matches_git_status tests/unit/test_retention_regenerable.py::test_sampled_survey_is_read_only_and_matches_the_retirement
+...                                                                      [100%]
+3 passed in 83.88s (0:01:23)
+
+Exit: 0; elapsed: 121.49s

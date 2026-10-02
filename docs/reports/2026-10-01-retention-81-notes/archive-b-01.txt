@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days] tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]
+...                                                                      [100%]
+3 passed in 78.36s (0:01:18)
+
+Exit: 0; elapsed: 98.54s

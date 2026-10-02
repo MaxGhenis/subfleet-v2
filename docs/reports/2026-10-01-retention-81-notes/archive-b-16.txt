@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline
+...                                                                      [100%]
+3 passed in 170.26s (0:02:50)
+
+Exit: 0; elapsed: 197.96s

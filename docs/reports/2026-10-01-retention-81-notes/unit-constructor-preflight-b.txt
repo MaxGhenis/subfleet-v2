@@ -1,0 +1,96 @@
+Unit constructor preflight B
+Generated: 2026-10-01T21:42:31.442903+00:00
+
+Scope and selection
+Owned and edited only:
+- tests/unit/test_daemon_integration.py
+- tests/unit/test_lockwatch.py
+- tests/unit/test_stop_watchdog.py
+- tests/unit/test_conversation_service.py (sole real constructor case)
+No production code, shared conftest, git metadata, or commits changed by this
+agent. Other agents concurrently own separate files. No full modules/suites
+run in this task. Four unique representative cases run before and after, in
+sequential foreground groups of three and one.
+
+Observed original failures (no speculative fix)
+All four representatives reached subfleet/daemon.py:481 and failed on the
+real boot_id reader, subfleet/procs.py:93:
+  raise InspectionError("macOS boot identity is unavailable")
+These are actual constructor/fixture failures before the semantic test body.
+Before group1: desktop credential case failed; lockwatch daemon fixture
+setup errored; close ordering case failed (2 failures + 1 setup error).
+Before group2: conversation-service close/text case failed (1 failure).
+No current-PID proc_start failure was reached, because boot identity failed
+first. The start observation completes the deterministic constructor identity;
+it is limited strictly to os.getpid(), delegating any other PID unchanged.
+
+Changes and preserved oracles
+Daemon integration, lockwatch, and the two in-process stop-watchdog constructors
+now use local daemon_for_test helpers. Each constructs the real Daemon inside
+a short MonkeyPatch.context with deterministic boot_id and current-PID
+proc_start observations. Context exits immediately after construction,
+restoring the real readers before semantic work, process observation, signals,
+close, or other watchdog behavior. Lockwatch's manual older/newer daemon cases
+also use the helper. All lock, desktop credential, stop ordering, drain,
+flock release, signal, and watchdog assertions remain unchanged.
+
+The daemon integration explicit test_c5_8_failed_identity_initialization_releases_flock
+still calls real Daemon directly with its own unavailable boot_id override;
+it bypasses the helper completely. Its body and assertions are unchanged,
+verified in source. This task reran only the four requested representatives;
+no extra identity test is claimed as run. Static guard methods remain on the
+real Daemon class, without class monkeypatching or wrappers.
+
+Conversation-service's one real constructor uses the same narrow inline
+MonkeyPatch.context. Its fake-daemon tests are untouched. The message/text
+close behavior, future result store-closed reason, removed-root assertion,
+close thread waits, and all semantic assertions are unchanged.
+
+Watchdog CHILD scripts execute fresh interpreters, with no injected monkeypatch
+or environment override; their real kernel timers, signals, and process
+termination remain untouched. Real boot/current-PID observations outside
+constructor contexts are not masked. No broad module-autouse or shared
+conftest fixture was added.
+
+Foreground commands/results
+All tool exec_command calls for tests used tty=True and yield_time_ms=1000.
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache;
+SUBFLEET_RETENTION_QOS=inherit. Environment set only per command.
+
+unit-constructor-b-before-01.txt
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-b-before-01.txt 550 uv run pytest -q tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+TTY session 30909; child 75411; 2 failed, 1 error in 23.63s; Exit: 1; elapsed: 35.71s.
+Session awaited to its final exit status; full merged stdout/stderr in this log.
+
+unit-constructor-b-before-02.txt
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-b-before-02.txt 550 uv run pytest -q tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+TTY session 99714; child 80920; 1 failed in 9.24s; Exit: 1; elapsed: 17.37s.
+Session awaited to its final exit status; full merged stdout/stderr in this log.
+
+unit-constructor-b-after-01.txt
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-b-after-01.txt 550 uv run pytest -q tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+TTY session 40149; child 2158; 3 passed in 17.72s; Exit: 0; elapsed: 23.11s.
+Session awaited to its final exit status; full merged stdout/stderr in this log.
+
+unit-constructor-b-after-02.txt
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/unit-constructor-b-after-02.txt 550 uv run pytest -q tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+TTY session 47924; child 6410; 1 passed in 7.39s; Exit: 0; elapsed: 11.38s.
+Session awaited to its final exit status; full merged stdout/stderr in this log.
+
+Latest outcome: 4/4 unique representatives PASS. Initial 3 failures + 1 setup
+error retained in before logs. No collection/import errors or timeouts in the
+fixed runs. All four supervisor commands finished within550s, so none needed
+ps inspection, interruption, termination, or a continued overrun wait.
+
+Teardown
+Every owned read/write command and all four supervised test commands were
+awaited to their exit status. No active owned command sessions or children
+remain; no background/nohup/setsid/pattern kills used. Root full-suite sessions
+were never interacted with. Sources frozen before fixed runs and matched
+these hashes again after the last run.
+
+Frozen source SHA256
+tests/unit/test_daemon_integration.py: 798a9ef0d9d63f70c865273cf278839bc0004ce70e8da1fe16f7f9434c26bc44
+tests/unit/test_lockwatch.py: 377e3b619cbd116584c30a12660199b930e1efcd78eaa33be79e002c8cec1902
+tests/unit/test_stop_watchdog.py: b356b87d52cf9bdd804b9a8b2e4861d0690c666778d0e745b4395edd20d91eba
+tests/unit/test_conversation_service.py: 644f6427cd3778de08e8e502731895ee9116c9f4119ecebefa53b5d811832e5b

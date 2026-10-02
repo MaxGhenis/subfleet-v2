@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_regenerable_output_is_deleted_with_the_tree_not_archived tests/unit/test_retention_regenerable.py::test_work_left_inside_a_tool_directory_is_archived tests/unit/test_retention_regenerable.py::test_work_inside_a_tool_entry_is_archived
+...                                                                      [100%]
+3 passed in 319.14s (0:05:19)
+
+Exit: 0; elapsed: 348.96s

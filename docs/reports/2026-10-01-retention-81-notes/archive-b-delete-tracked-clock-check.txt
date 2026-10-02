@@ -1,0 +1,31 @@
+Command: uv run python -u -c import hashlib,json,os,time
+from pathlib import Path
+from subfleet import retention
+from tests.unit import test_retention_archive_properties as props
+original=retention.maintenance
+def inspected(*args,**kwargs):
+    clock=kwargs.get("clock")
+    print("ORACLE_CLOCK",type(clock).__name__,"start",clock(),flush=True)
+    started=time.monotonic()
+    result=original(*args,**kwargs)
+    print("MAINTENANCE_ELAPSED_SECONDS",time.monotonic()-started,flush=True)
+    print("ORACLE_CLOCK_END",clock(),flush=True)
+    print("FULL_MAINTENANCE_RESULT",json.dumps(result,sort_keys=True,default=str),flush=True)
+    return result
+retention.maintenance=inspected
+print("RETENTION_PROP_EXAMPLES",repr(os.environ.get("RETENTION_PROP_EXAMPLES")),flush=True)
+print("PROPERTY_DEFAULT_EXAMPLES",props.EXAMPLES,flush=True)
+print("PROPERTY_SOURCE_SHA256",hashlib.sha256(Path("tests/unit/test_retention_archive_properties.py").read_bytes()).hexdigest(),flush=True)
+props.test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted.hypothesis.inner_test(ops=[("delete-tracked",)])
+print("FOCUSED_DELETE_TRACKED_FIXED_CLOCK_ORACLE_PASSED",flush=True)
+
+RETENTION_PROP_EXAMPLES None
+PROPERTY_DEFAULT_EXAMPLES 10
+PROPERTY_SOURCE_SHA256 885e4d46afe053eeebd475cd47bba4b39df80758569df0616712b5303ea57b6a
+ORACLE_CLOCK Clock start 1000.0
+MAINTENANCE_ELAPSED_SECONDS 3.9473897909920197
+ORACLE_CLOCK_END 1000.0
+FULL_MAINTENANCE_RESULT {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "conflicts": [], "deferred": {}, "errors": [], "freed_bytes": 0, "freed_disk_bytes": 0, "in_flight": [], "jobs_after": 0, "more": false, "pin_reasons": {}, "pools": {"detached": {"added_bytes": 8880, "archived_bytes": 20297, "bytes_after": 0, "bytes_before": 19547, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 1, "max_bytes": 0, "max_jobs": 0, "unknown_size": 0, "unmeasured": 0}, "turn": {"added_bytes": 0, "archived_bytes": 0, "bytes_after": 0, "bytes_before": 0, "freed_bytes": 0, "freed_disk_bytes": 0, "jobs_after": 0, "jobs_before": 0, "max_bytes": 4294967296, "max_jobs": 2000, "unknown_size": 0, "unmeasured": 0}}, "progressed": true, "protected": [], "pruned": ["job-prop"], "reclaimed": ["job-prop"]}
+FOCUSED_DELETE_TRACKED_FIXED_CLOCK_ORACLE_PASSED
+
+Exit: 0; elapsed: 18.40s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_lookalikes_are_archived_byte_for_byte tests/unit/test_retention_regenerable.py::test_a_repository_inside_regenerable_output_is_archived tests/unit/test_retention_regenerable.py::test_without_git_nothing_is_regenerable
+...                                                                      [100%]
+3 passed in 291.91s (0:04:51)
+
+Exit: 0; elapsed: 323.34s

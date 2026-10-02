@@ -1,0 +1,79 @@
+Fake state and request-routing fixture/timing fixes
+Generated: 2026-10-01T21:26:15.996890+00:00
+
+Scope
+Only tests/fake/test_state_contract.py and tests/fake/test_request_routing.py
+were edited by this agent. No production source changes, commits, background
+commands, detachments, or pattern kills. Root owns commits. Other agents may
+change unrelated files concurrently.
+
+Original diagnostic evidence
+Source: full-suite-diagnostic-4f528.txt.
+1. test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches
+   (diagnostic lines 914-937): cancelled states were correct, but the equality
+   assertion saw two UTC seconds: 2026-10-01T20:53:28Z / 20:53:31Z.
+2. test_c4_4_state_missing_exit_receipt_never_accepts_success
+   (diagnostic lines 1111-1130): actual job state running, expected lost.
+3. test_a_closing_daemon_answers_every_wait_before_it_hangs_up
+   (diagnostic lines 39-65): only 3 of 4 waiters registered by the five-second
+   setup deadline. The test failed before invoking the close behavior oracle.
+
+Diagnosis and changes
+C-7.3, docs/acceptance-contract.md:184, requires family cancellation in the
+same transaction, not identical wall-clock timestamps. Daemon.kill calls
+utcnow separately per row (subfleet/daemon.py:2575). The test now observes an
+independent read-only SQLite connection at each _notice callback: every family
+member is still queued with no cancellation timestamp before commit; afterward
+all are cancelled with populated cancellation timestamps. It requires every
+family notice callback and preserves independent-branch survival and exactly
+three persisted notices. This directly checks transaction visibility instead
+of using timestamp equality as a proxy; no clock freezing or production edit.
+
+The state-only fixture already stubbed boot_id, proc_start, same_process, and
+containment, but left snapshot and liveness real. _inspect_running
+(subfleet/daemon.py:4608-4672) can defer when process inspection is unavailable
+or unknown. Original traceback did not log its actual inspection branch;
+this is a source-based diagnosis, not a claim that one precise branch was
+observed. The fixture now supplies an empty ProcessTable and dead liveness,
+consistent with its explicit no-process-inspection contract. This completes
+mocking of the inspection path; individual tests' explicit alive/containment
+and signal overrides remain intact. Full state-module validation covers those
+existing branches.
+
+Closing-wait setup now allows 60 seconds for registration, with client timeout
+90 and server wait deadline120, so setup does not expire a waiter prematurely.
+The actual oracle still requires all four registered waiters, exactly four
+successful timeout replies, and less than eight seconds after close starts.
+A finally block closes the daemon, joins every owned waiter, and requires no
+waiter remains alive, including on assertion failure.
+
+Commands, results and owned process teardown
+All commands run in the assigned workspace and remain foreground supervised.
+Environment: UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache;
+SUBFLEET_RETENTION_QOS=inherit. No global environment changes.
+
+Focused command:
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/fake-state-routing-focused.txt 550 uv run pytest -q tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success tests/fake/test_request_routing.py::test_a_closing_daemon_answers_every_wait_before_it_hangs_up
+TTY session59682; foreground child97463. Passed3/3, pytest47.36s;
+supervisor61.89s; rc0. Session awaited to exit0. Full stdout/stderr captured
+in fake-state-routing-focused.txt.
+
+Affected-module command:
+UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache SUBFLEET_RETENTION_QOS=inherit .venv/bin/python docs/reports/2026-10-01-retention-81-notes/run_check.py docs/reports/2026-10-01-retention-81-notes/fake-state-routing-modules.txt 550 uv run pytest -q tests/fake/test_state_contract.py tests/fake/test_request_routing.py
+TTY session44161; foreground child15172. Passed39/39, pytest143.85s;
+supervisor166.04s; rc0. Full stdout/stderr captured in
+fake-state-routing-modules.txt. Session44161 awaited to exit0. Every owned
+read/write command and both supervised test commands have exited and been
+awaited; no active owned sessions remain. Both runs finished within the550-second
+supervisor threshold; neither required inspection, termination, or retry.
+
+Source provenance after frozen changes
+tests/fake/test_state_contract.py: fb94104315241a4e2fc55d558f2527d571f54daf87dbba8a611e0ef8c2b2f135
+tests/fake/test_request_routing.py: ca817966484107eb34e8954fd920d07cb2a69928ac9ee2acdcdd385038817c47
+subfleet/daemon.py: 978ca34c9720d2e3ad770dc022e760018ce3a9b476fdd23f537e7803300b2a00
+
+Validation excerpts
+Focused: 3 passed in 47.36s; Exit: 0; elapsed: 61.89s.
+Modules: 39 passed in 143.85s (0:02:23); Exit: 0; elapsed: 166.04s.
+These 39 are unique affected-module cases; the focused three are included in
+that39, not three extra unique tests.

@@ -9,14 +9,29 @@ sees its own rows; `snapshot()` gives several reads one committed state.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
 
 import pytest
 
+from subfleet import procs
 from subfleet.daemon import READ_CONNECTIONS, Daemon
 from subfleet.store import SnapshotWriteError, Store
+
+
+@pytest.fixture(autouse=True)
+def daemon_identity(monkeypatch):
+    """Store concurrency tests need a daemon identity, not kernel inspection."""
+    pid = os.getpid()
+
+    def current_start(asked):
+        assert asked == pid
+        return "Thu Oct  1 12:00:00 2026"
+
+    monkeypatch.setattr(procs, "boot_id", lambda: "00000000-0000-4000-8000-000000000001")
+    monkeypatch.setattr(procs, "proc_start", current_start)
 
 
 def lease(tx, key: str) -> None:

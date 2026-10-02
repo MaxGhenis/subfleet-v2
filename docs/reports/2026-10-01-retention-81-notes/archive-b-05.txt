@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released
+...                                                                      [100%]
+3 passed in 114.29s (0:01:54)
+
+Exit: 0; elapsed: 127.43s

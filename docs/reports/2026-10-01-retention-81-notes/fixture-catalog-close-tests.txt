@@ -1,0 +1,66 @@
+Command: uv run pytest -q tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone _
+
+runs = <test_conversation_catalog_lifecycle.Runs object at 0x5ed26047390>
+identity = None, short_root = PosixPath('/tmp/sfc-noiuldks')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5ed25fd6e10>
+
+    def test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone(
+            runs, identity, short_root, monkeypatch):
+        """The control loop starts a catalog run; the daemon closes while it is in flight.
+        `close()` returns only once the run has ended, so no catalog process outlives it,
+        and after the root is removed nothing brings it back, even once a surviving run
+        could finish its scan and write."""
+        root = short_root
+        spawn_refresh = catalog_module.spawn_refresh
+    
+        def track_refresh(state_root, **kwargs):
+            # Observe every catalog child this daemon starts, including a second run
+            # that a shutdown race could launch. Exact Popen handles remain useful
+            # when the sandbox does not permit inspecting the host's process table.
+            assert state_root == root
+            process = spawn_refresh(state_root, **kwargs)
+            return runs.track(process) if process is not None else None
+    
+        monkeypatch.setattr(catalog_module, "spawn_refresh", track_refresh)
+        try:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.bind(str(root / "probe"))
+            (root / "probe").unlink()
+        except PermissionError:
+            pytest.skip("sandbox denies Unix socket binding")
+        daemon = Daemon(root, tick_s=.05)
+        thread = threading.Thread(target=daemon.serve_forever, daemon=True)
+        thread.start()
+        problems: list[str] = []
+        try:
+>           runs.hold()
+
+tests/unit/test_conversation_catalog_lifecycle.py:363: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_conversation_catalog_lifecycle.py:78: in hold
+    until(lambda: not self.unread(), what="a catalog run to read the FIFO")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function Runs.hold.<locals>.<lambda> at 0x5ed2703d500>
+timeout = 30.0, what = 'a catalog run to read the FIFO'
+
+    def until(predicate, timeout=30.0, what="condition"):
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            if predicate():
+                return
+            time.sleep(.02)
+>       raise AssertionError(f"{what} timed out")
+E       AssertionError: a catalog run to read the FIFO timed out
+
+tests/unit/test_conversation_catalog_lifecycle.py:51: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    subfleet.daemon.6516103230096:service.py:1389 conversation tick step _catalog_tick failed: AssertionError: assert PosixPath('/private/tmp/sfc-noiuldks') == PosixPath('/tmp/sfc-noiuldks')
+=========================== short test summary info ============================
+FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+1 failed in 47.25s
+
+Exit: 1; elapsed: 80.29s

@@ -1,0 +1,5 @@
+Command: uv run pytest -q tests/unit/test_retention_regenerable.py::test_the_command_line_samples_and_lists_what_was_freed tests/unit/test_retention_regenerable.py::test_ignored_compares_names_folded_as_apfs_matches_them tests/unit/test_retention_regenerable.py::test_an_nfd_named_parent_does_not_make_a_visible_venv_ignored
+...                                                                      [100%]
+3 passed in 119.75s (0:01:59)
+
+Exit: 0; elapsed: 145.44s

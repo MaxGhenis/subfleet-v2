@@ -1,0 +1,32 @@
+Foreground retention QoS, worktrees, and turns validation.
+Source: final main workspace source; no source mutations.
+Environment: UV_CACHE_DIR=/private/tmp/subfleet-retention-81-uv-cache; SUBFLEET_RETENTION_QOS=inherit.
+25 collected cases; slices have at most 3 exact nodes and a 550-second supervisor threshold.
+small-01.txt: exit 0; 3 passed in 60.01s (0:01:00)
+small-02.txt: exit 0; 3 passed in 72.71s (0:01:12)
+small-03.txt: exit 0; 3 passed in 200.01s (0:03:20)
+small-04.txt: exit 0; 3 passed in 95.29s (0:01:35)
+small-05.txt: exit 0; 3 passed in 54.07s
+small-06.txt: exit 0; 3 passed in 73.30s (0:01:13)
+small-07.txt: exit 0; 3 passed in 58.36s
+small-08.txt: exit 0; 3 passed in 30.73s
+small-09.txt: exit 0; 1 passed in 45.73s
+Completed 25 cases in 9 slices; 0 failing slices; elapsed 1189.81s.
+
+Foreground regenerable validation: 26 normal cases plus one property; property settings unchanged.
+regen-01.txt: exit 0; 3 passed in 319.14s (0:05:19)
+regen-02.txt: exit 0; 3 passed in 130.05s (0:02:10)
+regen-03.txt: exit 0; 3 passed in 202.82s (0:03:22)
+regen-04.txt: exit 0; 3 passed in 291.91s (0:04:51)
+regen-05.txt: exit 0; 3 passed in 173.75s (0:02:53)
+regen-06.txt: exit 0; 3 passed in 19.18s
+regen-07.txt: exit 0; 3 passed in 83.88s (0:01:23)
+regen-08.txt: exit 0; 3 passed in 119.75s (0:01:59)
+regen-09.txt: exit 0; 2 passed in 108.30s (0:01:48)
+regen-10.txt: exit 0; 1 passed in 1117.25s (0:18:37)
+Regenerable: completed 27 cases in 10 slices; 0 failing slices; elapsed 2901.50s.
+Aggregate requested coverage: 25 QoS/worktrees/turns cases plus 27 regenerable/property cases = 52 cases.
+Actual aggregate: 52 passed across 19 foreground slices, no failures or skips.
+Normal slice maximum supervised elapsed: 348.96s.
+Property: unchanged default 8 generated examples plus explicit cases; passed in 1117.25s. It crossed the 550s threshold; exact-child ps inspection was denied, so the supervisor continued waiting in foreground and reaped its child before exiting 0.
+Both owned supervised TTY sessions completed with exit 0; no test command started by this agent remains running.
