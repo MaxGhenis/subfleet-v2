@@ -1,0 +1,365 @@
+{
+ "tree": "/private/tmp/claude-corelive-ab/old",
+ "rounds": 40,
+ "event_seen": 40,
+ "listed_at_once": 21,
+ "approval_needed_at_once": 21,
+ "missed": [
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  }
+ ],
+ "results": [
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": false,
+   "state": "running"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  }
+ ]
+}

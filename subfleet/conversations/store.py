@@ -27,7 +27,7 @@ from typing import Any, Iterator
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import APPROVAL_NEEDED, CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -968,6 +968,14 @@ class ConversationStore:
         """Move a message; with `expect`, only from those states, with `unbound`,
         only while no job is bound to it, and with `expect_turn_seq`, only at that
         turn sequence. Returns whether it moved."""
+        with self.transaction() as tx:
+            return self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
+                                   expect_turn_seq=expect_turn_seq, **fields)
+
+    def _set_state(self, tx: sqlite3.Connection, message_id: str, state: str, *, reason: str | None = None,
+                   expect: tuple[str, ...] | None = None, unbound: bool = False,
+                   expect_turn_seq: int | None = None, **fields: Any) -> bool:
+        """`set_state` inside a transaction the caller holds."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
@@ -987,12 +995,11 @@ class ConversationStore:
         if expect_turn_seq is not None:
             where += " AND turn_seq=?"
             wparams.append(expect_turn_seq)
-        with self.transaction() as tx:
-            cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
-            if cur.rowcount:
-                row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
-                self._change(tx, row["conversation_id"], message_id, state, reason=reason)
-            return bool(cur.rowcount)
+        cur = tx.execute(f"UPDATE messages SET {','.join(sets)} WHERE {where}", (*params, *wparams))
+        if cur.rowcount:
+            row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+            self._change(tx, row["conversation_id"], message_id, state, reason=reason)
+        return bool(cur.rowcount)
 
     def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
@@ -1057,28 +1064,66 @@ class ConversationStore:
 
     def add_approval(self, *, message_id: str, conversation_id: str, attempt_id: str, provider_request_id: str,
                      kind: str, request: dict, display: dict, options: tuple[str, ...]) -> tuple[dict, bool]:
-        existing = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                            (attempt_id, provider_request_id))
-        if existing:
-            return _decode_approval(existing), False
-        approval_id = new_id("ap")
-        raw = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
-        path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
-        self._publish(path, raw)
+        """One approval alone; a turn's runner records its requests with their events (`add_approvals`)."""
+        [(approval, created)] = self.add_approvals(
+            message_id=message_id, conversation_id=conversation_id, attempt_id=attempt_id,
+            approvals=[{"provider_request_id": provider_request_id, "kind": kind, "request": request,
+                        "display": display, "options": options}])
+        return approval, created
+
+    def add_approvals(self, *, message_id: str, conversation_id: str, attempt_id: str, approvals: list[dict],
+                      events: list[tuple[str, str, int, str, dict]] | None = None, stdout_offset: int = 0,
+                      stdin_seq: int = 0, expect: tuple[str, ...] | None = None) -> list[tuple[dict, bool]]:
+        """A provider's requests (C-27.1, design §8): each one's approval; with `events`,
+        the batch that announces them and the attempt's watermark (as `append_events`);
+        with `expect`, the message's move to `approval-needed` from those states. All in
+        one transaction, so no reader sees an `approval.requested` event whose approval
+        `approval.list` does not list yet: the app lists approvals as soon as the event
+        shows the card, to answer it, and found none when the event had been committed
+        alone (CI, 2026-10-01). Each exact request is published before the transaction,
+        as a message's text is before its row (C-24.3). A request already recorded
+        (replayed, C-27.3), or named twice, keeps one approval; with nothing new and
+        nothing else to write, nothing is committed. Each approval is returned with
+        whether it was made here."""
+        staged: list[tuple[dict, tuple[str, Path, bytes] | None]] = []
+        for approval in approvals:
+            if any(new and earlier["provider_request_id"] == approval["provider_request_id"] for earlier, new in staged) \
+                    or self.one("SELECT 1 FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                                (attempt_id, approval["provider_request_id"])):
+                staged.append((approval, None))
+                continue
+            approval_id = new_id("ap")
+            raw = json.dumps(approval["request"], sort_keys=True, separators=(",", ":")).encode()
+            path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
+            self._publish(path, raw)
+            staged.append((approval, (approval_id, path, raw)))
+        if events is None and expect is None and not any(new for _, new in staged):
+            return [(self._approval_row(attempt_id, a["provider_request_id"]), False) for a in approvals]
         with self.transaction() as tx:
-            tx.execute(
-                "INSERT OR IGNORE INTO approvals(approval_id,message_id,conversation_id,attempt_id,provider_request_id,kind,"
-                "request_path,request_sha256,display_json,options_json,nonce,state,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
-                (approval_id, message_id, conversation_id, attempt_id, provider_request_id, kind, str(path),
-                 hashlib.sha256(raw).hexdigest(), json.dumps(display), json.dumps(list(options)),
-                 secrets.token_hex(16), utcnow()))
-            pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
-                                 (message_id,)).fetchone()[0]
-            self._change(tx, conversation_id, message_id, None, pending=pending)
-        row = self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
-                       (attempt_id, provider_request_id))
-        return _decode_approval(row), True
+            if events is not None:
+                self._insert_events(tx, conversation_id=conversation_id, message_id=message_id, attempt_id=attempt_id,
+                                    events=events, stdout_offset=stdout_offset, stdin_seq=stdin_seq)
+            for approval, new in staged:
+                if new is None:
+                    continue
+                approval_id, path, raw = new
+                tx.execute(
+                    "INSERT OR IGNORE INTO approvals(approval_id,message_id,conversation_id,attempt_id,provider_request_id,"
+                    "kind,request_path,request_sha256,display_json,options_json,nonce,state,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
+                    (approval_id, message_id, conversation_id, attempt_id, approval["provider_request_id"],
+                     approval["kind"], str(path), hashlib.sha256(raw).hexdigest(), json.dumps(approval["display"]),
+                     json.dumps(list(approval["options"])), secrets.token_hex(16), utcnow()))
+                pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
+                                     (message_id,)).fetchone()[0]
+                self._change(tx, conversation_id, message_id, None, pending=pending)
+            if expect is not None:
+                self._set_state(tx, message_id, APPROVAL_NEEDED, expect=expect)
+        return [(self._approval_row(attempt_id, a["provider_request_id"]), new is not None) for a, new in staged]
+
+    def _approval_row(self, attempt_id: str, provider_request_id: str) -> dict:
+        return _decode_approval(self.one("SELECT * FROM approvals WHERE attempt_id=? AND provider_request_id=?",
+                                         (attempt_id, provider_request_id)))
 
     def approval(self, approval_id: str) -> dict:
         row = self.one("SELECT * FROM approvals WHERE approval_id=?", (approval_id,))
@@ -1142,26 +1187,33 @@ class ConversationStore:
                       events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
         attempt's watermark, in one transaction. Duplicates are ignored (C-26.6)."""
+        with self.transaction() as tx:
+            return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                       attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
+                                       stdin_seq=stdin_seq)
+
+    def _insert_events(self, tx: sqlite3.Connection, *, conversation_id: str, message_id: str, attempt_id: str,
+                       events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
+        """`append_events` inside a transaction the caller holds."""
         now = utcnow()
         written = 0
-        with self.transaction() as tx:
-            mark = tx.execute("SELECT compacted FROM attempt_marks WHERE attempt_id=?", (attempt_id,)).fetchone()
-            compacted = bool(mark and mark["compacted"])
-            for source, position, ordinal, kind, data in events:
-                if compacted and kind in DELTA_KINDS:
-                    continue            # removed by compaction; a replay never brings them back
-                body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-                if len(body.encode()) > EVENT_ROW_MAX:
-                    body = json.dumps({"truncated": True, "kind": kind})
-                cur = tx.execute(
-                    "INSERT OR IGNORE INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,data_json,ts) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (conversation_id, message_id, attempt_id, source, position, ordinal, kind, body, now))
-                written += cur.rowcount
-            tx.execute("INSERT INTO attempt_marks(attempt_id,message_id,stdout_offset,stdin_seq) VALUES (?,?,?,?) "
-                       "ON CONFLICT(attempt_id) DO UPDATE SET stdout_offset=MAX(stdout_offset,excluded.stdout_offset), "
-                       "stdin_seq=MAX(stdin_seq,excluded.stdin_seq)",
-                       (attempt_id, message_id, stdout_offset, stdin_seq))
+        mark = tx.execute("SELECT compacted FROM attempt_marks WHERE attempt_id=?", (attempt_id,)).fetchone()
+        compacted = bool(mark and mark["compacted"])
+        for source, position, ordinal, kind, data in events:
+            if compacted and kind in DELTA_KINDS:
+                continue            # removed by compaction; a replay never brings them back
+            body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+            if len(body.encode()) > EVENT_ROW_MAX:
+                body = json.dumps({"truncated": True, "kind": kind})
+            cur = tx.execute(
+                "INSERT OR IGNORE INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,data_json,ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (conversation_id, message_id, attempt_id, source, position, ordinal, kind, body, now))
+            written += cur.rowcount
+        tx.execute("INSERT INTO attempt_marks(attempt_id,message_id,stdout_offset,stdin_seq) VALUES (?,?,?,?) "
+                   "ON CONFLICT(attempt_id) DO UPDATE SET stdout_offset=MAX(stdout_offset,excluded.stdout_offset), "
+                   "stdin_seq=MAX(stdin_seq,excluded.stdin_seq)",
+                   (attempt_id, message_id, stdout_offset, stdin_seq))
         return written
 
     def floor(self, conversation_id: str) -> int:
