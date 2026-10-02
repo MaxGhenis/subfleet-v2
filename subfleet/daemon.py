@@ -61,6 +61,15 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-5.11: what a tick reads of every live attempt, in one statement: where its
+#: receipts are, its state, and its job's cancel request and wall limit. It
+#: names no column SQLite keeps on overflow pages: `evidence_json` averaged
+#: 8.4 KB for a running attempt on 2026-10-02, and `SELECT *` read it for every
+#: live attempt twenty times a second.
+LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
+             "j.started_at AS job_started_at,j.max_wall_s "
+             "FROM attempts a LEFT JOIN jobs j USING(job_id) "
+             "WHERE a.state IN ('reserved','starting','running','finalizing')")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
@@ -303,6 +312,11 @@ class Daemon:
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
+        # C-5.11: live attempts known to be this daemon's own. An attempt is
+        # recorded `imported_external` when it is imported or never, so "not
+        # imported" is read once; one that is imported is read again each tick,
+        # because the importer clears the flag when it settles the run.
+        self._native: set[str] = set()
         # Raised inspections stay pending until an inspection runs to its end.
         self._inspect_retry: set[str] = set()
         # The last table read (None if the read failed) and when it expires,
@@ -1977,6 +1991,50 @@ class Daemon:
                 pacing.pop(aid, None)
         for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
             self._inspect_retry.discard(aid)
+        self._native &= live
+
+    def _v1_owned(self, aid: str) -> bool:
+        """Whether v1 still executes this live attempt (`imported_external`), read
+        from its row until the answer is no (C-5.11)."""
+        if aid in self._native:
+            return False
+        row = self.store.one("SELECT evidence_json FROM attempts WHERE attempt_id=?", (aid,))
+        if row is not None and imported_external(row):
+            return True
+        self._native.add(aid)
+        return False
+
+    def _has_work(self, a: dict) -> bool:
+        """C-5.11: whether a pass over this live attempt could do anything this tick.
+
+        `_process_attempt` on a running attempt reads its exit receipt, its job's
+        cancel request and its wall limit, and then inspects its processes if an
+        inspection is due (C-5.12). When there is no receipt, no cancel request,
+        the wall limit is not reached and no inspection is due, it returns having
+        done nothing. That is what this answers, from the tick's one statement
+        and one `stat`, so that only an attempt with something to do costs a
+        worker. It decides nothing: the pass reads everything again for itself.
+        Every doubt is a yes.
+        """
+        aid = a["attempt_id"]
+        if a["state"] != "running" or a["max_wall_s"] is None:
+            return True                     # launching, starting, finalizing; or a job row to miss
+        if aid in self._inspect_retry or aid in self._worker_failures:
+            return True                     # C-5.10: a pass that raised is repeated on its clock
+        if time.monotonic() >= self._inspect_next.get(aid, 0):
+            return True                     # C-5.12: an inspection is due
+        if a["cancel_requested_at"] or age(a["job_started_at"]) >= a["max_wall_s"]:
+            return True
+        child = self._children.get(aid)
+        if child is not None and child.poll() is not None:
+            return True                     # the guardian ended: the pass lets go of it
+        try:
+            os.stat(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            pass                            # unreadable is the pass's to report
+        return True
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -1984,12 +2042,15 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                live = self.store.query(LIVE_ATTEMPTS)
+                live = self.store.query(LIVE_TICK)
                 self._forget_paced({a["attempt_id"] for a in live})
                 for a in live:
-                    if imported_external(a):
+                    if self._v1_owned(a["attempt_id"]):
                         continue                    # v1 still owns it (principle 3)
-                    self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
+                    # C-5.11: every live attempt is looked at each tick; the pool
+                    # is given those a pass could do something for.
+                    if self._has_work(a):
+                        self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
                 if self._recovery_complete.is_set():
