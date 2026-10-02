@@ -61,6 +61,16 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap, and only
+#: a job with a parent extends an ancestry (`scheduler._parent_blocks`). Every
+#: other attempt and job the store keeps changes no route: on 2026-10-02 the
+#: live store held 2,722 attempts (23 MB, most of it `evidence_json`) and 2,625
+#: jobs, read and turned into dicts on every evaluation, against 38 active
+#: attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+ROUTE_JOBS = "SELECT job_id,parent_job_id FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
@@ -713,11 +723,20 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop=None):
+    def _capacity_view(self, desktop=None, *, route: bool = False):
+        """The capacity view (C-6.4, C-9.1). `route` is for a route evaluation
+        (`_pick`): it reads only the attempts and jobs a route can depend on
+        (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`), and `scheduler.evaluate` reaches the same
+        decision over them as over every row (a differential property test).
+        Status and the operator's views read every row."""
+        if route:
+            attempts, jobs = self.store.query(ROUTE_ATTEMPTS), self.store.query(ROUTE_JOBS)
+        else:
+            attempts = self.store.list_attempts()
+            jobs = self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")
         view = capacity.build_view(
             self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
-            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            attempts, jobs, reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
@@ -835,7 +854,7 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        view = self._capacity_view(desktop)
+        view = self._capacity_view(desktop, route=True)
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
