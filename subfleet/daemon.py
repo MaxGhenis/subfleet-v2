@@ -417,7 +417,7 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
-        # C-6.15: the host's compressor occupancy, read before a pass and never in one.
+        # C-6.15: the host's compressor occupancy, read on a worker of its own.
         self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
@@ -728,11 +728,6 @@ class Daemon:
         for lane in view["lanes"]:
             if holder := view["unavailable_lanes"].get(lane["lane_id"]):
                 lane["probe_state"] = (self._probe_record(holder) or {}).get("state", "uncertain")
-        # C-6.15: the reading the last admission pass took; nothing is read here,
-        # because a view is also built inside the reserving transaction.
-        pressure = host_pressure.settings(self.policy)
-        if pressure["enabled"]:
-            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         return self.timers.enrich_view(view)
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
@@ -843,6 +838,12 @@ class Daemon:
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
         view = self._capacity_view(desktop)
+        # C-6.15: the last reading, for admission and `why` only: the `pick` op's
+        # advice to a person's own session is not held. Nothing is read here,
+        # because this also runs inside the reserving transaction (C-3.3).
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
@@ -1999,6 +2000,13 @@ class Daemon:
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
+                # C-6.15: one `vm_stat` per `sample_s` while the hold is on, on a
+                # worker of its own so that a slow one delays no admission pass.
+                # Also with nothing in flight, when it holds nothing: jobs that
+                # arrive together then meet a reading, not the lack of one.
+                pressure = host_pressure.settings(self.policy)
+                if pressure["enabled"] and self._host_pressure.due(pressure["sample_s"]):
+                    self._schedule("host-pressure", self._host_pressure.refresh, pressure["sample_s"], paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -2580,11 +2588,6 @@ class Daemon:
         # A pass that raises leaves both as the last whole pass left them: half
         # a hold set would read as "nothing left pending" and end the idle
         # stretch with the queue untouched. C-5.10 logs and paces the failure.
-        pressure = host_pressure.settings(self.policy)
-        if pressure["enabled"]:
-            # C-6.15: one `vm_stat` per `sample_s`, before the pass and outside
-            # its transactions (C-3.3); off, the default, nothing is started.
-            self._host_pressure.refresh(pressure["sample_s"])
         self._admit_pass(holds, tally)
         self._holds = holds
         self._note_admission(tally, holds)

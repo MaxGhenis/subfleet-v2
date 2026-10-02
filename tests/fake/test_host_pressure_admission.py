@@ -5,7 +5,7 @@ import logging
 from subfleet import daemon as daemon_module, render
 from subfleet.daemon import after, utcnow
 from subfleet.host_pressure import GIB, Sampler
-from tests.fake.test_admission_visibility import age, fleet, submit  # noqa: F401  (fixture)
+from tests.fake.test_admission_visibility import Inline, age, fleet, submit  # noqa: F401  (fixture)
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
 
@@ -21,6 +21,11 @@ class Host:
         assert self.service.store._depth == 0, "vm_stat is never started inside a store transaction (C-3.3)"
         self.reads += 1
         return None if self.gib is None else int(self.gib * GIB)
+
+    def admit(self):
+        """What a tick does: the control loop's read on a worker of its own, then an admission pass."""
+        self.service._host_pressure.refresh(self.service.policy["host_pressure"]["sample_s"])
+        self.service._admit()
 
 
 def end_attempt(service, job_id):
@@ -43,7 +48,7 @@ def test_a_job_is_held_while_the_host_is_under_pressure_and_says_why(fleet):  # 
     host = Host(service, 66.1)
     first = submit(service, harness, pinned_model="terra")
     second = submit(service, harness, pinned_model="terra")
-    service._admit()
+    host.admit()
     assert states(service, first) == ["reserved"], "nothing was in flight: the first job starts whatever the host holds"
     assert states(service, second) == []
     job = service.store.get_job(second)
@@ -56,19 +61,34 @@ def test_a_job_is_held_while_the_host_is_under_pressure_and_says_why(fleet):  # 
     assert host.reads == 1
 
 
-def test_the_queue_is_never_starved_once_nothing_is_in_flight(fleet):  # noqa: F811
+def test_the_queue_is_not_held_once_nothing_is_in_flight(fleet):  # noqa: F811
     """C-6.15: the hold ends with the last attempt in flight, however high the reading stays."""
     service, harness = fleet
-    Host(service, 200)
+    host = Host(service, 200)
     jobs = [submit(service, harness, pinned_model="terra") for _ in range(3)]
-    service._admit()
+    host.admit()
     assert [states(service, job) for job in jobs] == [["reserved"], [], []]
     for running, waiting in zip(jobs, jobs[1:]):
         service.store.update_job(waiting, next_check_at=after(3600))       # backed off, however slow this machine is
         end_attempt(service, running)
-        service._admit()                                                  # C-6.10: the freed lease brings it forward
+        host.admit()                                                      # C-6.10: the freed lease brings it forward
         assert states(service, waiting) == ["reserved"]
     assert service.store.get_job(jobs[-1])["state"] != "waiting"
+
+
+def test_a_child_starts_beside_the_parent_that_waits_for_it(fleet):  # noqa: F811
+    """C-6.15 (review of 5ef95154): a running parent's own attempt does not hold the
+    child it submitted, and a stranger submitted beside them is held."""
+    service, harness = fleet
+    host = Host(service, 200)
+    parent = submit(service, harness, pinned_model="terra")
+    host.admit()
+    assert states(service, parent) == ["reserved"]
+    child = submit(service, harness, pinned_model="astra", parent_job_id=parent)
+    stranger = submit(service, harness, pinned_model="astra")
+    host.admit()
+    assert states(service, child) == ["reserved"]
+    assert states(service, stranger) == [] and service._holds[stranger]["reason"] == "host-pressure"
 
 
 def test_the_hold_ends_when_the_reading_falls(fleet):  # noqa: F811
@@ -77,37 +97,98 @@ def test_the_hold_ends_when_the_reading_falls(fleet):  # noqa: F811
     host = Host(service, 66.1)
     submit(service, harness, pinned_model="terra")
     second = submit(service, harness, pinned_model="terra")
-    service._admit()
+    host.admit()
     assert service._holds[second]["reason"] == "host-pressure"
     host.gib, host.now = 12.0, host.now + 15
     service.store.update_job(second, next_check_at=utcnow())
-    service._admit()
+    host.admit()
     assert states(service, second) == ["reserved"] and host.reads == 2
 
 
-def test_the_host_is_read_once_an_interval_however_many_passes_run(fleet):  # noqa: F811
-    """C-6.15, C-5.11: a pass every 50 ms starts one `vm_stat` per `sample_s`."""
+def test_a_reading_too_old_to_be_evidence_holds_nothing(fleet):  # noqa: F811
+    """C-6.15: with nothing reading the host again, a reading more than four sample
+    intervals old stops holding: `why` and the pass both see none."""
+    service, harness = fleet
+    host = Host(service, 66.1)
+    submit(service, harness, pinned_model="terra")
+    second = submit(service, harness, pinned_model="terra")
+    host.admit()
+    assert service._holds[second]["reason"] == "host-pressure"
+    job = service.store.get_job(second)
+    host.now += 60                                     # four intervals: still evidence
+    assert service._pick(job).chosen_lane is None
+    host.now += 1                                      # and now it is not; no read has happened since the first
+    assert service._pick(job).chosen_lane == "codex-1"
+    service.store.update_job(second, next_check_at=utcnow())
+    service._admit()
+    assert states(service, second) == ["reserved"] and host.reads == 1
+
+
+def drive(service, monkeypatch, ticks, each=None):
+    """Run the control loop for `ticks` iterations with the pool run in the caller; the keys it was given."""
+    offered = []
+    service.workers = Inline(getattr(service.workers, "real", service.workers))
+    service._recovery_complete.set()
+    monkeypatch.setattr(service.timers, "tick", lambda: None)
+    monkeypatch.setattr(service, "_last_maintenance", daemon_module.time.monotonic())
+    real = service._schedule
+
+    def schedule(key, fn, *args, paced=False):
+        offered.append(key)
+        if key in ("admission", "host-pressure"):      # a reserved attempt stays reserved: nothing is launched
+            real(key, fn, *args, paced=paced)
+    monkeypatch.setattr(service, "_schedule", schedule)
+    count = [0]
+
+    def wait(_):
+        count[0] += 1
+        if each is not None:
+            each(count[0])
+        if count[0] >= ticks:
+            service.stopping.set()
+    monkeypatch.setattr(service.stopping, "wait", wait)
+    service.stopping.clear()
+    service._control()
+    return offered
+
+
+def test_the_host_is_read_once_an_interval_on_a_worker_of_its_own(fleet, monkeypatch):  # noqa: F811
+    """C-6.15, C-5.11: forty ticks start one `vm_stat`; the read is its own key, not admission's,
+    so a slow one delays no pass; and it is read with nothing in flight too."""
     service, harness = fleet
     host = Host(service, 10)
-    submit(service, harness, pinned_model="terra")
-    for _ in range(40):
+
+    def each(tick):
         host.now += .05
-        service._admit()
-    assert host.reads == 1
+    offered = drive(service, monkeypatch, 40, each)
+    assert host.reads == 1 and offered.count("host-pressure") == 1 and offered.count("admission") == 40
     host.now += 15
-    service._admit()
-    assert host.reads == 2
+    assert drive(service, monkeypatch, 3, each).count("host-pressure") == 1 and host.reads == 2
 
 
-def test_off_the_host_is_never_read_and_holds_nothing(fleet):  # noqa: F811
+def test_a_read_that_never_returns_delays_no_admission_pass(fleet, monkeypatch):  # noqa: F811
+    """C-6.15 (review of 5ef95154): admission does not read the host. With the read
+    stuck, a pass still runs, finds no reading, and places the job."""
+    service, harness = fleet
+    host = Host(service, 200)
+    service._host_pressure._reading_now = True          # a `vm_stat` that has not come back
+    first = submit(service, harness, pinned_model="terra")
+    second = submit(service, harness, pinned_model="terra")
+    offered = drive(service, monkeypatch, 2)
+    assert "host-pressure" not in offered and host.reads == 0
+    assert states(service, first) == states(service, second) == ["reserved"]
+
+
+def test_off_the_host_is_never_read_and_holds_nothing(fleet, monkeypatch):  # noqa: F811
     """C-6.15: the shipped policy never starts `vm_stat`, whatever the host holds."""
     service, harness = fleet
     assert service.policy["host_pressure"]["enabled"] is False
     off = Host(service, 200, enabled=False)
     first = submit(service, harness, pinned_model="terra")
     second = submit(service, harness, pinned_model="terra")
-    service._admit()
-    assert states(service, first) == states(service, second) == ["reserved"] and off.reads == 0
+    offered = drive(service, monkeypatch, 3)
+    assert states(service, first) == states(service, second) == ["reserved"]
+    assert off.reads == 0 and "host-pressure" not in offered
 
 
 def test_a_host_that_cannot_be_read_holds_nothing(fleet):  # noqa: F811
@@ -116,36 +197,40 @@ def test_a_host_that_cannot_be_read_holds_nothing(fleet):  # noqa: F811
     unreadable = Host(service, None)
     first = submit(service, harness, pinned_model="terra")
     second = submit(service, harness, pinned_model="terra")
-    service._admit()
+    unreadable.admit()
     assert states(service, first) == states(service, second) == ["reserved"] and unreadable.reads == 1
 
 
-def test_a_reading_too_old_to_be_evidence_holds_nothing(fleet):  # noqa: F811
-    """C-6.15: a reading four sample intervals old is not what the host holds now."""
+def test_the_pick_op_is_not_held(fleet):  # noqa: F811
+    """C-6.15 (review of 5ef95154): `pick` advises a person's own session; the hold is admission's."""
     service, harness = fleet
-    host = Host(service, 66.1)
+    host = Host(service, 200)
     submit(service, harness, pinned_model="terra")
-    service._admit()
-    host.read = None                                   # nothing refreshes it from here
-    service._host_pressure._read = lambda: (_ for _ in ()).throw(OSError("vm_stat is gone"))
-    host.now += 61
-    second = submit(service, harness, pinned_model="terra")
-    service._admit()
-    assert states(service, second) == ["reserved"]
+    held = submit(service, harness, pinned_model="terra")
+    host.admit()
+    assert service._holds[held]["reason"] == "host-pressure"
+    def pick():
+        answer = service.dispatch("pick", {"provider": "codex"})
+        return {key: value for key, value in answer.items() if key != "generated_at"}
+    under_the_hold = pick()
+    service.policy["host_pressure"]["enabled"] = False
+    assert under_the_hold == pick()
+    view = service._capacity_view(None)
+    assert "host_pressure" not in view, "only admission's evaluation and `why` carry the reading"
 
 
 def test_a_pressure_hold_is_ordinary_waiting_in_the_log_and_renders(fleet):  # noqa: F811
     """C-6.11: held by policy with lanes open is information, not a warning, and the hold is a sentence."""
     service, harness = fleet
-    Host(service, 66.1)
+    host = Host(service, 66.1)
     seen = []
     service.log.addHandler(type("Catch", (logging.Handler,), {"emit": lambda self, record: seen.append(record)})())
     submit(service, harness, pinned_model="terra")
     submit(service, harness, pinned_model="terra")
-    service._admit()
-    service._admit()                                   # a pass that places nothing starts the idle stretch
+    host.admit()
+    host.admit()                                       # a pass that places nothing starts the idle stretch
     age(service, daemon_module.ADMISSION_IDLE_LOG_S + 1)
-    service._admit()
+    host.admit()
     assert [record.levelno for record in seen] == [logging.INFO] and "host-pressure x1" in seen[0].getMessage()
     lines = render.why_queue({"job_id": "j", "state": "waiting",
                               "hold": {"reason": "host-pressure", "compressor_gib": 66.1, "compressor_max_gib": 40}})

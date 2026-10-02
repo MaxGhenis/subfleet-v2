@@ -241,11 +241,12 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     pressure = {**HOST_PRESSURE_DEFAULTS, **supplied}
     if not isinstance(pressure["enabled"], bool):
         fail("host_pressure.enabled", "must be a boolean")
-    for key in ("compressor_max_gib", "sample_s"):
+    for key, least in (("compressor_max_gib", 0), ("sample_s", 1)):
         item = pressure[key]
         if (not isinstance(item, (int, float)) or isinstance(item, bool)
-                or not math.isfinite(item) or item <= 0):
-            fail(f"host_pressure.{key}", "must be a positive finite number")
+                or not math.isfinite(item) or item <= 0 or item < least):
+            fail(f"host_pressure.{key}", "must be a positive finite number" if not least else
+                 f"must be a finite number of seconds, at least {least}")
     value["host_pressure"] = pressure
 
     # `sessions` is validated on its own because zero is meaningful in it: every

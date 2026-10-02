@@ -46,11 +46,17 @@ def read_compressor_bytes() -> int | None:
 
 
 class Sampler:
-    """The last reading, read again at most once per interval by whoever asks first.
+    """The last reading, read again at most once per interval.
 
     A read that fails is rationed like one that works, and a caller that finds a
-    read running returns without waiting for it, so a slow `vm_stat` holds one
-    worker (C-5.12's rule for the process table).
+    read running returns without waiting for it. The daemon reads on a worker of
+    its own (`Daemon._control`), never on admission's, so a slow `vm_stat` (it is
+    given 10 s, and the host is under pressure when it matters) delays no pass:
+    admission uses the last reading, and a reading too old holds nothing.
+
+    Ages are on the monotonic clock, which does not run while a Mac sleeps: after
+    a wake a reading can be hours older than its age says, for at most one
+    `sample_s`, until the next read replaces it.
     """
 
     def __init__(self, read: Callable[[], int | None] = read_compressor_bytes,
@@ -61,21 +67,28 @@ class Sampler:
         self._began: float | None = None            # when the last read began
         self._last: tuple[float, int] | None = None  # (when it was read, bytes)
 
+    def due(self, sample_s: float) -> bool:
+        """Whether `refresh` would read now: no read is running and the last began an interval ago."""
+        with self._lock:
+            return not self._reading_now and (self._began is None or self._clock() - self._began >= sample_s)
+
     def refresh(self, sample_s: float) -> None:
         with self._lock:
             now = self._clock()
             if self._reading_now or (self._began is not None and now - self._began < sample_s):
                 return
             self._reading_now, self._began = True, now
+        value = None
         try:
             value = self._read()
         except Exception:                           # noqa: BLE001 - an unreadable host holds nothing
-            value = None
+            pass
         finally:
+            # One section: a second read cannot begin between the flag falling
+            # and this read's value being kept, and overwrite a newer one.
             with self._lock:
+                self._last = (self._clock(), value) if value is not None else None
                 self._reading_now = False
-        with self._lock:
-            self._last = (self._clock(), value) if value is not None else None
 
     def reading(self, sample_s: float) -> dict[str, Any] | None:
         """The last reading while it is evidence: read, and less than `STALE_AFTER` intervals old."""

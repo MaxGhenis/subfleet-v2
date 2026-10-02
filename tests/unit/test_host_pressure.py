@@ -1,6 +1,7 @@
 """C-6.15: the opt-in host-pressure hold, its reading, and what it can never do."""
 
 import copy
+import threading
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -9,7 +10,8 @@ from subfleet import host_pressure
 from subfleet.host_pressure import GIB, Sampler, parse_vm_stat
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from subfleet.scheduler import (ACTIVE_ATTEMPTS, RouteError, dominant_rejection, evaluate,
-                                host_pressure_evidence, host_pressure_hold, verdict_signature)
+                                host_pressure_evidence, host_pressure_hold, in_flight_beside,
+                                verdict_signature)
 
 NOW = "2026-09-05T10:33:00Z"
 TOMORROW = "2026-09-06T10:33:00Z"
@@ -46,17 +48,26 @@ def _reading(identity, utilization):
             "resets_at": TOMORROW, "observed_at": NOW, "label": "provider", "source": "probe"}
 
 
-def _view(attempts=(), utilization=None, compressor_gib=None, **extra):
+def _view(attempts=(), utilization=None, compressor_gib=None, *, jobs=(), probes=(), counted=True, **extra):
+    """A view as the daemon lays it: the attempt rows, the per-lane counts `build_view`
+    takes from them (`counted`), the jobs, and the lanes a probe holds."""
+    attempts = list(attempts)
     view = {"now": NOW, "lanes": [_lane(identity) for identity in LANES],
             "readings": [_reading(identity, (utilization or {}).get(identity, .3)) for identity in LANES],
-            "closures": [], "attempts": list(attempts), "jobs": [], **extra}
+            "closures": [], "attempts": attempts, "jobs": list(jobs),
+            "unavailable_lanes": {identity: f"probe:{identity}" for identity in probes},
+            "reserved_probes": len(probes), **extra}
+    if counted:
+        view["in_flight"] = {identity: sum(1 for row in attempts if row["lane_id"] == identity
+                                           and row["state"] in ACTIVE_ATTEMPTS) for identity in LANES}
     if compressor_gib is not None:
         view["host_pressure"] = {"compressor_bytes": int(compressor_gib * GIB), "age_s": 1.0}
     return view
 
 
-def _attempt(index, identity, state):
-    return {"attempt_id": f"job-{index}/a1", "job_id": f"job-{index}", "lane_id": identity, "state": state}
+def _attempt(index, identity, state, job_id=None):
+    job_id = job_id or f"job-{index}"
+    return {"attempt_id": f"{job_id}/a1", "job_id": job_id, "lane_id": identity, "state": state}
 
 
 JOB = {"task": "research", "tier": "standard", "sandbox": "read-only"}
@@ -70,6 +81,9 @@ jobs = st.fixed_dictionaries({"task": st.sampled_from(["research", "build", "swe
                               "tier": st.sampled_from(["trivial", "easy", "standard", "hard"]),
                               "sandbox": st.just("read-only")},
                              optional={"pinned_lane": st.sampled_from(LANES)})
+probes = st.lists(st.sampled_from(LANES), unique=True, max_size=2)
+#: A chain of jobs each the parent of the next; the job under evaluation is the last one's child.
+lineage = st.lists(st.sampled_from(["grandparent", "parent"]), unique=True, max_size=2).map(sorted)
 
 
 def _active(rows):
@@ -109,13 +123,14 @@ def test_an_unreadable_vm_stat_is_no_reading(monkeypatch):
 
 
 @settings(max_examples=200, deadline=None)
-@given(gaps=st.lists(st.floats(min_value=0, max_value=40, allow_nan=False), min_size=1, max_size=80),
+@given(steps=st.lists(st.tuples(st.floats(min_value=0, max_value=40, allow_nan=False), st.booleans()),
+                      min_size=1, max_size=80),
        sample_s=st.sampled_from([1.0, 5.0, 15.0]),
        values=st.lists(st.one_of(st.none(), st.integers(min_value=0, max_value=600 * GIB)), min_size=1, max_size=80))
-def test_the_host_is_read_at_most_once_an_interval_and_a_stale_reading_is_none(gaps, sample_s, values):
+def test_the_host_is_read_at_most_once_an_interval_and_a_stale_reading_is_none(steps, sample_s, values):
     """C-6.15: `vm_stat` begins at most once per `sample_s` however often it is asked
-    for and whatever it answered, and a reading is given only while it is newer than
-    `STALE_AFTER` intervals."""
+    for and whatever it answered, and a reading is given only while it is no older
+    than `STALE_AFTER` intervals. Time passes with and without a read being asked for."""
     clock, reads, script = [100.0], [], iter(values)
 
     def read():
@@ -123,35 +138,79 @@ def test_the_host_is_read_at_most_once_an_interval_and_a_stale_reading_is_none(g
         return next(script, None)
     sampler = Sampler(read, lambda: clock[0])
     last = None
-    for gap in gaps:
+    for gap, ask in steps:
         clock[0] += gap
-        before = len(reads)
-        sampler.refresh(sample_s)
-        if len(reads) > before:
-            value = values[before] if before < len(values) else None
-            last = (clock[0], value) if value is not None else None
+        if ask:
+            due, before = sampler.due(sample_s), len(reads)
+            sampler.refresh(sample_s)
+            assert (len(reads) > before) == due
+            if len(reads) > before:
+                value = values[before] if before < len(values) else None
+                last = (clock[0], value) if value is not None else None
         answer = sampler.reading(sample_s)
         if last is None or clock[0] - last[0] > host_pressure.STALE_AFTER * sample_s:
             assert answer is None
         else:
-            assert answer["compressor_bytes"] == last[1]
+            assert answer["compressor_bytes"] == last[1] and answer["age_s"] == round(clock[0] - last[0], 1)
     assert all(later - earlier >= sample_s for earlier, later in zip(reads, reads[1:]))
-    assert len(reads) <= 1 + (clock[0] - reads[0]) / sample_s if reads else True
+
+
+def test_a_reading_goes_stale_with_nobody_reading():
+    """C-6.15: four intervals after it was read a reading is still evidence; just past that it is none."""
+    clock = [50.0]
+    sampler = Sampler(lambda: 70 * GIB, lambda: clock[0])
+    sampler.refresh(15)
+    clock[0] = 50.0 + 4 * 15
+    assert sampler.reading(15) == {"compressor_bytes": 70 * GIB, "age_s": 60.0}
+    clock[0] += .001
+    assert sampler.reading(15) is None
+
+
+def test_a_read_that_is_running_is_not_started_again_and_its_value_is_kept_with_the_flag():
+    """C-6.15: a caller that finds a read running returns at once, and no read can begin
+    between this read ending and its value being kept."""
+    started, release, values = threading.Event(), threading.Event(), iter([70 * GIB, 10 * GIB])
+    reads = []
+
+    def read():
+        reads.append(1)
+        started.set()
+        assert release.wait(10)
+        return next(values)
+    sampler = Sampler(read, lambda: 0.0)              # a clock that never moves: only the flag rations
+    worker = threading.Thread(target=sampler.refresh, args=(0,))
+    worker.start()
+    assert started.wait(10)
+    assert sampler.due(0) is False
+    sampler.refresh(0)                                # returns without reading, and without waiting
+    assert reads == [1] and sampler.reading(15) is None
+    release.set()
+    worker.join(10)
+    assert sampler.reading(15)["compressor_bytes"] == 70 * GIB and sampler.due(0) is True
 
 
 # --- what the hold can never do --------------------------------------------------
 
-@settings(max_examples=150, deadline=None)
-@given(job=jobs, rows=attempts, gib=occupancy, usage=utilizations,
-       limit=st.floats(min_value=.5, max_value=256, allow_nan=False))
-def test_with_no_attempt_in_flight_pressure_never_changes_a_decision(job, rows, gib, usage, limit):
-    """C-6.15: the hold never starves the queue. With no attempt reserved, starting,
-    running or finalizing, the decision is the one a policy without the hold reaches,
-    whatever the compressor holds and whatever the threshold."""
+@settings(max_examples=300, deadline=None)
+@given(job=jobs, rows=attempts, gib=occupancy, usage=utilizations, held_by=probes, counted=st.booleans(),
+       above=lineage, limit=st.floats(min_value=.5, max_value=256, allow_nan=False))
+def test_with_nothing_in_flight_beside_the_job_pressure_never_changes_a_decision(job, rows, gib, usage, held_by,
+                                                                               counted, above, limit):
+    """C-6.15: the hold never blocks a job while nothing it could wait for is in
+    flight. With no attempt reserved, starting, running or finalizing other than
+    those of the job's own ancestors, the decision is the one a policy without the
+    hold reaches, whatever the compressor holds, whatever the threshold, whatever
+    lanes a probe holds, and whether or not the view carries per-lane counts."""
     idle = [row for row in rows if row["state"] not in ACTIVE_ATTEMPTS]
+    # Each ancestor's own attempt is running: a parent waiting for this job.
+    family = [{"job_id": name, "parent_job_id": above[index - 1] if index else None}
+              for index, name in enumerate(above)]
+    running = [_attempt(90 + index, LANES[index], "running", job_id=name) for index, name in enumerate(above)]
+    job = {**job, "job_id": "child", **({"parent_job_id": above[-1]} if above else {})}
     policy = {**POLICY_ON, "host_pressure": {**POLICY_ON["host_pressure"], "compressor_max_gib": limit}}
-    held = _decide(policy, _view(idle, usage, gib), job)
-    free = _decide(POLICY_OFF, _view(idle, usage, gib), job)
+    view = lambda: _view(idle + running, usage, gib, jobs=family, probes=held_by, counted=counted)   # noqa: E731
+    held = _decide(policy, view(), job)
+    free = _decide(POLICY_OFF, view(), job)
     if isinstance(free, tuple):
         assert held == free
         return
@@ -166,16 +225,19 @@ def test_with_no_attempt_in_flight_pressure_never_changes_a_decision(job, rows, 
 def test_a_policy_that_leaves_it_off_decides_as_if_there_were_no_reading(job, rows, gib, usage):
     """C-6.15: off, the default, a reading in the view changes nothing at all."""
     assert _decide(POLICY_OFF, _view(rows, usage, gib), job) == _decide(POLICY_OFF, _view(rows, usage), job)
+    # And a policy that never heard of the section decides as the shipped one does.
+    bare = {key: value for key, value in POLICY_OFF.items() if key != "host_pressure"}
+    assert _decide(bare, _view(rows, usage, gib), job) == _decide(POLICY_OFF, _view(rows, usage, gib), job)
 
 
-@settings(max_examples=150, deadline=None)
-@given(job=jobs, rows=attempts, gib=occupancy, usage=utilizations)
-def test_the_hold_only_ever_withholds_a_lane(job, rows, gib, usage):
+@settings(max_examples=300, deadline=None)
+@given(job=jobs, rows=attempts, gib=occupancy, usage=utilizations, held_by=probes, counted=st.booleans())
+def test_the_hold_only_ever_withholds_a_lane(job, rows, gib, usage, held_by, counted):
     """C-6.15: under the hold a job is placed where it would have been or nowhere,
     and it is withheld exactly when the reading is above the threshold while an
-    attempt is in flight."""
-    held = _decide(POLICY_ON, _view(rows, usage, gib), job)
-    free = _decide(POLICY_OFF, _view(rows, usage, gib), job)
+    attempt is in flight. A probe's reservation is not an attempt and holds nothing."""
+    held = _decide(POLICY_ON, _view(rows, usage, gib, probes=held_by, counted=counted), job)
+    free = _decide(POLICY_OFF, _view(rows, usage, gib, probes=held_by, counted=counted), job)
     if isinstance(free, tuple):
         assert held == free
         return
@@ -209,6 +271,64 @@ def test_the_hold_is_monotone_in_occupancy_and_never_holds_an_idle_fleet(active,
     assert not host_pressure_hold(policy, {"host_pressure": None}, active)     # an unreadable host
     assert not host_pressure_hold({"host_pressure": {"enabled": False, "compressor_max_gib": limit}},
                                   {"host_pressure": {"compressor_bytes": 10 ** 15}}, active)
+
+
+@settings(max_examples=200, deadline=None)
+@given(job=jobs, rows=attempts, usage=utilizations, low=st.floats(min_value=0, max_value=300, allow_nan=False),
+       extra=st.floats(min_value=0, max_value=300, allow_nan=False))
+def test_through_evaluate_more_occupied_never_places_what_less_withheld(job, rows, usage, low, extra):
+    """C-6.15: monotone in the whole evaluation, not only in the helper."""
+    lower = _decide(POLICY_ON, _view(rows, usage, low), job)
+    higher = _decide(POLICY_ON, _view(rows, usage, low + extra), job)
+    if isinstance(lower, tuple):
+        assert higher == lower
+        return
+    if lower.chosen_lane is None:
+        assert higher.chosen_lane is None
+    assert higher.chosen_lane in (None, lower.chosen_lane)
+
+
+# --- a parent and its child ---------------------------------------------------------
+
+def test_a_child_is_not_held_behind_the_parent_that_waits_for_it():
+    """C-6.15 (review of 5ef95154): `subfleet run --parent`, then `subfleet wait`: the
+    parent's attempt ends only when the child has, so it does not hold the child."""
+    parent = [_attempt(0, "claude-1", "running", job_id="parent")]
+    family = [{"job_id": "parent", "parent_job_id": None}]
+    child = {**JOB, "job_id": "child", "parent_job_id": "parent"}
+    policy = {**POLICY_ON, "caps": {**POLICY_ON["caps"], "max_active_attempts_per_parent": 8}}
+    decision = evaluate(policy, _view(parent, compressor_gib=200, jobs=family), child)
+    assert decision.chosen_lane is not None
+    # A stranger's attempt beside it does hold the child, and an unrelated job is held by the parent's.
+    stranger = parent + [_attempt(1, "claude-2", "running")]
+    assert evaluate(policy, _view(stranger, compressor_gib=200, jobs=family), child).chosen_lane is None
+    assert evaluate(policy, _view(parent, compressor_gib=200, jobs=family), JOB).chosen_lane is None
+
+
+def test_the_count_leaves_out_every_ancestor_and_nothing_else():
+    """C-6.15: a grandparent's attempt is the job's to finish for too; a sibling's is not."""
+    family = [{"job_id": "grandparent", "parent_job_id": None}, {"job_id": "parent", "parent_job_id": "grandparent"},
+              {"job_id": "sibling", "parent_job_id": "parent"}]
+    rows = [_attempt(0, "claude-1", "running", job_id="grandparent"), _attempt(1, "claude-2", "starting", job_id="parent"),
+            _attempt(2, "claude-3", "running", job_id="sibling"), _attempt(3, "codex-1", "succeeded"),
+            _attempt(4, "codex-2", "quarantined")]
+    view = _view(rows, jobs=family)
+    counts = view["in_flight"]
+    assert in_flight_beside(view, {"job_id": "child", "parent_job_id": "parent"}, counts) == 1
+    assert in_flight_beside(view, {"job_id": "other"}, counts) == 3
+    # A cycle in the parent links ends the walk; a view with counts only counts them all.
+    loop = [{"job_id": "a", "parent_job_id": "b"}, {"job_id": "b", "parent_job_id": "a"}]
+    assert in_flight_beside(_view(rows, jobs=loop), {"job_id": "c", "parent_job_id": "a"}, counts) == 3
+    assert in_flight_beside({"in_flight": counts}, {"job_id": "child", "parent_job_id": "parent"}, counts) == 3
+
+
+def test_a_parents_cap_is_named_before_pressure():
+    """C-6.11: a child its parent's cap holds reads `parent-cap`, with or without pressure."""
+    family = [{"job_id": "parent", "parent_job_id": None}, {"job_id": "sibling", "parent_job_id": "parent"}]
+    rows = [_attempt(0, "claude-1", "running", job_id="parent"), _attempt(1, "claude-2", "running", job_id="sibling")]
+    child = {**JOB, "job_id": "child", "parent_job_id": "parent"}
+    policy = {**POLICY_ON, "caps": {**POLICY_ON["caps"], "max_active_attempts_per_parent": 1}}
+    assert dominant_rejection(evaluate(policy, _view(rows, compressor_gib=200, jobs=family), child)) == "parent-cap"
 
 
 # --- the reason a held job is given ------------------------------------------------
@@ -261,6 +381,7 @@ def test_a_policy_without_the_section_gets_the_defaults(tmp_path):
                                          ({"compressor_max_gib": 0}, "host_pressure.compressor_max_gib"),
                                          ({"compressor_max_gib": True}, "host_pressure.compressor_max_gib"),
                                          ({"sample_s": -1}, "host_pressure.sample_s"),
+                                         ({"sample_s": .05}, "host_pressure.sample_s"),
                                          ({"sample_s": float("inf")}, "host_pressure.sample_s"),
                                          ([], "host_pressure")])
 def test_a_bad_host_pressure_section_is_refused_by_key(tmp_path, section, key):

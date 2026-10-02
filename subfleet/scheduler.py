@@ -296,14 +296,37 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
     return reason.strip()
 
 
+def in_flight_beside(view: Mapping[str, Any], job: Mapping[str, Any], in_flight: Mapping[str, int]) -> int:
+    """C-6.15: the attempts in flight that a job held for host pressure would wait for.
+
+    Not those of the job's own ancestors: a parent that submits a child and waits
+    for it (`subfleet run --parent`, then `subfleet wait`) ends only when the child
+    has, so held behind its parent the child would wait until the parent's wall
+    limit killed it. A view that carries only per-lane counts cannot tell whose an
+    attempt is, and counts them all.
+    """
+    attempts = view.get("attempts")
+    if attempts is None:
+        return sum(in_flight.values())
+    above: set[str] = set()
+    parent = job.get("parent_job_id")
+    if parent:
+        parents = {row["job_id"]: row.get("parent_job_id") for row in map(_row, view.get("jobs", ()))}
+        while parent and parent not in above:
+            above.add(parent)
+            parent = parents.get(parent)
+    return sum(1 for attempt in map(_row, attempts)
+               if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("job_id") not in above)
+
+
 def host_pressure_hold(policy: Mapping[str, Any], view: Mapping[str, Any], active: int) -> dict[str, Any] | None:
     """C-6.15: what holds a new attempt while the host's memory is under pressure, or None.
 
     Only a policy that switches `host_pressure.enabled` on holds anything, only
     on a reading the view carries, and only while `active` attempts are in
-    flight: with none, nothing this fleet started is adding to the pressure and
-    nothing it will finish can relieve it, so the next job always starts. A host
-    that cannot be read holds nothing.
+    flight beside the job (`in_flight_beside`): with none, nothing it could wait
+    for will end, so the job starts whatever the host holds. A host that cannot
+    be read holds nothing.
     """
     settings = host_pressure.settings(policy)
     reading = view.get("host_pressure")
@@ -386,7 +409,9 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     capacity_blocks = _parent_blocks(policy, view, job)
     if sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
-    pressure = host_pressure_hold(policy, view, sum(in_flight.values()))
+    pressure = None
+    if host_pressure.settings(policy)["enabled"] and view.get("host_pressure"):
+        pressure = host_pressure_hold(policy, view, in_flight_beside(view, job, in_flight))
     if pressure:
         capacity_blocks.append("host-pressure")
     evaluations: list[dict[str, Any]] = []

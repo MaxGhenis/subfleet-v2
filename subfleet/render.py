@@ -161,8 +161,8 @@ _HOLD_TEXT = {
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "host-pressure": "the host's memory compressor holds {compressor_gib} GiB, above host_pressure.compressor_max_gib "
-                     "({compressor_max_gib}), while other attempts run; it starts when the compressor falls to that "
-                     "or no attempt is running (C-6.15)",
+                     "({compressor_max_gib}), while other attempts run; it is looked at again when the compressor "
+                     "falls to that or no other attempt is running, and starts if a lane then has room (C-6.15)",
     "lease-held": "a lease this job needs is held by another job: {leases}",
     "probe-pending": "its lane is being probed before the job may start on it",
     "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",

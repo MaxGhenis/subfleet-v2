@@ -46,7 +46,7 @@ def _read(argv: list[str], *, empty_ok: bool = False) -> str:
         # descriptor Python opens is close-on-exec (PEP 446), but macOS has no
         # `pipe2` and no `SOCK_CLOEXEC`, so a pipe or socket that another thread
         # is creating is inheritable for an instant, and a spawn in that instant
-        # hands it down. Only a `ps` or `sysctl` holds it, until it exits within
+        # hands it down. Only a `ps`, `sysctl` or `vm_stat` (C-6.15) holds it, until it exits within
         # the 10 s cap, so the most that follows is a close seen that much
         # later. The one descriptor this package hands down on purpose, the
         # guardian's launch gate (`pass_fds`), is closed by the guardian before
