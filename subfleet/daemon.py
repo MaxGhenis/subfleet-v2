@@ -3705,7 +3705,13 @@ class Daemon:
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
                 if lease_held and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
-                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
+                    # C-6.11, C-26.9: keys it only needs free never have a queue,
+                    # on its clock either. A turn never takes an exclusive folder
+                    # key; a detached job never takes a writable turn's row.
+                    free_only = (folders.EXCLUSIVE,) if job["kind"] == "turn" else (folders.TURN,)
+                    queue_for([key for key in [*(known["hold"].get("leases") or ()),
+                                               *(known["hold"].get("queued") or ())]
+                               if not key.startswith(free_only)],
                               job["job_id"])
                 last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
                 if asked:
