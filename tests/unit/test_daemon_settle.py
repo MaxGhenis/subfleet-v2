@@ -51,6 +51,7 @@ def daemon(tmp_path, monkeypatch):
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
+    core._native, core._worker_failures = set(), {}     # C-5.11, C-5.10: what the control loop reads
     core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
