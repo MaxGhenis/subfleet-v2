@@ -69,7 +69,7 @@ def world(tmp_path, monkeypatch):
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, INTERVAL, set()
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
-    core._salvage = lambda job, a: ([], None)
+    core._salvage = lambda job, a: ([], None, {})
     core._record_identity = lambda *args: None
     core._export = lambda job_id: None
     core.timers = SimpleNamespace(record_auth_dead=lambda *args: None, metadata={})

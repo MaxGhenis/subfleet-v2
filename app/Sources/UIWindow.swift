@@ -588,7 +588,11 @@ struct ChangesPane: View {
             if !result.available {
                 PaneNote(text: diffUnavailableWords(result), symbol: "info.circle")
             } else if result.files.isEmpty {
-                PaneNote(text: "No changes.", symbol: "checkmark.circle")
+                // A nested repository the snapshot left out is still a change the
+                // pane cannot show, so "No changes." is not the whole answer.
+                let notes = diffNotes(result)
+                PaneNote(text: ([notes.isEmpty ? "No changes." : "No changes to show."] + notes).joined(separator: " "),
+                         symbol: notes.isEmpty ? "checkmark.circle" : "info.circle")
             } else {
                 ForEach(diffNotes(result), id: \.self) { note in
                     Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
@@ -609,18 +613,6 @@ struct ChangesPane: View {
             }
         }
     }
-}
-
-/// What the daemon cut or hid, so a short diff is not taken for the whole one.
-func diffNotes(_ result: DiffResult) -> [String] {
-    var notes: [String] = []
-    if result.files_truncated { notes.append("Only the first \(result.files.count) files are listed.") }
-    if !result.stats.complete { notes.append("Git's listing was cut; the counts cover the listed files only.") }
-    if result.truncated { notes.append("The diff is cut at its size limit; the rest is not shown.") }
-    if result.scrubbed > 0 {
-        notes.append("\(result.scrubbed) value\(result.scrubbed == 1 ? "" : "s") that looked like credentials are replaced.")
-    }
-    return notes
 }
 
 struct PaneNote: View {

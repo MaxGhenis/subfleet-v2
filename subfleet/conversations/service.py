@@ -489,7 +489,8 @@ class ConversationService:
 
         def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
             try:
-                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True, timeout=cap)
+                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
+                                      errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
                                         fix="repeat conversation.create with the same request_id") from exc
@@ -922,15 +923,18 @@ class ConversationService:
 
     def _compare(self, workspace: str, start: dict, end: dict | None, path: str | None) -> dict:
         """Diff two snapshots; with no `end`, snapshot the working tree now (C-6.8's
-        temporary index: no ref, the real index and the files untouched)."""
+        temporary index: no ref, the real index and the files untouched). A live `to`
+        lists the nested repositories with no commit that snapshot left out, which
+        the diff therefore does not show (`skipped`, C-13.1, C-26.14)."""
         cap = self._git_timeout_s()
         try:
             if end is None:
-                now = turn_diff.snapshot(workspace, timeout_s=cap)
+                skipped: list[str] = []
+                now = turn_diff.snapshot(workspace, timeout_s=cap, left_out=skipped)
                 if now is None:
                     turn_diff.checkout(workspace, timeout_s=cap)     # raises `workspace-gone`
                     return _unavailable("no-snapshot", "the workspace's checkout has no commit to snapshot")
-                end = {"tree": now[1], "head": now[0], "live": True, "at": utcnow()}
+                end = {"tree": now[1], "head": now[0], "live": True, "at": utcnow(), "skipped": skipped}
             result = turn_diff.build(workspace, start["tree"], end["tree"], path=path, timeout_s=cap)
         except turn_diff.Unavailable as exc:
             return _unavailable(exc.reason, str(exc))
