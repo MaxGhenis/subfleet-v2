@@ -614,12 +614,15 @@ struct DiffResult: Codable, Equatable {
 }
 
 /// One side of a comparison: a snapshot's tree and HEAD, and when it was taken.
+/// A `to` that is the working tree now also lists the nested repositories with
+/// no commit its snapshot left out (`skipped`, C-13.1), which the diff does not show.
 struct DiffEnd: Codable, Equatable {
     var tree: String?
     var head: String?
     var message_id: String?
     var live: Bool?
     var at: String?
+    var skipped: [String]?
 }
 
 /// `status` is `added`, `deleted`, `modified`, `renamed` (with `from`),

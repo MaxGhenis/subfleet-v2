@@ -391,8 +391,9 @@ def _build(adapter, tmp_path, sandbox, prompt="Do the thing.\n", *, effort=None)
 @pytest.mark.parametrize("sandbox", [Sandbox.READ_ONLY, Sandbox.WORKSPACE_WRITE])
 def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sandbox):
     """C-12.4, C-21 milestone 2: for each sandbox the argv equals v1's, rebuilt from
-    `bin/subfleet-claude`, apart from the two documented v2 changes (stream-json and
-    --verbose, so the rate_limit_event is readable)."""
+    `bin/subfleet-claude`, apart from the three documented v2 changes (stream-json and
+    --verbose, so the rate_limit_event is readable, and strict empty MCP for a
+    writable launch, C-12.9)."""
     launch = _build(adapter, tmp_path, sandbox)
     assert launch.argv == reconstruct_v1_argv(
         str(adapter.claude_bin), "claude-opus-5", launch.native_session_id, sandbox.value,
@@ -422,11 +423,13 @@ def test_read_only_fails_closed_on_the_tool_surface(adapter, tmp_path):
     assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
 
 
-def test_workspace_write_takes_the_bypass_flag(adapter, tmp_path):
-    """C-12.4 workspace-write is exactly v1's single flag; the never-rules hook in
-    `~/.claude/settings.json` is what constrains it (C-14.3)."""
+def test_workspace_write_takes_the_bypass_flag_and_no_mcp_server(adapter, tmp_path):
+    """C-12.4, C-12.9 workspace-write is v1's single bypass flag, constrained by the
+    never-rules hook in `~/.claude/settings.json` (C-14.3), then strict MCP with an
+    empty config (d714): no server from any settings file starts."""
     argv = _build(adapter, tmp_path, Sandbox.WORKSPACE_WRITE).argv
-    assert argv[-1] == "--dangerously-skip-permissions"
+    assert argv[-4:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
+                         "--mcp-config", '{"mcpServers":{}}')
     assert "--permission-mode" not in argv
 
 
@@ -545,7 +548,8 @@ def test_resume_launch_uses_resume_not_session_id(adapter, tmp_path):
     assert launch is not None
     assert "--session-id" not in launch.argv
     assert launch.argv[:4] == (str(adapter.claude_bin), "-p", "--resume", "abc-123")
-    assert launch.argv[-1] == "--dangerously-skip-permissions"
+    assert launch.argv[-4:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
+                                "--mcp-config", '{"mcpServers":{}}')
     assert launch.argv[launch.argv.index("--model") + 1] == "claude-opus-5"
     assert launch.native_session_id == "abc-123"
     assert launch.notes["resumed_from"] == "abc-123"

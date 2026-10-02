@@ -111,6 +111,26 @@ def test_only_the_first_person_message_claims_one_request_and_watch_gets_its_tit
     assert store.changes_after(0)["changes"][-1]["title"] == "Widget_API.py repairs"
 
 
+def test_a_title_answer_in_a_batch_that_carries_an_approval_rides_the_same_commit(store):
+    """C-27.1 with titles.py: a flush can carry a provider's request and the title the provider answered
+    (the title is answered whenever it arrives, interleaved with the next turn). `add_approvals` writes
+    both, with the batch, in one transaction, as `append_events` does for a batch without approvals."""
+    cid = conversation(store)["conversation_id"]
+    first = submit(store, cid)
+    store.set_state(first["message_id"], "running")
+    assert claim(store, cid, first["message_id"])
+    title = TitleUpdate(answer=("Widget_API.py repairs", 101))
+    event = ("stdout", "10", 0, "approval.requested", {"request_id": "req-1"})
+    store.add_approvals(message_id=first["message_id"], conversation_id=cid, attempt_id="job/a1",
+                        approvals=[{"provider_request_id": "req-1", "kind": "tool", "request": {"tool": "Bash"},
+                                    "display": "Run a command", "options": ["allow", "deny"]}],
+                        events=[event], stdout_offset=10, stdin_seq=1, expect=("running",), title=title)
+    assert title.recorded and title.error is None
+    assert store.conversation(cid)["title"] == "Widget_API.py repairs"
+    assert [a["provider_request_id"] for a in store.approvals(message_id=first["message_id"])] == ["req-1"]
+    assert store.message(first["message_id"])["state"] == "approval-needed"
+
+
 @pytest.mark.parametrize("waiting", ["stop", "queued", "waiting", "steering", None])
 def test_the_claim_is_refused_while_anything_else_of_the_conversation_waits(store, waiting):
     """The store's half of the quiescent point (titles.py): a stop recorded for the message,

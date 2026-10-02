@@ -1094,7 +1094,7 @@ def test_each_turn_and_the_whole_conversation_show_their_changes(conv):
     assert attempt["baseline_tree"] == one["from"]["tree"]
     assert json.loads(attempt["evidence_json"])["turn_trees"] == {
         "head_before": head, "head_after": head, "start_tree": one["from"]["tree"],
-        "end_tree": one["to"]["tree"], "error": None}
+        "end_tree": one["to"]["tree"], "skipped": [], "error": None}
 
     (e2e.workdir / "person.txt").write_text("the person's own edit\n")
     second = conv.submit(cid, "and more [fake:write]", after_message_id=first)

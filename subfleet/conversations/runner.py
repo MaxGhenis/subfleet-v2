@@ -32,7 +32,7 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore, TitleUpdate
-from .turn import APPROVAL_NEEDED, COMPLETE, RUNNING, Event, Frame, Image, Outcome, Step, TurnSpec
+from .turn import COMPLETE, RUNNING, Approval, Event, Frame, Image, Outcome, Step, TurnSpec
 from .titles import CLAIMED, OPEN, PIPE_FLOOR, SessionTitle, TITLE_CANCEL_FRAME, TITLE_FRAME, request_line
 
 FLUSH_S = 0.25
@@ -585,17 +585,17 @@ class TurnRunner:
                                      expect=("steering",))
         for frame in step.frames:
             self.outbox.append(frame)
+        if step.approvals:
+            # C-27.1, design §8: the approvals, the batch with the events announcing them,
+            # and the move to approval-needed land in one commit. Committed apart, the
+            # event woke the app's long poll first, and the `approval.list` it then sent
+            # to answer the card could find no approval (CI, 2026-10-01).
+            self._flush(step.approvals)
         for approval in step.approvals:
-            self._flush()
-            self.store.add_approval(message_id=self.message_id, conversation_id=self.conversation_id,
-                                    attempt_id=self.attempt_id, provider_request_id=approval.provider_request_id,
-                                    kind=approval.kind, request=approval.request, display=approval.summary,
-                                    options=approval.options)
             if approval.kind != "question":
                 # C-26.9: a question (AskUserQuestion) waits for the person with no
                 # limit; a tool approval stops its turn only if policy sets a limit.
                 self.approval_seen.setdefault(approval.provider_request_id, self.clock())
-            self.store.set_state(self.message_id, APPROVAL_NEEDED, expect=("running", "starting"))
         if step.resolved:
             self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
             for rid in step.resolved:
@@ -1065,20 +1065,29 @@ class TurnRunner:
         return (bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
                 or self.title.pending)
 
-    def _flush(self, *, claim_title: bool = False) -> None:
-        """One events batch and the watermark (C-25.4), with the title's work riding in
-        the same transaction (titles.py): its claim, only in the batch that records the
-        first turn's result, and a generated title the provider answered."""
+    def _flush(self, approvals: list[Approval] | None = None, *, claim_title: bool = False) -> None:
+        """One events batch and the watermark (C-25.4), in one transaction with what rides
+        on it: with `approvals`, those approvals and the message's move to approval-needed
+        (C-27.1); and the title's work (titles.py): its claim, only in the batch that
+        records the first turn's result, and a generated title the provider answered."""
         answer = self.title.take()
-        if not self.batch and answer is None and not claim_title:
+        if not self.batch and answer is None and not claim_title and not approvals:
             self.last_flush = self.clock()
             return
         title = (TitleUpdate(claim_at=self.title.clock() if claim_title else None, answer=answer)
                  if claim_title or answer is not None else None)
         batch, self.batch, self.batch_bytes = self.batch, [], 0
-        self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
-                                 attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
-                                 stdin_seq=self.next_seq - 1, title=title)
+        if approvals:
+            self.store.add_approvals(
+                message_id=self.message_id, conversation_id=self.conversation_id, attempt_id=self.attempt_id,
+                approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind, "request": a.request,
+                            "display": a.summary, "options": a.options} for a in approvals],
+                events=batch, stdout_offset=self.offset, stdin_seq=self.next_seq - 1, expect=("running", "starting"),
+                title=title)
+        else:
+            self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
+                                     attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
+                                     stdin_seq=self.next_seq - 1, title=title)
         self.last_flush = self.clock()
         if title is None:
             return

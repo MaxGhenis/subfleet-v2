@@ -797,13 +797,56 @@ def _registered(world: World, *, subfleet: bool, session: str = SESSION) -> subp
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], env=env)
     # C-26.3: a row holds its session only while its `procStart` is its pid's
     # start as `TZ=UTC ps -o lstart=` prints it (Claude Code 2.1.280 writes it so).
-    started = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "lstart="], capture_output=True, text=True,
-                             env={**os.environ, "TZ": "UTC"}).stdout.strip()
-    (world.claude / "sessions").mkdir(exist_ok=True)
-    (world.claude / "sessions" / f"{process.pid}.json").write_text(
-        json.dumps({"sessionId": session, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
-        encoding="utf-8")
+    try:
+        started = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "lstart="], capture_output=True, text=True,
+                                 env={**os.environ, "TZ": "UTC"}).stdout.strip()
+        (world.claude / "sessions").mkdir(exist_ok=True)
+        (world.claude / "sessions" / f"{process.pid}.json").write_text(
+            json.dumps({"sessionId": session, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
+            encoding="utf-8")
+    except BaseException:
+        # Setup can fail before the caller owns cleanup, for example when its
+        # sandbox refuses ps. Do not leave the 120-second sleeper behind.
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        process.wait()
+        raise
     return process
+
+
+def test_registration_setup_failure_reaps_its_child(tmp_path, monkeypatch):
+    """A denied inspection preserves its error and leaves no fixture sleeper alive."""
+    world = types.SimpleNamespace(claude=tmp_path / "claude", workspace=tmp_path)
+    failure = PermissionError("fixture inspection denied")
+    children = []
+    popen = subprocess.Popen
+
+    def spawn(*args, **kwargs):
+        child = popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    def refuse(argv, **kwargs):
+        assert argv[0] == "/bin/ps" and children[0].poll() is None
+        raise failure
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(subprocess, "run", refuse)
+    try:
+        with pytest.raises(PermissionError) as caught:
+            _registered(world, subfleet=False)
+        assert caught.value is failure
+        assert len(children) == 1
+        child = children[0]
+        assert child.returncode is not None             # the helper waited, not this test's poll
+        assert child.poll() == child.returncode
+        with pytest.raises(ChildProcessError):
+            os.waitpid(child.pid, os.WNOHANG)            # already reaped
+    finally:
+        for child in children:                         # clean up even when checking the old helper
+            if child.poll() is None:
+                child.kill()
+            child.wait()
 
 
 @pytest.mark.parametrize("subfleet", [False, True])

@@ -95,10 +95,15 @@ def test_isolated_read_only_permission_args_come_from_v1s_own_array(v1_source):
 
 
 def test_workspace_write_permission_args_come_from_v1s_own_array(v1_source):
-    """C-12.4 workspace-write is v1's single bypass flag and nothing more."""
+    """C-12.4, C-12.9 workspace-write is v1's single bypass flag, followed by the
+    one documented v2 change (d714): strict MCP with the job's config, empty
+    unless the job named servers. Nothing else is added or reordered."""
+    v1 = _v1_workspace_write_perm_args(v1_source)
+    assert v1 == ["--dangerously-skip-permissions"]
     assert list(ClaudeAdapter.permission_args(Sandbox.WORKSPACE_WRITE)) == (
-        _v1_workspace_write_perm_args(v1_source)
-    )
+        v1 + ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'])
+    assert list(ClaudeAdapter.permission_args(Sandbox.WORKSPACE_WRITE, mcp_config="/a/mcp-config.json")) == (
+        v1 + ["--strict-mcp-config", "--mcp-config", "/a/mcp-config.json"])
 
 
 def test_the_base_launch_line_matches_v1s_apart_from_the_documented_changes(v1_source):

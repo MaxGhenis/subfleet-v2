@@ -563,7 +563,7 @@ def test_approvals_wait_without_limit_unless_policy_caps_tool_approvals(make_run
     stops tool approvals, including Codex command approvals, but never questions."""
     from subfleet.conversations.turn import Approval, Step
     runner, clock, contained = make_runner(Clocks(approval_wait_s=limit))
-    monkeypatch.setattr(runner.store, "add_approval", lambda **kw: None)
+    monkeypatch.setattr(runner.store, "add_approvals", lambda **kw: None)
     monkeypatch.setattr(runner.store, "set_state", lambda *a, **kw: None)
     runner._apply(Step(approvals=[Approval("req-1", kind, {"tool": "AskUserQuestion"}, ("answer", "deny"))]))
     assert ("req-1" in runner.approval_seen) is (kind != "question")

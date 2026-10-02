@@ -48,7 +48,7 @@ def simulated(service, patch, start: datetime) -> None:
     patch.setattr(daemon_module, "datetime", Clock)
     patch.setattr(service.timers, "now", lambda: Clock.at)
     patch.setattr(service, "_desktop_identity", lambda: capacity.DesktopIdentity("unverified"))
-    patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
 
 
 def stamp(at: datetime) -> str:
@@ -182,7 +182,7 @@ def one_unmeasured_lane(service, harness, patch):
     git(harness.workdir, "commit", "-m", "baseline")
     service.store.update_lane("codex-2", enabled=0)
     service.store.update_lane("codex-3", enabled=0)
-    patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
 
 
 def complete(service, job_id):
@@ -340,7 +340,7 @@ def test_c6_3_a_fleet_cap_that_flips_between_evaluation_and_check_never_holds_a_
     for phase in ("full at evaluation", "full at check"):
         with fleet_daemon(tmp_path / phase.replace(" ", "-")) as (service, harness, patch):
             service.policy["caps"].update(max_active_attempts=2, max_in_flight_per_lane=1, reading_ttl_s=3600)
-            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
             from tests.fake.test_admission_latency import measure
             for lane_id in CODEX:
                 measure(service, lane_id)
@@ -390,7 +390,7 @@ def test_c26_9_both_passes_racing_keep_every_cap_detached_fifo_and_place_everyth
         service.policy["conversations"].update(max_active_turns=2, turn_slots_per_lane=1)
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         detached = [submit(service, harness, pinned_model="astra") for _ in range(40)]
         turns = [submit_turn(service, harness, n) for n in range(24)]
         picked, pauses, lock = service._pick, random.Random(927), threading.Lock()
@@ -442,7 +442,7 @@ def test_c26_9_with_no_turn_cap_one_pass_places_every_turn(tmp_path):
         assert service.policy["conversations"]["turn_slots_per_lane"] is None
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         turns = [submit_turn(service, harness, n) for n in range(5)]
         service._admit()
         held = {job_id: service._holds.get(job_id) for job_id in turns if not service.store.list_attempts(job_id)}
@@ -465,7 +465,7 @@ def test_c26_9_with_no_turn_cap_no_turn_waits_behind_another(tmp_path, newer_pin
             service.policy["conversations"].update(caps)
             for lane_id in CODEX:
                 measure(service, lane_id)
-            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+            patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
             commit(service, "close", "codex-1", 1)
             older = submit_turn(service, harness, 0, pinned_lane="codex-1")
             newer = submit_turn(service, harness, 1, **({"pinned_lane": newer_pin} if newer_pin else {}))
@@ -516,7 +516,7 @@ def test_c26_9_with_no_turn_cap_a_turn_never_waits_behind_another_checkout_lease
     read-only turn of a third conversation elsewhere is placed while one of them waits."""
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         elsewhere = harness.root / "elsewhere"
         elsewhere.mkdir()
         first = _turn_in(service, harness, 0, workdir=harness.workdir)
@@ -554,7 +554,7 @@ def test_c26_9_a_lease_freed_mid_pass_goes_to_the_turn_that_waited_for_it(tmp_pa
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         service.policy["conversations"].update(caps)
         _checkout(harness)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         first = _turn_in(service, harness, 0, workdir=harness.workdir)
         service._admit_turns()
         assert service.store.list_attempts(first)
@@ -590,7 +590,7 @@ def test_c26_9_turns_waiting_on_one_lease_take_it_oldest_first(tmp_path):
     from subfleet.daemon import after
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         first = _turn_in(service, harness, 0, workdir=harness.workdir)
         service._admit_turns()
         oldest = _turn_in(service, harness, 1, workdir=harness.workdir)
@@ -632,7 +632,7 @@ def test_c26_9_a_turn_on_its_clock_keeps_its_place_for_a_lease_it_was_queued_for
     from subfleet.daemon import after
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         waiting = _turn_in(service, harness, 1, workdir=harness.workdir)
         key = f"worktree:{service._write_target(service._job(waiting), harness.workdir)}"
         hold = {"reason": "lease-held", "leases": [], "queued": [key], "queued_behind": ["gone"]}
@@ -743,7 +743,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
             # Each job its own worktree, as admission cuts one (C-6.6), with no git here.
             patch.setattr(service, "_workspace", lambda job, _root=harness.root: (
                 str(_root / "worktrees" / job["job_id"]) if job["sandbox"] == "workspace-write" else job["workdir"],
-                None, None))
+                None, None, []))
             probing(service, patch, [])
             real = service._pick
 
