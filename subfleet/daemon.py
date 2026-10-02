@@ -100,6 +100,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
 #: C-5.7a: a probe a look left quarantined is looked at again this long after,
 #: doubling per consecutive such look to the ceiling.
 PROBE_RECHECK_BASE_S = 1
@@ -1997,7 +2001,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -2009,17 +2013,30 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel,
+                             deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
                 return
-            raise TimeoutError("retention deadline reached")
+            # C-8.4: a pass that ran out of time is not a failure C-5.10's clock
+            # can cure. The next pass sizes every job again from the first, so
+            # one offered 60 s later meets the same deadline: retried on that
+            # clock, a store too large to size in one pass kept a worker in
+            # `lstat` half of every two minutes for as long as the daemon ran.
+            # It is due again when a completed pass would be.
+            self._last_maintenance = time.monotonic()
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline with %d jobs kept and %d pruned; "
+                             "the next pass is due in %g s (C-8.4)", RETENTION_PASS_S,
+                             result.get("jobs_after") or 0, len(result.get("pruned") or ()),
+                             RETENTION_INTERVAL_S)
+            return
         with self.store.transaction("service-notice.retention") as tx:
             tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
         # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+        # A pass that ran to its end, or to its deadline, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
 
     def _recover_then_start_timers(self):
