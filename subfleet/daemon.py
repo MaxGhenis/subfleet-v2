@@ -121,6 +121,10 @@ DESKTOP_IN_USE_MAX_AGE_S = 10
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
 #: C-26.14: tries at a turn's end snapshot while git fails transiently (C-6.8's
 #: kinds), before finalization records the failure and goes on without it, so a
 #: turn's finalization waits on its diff for at most a few capped git calls.
@@ -2815,7 +2819,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -2827,6 +2831,10 @@ class Daemon:
         return result.get("notice_id") is not None
 
     def _retention(self):
+        # One statement, and first: it used to follow a completed pass only, so a
+        # store too large to finish a pass never shed its old service notices.
+        with self.store.transaction("service-notice.retention") as tx:
+            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17).
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
@@ -2834,17 +2842,34 @@ class Daemon:
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
-                             cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+                             cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+            if result.get("bytes_before") is not None:
+                # It was pruning when its time ran out. A job can be left with
+                # its lease held and its files half removed, which the next pass
+                # takes up first, and each pass prunes more: retried on C-5.10's
+                # clock, as a pass that raises is.
+                raise TimeoutError("retention deadline reached")
+            # C-8.4: it ran out of time while still sizing, so it pruned nothing
+            # and holds nothing. The next pass sizes every job again from the
+            # first, so one offered 60 s later meets the same deadline: retried
+            # on C-5.10's clock, a store too large to size in one pass kept a
+            # worker in `lstat` half of every two minutes for as long as the
+            # daemon ran. It is due again when a completed pass would be.
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline before it had sized the store's "
+                             "%d jobs; nothing was pruned, and the next pass is due in %g s (C-8.4)",
+                             RETENTION_PASS_S, result.get("jobs_after") or 0, RETENTION_INTERVAL_S)
+            self._last_maintenance = time.monotonic()
+            return
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+        # A raising pass remains due so the worker retry clock can re-offer it,
+        # and so does one whose own bookkeeping above raised. A pass that ran to
+        # its end, or out of time while sizing, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
 
     def _recover_then_start_timers(self):
