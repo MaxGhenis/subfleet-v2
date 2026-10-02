@@ -8,8 +8,11 @@ began, the seconds spent inside them, and this process's CPU.
 
 The only thing replaced is the deadline handed to `retention.maintenance` (the
 daemon's is 60 s; a tree that takes that long to walk is millions of files), so
-the same script measures any revision: run it from a checkout of each. Nothing
-is launched, the timers are off, and nothing here touches ~/.subfleet.
+the same script measures any revision: run it from a checkout of each. The
+worker retry clock (C-5.10) keeps its 60 s ceiling, so with a 1 s deadline a
+150 s window is mostly that clock's ramp: what it reports for a revision that
+retries a timed-out pass is a lower bound on the real schedule, 60 s in 120.
+Nothing is launched, the timers are off, and nothing here touches ~/.subfleet.
 
 Usage: uv run python tools/measure_retention_cost.py [--window 150] [--jobs 200] [--files 1000] [--pass-s 1]
 """
@@ -80,6 +83,8 @@ def measure(window_s: float = 150, jobs: int = 200, files: int = 1000, pass_s: f
             daemon_module.maintenance = real
             daemon.stopping.set()
             server.join(timeout=30)
+            if server.is_alive():       # the root is about to be removed under it
+                raise SystemExit("the measured daemon did not stop within 30 s")
     return {"window_s": elapsed, "passes": len(passes), "in_passes_s": sum(passes), "cpu_s": used}
 
 
