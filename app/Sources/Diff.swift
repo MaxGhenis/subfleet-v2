@@ -259,6 +259,30 @@ func sharedTitleWords(_ title: String) -> String? {
     return "\u{201C}\(short)\u{201D}"
 }
 
+/// What the daemon cut or hid, so a short diff is not taken for the whole one:
+/// the listing's and the text's cuts, scrubbed values, and the nested
+/// repositories with no commit a live snapshot left out (`to.skipped`, C-13.1),
+/// the first `diffSkippedShown` by name.
+func diffNotes(_ result: DiffResult) -> [String] {
+    var notes: [String] = []
+    if result.files_truncated { notes.append("Only the first \(result.files.count) files are listed.") }
+    if !result.stats.complete { notes.append("Git's listing was cut; the counts cover the listed files only.") }
+    if result.truncated { notes.append("The diff is cut at its size limit; the rest is not shown.") }
+    if result.scrubbed > 0 {
+        notes.append("\(result.scrubbed) value\(result.scrubbed == 1 ? "" : "s") that looked like credentials are replaced.")
+    }
+    if let skipped = result.to?.skipped, !skipped.isEmpty {
+        let one = skipped.count == 1
+        let more = skipped.count - diffSkippedShown
+        let names = skipped.prefix(diffSkippedShown).joined(separator: ", ") + (more > 0 ? " and \(more) more" : "")
+        notes.append("\(skipped.count) nested repositor\(one ? "y" : "ies") with no commit \(one ? "is" : "are") not shown: \(names).")
+    }
+    return notes
+}
+
+/// How many left-out repositories `diffNotes` names, as the daemon's notice does.
+let diffSkippedShown = 5
+
 /// What the Changes pane shows: a whole conversation, or one turn of it.
 enum ChangesScope: Hashable {
     case conversation(String)

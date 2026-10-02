@@ -108,6 +108,35 @@ def test_c26_14_diff_results_decode_without_losing_a_field(core_probe, tmp_path,
     assert shown["stats"] == ended["stats"] and shown["to"]["live"] is False
 
 
+def test_c26_14_the_pane_names_the_nested_repositories_a_live_diff_cannot_show(core_probe, tmp_path, harness):
+    """C-13.1, C-26.14 (review of cda4c161, N3): a live `to` lists the nested repositories
+    with no commit its snapshot left out. The Swift model keeps the list, and the Changes
+    pane says they are not shown, beside a change it does show; a stored end has no list."""
+    cid, mid = turn(harness)
+    (harness.workspace / "keep.txt").write_text("one\nTWO\nthree\nfour\nfive\n")
+    (harness.workspace / "scratch").mkdir()
+    git(harness.workspace / "scratch", "init", "-q", "empty")
+    live = harness.call("turn.diff", message_id=mid)
+    assert live["to"]["live"] is True and live["to"]["skipped"] == ["scratch/empty/"]
+    assert [f["path"] for f in live["files"]] == ["keep.txt"]
+    assert assert_lossless(core_probe, tmp_path, "turn.diff", live)["to"]["skipped"] == ["scratch/empty/"]
+    notes = run_probe(core_probe, "diff-notes", write_json(tmp_path / "live.json", live))
+    assert notes == ["1 nested repository with no commit is not shown: scratch/empty/."]
+    whole = harness.call("conversation.diff", conversation_id=cid)
+    assert whole["to"]["skipped"] == ["scratch/empty/"]
+    assert_lossless(core_probe, tmp_path, "conversation.diff", whole)
+    many = {**live, "to": {**live["to"], "skipped": [f"r{n}/" for n in range(7)]}}
+    assert run_probe(core_probe, "diff-notes", write_json(tmp_path / "many.json", many)) == [
+        "7 nested repositories with no commit are not shown: r0/, r1/, r2/, r3/, r4/ and 2 more."]
+    head, tree = turn_diff.snapshot(harness.workspace)
+    harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
+                               head_after=head, end_tree=tree, ended=True)
+    ended = harness.call("turn.diff", message_id=mid)
+    assert "skipped" not in ended["to"]
+    assert run_probe(core_probe, "diff-notes", write_json(tmp_path / "ended.json", ended)) == []
+
+
 def test_c26_14_the_pane_gives_every_listed_file_its_section(core_probe, tmp_path, harness):
     """Each file the daemon lists has one section under the same path, quoted names
     included; line numbers follow the hunk headers; binary and mode-only files have

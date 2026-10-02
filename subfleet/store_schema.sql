@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   isolated_review INTEGER NOT NULL DEFAULT 0,
   review_root TEXT,
   round_lease TEXT,
+  mcp_servers TEXT NOT NULL DEFAULT '[]',
   parent_job_id TEXT REFERENCES jobs(job_id),
   caller_session TEXT,
   caller_pid INTEGER,

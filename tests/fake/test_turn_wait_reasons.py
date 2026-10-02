@@ -60,7 +60,7 @@ def test_i3_a_turn_behind_a_detached_writer_names_it_and_is_not_capacity(tmp_pat
         _checkout(harness)
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         writer = submit(service, harness, sandbox="workspace-write", in_place=True)
         service._admit()
         assert _live(service, writer)
@@ -82,7 +82,7 @@ def test_i1_i3_two_conversations_in_one_folder_are_both_placed(tmp_path):
         _checkout(harness)
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         _, first, first_job = message_in(service, harness, "One")
         _, second, second_job = message_in(service, harness, "Two")
         service._admit_turns()
@@ -93,7 +93,7 @@ def test_i1_i3_two_conversations_in_one_folder_are_both_placed(tmp_path):
 def test_i3_closed_lanes_name_their_reset_and_a_turn_cap_is_capacity(tmp_path):
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         commit(service, "close", CODEX[0], 1)             # the conversation's lane (a Codex thread's home)
         _, mid, _ = message_in(service, harness, "Closed")
         service._admit_turns()
@@ -104,7 +104,7 @@ def test_i3_closed_lanes_name_their_reset_and_a_turn_cap_is_capacity(tmp_path):
         for lane_id in CODEX:
             measure(service, lane_id)
         service.policy["conversations"].update({"max_active_turns": 1})
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         _, first, first_job = message_in(service, harness, "Running")
         service._admit_turns()
         assert _live(service, first_job)
@@ -171,7 +171,7 @@ def test_i3_a_turn_whose_lane_can_never_take_it_names_the_lane_and_why(tmp_path)
         _checkout(harness)
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         service.store.update_lane(CODEX[0], enabled=0)
         _, mid, job_id = message_in(service, harness, "Pinned")
         assert service.store.get_job(job_id)["pinned_lane"] == CODEX[0]

@@ -31,7 +31,7 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore
-from .turn import APPROVAL_NEEDED, RUNNING, Frame, Outcome, Step, TurnSpec
+from .turn import RUNNING, Approval, Frame, Outcome, Step, TurnSpec
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
@@ -407,17 +407,17 @@ class TurnRunner:
                                      turn_ref=event.data.get("turn_id") or self.message_id)
         for frame in step.frames:
             self.outbox.append(frame)
+        if step.approvals:
+            # C-27.1, design §8: the approvals, the batch with the events announcing them,
+            # and the move to approval-needed land in one commit. Committed apart, the
+            # event woke the app's long poll first, and the `approval.list` it then sent
+            # to answer the card could find no approval (CI, 2026-10-01).
+            self._flush(step.approvals)
         for approval in step.approvals:
-            self._flush()
-            self.store.add_approval(message_id=self.message_id, conversation_id=self.conversation_id,
-                                    attempt_id=self.attempt_id, provider_request_id=approval.provider_request_id,
-                                    kind=approval.kind, request=approval.request, display=approval.summary,
-                                    options=approval.options)
             if approval.kind != "question":
                 # C-26.9: a question (AskUserQuestion) waits for the person with no
                 # limit; only a tool approval stops its turn after approval_wait_s.
                 self.approval_seen.setdefault(approval.provider_request_id, self.clock())
-            self.store.set_state(self.message_id, APPROVAL_NEEDED, expect=("running", "starting"))
         if step.resolved:
             self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
             for rid in step.resolved:
@@ -667,14 +667,23 @@ class TurnRunner:
     def _flush_due(self) -> bool:
         return bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
 
-    def _flush(self) -> None:
-        if not self.batch:
+    def _flush(self, approvals: list[Approval] | None = None) -> None:
+        """Write the batch; with `approvals`, together with them and the message's move
+        to approval-needed (C-27.1)."""
+        if not self.batch and not approvals:
             self.last_flush = self.clock()
             return
         batch, self.batch, self.batch_bytes = self.batch, [], 0
-        self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
-                                 attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
-                                 stdin_seq=self.next_seq - 1)
+        if approvals:
+            self.store.add_approvals(
+                message_id=self.message_id, conversation_id=self.conversation_id, attempt_id=self.attempt_id,
+                approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind, "request": a.request,
+                            "display": a.summary, "options": a.options} for a in approvals],
+                events=batch, stdout_offset=self.offset, stdin_seq=self.next_seq - 1, expect=("running", "starting"))
+        else:
+            self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
+                                     attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
+                                     stdin_seq=self.next_seq - 1)
         self.last_flush = self.clock()
 
     def _write_outcome(self) -> None:

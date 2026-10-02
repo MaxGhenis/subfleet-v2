@@ -132,12 +132,38 @@ def current_lane_id(lanes: Iterable[Any], lane_id: str, *, follow: bool = True) 
     return str(found["lane_id"]) if found else lane_id
 
 
+#: C-12.9: the provider whose launch gives a job the MCP servers it names.
+MCP_PROVIDER = "claude"
+
+
+def job_mcp_servers(job: Any) -> tuple[str, ...]:
+    """C-12.9: the MCP servers a job named, from its row (JSON text) or a mapping."""
+    value = _row(job).get("mcp_servers")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise RouteError("mcp_servers: the job's record is not a list of names") from None
+    return tuple(value or ())
+
+
+def mcp_chain(policy: Mapping[str, Any], chain: Iterable[str], job: Any) -> list[str]:
+    """C-12.9: the models of `chain` a job may run on. A job that names MCP
+    servers runs only where a launch can start them, on a Claude model; any
+    other job keeps its whole chain."""
+    chain = list(chain)
+    if not job_mcp_servers(job):
+        return chain
+    return [name for name in chain if policy["models"][name]["provider"] == MCP_PROVIDER]
+
+
 def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
     """C-11.2: the provider a lane-pinned job must run on, as `evaluate` decides it.
 
     A pinned job evaluates one model: its pinned model, else the first model of
-    its task's chain from its tier. None when the job names neither, so only
-    the lane can say, or when the policy cannot tell (`evaluate` reports that).
+    its task's chain from its tier that it may run on (C-12.9). None when the
+    job names neither, so only the lane can say, or when the policy cannot tell
+    (`evaluate` reports that).
     """
     job = _row(job)
     try:
@@ -147,7 +173,8 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
-            return policy["models"][policy["chains"][task][tiers.index(tier)]]["provider"]
+            chain = mcp_chain(policy, policy["chains"][task][tiers.index(tier):], job)
+            return policy["models"][chain[0]]["provider"] if chain else None
     except (PolicyError, ValueError, KeyError, IndexError):
         pass
     return None
@@ -463,6 +490,13 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = policy["chains"][task][policy["tiers"].index(tier or default):]
     else:
         chain = []
+    if chain and job_mcp_servers(job):
+        # C-12.9: only a Claude launch starts the MCP servers the job named. A
+        # policy edit since submit can leave none; that waits, as C-6.12 says.
+        chain = mcp_chain(policy, chain, job)
+        if not chain:
+            raise RouteError("mcp_servers: this job names MCP servers, which only a Claude launch "
+                             "starts, and its chain has no Claude model", policy_dependent=True)
     # C-11.2: a pinned job evaluates one model, the first of its chain, so a lane
     # of any other provider could never take it (`pin_provider` says the same).
     selected = (resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None,
@@ -470,6 +504,9 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     if not chain and selected:
+        if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
+            raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
+                             f"and lane {pin!r} is a {selected['provider']} lane")
         model_name = next((name for name, model in policy["models"].items()
                            if model["provider"] == selected["provider"]), None)
         if model_name is None:
@@ -477,7 +514,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                               f"lane {pin!r} has provider {selected['provider']!r} with no models in policy")
         chain = [model_name]
     elif not chain:
-        chain = [next(iter(policy["models"]))]
+        chain = (mcp_chain(policy, policy["models"], job) or [next(iter(policy["models"]))])[:1]
     if pin:
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:

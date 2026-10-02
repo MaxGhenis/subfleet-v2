@@ -39,7 +39,6 @@ the character before a value.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import tempfile
@@ -47,7 +46,7 @@ import threading
 from pathlib import Path
 
 from ..salvage import (
-    SalvageError, _git, git_head, git_timeout_s, git_toplevel, transient_os_error, working_tree,
+    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -107,26 +106,37 @@ def pathspec(value) -> str | None:
     return value
 
 
-def snapshot(workdir: str | Path, *, timeout_s: float | None = None) -> tuple[str, str] | None:
-    """`(HEAD, tree)` of the working tree now, or None outside a checkout with a commit."""
+def snapshot(workdir: str | Path, *, timeout_s: float | None = None,
+             left_out: list[str] | None = None) -> tuple[str, str] | None:
+    """`(HEAD, tree)` of the working tree now, or None outside a checkout with a commit.
+
+    `left_out`, when given, receives the nested repositories with no commit that the
+    tree leaves out (C-13.1), as `path_text` writes them, so a live diff can say what
+    it cannot show (review of cda4c161, N3)."""
     head = git_head(workdir, timeout_s=timeout_s)
     if head is None:
         return None
-    return head, working_tree(workdir, head, timeout_s=timeout_s)
+    tree, skipped = snapshot_tree(workdir, head, timeout_s=timeout_s)
+    if left_out is not None:
+        left_out.extend(path_text(path) for path in skipped)
+    return head, tree
 
 
 def end_snapshot(workdir: str | Path, *, head_before: str | None, start_tree: str | None,
                  timeout_s: float | None = None) -> dict:
     """A turn's end (C-26.10): HEAD after, and the working tree's end snapshot when the
-    turn has a start snapshot to compare it with. Raises `SalvageError` when git fails."""
+    turn has a start snapshot to compare it with. Raises `SalvageError` when git fails.
+
+    Like every C-6.8 snapshot, the end one leaves out a nested repository with no
+    commit (C-13.1), so the turn's diff does not show it; `skipped` lists them."""
     head_after = git_head(workdir, timeout_s=timeout_s)
-    end_tree = None
+    end_tree, skipped = None, ()
     if start_tree is not None:
         base = head_after or head_before
         if base is None:
             raise SalvageError("the workspace has no commit to snapshot against")
-        end_tree = working_tree(workdir, base, timeout_s=timeout_s)
-    return {"head_after": head_after, "end_tree": end_tree}
+        end_tree, skipped = snapshot_tree(workdir, base, timeout_s=timeout_s)
+    return {"head_after": head_after, "end_tree": end_tree, "skipped": [path_text(path) for path in skipped]}
 
 
 def have_tree(workdir: str | Path, tree: str, *, timeout_s: float | None = None) -> bool:
@@ -403,7 +413,10 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
     A call that runs past the cap is killed and raises a transient
     `SalvageError`, as every capped git call does (C-6.8); a non-zero exit
     raises with git's stderr. Output past the bound is not read: git is
-    stopped and the result says it was cut.
+    stopped and the result says it was cut. git runs in salvage's environment
+    (`_git_env`), as the snapshots it compares were taken: under an inherited
+    `GIT_LITERAL_PATHSPECS` the `:(top,literal)` path filter matched nothing,
+    and a path's diff showed no changes (review of the P3-3 fix).
     """
     cap = git_timeout_s(timeout_s)
     verb = next(a for a in args if not a.startswith("-") and "=" not in a)
@@ -412,7 +425,7 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
         try:
             process = subprocess.Popen(["git", "-C", str(workdir), *args], stdin=subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=errors,
-                                       env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+                                       env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"})
         except OSError as exc:
             raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
 
@@ -433,7 +446,7 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
             timer.cancel()
             process.stdout.close()
         if expired.is_set():
-            raise SalvageError(f"git {verb} timed out after {cap:g} s", transient=True)
+            raise SalvageError(f"git {verb} timed out after {cap:g} s", timed_out=True)
         if not cut and process.returncode:
             errors.seek(0)
             message = errors.read(2000).decode("utf-8", errors="replace").strip()

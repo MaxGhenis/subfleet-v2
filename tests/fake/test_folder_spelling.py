@@ -58,7 +58,7 @@ def test_p3_4_two_spellings_of_one_scratch_folder_hold_and_record_one_folder(tmp
             pytest.skip("needs a case-insensitive volume, as APFS is by default")
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         first, first_job = message_in(service, str(scratch), "Upper")
         second, second_job = message_in(service, str(harness.root / "scratch-folder"), "Lower")
         service._admit_turns()
@@ -91,7 +91,7 @@ def test_p3_4_read_only_turns_in_two_spellings_of_one_folder_hold_rows_on_one_fo
             pytest.skip("needs a case-insensitive volume, as APFS is by default")
         for lane_id in CODEX:
             measure(service, lane_id)
-        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         read_only = {**SETTINGS, "permission": "read-only"}
         _, first_job = message_in(service, str(scratch), "Upper", read_only)
         _, second_job = message_in(service, str(harness.root / "sCRATCH-fOLDER"), "Lower", read_only)

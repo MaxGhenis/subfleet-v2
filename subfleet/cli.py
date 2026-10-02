@@ -52,8 +52,8 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState,
-                        Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S,
+                        STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -601,6 +601,19 @@ def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
         for key in MANAGED:
             if key in os.environ:
                 return None, fail(Exit.REFUSED, f"isolated review inherits {key} (C-23.3)", "review the managed policy before retrying")
+    mcp = getattr(args, "mcp", None) or []
+    if mcp:
+        from .adapters.claude_mcp import validate_names
+        try:
+            validate_names(mcp)
+        except ValueError as exc:
+            return None, fail(Exit.INVALID_INPUT, f"run --mcp: {exc}")
+        if args.s == "read-only" or getattr(args, "isolated_review", False):
+            return None, fail(Exit.REFUSED, "run --mcp: a read-only job starts no MCP servers (C-12.9)",
+                              "pass -s workspace-write for a job that needs them, or drop --mcp")
+        if args.H:
+            return None, fail(Exit.REFUSED, "run --mcp: only a Claude launch starts MCP servers, and -H pins "
+                                            "a Codex lane (C-12.9)", "pin a Claude lane with -a, or drop --mcp")
     workdir = Path(args.C).expanduser()
     try:
         resolved = workdir.resolve()
@@ -682,6 +695,7 @@ def _prepare_submit(args: argparse.Namespace,
         dry_run=bool(args.dry_run or args.why),
         isolated_review=bool(getattr(args, "isolated_review", False)),
         review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
+        mcp_servers=list(getattr(args, "mcp", None) or []),
         batch=batch,
     ), None
 
@@ -853,6 +867,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
+    "mcp": ("mcp", "list"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -2071,10 +2086,15 @@ def _daemond_argv(root: Path) -> list[str]:
 
 # The daemon outlives the shell that starts it, and by C-5.1 every guardian and
 # provider child inherits its environment. An API key or a session id picked up
-# from one terminal must not become the fleet's ambient environment (C-14.4).
+# from one terminal must not become the fleet's ambient environment (C-14.4), nor
+# a repository a git hook named (`GIT_DIR` and the rest): every git the daemon
+# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too),
+# nor a way to read pathspecs (`GIT_LITERAL_PATHSPECS` and the rest), which turned
+# salvage's exclusion of a nested repository into a file name (C-13.1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH")
+                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
+                *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
 
 def daemon_env(root: Path) -> dict[str, str]:
@@ -2734,6 +2754,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="with --json, exit 75 when the job is still queued")
     p_run.add_argument("--no-preamble", action="store_true",
                        help="do not prepend the workspace-write template (C-6.7)")
+    p_run.add_argument("--mcp", action="append", default=[], metavar="NAME",
+                       help="start this MCP server in a writable Claude job (repeatable); such a job "
+                            "starts none otherwise, and a read-only job never does (C-12.9)")
     p_run.add_argument("--dry-run", action="store_true",
                        help="evaluate routing and print the decision; dispatch nothing")
     p_run.add_argument("--why", action="store_true",

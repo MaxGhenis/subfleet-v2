@@ -10,6 +10,7 @@ under test is the daemon's, not a copy of it.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import uuid
 
@@ -93,6 +94,26 @@ def test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_lea
     assert daemon._turn_trees(daemon._job(job_id), attempt) == receipt
 
 
+def test_c13_1_a_turns_end_snapshot_lists_the_nested_repositories_it_left_out(state_daemon):
+    """C-13.1, C-26.14 (review of c1f95838, F7): a turn's snapshots leave out a nested
+    repository with no commit, as salvage does, so its diff does not show one; the
+    receipt and the attempt's evidence list what the end snapshot left out."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    nested = harness.workdir / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["skipped"] == ["scratch/repo /"] and receipt["error"] is None and receipt["end_tree"]
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["turn_trees"]["skipped"] == ["scratch/repo /"]
+    result = daemon.conversations.op_turn_diff({"message_id": mid}, None)
+    assert [f["path"] for f in result["files"]] == ["made-by-the-turn.txt"]
+
+
 def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(state_daemon, monkeypatch):
     """C-6.8, C-26.14: a transient git failure is retried by the worker (the call raises)
     up to TURN_TREE_TRIES tries, then recorded; any other failure is recorded at once;
@@ -129,6 +150,53 @@ def test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded(s
     monkeypatch.setattr(turn_diff, "end_snapshot", broken)
     assert daemon._turn_trees(job, attempt)["error"] == "end snapshot failed: git write-tree failed: corrupt"
     assert len(calls) == 1
+
+
+def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_recorded(state_daemon, monkeypatch):
+    """Review of cda4c161, N1, for turns: the end snapshot's error reaches `trees.json`, the
+    attempt's evidence and the conversation store, and a live diff's error reaches the
+    caller; git quoted the name in its own bytes, carried as a surrogate, which none of
+    them could encode, so the turn's finalization raised on every try. Only `add -A` is
+    faked (APFS refuses such names); the rest is real."""
+    from subfleet.conversations.store import ConversationError
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\nfatal: adding files failed\n')
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    error = 'end snapshot failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    receipt = json.loads((adir / "trees.json").read_text())
+    assert receipt["error"] == error and receipt["end_tree"] is None
+    assert json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])["turn_trees"]["error"] == error
+    assert daemon.conversations.store.turn_trees(mid)["error"] == error
+    cid = daemon.conversations.store.message(mid)["conversation_id"]
+    with pytest.raises(ConversationError) as caught:
+        daemon.conversations.op_conversation_diff({"conversation_id": cid}, None)
+    assert str(caught.value) == error.removeprefix("end snapshot failed: ")
+
+
+def test_c26_14_a_live_diff_says_which_nested_repositories_it_does_not_show(state_daemon):
+    """C-13.1, C-26.14 (review of cda4c161, N3): the live `to` (conversation.diff, and
+    turn.diff before a turn's end exists; both go through `_compare`) is a snapshot that
+    leaves out a nested repository with no commit, and it said nothing. It lists them."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    service = daemon.conversations
+    cid = service.store.message(mid)["conversation_id"]
+    nested = harness.workdir / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (harness.workdir / "after-the-turn.txt").write_text("one\n")
+    live = service.op_conversation_diff({"conversation_id": cid}, None)
+    assert live["to"]["live"] is True and live["to"]["skipped"] == ["scratch/repo /"]
+    assert [f["path"] for f in live["files"]] == ["after-the-turn.txt"]
+    ended = service.op_turn_diff({"message_id": mid}, None)
+    assert ended["to"]["live"] is False and "skipped" not in ended["to"]    # the receipt lists the end's
+    shutil.rmtree(nested)
+    assert service.op_conversation_diff({"conversation_id": cid}, None)["to"]["skipped"] == []
 
 
 def writable_turn_again(daemon, harness):
