@@ -391,3 +391,51 @@ def test_a_plan_made_from_a_stale_registry_read_is_not_kept(core, claude):
     fresh_registry(core)
     core._push_notices()
     assert len(claude["inbox"].wait_for(1)) == 1
+
+
+def test_a_notice_whose_id_now_names_another_notice_is_not_written(core, claude):
+    """Review of PR #114: SQLite reuses a deleted rowid. If the planned notice is
+    gone and its id now names a newer notice (another session's), the
+    reservation takes nothing, and nothing is written."""
+    notice_id = finish(core, "20261003-030000-reused")
+    reserve = core._push_reserve
+
+    def reuse_then_reserve(push, data):
+        with core.store.transaction("test.reused") as tx:
+            tx.execute("UPDATE notices SET session_id='someone-else',created_at='2026-10-03T23:59:59Z' "
+                       "WHERE notice_id=?", (notice_id,))
+        return reserve(push, data)
+
+    core._push_reserve = reuse_then_reserve
+    core._push_notices()
+    time.sleep(0.2)
+    assert claude["inbox"].frames == []
+    assert notice(core, notice_id)["state"] == "pending"
+    assert core._notice_push_status()["raced"] == 1
+
+
+@pytest.mark.parametrize("became", ["conversation", "lane"])
+def test_a_session_that_becomes_a_conversation_or_lane_before_the_write_is_held(
+        core, claude, monkeypatch, became):
+    """Review of PR #114: the plan read the lane and conversation records; a
+    conversation can bind the session, or a lane attempt record it, before the
+    write. The check just before the push asks the daemon again."""
+    from subfleet import notify_push
+    job = "20261003-030000-" + became
+    notice_id = finish(core, job)
+    recheck = notify_push.recheck
+
+    def bind_then_recheck(push):
+        if became == "conversation":
+            monkeypatch.setattr(core, "_conversation_binding", lambda session: "conversation c-1")
+        else:
+            core.store.add_attempt(attempt_id="a-race", job_id=job, seq=1, lane_id="codex-1",
+                                   model_requested="astra", native_session_id=SESSION.upper())
+        return recheck(push)
+
+    monkeypatch.setattr(notify_push, "recheck", bind_then_recheck)
+    core._push_notices()
+    time.sleep(0.2)
+    assert claude["inbox"].frames == []
+    assert notice(core, notice_id)["state"] == "pending"
+    assert core._notice_push_status()["held"][SESSION] == f"{became} session"

@@ -3033,7 +3033,8 @@ class Daemon:
             if self.stopping.is_set():
                 break
             outcome = notify_push.deliver(push, reserve=self._push_reserve, release=self._push_release,
-                                          record=self._push_record, timeout=settings.timeout_s)
+                                          record=self._push_record, check=self._push_check,
+                                          timeout=settings.timeout_s)
             notify_push.settle(self._push_history, push, outcome, time.time())
             if outcome.result == "held":
                 held[push.session_id.lower()] = outcome.reason
@@ -3048,6 +3049,23 @@ class Daemon:
                 self.log.warning("notice push to %s (pid %s) %s: %s", push.session_id,
                                  push.row.pid, outcome.result, outcome.reason)
 
+    def _push_check(self, push: "notify_push.Push") -> str | None:
+        """C-15.7: just before a push, its registry row read again
+        (`notify_push.recheck`), and the daemon's own record asked again whether
+        the session is a lane's or a conversation's: a conversation can bind a
+        session between the plan and the write (review of PR #114)."""
+        reason = notify_push.recheck(push)
+        if reason is not None:
+            return reason
+        if self._conversation_binding(push.session_id):
+            return "conversation session"
+        from .conversations.store import native_any_case
+        match, params = native_any_case("a.native_session_id", push.session_id)
+        if self.store.one(f"SELECT 1 FROM attempts a JOIN jobs j USING(job_id) WHERE {match} "
+                          "AND j.kind NOT IN ('revive','turn') LIMIT 1", params):
+            return "lane session"
+        return None
+
     def _push_reserve(self, push: "notify_push.Push", data: dict) -> list[int]:
         """C-15.7: move the push's notices that are still `pending` to `offered`,
         transport `socket`, in one transaction; return their ids. The
@@ -3056,10 +3074,15 @@ class Daemon:
         ids = list(push.notice_ids)
         marks = ",".join("?" * len(ids))
         record = {**data, "notice_ids": []}
+        planned = {item.notice_id: item for item in push.notices}
         with self.store.transaction("notice.push", data=record) as tx:
+            # Only the notice the plan read: SQLite reuses a deleted rowid, so an id
+            # alone could name a newer notice of another session (review of PR #114).
             reserved = [row[0] for row in tx.execute(
-                f"SELECT notice_id FROM notices WHERE notice_id IN ({marks}) AND state='pending' "
-                "ORDER BY notice_id", ids)]
+                f"SELECT notice_id,session_id,job_id,created_at FROM notices "
+                f"WHERE notice_id IN ({marks}) AND state='pending' ORDER BY notice_id", ids)
+                if (item := planned.get(row[0])) is not None and row[1] == item.session_id
+                and row[2] == item.job_id and notify_push.epoch(row[3]) == item.created_at]
             if reserved:
                 stamp = utcnow()
                 tx.execute(f"UPDATE notices SET state='offered',transport=?,offered_at=? "
