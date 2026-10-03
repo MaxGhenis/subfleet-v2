@@ -102,7 +102,7 @@ def main() -> int:
 
     try:
         daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
-                        kill_settle_s=1.0, exit_settle_s=1.0,
+                        kill_settle_s=1.0, exit_settle_s=1.0, signal_hold_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook)
     except DaemonUnavailable:
         return 69

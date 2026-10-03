@@ -383,6 +383,11 @@ class Offline:
         Returns a record of what happened. `signalled` is the only outcome that
         touched a process; everything else is a refusal that names its reason,
         because the store is read-only here and a recycled pid cannot be undone.
+
+        C-4.7: the store is read-only, so before it signals the kill leaves its
+        mark in the attempt's directory (`kill.json`), which tells the next
+        daemon that this signal was the operator's and not the host's shutdown.
+        A kill that cannot leave it does not signal.
         """
         with self.reading() as conn:
             version = self.schema_version(conn)
@@ -429,9 +434,26 @@ class Offline:
                     "reason": (f"cannot verify that pid {pid} is still the recorded "
                                "guardian (C-5.3); refusing to signal a pid that may "
                                "have been recycled")}
+        from .guardian import atomic_publish
+        from .host_shutdown import KILL_MARKER
+        marker = {"by": "offline-kill", "signal": int(sig), "pid": pid, "pgid": pgid,
+                  "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}
+        try:
+            directory = self.attempt_dir(job_id, attempt.get("seq"))
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            atomic_publish(directory / KILL_MARKER, (json.dumps(marker, sort_keys=True) + "\n").encode())
+        except OSError as exc:
+            return {"job_id": job_id, "action": "refused", "state": state,
+                    "attempt_id": attempt.get("attempt_id"), "pid": pid, "pgid": pgid,
+                    "reason": (f"cannot record the kill in the attempt's directory ({exc}); without it "
+                               "the next daemon could take this signal for the host's shutdown (C-4.7)")}
         try:
             os.killpg(int(pgid), sig)
         except (OSError, OverflowError, ValueError) as exc:
+            # Nothing was signalled, so nothing is the operator's: a later signal
+            # there must be judged as if this kill had not been tried (C-4.7).
+            with contextlib.suppress(OSError):
+                (directory / KILL_MARKER).unlink()
             return {"job_id": job_id, "action": "failed", "state": state,
                     "attempt_id": attempt.get("attempt_id"), "pid": pid, "pgid": pgid,
                     "reason": f"killpg({pgid}) failed: {exc}"}
