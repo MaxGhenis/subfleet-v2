@@ -116,6 +116,8 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
+#: C-15.7: a notice push pass whose inputs are unchanged plans again after this long.
+PUSH_REPLAN_S = 10
 #: C-10.3: a reservation treats an in-use answer older than this as use (its
 #: registry read began that long ago; the reservation refreshed it just before).
 DESKTOP_IN_USE_MAX_AGE_S = 10
@@ -585,6 +587,9 @@ class Daemon:
                                              "held": {}, "error": None}
         self._wait_reported: dict[str, float] = {}
         self._wait_reported_lock = threading.Lock()
+        # What the last full pass planned from, and when (monotonic).
+        self._push_seen: tuple | None = None
+        self._push_planned_at = 0.0
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
@@ -2992,12 +2997,34 @@ class Daemon:
         self._push_history.prune(now, settings)
         if not pending:
             status["held"] = {}
+            self._push_seen = None
             return
-        found = self._session_rows()
+        # A pass whose inputs have not changed since a full pass that pushed
+        # nothing would plan the same again; it reads no registry (a `ps`) and no
+        # attempts until something moves, or `PUSH_REPLAN_S` has passed for the
+        # rules that run on the clock (the delay, the gap, a retry, an expiry).
+        watched = self.wait_hub.watched_jobs()
+        looked_at = time.monotonic()
+        seen = (tuple(item.ident for item in pending), notify_push.registry_fingerprint(),
+                frozenset(watched & {item.job_id for item in pending}),
+                tuple(sorted(item for item in waited if item in {p.job_id for p in pending})))
+        if seen == self._push_seen and time.monotonic() - self._push_planned_at < PUSH_REPLAN_S:
+            return
+        read_at, reading = self._registry_read()
+        found = reading["found"]
+        rows = None if found is None else found["rows"]
+        # The daemon's own lane and conversation records are read only when a
+        # session could be pushed to at all.
+        reachable = rows is not None and notify_push.reachable(pending, rows)
         plan = notify_push.plan(
-            pending, None if found is None else found["rows"], now=now, settings=settings,
-            lane_ids=self._lane_session_ids(), conversation_ids=self._conversation_session_ids(),
-            watched=self.wait_hub.watched_jobs(), waited=waited, history=self._push_history)
+            pending, rows, now=now, settings=settings,
+            lane_ids=self._lane_session_ids() if reachable else (),
+            conversation_ids=self._conversation_session_ids() if reachable else (),
+            watched=watched, waited=waited, history=self._push_history)
+        # A registry read reused from before these inputs were taken may not
+        # show what changed them, so a plan made from it is not one to keep.
+        self._push_seen = None if plan.pushes or read_at < looked_at else seen
+        self._push_planned_at = time.monotonic()
         # Replaced whole, never changed in place: `daemon.status` reads it from
         # another thread.
         held = dict(plan.held)

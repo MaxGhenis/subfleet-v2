@@ -48,16 +48,24 @@ What the frame adds, from what the installed Claude Code's inbox does with it
   misdeliver a notice.
 * The envelope declares the recipient's own permission class (C-23.42). The
   inbox holds, rather than runs, a frame whose declared class is not the
-  recipient's, and a bypass session holds one that declares none.
+  recipient's, and a bypass session holds one that declares none. It reads the
+  declared class while its remote flag `tengu_harbor_kite_mode_emit` (default
+  on) is on, and a `crossSessionInbound` setting overrides all of it (`hold`
+  holds, `refuse` drops). A held frame a person approves is queued without its
+  priority. None of this reaches the sender: an address-less sender gets no
+  receipt, so `delivered` here means the inbox took the bytes.
 
 The daemon's pass (C-15.7) is `plan` over the pending job notices and the
 registry as read, then `deliver` for each session it picked: reserve the rows
 (`pending` to `offered`, transport `socket`), write the frame, and settle. A
 connect failure, or a missing token, wrote nothing: the rows go back to
 `pending` and may be tried again. A failure after bytes may have reached the
-inbox leaves them `offered`, so a notice is pushed at most once. The planner is
-a pure function of what it is handed, so the rules are tested without a daemon
-(`tests/unit/test_notify_push.py`, `tests/unit/test_notice_push_properties.py`).
+inbox leaves them `offered`, so a notice is pushed at most once. The frame's
+last line names its notices by id (`render.push_trailer`), so the
+UserPromptSubmit hook of the turn it starts marks exactly those as shown. The
+planner is a pure function of what it is handed, so the rules are tested
+without a daemon (`tests/unit/test_notify_push.py`,
+`tests/unit/test_notice_push_properties.py`).
 """
 
 from __future__ import annotations
@@ -72,6 +80,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from . import render
 from .sessions import registry
 
 FROM_NAME = "subfleet"
@@ -466,6 +475,12 @@ class Pending:
     def key(self) -> str:
         return self.session_id.lower()
 
+    @property
+    def ident(self) -> tuple[int, float]:
+        """The notice as the pass remembers it: its id with its creation time,
+        because SQLite reuses the largest rowid once retention has deleted it."""
+        return (self.notice_id, self.created_at)
+
 
 def epoch(stamp: Any) -> float | None:
     """A store time (`2026-10-02T22:10:05Z`) as epoch seconds, or None."""
@@ -529,12 +544,16 @@ class History:
 
     last_push: dict[str, float] = field(default_factory=dict)       # session (lower case) -> when
     recent: list[float] = field(default_factory=list)               # pushes made, when
-    failures: dict[int, tuple[int, float]] = field(default_factory=dict)  # notice -> (tries, last)
+    #: `Pending.ident` -> (tries that wrote nothing, when the last one was).
+    failures: dict[tuple[int, float], tuple[int, float]] = field(default_factory=dict)
 
     def prune(self, now: float, settings: PushSettings) -> None:
         self.recent = [at for at in self.recent if now - at < 60]
         horizon = max(settings.session_gap_s, 60.0)
         self.last_push = {key: at for key, at in self.last_push.items() if now - at < horizon}
+        # A notice past the max age is never pushed, so its tries need no keeping.
+        self.failures = {ident: value for ident, value in self.failures.items()
+                         if now - ident[1] <= settings.max_age_s}
 
 
 @dataclass
@@ -570,6 +589,32 @@ def row_refusal(row: registry.SessionRow | None) -> str | None:
     if row.status is not None and row.status not in IDLE_STATUSES:
         return row.status
     return None
+
+
+def reachable(pending: Iterable[Pending], rows: Iterable[registry.SessionRow]) -> bool:
+    """Whether any session with a pending notice has a row a push could reach
+    now, before the daemon reads its own lane and conversation records."""
+    rows = list(rows)
+    return any(row_refusal(target_row(rows, key)) is None for key in {item.key for item in pending})
+
+
+def registry_fingerprint() -> tuple:
+    """Each registry row file's name, size and modification time: a status, a
+    restart or a new session changes it. Empty when the directory cannot be
+    listed, which is also a change from a listing that worked."""
+    try:
+        with os.scandir(registry.sessions_dir()) as entries:
+            found = []
+            for entry in entries:
+                if entry.name.endswith(".json"):
+                    try:
+                        info = entry.stat()
+                    except OSError:
+                        continue
+                    found.append((entry.name, info.st_size, info.st_mtime_ns))
+    except OSError:
+        return ()
+    return tuple(sorted(found))
 
 
 def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None, *,
@@ -609,7 +654,7 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
         usable = []
         waiting_retry = False
         for item in fresh:
-            tries, last = history.failures.get(item.notice_id, (0, 0.0))
+            tries, last = history.failures.get(item.ident, (0, 0.0))
             if tries >= settings.max_tries:
                 continue
             if tries and now - last < settings.retry_s:
@@ -618,6 +663,16 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
             usable.append(item)
         if not usable:
             out.held[key] = "retry wait" if waiting_retry else "gave up"
+            continue
+        # C-23.50, per notice: a job with a live waiter, or one a `wait` has just
+        # reported, is that waiter's to tell. The session's other notices go
+        # on without it, so one long wait never holds them until they age out.
+        live = [item for item in usable if item.job_id in watching]
+        reported = [item for item in usable if item.job_id not in watching and item.job_id in waited
+                    and now - waited[item.job_id] < settings.after_wait_s]
+        usable = [item for item in usable if item not in live and item not in reported]
+        if not usable:
+            out.held[key] = "waiter live" if live else "waiter reported"
             continue
         if max(now - item.created_at for item in usable) < settings.delay_s:
             out.held[key] = "settling"
@@ -635,13 +690,6 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
         refusal = row_refusal(row)
         if refusal is not None:
             out.held[key] = refusal
-            continue
-        jobs = {item.job_id for item in usable}
-        if jobs & watching:
-            out.held[key] = "waiter live"
-            continue
-        if any(now - waited[job] < settings.after_wait_s for job in jobs if job in waited):
-            out.held[key] = "waiter reported"
             continue
         last_push = history.last_push.get(key)
         if last_push is not None and now - last_push < settings.session_gap_s:
@@ -669,7 +717,7 @@ def render_body(notices: Sequence[Pending]) -> str:
         blocks.append(f"... and {count - BODY_MAX_NOTICES} more: subfleet runs --mine")
     blocks.append("Read one with `subfleet runs show <id>`, which also marks its notice read; "
                   "list them with `subfleet runs --mine`.\n"
-                  "(pushed by the subfleet daemon to wake this idle session)")
+                  + render.push_trailer(item.notice_id for item in notices))
     return "\n\n".join(blocks)
 
 
@@ -682,6 +730,8 @@ def recheck(push: Push) -> str | None:
         return "registry row gone"
     if fresh.session_id.lower() != push.session_id.lower() or fresh.pid != push.row.pid:
         return "registry row changed"
+    if not fresh.alive:
+        return "not running"
     if fresh.socket != push.row.socket:
         return "inbox moved"
     if fresh.status is not None and fresh.status not in IDLE_STATUSES:
@@ -785,5 +835,5 @@ def settle(history: History, push: Push, outcome: Outcome, now: float) -> None:
     elif outcome.result == "failed":
         for item in push.notices:
             if not outcome.notice_ids or item.notice_id in outcome.notice_ids:
-                tries, _ = history.failures.get(item.notice_id, (0, 0.0))
-                history.failures[item.notice_id] = (tries + 1, now)
+                tries, _ = history.failures.get(item.ident, (0, 0.0))
+                history.failures[item.ident] = (tries + 1, now)

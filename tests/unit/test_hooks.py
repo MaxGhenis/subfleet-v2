@@ -416,6 +416,58 @@ def test_a_pushed_turn_whose_notices_are_all_in_its_prompt_prints_nothing(daemon
     assert marked and marked[0]["notice_ids"] == [1]
 
 
+def test_a_second_notice_for_the_pushed_job_is_still_printed(daemon, root):
+    """Review of PR #114: a quarantine release writes a second notice for the
+    same job with the same first line (C-15.1). The push named notice 1 only,
+    so notice 5, with the salvage failure, is printed."""
+    marked: list[dict] = []
+    daemon({
+        "notice.pending": lambda request: {"notices": [
+            notice(1, text=PUSHED_HEADER + "\nattempt a1: ok", state="surfaced"),
+            notice(5, text=PUSHED_HEADER + "\nsalvage failed: ref not written")]},
+        "notice.mark": lambda request: marked.append(request.args) or {"notices": []},
+    })
+    stdout = io.StringIO()
+    event = payload("UserPromptSubmit", prompt=pushed_prompt(PUSHED_HEADER))
+    assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
+    context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "salvage failed" in context and "attempt a1: ok" not in context
+    assert marked[0]["notice_ids"] == [1, 5]
+
+
+def offered_by_push(notice_id: int, seconds_ago: float) -> dict:
+    from datetime import datetime, timedelta, timezone
+    stamp = (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
+    return {**notice(notice_id, text=PUSHED_HEADER + "\nattempt a1: ok", state="offered"),
+            "transport": "socket", "offered_at": stamp}
+
+
+def test_a_typed_prompt_leaves_a_notice_the_push_just_wrote_to_the_push(daemon, root):
+    """Review of PR #114: a person types while the push's frame waits behind
+    that turn (priority `later`). The hook neither prints nor marks the
+    notice the push wrote moments ago, so the frame alone delivers it."""
+    marked: list[dict] = []
+    daemon({"notice.pending": lambda request: {"notices": [offered_by_push(1, 5)]},
+            "notice.mark": lambda request: marked.append(request.args) or {"notices": []}})
+    stdout = io.StringIO()
+    event = payload("UserPromptSubmit", prompt="what's next?")
+    assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
+    assert stdout.getvalue() == "" and marked == []
+
+
+@pytest.mark.parametrize("event,seconds_ago", [("UserPromptSubmit", 600), ("SessionStart", 5)])
+def test_a_pushed_notice_is_printed_once_the_push_no_longer_owns_it(daemon, root, event, seconds_ago):
+    """C-15.7: after `PUSH_OWNS_S` the frame may have been held by the inbox,
+    so the next prompt prints the notice; a session that started again lost any
+    queued frame with its process, so SessionStart prints it at once."""
+    daemon({"notice.pending": lambda request: {"notices": [offered_by_push(1, seconds_ago)]},
+            "notice.mark": lambda request: {"notices": []}})
+    stdout = io.StringIO()
+    assert hooks.session_event(event, payload(event, prompt="hello"), root, stdout=stdout) == 0
+    assert PUSHED_HEADER in json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+
+
 @pytest.mark.parametrize("event,prompt", [
     ("SessionStart", "pushed"),
     ("UserPromptSubmit", f"what happened to {JOB}?"),

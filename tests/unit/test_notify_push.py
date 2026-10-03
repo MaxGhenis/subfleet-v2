@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import notify_push
+from subfleet import notify_push, render
 from subfleet.sessions import registry
 
 SESSION = "sess-push"
@@ -519,12 +519,20 @@ def test_a_job_a_wait_reported_is_left_to_that_waiter_for_a_while():
     assert planned([notice(job_id=job)], [row()], waited={job: NOW - 121}).pushes
 
 
-def test_one_job_with_a_waiter_holds_the_whole_session():
-    """C-23.50: the waiter will wake the session anyway; a push for its other
-    job now would be a second wake, so the session's notices go together later."""
-    plan = planned([notice(1, job_id="20261002-120000-a"), notice(2, job_id="20261002-120000-b")],
-                   [row()], watched={"20261002-120000-a"})
-    assert plan.pushes == []
+def test_a_waiter_holds_only_its_own_jobs_notice():
+    """C-23.50, per notice: the waiter tells its session about the job it
+    watches; the session's other notices go now, so one long wait never holds
+    them until they age out (review of PR #114: `wait A B` with B running for
+    three hours, while C ended and aged past the max age)."""
+    pending = [notice(1, job_id="20261002-120000-a"), notice(2, job_id="20261002-120000-b"),
+               notice(3, job_id="20261002-120000-c")]
+    plan = planned(pending, [row()], watched={"20261002-120000-a"},
+                   waited={"20261002-120000-b": NOW - 30})
+    push, = plan.pushes
+    assert push.notice_ids == (3,)
+    held = planned(pending[:2], [row()], watched={"20261002-120000-a"},
+                   waited={"20261002-120000-b": NOW - 30})
+    assert held.pushes == [] and held.held[SESSION] == "waiter live"
 
 
 def test_a_young_notice_settles_and_an_old_one_is_left_to_the_hooks():
@@ -565,12 +573,23 @@ def test_the_per_minute_cap_holds_the_newest_sessions_back():
 
 
 def test_a_failed_push_is_retried_after_a_wait_and_given_up_after_its_tries():
-    history = notify_push.History(failures={1: (1, NOW - 10)})
+    ident = notice().ident
+    history = notify_push.History(failures={ident: (1, NOW - 10)})
     assert planned([notice()], [row()], history=history).held[SESSION] == "retry wait"
-    history = notify_push.History(failures={1: (1, NOW - 61)})
+    history = notify_push.History(failures={ident: (1, NOW - 61)})
     assert planned([notice()], [row()], history=history).pushes
-    history = notify_push.History(failures={1: (3, NOW - 600)})
+    history = notify_push.History(failures={ident: (3, NOW - 600)})
     assert planned([notice()], [row()], history=history).held[SESSION] == "gave up"
+
+
+def test_a_reused_notice_id_starts_with_no_tries():
+    """Review of PR #114: SQLite reuses the largest rowid once retention has
+    deleted it, so the pass remembers a failure by id and creation time; a new
+    notice under an old id is not held for the old one's tries."""
+    history = notify_push.History(failures={(1, NOW - 5000): (3, NOW - 600)})
+    assert planned([notice(1)], [row()], history=history).pushes
+    history.prune(NOW, notify_push.PushSettings(max_age_s=1000))
+    assert history.failures == {}
 
 
 def test_an_unreadable_registry_pushes_nothing():
@@ -731,10 +750,11 @@ def test_settle_counts_a_push_against_its_session_and_a_failure_against_its_noti
     push = a_push(1, 2)
     notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "delivered", (1, 2)), NOW)
     assert history.last_push == {SESSION: NOW} and history.recent == [NOW]
+    one, two = (item.ident for item in push.notices)
     notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "failed", (2,)), NOW)
-    assert history.failures == {2: (1, NOW)}
+    assert history.failures == {two: (1, NOW)}
     notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "failed", ()), NOW + 1)
-    assert history.failures == {1: (1, NOW + 1), 2: (2, NOW + 1)}
+    assert history.failures == {one: (1, NOW + 1), two: (2, NOW + 1)}
     notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "held"), NOW)
     assert history.recent == [NOW]
 
@@ -755,9 +775,12 @@ def test_the_body_is_the_notices_own_text_counted_and_bounded():
     one = notify_push.render_body([notice(1)])
     assert one.startswith("subfleet: 1 detached run this session dispatched has finished:")
     assert "job-1: succeeded; rc=0" in one and "subfleet runs show <id>" in one
+    assert one.endswith("(subfleet notices 1: pushed by the subfleet daemon to wake this idle session)")
+    assert render.pushed_notice_ids(notify_push.envelope(one)) == {1}
     many = notify_push.render_body([notice(i) for i in range(1, 14)])
     assert many.startswith("subfleet: 13 detached runs this session dispatched have finished:")
     assert "job-10:" in many and "job-11:" not in many and "and 3 more" in many
+    assert render.pushed_notice_ids(many) == set(range(1, 14)), "the trailer names every notice"
     long = notify_push.render_body([notice(1, text="x" * 9000)])
     assert len(long) < 5000
 
@@ -770,12 +793,12 @@ def test_a_closing_tag_in_a_notice_cannot_end_the_push_early():
 # --- the recheck reads the row file again ---------------------------------------
 
 def test_the_recheck_reads_the_registry_row_file_again(claude_home):
-    pid = 4100
+    pid = os.getpid()
     path = claude_home / "sessions" / f"{pid}.json"
     def write(**fields):
         path.write_text(json.dumps({"sessionId": SESSION, "pid": pid, "status": "idle",
                                     "messagingSocketPath": "/tmp/cc-socks/4100.sock", **fields}))
-    push = notify_push.Push(SESSION, replace(row(), registry_path=str(path)), (notice(),))
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path)), (notice(),))
     write()
     assert notify_push.recheck(push) is None
     write(status="busy")
@@ -786,3 +809,25 @@ def test_the_recheck_reads_the_registry_row_file_again(claude_home):
     assert notify_push.recheck(push) == "inbox moved"
     path.unlink()
     assert notify_push.recheck(push) == "registry row gone"
+    dead = notify_push.Push(SESSION, replace(row(pid=999999), registry_path=str(path)), (notice(),))
+    path.write_text(json.dumps({"sessionId": SESSION, "pid": 999999, "status": "idle",
+                                "messagingSocketPath": "/tmp/cc-socks/4100.sock"}))
+    assert notify_push.recheck(dead) == "not running"
+
+
+def test_reachable_says_whether_any_session_could_be_pushed_now():
+    assert notify_push.reachable([notice()], [row()])
+    assert not notify_push.reachable([notice()], [row(status="busy"), row(session_id="x")])
+    assert not notify_push.reachable([], [row()])
+
+
+def test_the_registry_fingerprint_moves_with_a_row_file(claude_home):
+    """C-15.7: the pass skips a plan whose inputs have not changed; a status
+    written into a row file changes the fingerprint."""
+    path = claude_home / "sessions" / "4100.json"
+    path.write_text(json.dumps({"sessionId": SESSION, "status": "busy"}))
+    before = notify_push.registry_fingerprint()
+    assert before == notify_push.registry_fingerprint()
+    path.write_text(json.dumps({"sessionId": SESSION, "status": "idle"}))
+    os.utime(path, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    assert notify_push.registry_fingerprint() != before

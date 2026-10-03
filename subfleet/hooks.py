@@ -75,6 +75,7 @@ import re
 import shlex
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -473,15 +474,20 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = [row for row in rows if names_a_job(row)]
     if not rows:
         return int(Exit.OK)
-    # C-15.7: a turn the notice push started has the notices in its prompt
-    # already, and this hook fires for that turn too; printing them again
-    # would tell the session twice in one turn. They are marked as shown.
-    shown = in_prompt(rows, payload) if event == "UserPromptSubmit" else []
+    shown: list[dict[str, Any]] = []
+    if event == "UserPromptSubmit":
+        # C-15.7: a turn the notice push started has its notices in its prompt
+        # already, and this hook fires for that turn too: they are marked as
+        # shown and not printed again. A notice the push wrote moments ago that
+        # this prompt does not carry is the push's still: its frame is queued
+        # behind this turn, so printing it now would tell the session twice.
+        shown = in_prompt(rows, payload)
+        rows = [row for row in rows if row in shown or not pushed_moments_ago(row)]
     context = render_pending([row for row in rows if row not in shown])
     if context:
         stdout.write(json.dumps({"hookSpecificOutput": {
             "hookEventName": event, "additionalContext": context}}) + "\n")
-    if marked:
+    if marked and rows:
         try:
             _mark(client, session, [row["notice_id"] for row in rows
                                     if row.get("notice_id") is not None],
@@ -503,23 +509,41 @@ def payload_prompt(payload: dict[str, Any]) -> str:
 
 
 def in_prompt(rows: Sequence[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """The notices whose C-15.1 first line the prompt already carries.
+    """The notices a push carried into this turn's prompt (C-15.7).
 
-    A notice the push delivered (C-15.7) reaches the session as the prompt of
-    the turn it starts, its own text verbatim, and UserPromptSubmit fires for
-    that turn (observed 2026-10-03, Claude Code 2.1.286). The first line names
-    the job, its state and its rc, so finding it in the prompt is finding the
-    notice; a notice the prompt only mentions by job id is still printed.
+    A notice the push delivered reaches the session as the prompt of the turn
+    it starts, and UserPromptSubmit fires for that turn (observed 2026-10-03,
+    Claude Code 2.1.286). The push's last line names its notices by id
+    (`render.push_trailer`); a notice is in the prompt only if that line names
+    it. Matching ids, not text, keeps a second notice for the same job (a
+    quarantine release's, C-15.1) from passing for the first.
     """
-    prompt = payload_prompt(payload)
-    if not prompt:
-        return []
-    found = []
-    for row in rows:
-        header = str(row.get("text") or "").strip().split("\n", 1)[0].strip()
-        if header and names_a_job(row) and header in prompt:
-            found.append(row)
-    return found
+    ids = render.pushed_notice_ids(payload_prompt(payload))
+    return [row for row in rows if isinstance(row.get("notice_id"), int)
+            and row["notice_id"] in ids and names_a_job(row)]
+
+
+#: C-15.7: how long a notice the push has written is the push's to deliver.
+#: Its frame waits behind a running turn (priority `later`), so for this long
+#: UserPromptSubmit leaves it alone; past it, the frame may have been held by
+#: the inbox, and the hook prints the notice as it prints any other.
+PUSH_OWNS_S = 60
+
+
+def pushed_moments_ago(row: dict[str, Any], *, now: float | None = None) -> bool:
+    """Whether the push wrote this notice less than `PUSH_OWNS_S` ago."""
+    if row.get("state") != "offered" or row.get("transport") != "socket":
+        return False
+    stamp = row.get("offered_at")
+    if not isinstance(stamp, str) or not stamp:
+        return False
+    try:
+        offered = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if offered.tzinfo is None:
+        offered = offered.replace(tzinfo=timezone.utc)
+    return (time.time() if now is None else now) - offered.timestamp() < PUSH_OWNS_S
 
 
 def wake_worker(session: str, payload: dict[str, Any], root: Path,

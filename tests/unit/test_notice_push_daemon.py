@@ -340,3 +340,54 @@ def test_a_notice_a_hook_reached_after_the_plan_is_not_written(core, claude):
     assert (notice(core, first)["state"], notice(core, first)["transport"]) == ("surfaced", "hook:UserPromptSubmit")
     assert notice(core, second)["state"] == "offered"
     assert events(core, "notice.push")[0]["notice_ids"] == [second]
+
+
+def test_an_unchanged_pass_reads_no_registry_and_no_attempts(core, claude, monkeypatch):
+    """Review of PR #114: a notice held for hours (its session closed) must not
+    cost a `ps` and two attempt scans every two seconds. A pass whose inputs
+    have not changed since a full pass that pushed nothing plans nothing; a row
+    file that changes, or `PUSH_REPLAN_S`, brings the full pass back."""
+    import subfleet.daemon as daemon_module
+    claude["register"](status="busy")
+    finish(core, "20261003-030000-quiet")
+    reads = []
+    lanes = core._lane_session_ids
+    monkeypatch.setattr(core, "_lane_session_ids", lambda: reads.append("lanes") or lanes())
+    fresh_registry(core)
+    core._push_notices()                          # full: held busy, and its plan is kept
+    assert core._notice_push_status()["held"] == {SESSION: "busy"}
+    registry_reads = []
+    read = core._registry_read
+    monkeypatch.setattr(core, "_registry_read", lambda: registry_reads.append(1) or read())
+    core._push_notices()
+    core._push_notices()
+    assert registry_reads == [], "an unchanged pass reads no registry"
+    claude["register"](status="idle")              # the row file changes
+    os.utime(claude["home"] / "sessions" / f"{os.getpid()}.json",
+             ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    fresh_registry(core)
+    core._push_notices()
+    assert registry_reads and len(claude["inbox"].wait_for(1)) == 1
+    monkeypatch.setattr(daemon_module, "PUSH_REPLAN_S", 0)
+    assert core._push_seen is None, "a pass that pushed keeps no plan"
+
+
+def test_a_plan_made_from_a_stale_registry_read_is_not_kept(core, claude):
+    """C-15.7: the registry read is reused for two seconds. A pass that sees the
+    row file change but plans from a read that began before it (still `busy`)
+    keeps no plan, so the next pass, with a fresh read, pushes at once instead
+    of skipping for `PUSH_REPLAN_S`."""
+    claude["register"](status="busy")
+    finish(core, "20261003-030000-stale")
+    fresh_registry(core)
+    core._push_notices()                          # full pass, busy, plan kept
+    claude["register"](status="idle")
+    os.utime(claude["home"] / "sessions" / f"{os.getpid()}.json",
+             ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    core._registry = (core._registry[0], {**core._registry[1], "finished": time.monotonic()})
+    core._push_notices()                          # inputs changed, read reused: still busy
+    assert core._notice_push_status()["held"] == {SESSION: "busy"}
+    assert core._push_seen is None
+    fresh_registry(core)
+    core._push_notices()
+    assert len(claude["inbox"].wait_for(1)) == 1

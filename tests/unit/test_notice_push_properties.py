@@ -321,9 +321,9 @@ class NoticePush(RuleBasedStateMachine):
         for frame in self.w.frames:
             for notice_id in frame.notice_ids:
                 assert self.w.notices[notice_id].session_id.lower() == frame.session_id.lower()
+            # The inbox model accepts a frame only for its own session, as Claude
+            # Code does; what this checks is that the frame names the right one.
             assert frame.session_id == frame.planned_owner
-            if frame.accepted_by is not None:
-                assert frame.accepted_by == frame.session_id
 
     @invariant()
     def a_push_only_offers(self):
