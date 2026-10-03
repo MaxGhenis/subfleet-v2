@@ -39,6 +39,7 @@ from .adapters import claude_mcp
 from .boot_identity import session_uuid
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
+from .alerts import operator_session
 from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
@@ -60,7 +61,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store
+from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -192,6 +193,11 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+#: C-23.26: how old a delivered service notice is before retention prunes it.
+SERVICE_NOTICE_RETENTION_S = 14 * 86400
+#: C-15.3's delivery ladder, lowest first. The session hooks surface `pending`
+#: and `offered` rows; `surfaced` and `acknowledged` have reached the session.
+NOTICE_LADDER = ("pending", "offered", "surfaced", "acknowledged")
 
 
 class _RouteMoved(Exception):
@@ -324,17 +330,6 @@ def _boot_at() -> str | None:
         return host_shutdown.boot_stamp(procs.boot_time())
     except procs.InspectionError:
         return None
-
-
-def _pin_notice_key(data_json: str | None) -> tuple | None:
-    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
-    try:
-        data = json.loads(data_json or "{}")
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
-        return None
-    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
 
 
 def _later(stamp: str, seconds: float) -> str:
@@ -2376,55 +2371,92 @@ class Daemon:
                 return self._why_job(self._job(a.job_id))
             decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision)}
+        if op == "notice.list":
+            a = protocol.coerce_args(protocol.NoticeListArgs, args)
+            return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
+        if op == "notice.withdraw":
+            return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
+            # C-15.3: a negated id is a service notice, on every op that takes
+            # ids back (`protocol.notice_row`), and `acknowledged` is terminal
+            # in both tables: a notice is acknowledged once.
+            targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                unique: dict = {}                       # a repeated id: once, with its first fingerprint
+                for index, notice_id in enumerate(a.notice_ids):
+                    unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            tx.execute("UPDATE service_notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=?",
-                                       (utcnow(), -notice_id, a.session_id))
-                            continue
-                        tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
+                    for notice_id, fingerprint in unique.items():
+                        table, row_id = protocol.notice_row(notice_id)
+                        if fingerprint is not None:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint({"text": row[0], "created_at": row[1]}) != fingerprint:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(notice_id)
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in unique if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
-                # bytes) and `surfaced` (a hook printed it). Neither may overwrite
-                # `acknowledged`, which is terminal.
+                # bytes) and `surfaced` (a hook printed it). A mark never moves
+                # a notice down `NOTICE_LADDER`: `acknowledged` is terminal, and
+                # an offer read before a hook surfaced the notice cannot put it
+                # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
                     raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
+                movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
                 with self.store.transaction("notice." + a.state) as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            # A service notice (negated id, as `notice.ack` takes it):
-                            # marked in its own table, or a hook that printed it would
-                            # print it again at every prompt.
-                            tx.execute(
-                                "UPDATE service_notices SET state=?,transport=COALESCE(?,transport),"
-                                "offered_at=COALESCE(offered_at,?),"
-                                "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                                "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                                (a.state, a.transport, stamp, a.state, stamp, -notice_id, a.session_id))
-                            continue
+                    for table, row_id in targets:
                         tx.execute(
-                            "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
+                            f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                            "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                            (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
+                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})",
+                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable))
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             service = self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             about = self._pin_notice_jobs(service) if service else {}
-            notices += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
-            return {"notices": notices}
+            notices += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])} for row in service]
+            return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text", "")
-            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            text = args.get("text")
+            text = "" if text is None else text
+            if not isinstance(text, str):
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+            # C-15.8: a notice goes to the session named, else to the configured
+            # operator session; there is no default inbox nobody reads. A blank
+            # or non-string session names none, and whitespace is no text.
+            named = args.get("session_id")
+            named = named.strip() if isinstance(named, str) and named.strip() else None
+            session = named or operator_session(self.policy)
             notice_id = None
-            if text:
+            if text.strip():
+                if not session:
+                    raise protocol.ProtocolError(
+                        "ping: no session named, and alerts.operator_session is not set; "
+                        "a notice addressed to no session is never read (C-15.8)",
+                        fix="name the session: subfleet ping --session <id> TEXT")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -2436,7 +2468,8 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "connections": self.connection_status(),
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
@@ -2953,9 +2986,70 @@ class Daemon:
             self.stopping.wait(self.tick_s)
 
     def _timer_notice(self, notice: dict) -> bool:
-        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+        """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+        one is set. With none it is delivered by being shown: `status` and
+        `status.json` list every alert in force (C-18.4), and no inbox parks it."""
+        session = operator_session(self.policy)
+        if session is None:
+            return True
+        result = self.dispatch("ping", {"session_id": session,
                                        "text": notice["subject"] + "\n" + notice["body"]})
         return result.get("notice_id") is not None
+
+    def _withdraw_notices(self, a: protocol.NoticeWithdrawArgs) -> dict:
+        """C-15.8, C-23.26: an operator withdraws a session's undelivered service notices.
+
+        Only the rows named, only that session's, and only while still `pending`
+        or `offered`: a notice a hook printed or a session acknowledged is not
+        withdrawn, and a job's notice (a positive id) is its terminal record and
+        is refused. The rows are deleted in one transaction with one
+        `notice.withdrawn` event naming each id, the session, the reason, the
+        creation span and how many of each subject went, so the withdrawal
+        claims no delivery and loses no record of what was withdrawn."""
+        jobs = sorted(notice_id for notice_id in a.notice_ids if notice_id >= 0)
+        if jobs:
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
+                "terminal record and is acknowledged, never withdrawn (C-15.8)",
+                fix=f"subfleet notices --session {a.session_id} --ack")
+        if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                "give one per id, or none")
+        if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+        listed: dict = {}
+        for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
+            if a.fingerprints:
+                listed.setdefault(-notice_id, a.fingerprints[index])
+        wanted = sorted({-notice_id for notice_id in a.notice_ids})
+        record: dict = {"session_id": a.session_id,
+                        "reason": a.reason if a.reason is not None else "withdrawn by the operator",
+                        "service_notice_ids": [], "count": 0, "first_created_at": None,
+                        "last_created_at": None, "subjects": {}}
+        with self.store.transaction("notice.withdrawn", data=record) as tx:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
+                rows = [row for row in tx.execute(
+                            f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                            "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                        if not listed or listed.get(row[0]) == notice_fingerprint(
+                            {"text": row[1], "created_at": row[2]})]
+                if rows:                            # at most one chunk's worth
+                    tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
+                               [row[0] for row in rows])
+                for notice_id, text, created_at in rows:
+                    record["service_notice_ids"].append(notice_id)
+                    subject = str(text).split("\n", 1)[0]
+                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+            record["count"] = len(record["service_notice_ids"])
+        withdrawn = set(record["service_notice_ids"])
+        return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
+                "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
     def _retention(self):
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
@@ -2971,12 +3065,21 @@ class Daemon:
                 self.timers.mark("retention", error="CancelledError", next_due=after(3600))
                 return
             raise TimeoutError("retention deadline reached")
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
+        self._prune_service_notices()
         self.timers.mark("retention", next_due=after(3600))
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Only a completed pass rearms the ordinary hourly interval.
         self._last_maintenance = time.monotonic()
+
+    def _prune_service_notices(self) -> int:
+        """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
+
+        Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
+        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        """
+        with self.store.transaction("service-notice.retention") as tx:
+            return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
+                              (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.
@@ -4561,20 +4664,10 @@ class Daemon:
         return episodes
 
     def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
-        """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from
-        its `job.pin_noticed` event, so `notice.pending` names the job and a session
-        Subfleet launched surfaces it as it does a job's end (C-26.13). A row matches
-        its event by id, session and creation time together: a service notice's id is
-        reused once the row with the highest id is deleted (it has no AUTOINCREMENT),
-        and a ping, a nudge or an alert that gets an old pin notice's id names none."""
-        wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
-        found: dict[int, str] = {}
-        for event in self.store.query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
-                                      "ORDER BY event_id DESC LIMIT 1000"):
-            key = _pin_notice_key(event["data_json"])
-            if key in wanted and event["job_id"]:
-                found.setdefault(wanted[key], event["job_id"])
-        return found
+        """C-11.8, C-15.2: service notice id -> the job a pin's notice is about
+        (`store.pin_notice_jobs`), so `notice.pending` names the job and a session
+        Subfleet launched surfaces it too (C-26.13), as a message (C-15.3)."""
+        return pin_notice_jobs(self.store.query, rows)
 
     def _pin_view(self, desktop, *, refresh: bool = True) -> dict:
         """C-11.8: what `scheduler.pin_unadmittable` reads, as a view has it: every lane
@@ -4646,28 +4739,32 @@ class Daemon:
                          **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
-        """C-11.8: the job's one notice, to its caller's session (else the operator's,
-        as `ping` addresses one), unless the store says one went already and was not
-        withdrawn unread: a job that ran and came back, or outlived a restart, is not
-        told twice. A `job.pin_noticed` event names the notice (id, session, creation
-        time). The episode, as it is now."""
+        """C-11.8: the job's one notice, to its caller's session (else the configured
+        operator session, as `ping` addresses one), unless the store says one went
+        already and was not withdrawn unread: a job that ran and came back, or
+        outlived a restart, is not told twice. A `job.pin_noticed` event names the
+        notice (id, session, creation time). With neither session there is no one to
+        tell (C-15.8): the event is recorded with no notice, so the job is still
+        told once, and `why` and `status.json` show its hold. The episode, as it is now."""
         job_id = job["job_id"]
         counts = self.store.one(
             "SELECT sum(kind='job.pin_noticed') AS noticed, sum(kind='job.pin_notice_withdrawn') AS withdrawn "
             "FROM events WHERE job_id=? AND kind IN ('job.pin_noticed','job.pin_notice_withdrawn')", (job_id,))
         if not (counts and (counts["noticed"] or 0) > (counts["withdrawn"] or 0)):
-            session = (job["caller_session"] or (self.policy.get("alerts") or {}).get("operator_session")
-                       or "operator")
+            session = job["caller_session"] or operator_session(self.policy)
             record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "session_id": session,
                       "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None,
                       "created_at": now}
-            with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
-                                        data=record) as tx:
-                cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
-                                    "VALUES(?,?,'pending',?)",
-                                    (session, render.pin_notice(job_id, stuck, episode.get("fail_at")), now))
-                record["service_notice_id"] = cursor.lastrowid
-            self._notify()
+            if session is None:
+                self.store.add_event("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"], data=record)
+            else:
+                with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
+                                            data=record) as tx:
+                    cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                        "VALUES(?,?,'pending',?)",
+                                        (session, render.pin_notice(job_id, stuck, episode.get("fail_at")), now))
+                    record["service_notice_id"] = cursor.lastrowid
+                self._notify()
         episode = {**episode, "noticed": True}
         self._pin_episodes[job_id] = episode
         return episode
@@ -6053,7 +6150,7 @@ class Daemon:
                         pending.append(self.conversations.pool_for(req.op).submit(
                             self.conversations.respond, conn, write_lock, req, peer))
                         continue
-                    if req.op == "ping" and not req.args.get("text"):
+                    if req.op == "ping" and not protocol.ping_writes(req.args):
                         # C-16.5: a liveness question is answered here, never
                         # queued: it reads nothing, so a slow daemon still says
                         # at once that it is alive.
