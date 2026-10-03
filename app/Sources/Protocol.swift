@@ -269,6 +269,9 @@ struct Conversation: Codable, Equatable, Identifiable {
     var blocked_by: String?
     var created_at: String
     var updated_at: String
+    /// The later of the stored update and native transcript activity in the
+    /// daemon's cached catalog; older daemons leave this absent.
+    var last_activity: String? = nil
     var last_message: LastMessage?
     var pending_approvals: Int
     var active: Bool
@@ -277,6 +280,10 @@ struct Conversation: Codable, Equatable, Identifiable {
     var live_elsewhere: Bool?
 
     var id: String { conversation_id }
+
+    var lastActivityDate: Date? {
+        [updated_at, last_activity].compactMap { $0 }.compactMap(parseTimestamp).max()
+    }
 }
 
 struct LastMessage: Codable, Equatable {
@@ -382,6 +389,7 @@ struct ModelsListArgs: Codable, Equatable {
 struct ModelsListResult: Codable, Equatable {
     var models: [ModelEntry]
     var source: String?
+    var default_models: [String: String]?
 }
 
 /// `op_models_list`: a policy model and what a provider's catalog last said of it.
