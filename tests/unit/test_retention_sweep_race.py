@@ -77,7 +77,8 @@ def _job_with_private_history(w: World, job_id: str) -> tuple[Path, dict[str, st
     for rel, data in FILES.items():
         (wt / rel).parent.mkdir(parents=True, exist_ok=True)
         (wt / rel).write_bytes(data)
-    return wt, {"head": head, "reflog": dropped, "stash": stash}
+    return wt, {"head": head, "reflog": dropped, "stash": stash,
+                "stash_list": git(wt, "stash", "list", "--format=%H %gs")}
 
 
 class Sweep:
@@ -164,6 +165,8 @@ def violations(w: World, job_id: str, tree: Path, history: dict[str, str]) -> li
             out.append(f"orphan: {admin} names {backlink}, which is gone, and no bundle holds {bundled}")
     if git(w.repo, "rev-parse", "--verify", "--quiet", "refs/stash", check=False) != history["stash"]:
         out.append("the stash is gone")
+    if git(w.repo, "stash", "list", "--format=%H %gs", check=False) != history["stash_list"]:
+        out.append("the stash list changed")
     if w.store.get_job(job_id) is not None:
         if [p for p in places if p not in (tree, aside)] or len(places) != 1:
             out.append(f"kept, but its tree is at {places}, not once where the sweep can find it")
@@ -171,6 +174,9 @@ def violations(w: World, job_id: str, tree: Path, history: dict[str, str]) -> li
         place = places[0]
         if git(place, "rev-parse", "HEAD", check=False) != history["head"]:
             out.append(f"kept, but git in {place} does not find its HEAD")
+        reflog = git(place, "reflog", "show", "--format=%H", "HEAD", check=False).splitlines()
+        if history["reflog"] not in reflog:
+            out.append(f"kept, but its HEAD reflog no longer names {history['reflog']}")
         if (admin / "locked").exists():
             out.append(f"kept, but its registration is still locked: {(admin / 'locked').read_text()!r}")
         for rel, data in FILES.items():
@@ -527,7 +533,7 @@ def test_a_journal_written_before_the_identity_check_is_read_again(world, monkey
     assert violations(w, "job-old", wt, history) == []
 
 
-# --- the property: every schedule of the sweep's moves ----------------------------------------
+# --- the property: generated schedules of the sweep's moves -----------------------------------
 
 #: Where the sweep may act, in the order retention reaches them: before
 #: `begin`; inside it, at the gone-tree check, as the tree's gitfile is read,
@@ -642,7 +648,7 @@ schedules = st.dictionaries(st.sampled_from(POINTS), st.sampled_from(ACTIONS), m
 @example(moves={"quarantine": "away"})
 @example(moves={"archive": "away", "final-check": "back", "reclaim": "away"})
 def test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(moves):
-    """Over every schedule of the sweep's moves (away, back, away to stay)
+    """Over generated schedules of the sweep's moves (away, back, away to stay)
     interleaved with retention's steps: after the pass, and once the sweep
     has put its tree back, the tree is kept intact or removed only with its
     private history in a verified bundle and its files in the archive, and
