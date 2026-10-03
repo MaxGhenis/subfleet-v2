@@ -405,12 +405,15 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
     assert admission_settings({})["lane_spread"] == 2
+    assert admission_settings({})["weekly_reserve"] == .02
+    assert admission_settings({})["five_hour_reserve"] == .10
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
     policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
                                 "pin_grace_s": None, "pin_hold_far_s": 3600}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                   "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                   "pin_grace_s": None, "pin_hold_far_s": 3600,
+                                   "weekly_reserve": .02, "five_hour_reserve": .10}
     policy_data["admission"] = {"pin_grace_s": 0}             # C-11.8: 0 fails such a job on the pass that finds it
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
@@ -423,6 +426,12 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"lane_spread": 0}, "admission.lane_spread"),
     ({"lane_spread": 1.5}, "admission.lane_spread"),
     ({"lane_spread": True}, "admission.lane_spread"),
+    ({"weekly_reserve": -.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": 1.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": True}, "admission.weekly_reserve"),
+    ({"five_hour_reserve": None}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("nan")}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("inf")}, "admission.five_hour_reserve"),
     ({"desktop_recent_s": -1}, "admission.desktop_recent_s"),
     ({"desktop_recent_s": float("inf")}, "admission.desktop_recent_s"),
     ({"pin_grace_s": -1}, "admission.pin_grace_s"),

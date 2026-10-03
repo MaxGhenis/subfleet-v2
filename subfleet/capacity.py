@@ -273,8 +273,9 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     clock alone may change how `scheduler.evaluate` judges that lane on the
     view's rows; a lane with no such instant is left out.
 
-    `evaluate` reads the clock only through `fresh_provider` and a closure's
-    `until_at`, and a lane's verdict and detail (`scheduler.judge_lane`) read
+    `evaluate` reads the clock through `fresh_provider`, a closure's
+    `until_at`, and C-11.3's renewed-window ranking guard; a lane's verdict
+    and detail (`scheduler.judge_lane`) read
     only that lane's readings and closures. So before its horizon a lane is
     judged as the view judged it: until one of its readings turns fresh (a
     future `observed_at`) or stops being fresh (`fresh_until`), or one of its
@@ -300,6 +301,12 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     for item in view.get("readings", ()):
         row = _row(item)
         note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
+        # C-11.3 marks the whole lane unmeasured when ANY latest applicable
+        # provider window renews, even one already too old for ranking. Its
+        # future reset can therefore change the lane beside a fresh window.
+        if (row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None
+                and row.get("resets_at") and (reset := _time(row["resets_at"])) > instant):
+            note(row["lane_id"], reset)
         observed = _time(row["observed_at"])
         if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
             note(row["lane_id"], observed)

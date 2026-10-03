@@ -126,10 +126,27 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
         def utilization(window):
             values = [reading["utilization"] * 100 for reading in readings if reading["window"] == window]
             return max(values) if values else None
-        resets = [detail["seven_day_reset"] for detail in details[identity] if detail["seven_day_reset"]]
+        # With no exact model the recommendation must qualify for all models.
+        # Summarize the least remaining weekly window, keeping its own reset;
+        # retain each model's detail so the scoped explanation stays inspectable.
+        binding = min(details[identity], key=lambda detail: (
+            detail["weekly_headroom"] if detail["weekly_headroom"] is not None else float("inf"),
+            detail["seven_day_reset"] or "9999", detail["weekly_scope"] or ""))
+        weekly_low = any(detail["weekly_reserve"] for detail in details[identity])
+        five_low = any(detail["five_hour_reserve"] for detail in details[identity])
+        five_heads = [detail["five_hour_headroom"] for detail in details[identity]
+                      if detail["five_hour_headroom"] is not None]
         row.update(five_hour_used_percent=utilization("five_hour"),
                    weekly_used_percent=utilization("seven_day"),
-                   weekly_reset_at=min(resets) if resets else None, stale=False,
+                   weekly_reset_at=binding["seven_day_reset"],
+                   weekly_headroom=binding["weekly_headroom"], weekly_scope=binding["weekly_scope"],
+                   five_hour_headroom=min(five_heads, default=None),
+                   weekly_reserve=weekly_low, five_hour_reserve=five_low,
+                   reserve_class=("weekly+five-hour" if weekly_low and five_low else
+                                  "weekly" if weekly_low else "five-hour" if five_low else "clear"),
+                   reading_age_s=max((detail["reading_age_s"] for detail in details[identity]
+                                      if detail["reading_age_s"] is not None), default=None),
+                   model_details=dict(zip(models, details[identity])), stale=False,
                    in_flight=0, protected=False, as_of=timestamp)
         ranked.append(row)
     return {"generated_at": timestamp, "best": (ranked[0]["home" if family == "codex" else "email"]
