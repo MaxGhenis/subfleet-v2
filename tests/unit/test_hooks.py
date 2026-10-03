@@ -239,16 +239,26 @@ def test_render_pending_gives_service_notices_their_own_header(root):
         "queued 2026-09-27T23:42:47Z:\nm\n\nn")
 
 
-def test_a_service_notice_that_names_a_job_is_still_a_message(root):
-    """C-15.3 the negated id decides: a service notice about a job (the release
-    line's pin notice, C-11.8, carries the job id) did not finish a run."""
+def test_a_message_is_any_row_that_is_not_a_runs_end(root):
+    """C-15.3 a service notice about a job (the release line's pin notice, C-11.8,
+    carries the job id) did not finish a run, and neither did a v1 outbox message
+    the importer carried into `notices` with no job (`import_outbox`)."""
     about_a_job = {**service_notice(9, text="job waits for a lane"), "job_id": JOB}
     text = hooks.render_pending([about_a_job])
     assert text.startswith("subfleet: 1 message for this session:")
     assert "detached run" not in text and "job waits for a lane" in text
-    assert hooks.is_service_notice(about_a_job)
-    assert not hooks.is_service_notice(notice(9))
-    assert hooks.is_service_notice({"job_id": None, "text": "no id at all"})
+
+    imported = {"notice_id": 7, "session_id": SESSION, "job_id": None, "state": "offered",
+                "text": "continue the v1 run", "created_at": "2026-09-19T14:00:00Z"}
+    text = hooks.render_pending([imported])
+    assert text == ("subfleet: 1 message for this session:\n\n"
+                    "queued 2026-09-19T14:00:00Z:\ncontinue the v1 run")
+
+    assert hooks.is_message(about_a_job) and hooks.is_message(imported)
+    assert hooks.is_message({"job_id": None, "text": "no id at all"})
+    assert not hooks.is_message(notice(9))
+    assert not hooks.is_message({**notice(9), "notice_id": True})   # a bool is no id
+    assert not hooks.is_message({**notice(9), "text": ""})           # still a run's end
 
 
 def test_offline_surface_reads_service_notices_and_marks_nothing(root):
