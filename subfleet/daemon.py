@@ -60,7 +60,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, notice_rows, pin_notice_jobs
+from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -2330,19 +2330,37 @@ class Daemon:
             return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.
             targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
-                stamp = utcnow()
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for table, row_id in targets:
-                        tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
-                                   "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                                   (stamp, row_id, a.session_id))
+                    for index, (table, row_id) in enumerate(targets):
+                        if a.fingerprints:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint(
+                                    {"text": row[0], "created_at": row[1]}) != a.fingerprints[index]:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(a.notice_ids[index])
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in a.notice_ids if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
@@ -2367,7 +2385,7 @@ class Daemon:
             service = self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             about = self._pin_notice_jobs(service) if service else {}
             notices += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])} for row in service]
-            return {"notices": notices}
+            return {"notices": notices, **answered}
         if op == "ping":
             text = args.get("text", "")
             # C-15.8: a notice goes to the session named, else to the configured

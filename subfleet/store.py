@@ -105,13 +105,19 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     old pin notice's id names none."""
     wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
     found: dict[int, str] = {}
-    if not wanted:
-        return found
-    for event in query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
-                       "ORDER BY event_id DESC LIMIT 1000", ()):
-        key = _pin_notice_key(event["data_json"])
-        if key in wanted and event["job_id"]:
-            found.setdefault(wanted[key], event["job_id"])
+    ids = sorted({key[0] for key in wanted})
+    # Exactly the events that name one of these notices, newest first, with no
+    # window: events naming no notice (a pin with no one to tell, C-15.8, and
+    # every event's empty audit row) once crowded a deliverable notice's event
+    # out of the newest 1,000 and left that notice unnamed.
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        for event in query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
+                           "AND json_valid(data_json) AND json_extract(data_json,'$.service_notice_id') "
+                           f"IN ({','.join('?' * len(chunk))}) ORDER BY event_id DESC", chunk):
+            key = _pin_notice_key(event["data_json"])
+            if key in wanted and event["job_id"]:
+                found.setdefault(wanted[key], event["job_id"])
     return found
 
 

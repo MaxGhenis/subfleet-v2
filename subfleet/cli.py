@@ -58,6 +58,7 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .store import notice_fingerprint
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
