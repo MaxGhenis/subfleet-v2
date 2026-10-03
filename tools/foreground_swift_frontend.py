@@ -31,7 +31,8 @@ def main():
     args = sys.argv[1:]
     normalized, outputs = [], []
     i = 0
-    digest = hashlib.sha256(str(COMPILER.stat()).encode())
+    compiler_stat = COMPILER.stat()
+    digest = hashlib.sha256(repr((str(COMPILER), compiler_stat.st_size, compiler_stat.st_mtime_ns)).encode())
     while i < len(args):
         arg = args[i]
         normalized.append(arg)
@@ -81,7 +82,9 @@ def main():
     if status == 0 and outputs and all(p.is_file() for p in outputs):
         slot.mkdir(parents=True, exist_ok=True)
         for output, artifact in zip(outputs, artifacts):
-            shutil.copyfile(output, artifact)
+            temporary = artifact.with_name(artifact.name + '.' + str(os.getpid()) + '.tmp')
+            shutil.copyfile(output, temporary)
+            os.replace(temporary, artifact)
     return status
 
 

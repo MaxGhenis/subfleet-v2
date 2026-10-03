@@ -902,7 +902,8 @@ def test_c28_3_an_older_journal_opens_and_steers_never_enter_its_entries(core_pr
     written = json.loads(journal.read_text())
     assert {e["kind"] for e in written["entries"]} == {"conversation.create", "message.submit"}
     assert [s["messageID"] for s in written["steers"]] == [steered]
-    assert set(written) == {"version", "nextOrder", "entries", "chains", "steers"}
+    assert set(written) == {"version", "draftRecoveryVersion", "nextOrder", "entries", "chains", "steers"}
+    assert written["draftRecoveryVersion"] == 1
 
 
 # --- the watch feed: notifications and the sidebar (D-24) -----------------------------------

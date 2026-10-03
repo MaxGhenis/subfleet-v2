@@ -1,4 +1,4 @@
-"""Foreground regression and mutation evidence for the 2.1.10 cutover.
+"""Foreground suite, regression and mutation evidence for the 2.1.10 cutover.
 
 Run with the checkout's test interpreter. All copies and logs stay in build/;
 the working source, shared git metadata and live app/daemon are untouched.
@@ -57,18 +57,26 @@ def baseline():
     copy_files(folder, ["tests/unit/test_app_cutover_daemon.py", "tests/frontend/test_core_app_cutover_reading.py",
                         "tests/frontend/test_status_model.py", "tools/app_cutover_pytest.py"])
     summaries = [run_tests(folder, "baseline-daemon", ["tests/unit/test_app_cutover_daemon.py"]),
+                 run_tests(folder, "baseline-sandbox", ["tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+                                                        "tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone"]),
                  run_tests(folder, "baseline-behavior", ["tests/frontend/test_core_app_cutover_reading.py",
                                                         "tests/frontend/test_status_model.py"])]
     # New typed APIs require the new probes. Attempt their tests against the
-    # old app as well; absent admission/recovery APIs are compiler failures.
+    # old app as well; its absent probe mode and typed APIs are setup errors.
     copy_files(folder, ["tests/frontend/conftest.py", "tests/frontend/CoreProbe.swift",
                         "tests/frontend/swift.py", "tests/frontend/CoreProbeScenarios.swift", "tests/frontend/ConversationViewProbe.swift",
                         "tests/frontend/CutoverModelProbe.swift",
                         "tests/frontend/CutoverViewScenarios.swift", "tests/frontend/test_app_cutover_start.py",
                         "tests/frontend/test_conversation_view.py"])
-    summaries.append(run_tests(folder, "baseline-additive", ["tests/frontend/test_app_cutover_start.py",
-                                                               "tests/frontend/test_conversation_view.py", "-k", "cutover or default or recent or folder or model or migration or discard or retry"]))
+    summaries.extend(baseline_additive(folder))
     return summaries
+
+
+def baseline_additive(folder=None):
+    folder = folder or EVIDENCE / "baseline"
+    return [run_tests(folder, "baseline-additive-model", ["tests/frontend/test_app_cutover_start.py", "-k", "not retry"]),
+            run_tests(folder, "baseline-additive-retry", ["tests/frontend/test_app_cutover_start.py", "-k", "retry"]),
+            run_tests(folder, "baseline-additive-views", ["tests/frontend/test_conversation_view.py", "-k", "cutover"])]
 
 
 def mutations():
@@ -106,15 +114,30 @@ def mutations():
     return summaries
 
 
+def frontend():
+    """Run every collected frontend test in small, awaited slices."""
+    collected = subprocess.run([sys.executable, "-m", "pytest", "tests/frontend", "--collect-only", "-q"],
+                               cwd=ROOT, check=True, capture_output=True, text=True)
+    nodes = [line for line in collected.stdout.splitlines() if line.startswith("tests/frontend/") and "::" in line]
+    assert nodes, collected.stdout
+    ordinary = [node for node in nodes if "test_core_steer_properties.py::" not in node]
+    slices = [ordinary[index:index + 24] for index in range(0, len(ordinary), 24)]
+    slices.extend([[node] for node in nodes if "test_core_steer_properties.py::" in node])
+    print(json.dumps({"collected": len(nodes), "slices": len(slices)}), flush=True)
+    return [run_tests(ROOT, f"frontend-{index:02d}", tests) for index, tests in enumerate(slices, 1)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["baseline", "mutations"])
+    parser.add_argument("mode", choices=["baseline", "baseline-additive", "mutations", "frontend"])
     args = parser.parse_args()
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    summaries = baseline() if args.mode == "baseline" else mutations()
+    summaries = {"baseline": baseline, "baseline-additive": baseline_additive,
+                 "mutations": mutations, "frontend": frontend}[args.mode]()
     (EVIDENCE / (args.mode + ".json")).write_text(json.dumps(summaries, indent=2) + "\n")
-    if any(s["exit_code"] == 0 or s["seconds"] >= 600 for s in summaries):
-        raise SystemExit("A regression/mutation survived, or a test slice exceeded ten minutes; inspect its log.")
+    expected_success = args.mode == "frontend"
+    if any((s["exit_code"] == 0) != expected_success or s["seconds"] >= 600 for s in summaries):
+        raise SystemExit("An unexpected test result or slice over ten minutes; inspect its log.")
 
 
 if __name__ == "__main__":
