@@ -78,6 +78,7 @@ import math
 import os
 import re
 import socket
+import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -283,9 +284,13 @@ BYPASS_FLAGS = ("--dangerously-skip-permissions", "--allow-dangerously-skip-perm
 
 def bypass_flag_in(argv: Sequence[str]) -> bool:
     """Whether a Claude Code command line makes bypass available: one of
-    `BYPASS_FLAGS`, or a start in bypass mode."""
+    `BYPASS_FLAGS`, or a start in bypass mode. `argv` is the process's real
+    argument vector: an argument that merely contains a flag's text (a quoted
+    prompt) is not the flag, and nothing after `--` is an option."""
     args = list(argv)
     for index, arg in enumerate(args):
+        if arg == "--":
+            break
         if arg in BYPASS_FLAGS or arg == "--permission-mode=bypassPermissions":
             return True
         if arg == "--permission-mode" and index + 1 < len(args) and args[index + 1] == "bypassPermissions":
@@ -294,27 +299,67 @@ def bypass_flag_in(argv: Sequence[str]) -> bool:
 
 
 def process_argv(pid: int | None) -> list[str]:
-    """A process's command line as `ps` prints it, split on spaces (the flags
-    sought here hold none), or [] when it cannot be read."""
-    if not isinstance(pid, int) or pid <= 0:
+    """A process's argument vector with its real boundaries, or [] when it
+    cannot be read. `ps` prints the arguments joined by spaces, which loses
+    them (review of PR #114: a quoted prompt naming a flag read as the flag),
+    so this asks the kernel: `kern.procargs2` on macOS, `/proc` on Linux."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return []
-    import subprocess
     try:
-        shown = subprocess.run(["/bin/ps", "-ww", "-o", "command=", "-p", str(pid)],
-                               capture_output=True, text=True, timeout=5,
-                               env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"})
-    except (OSError, subprocess.SubprocessError):
+        if sys.platform == "darwin":
+            import ctypes
+            import ctypes.util
+            libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+            argmax, size = ctypes.c_int(0), ctypes.c_size_t(ctypes.sizeof(ctypes.c_int))
+            if libc.sysctl((ctypes.c_int * 2)(1, 8), 2, ctypes.byref(argmax),        # CTL_KERN, KERN_ARGMAX
+                           ctypes.byref(size), None, 0) != 0 or argmax.value <= 0:
+                return []
+            buffer = ctypes.create_string_buffer(argmax.value)
+            size = ctypes.c_size_t(argmax.value)
+            if libc.sysctl((ctypes.c_int * 3)(1, 49, pid), 3, buffer,               # KERN_PROCARGS2
+                           ctypes.byref(size), None, 0) != 0:
+                return []
+            raw = buffer.raw[:size.value]
+            if len(raw) < 4:
+                return []
+            count = int.from_bytes(raw[:4], sys.byteorder)
+            rest = raw[4:]
+            rest = rest[rest.find(b"\0"):].lstrip(b"\0")        # past the executable path
+            return [item.decode("utf-8", "replace") for item in rest.split(b"\0")[:count]]
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return [item.decode("utf-8", "replace") for item in raw.split(b"\0") if item]
+    except (OSError, ValueError, AttributeError):
         return []
-    return shown.stdout.split() if shown.returncode == 0 else []
+
+
+def _ever_bypass(path: Path) -> bool:
+    """Whether the transcript ever stamped `bypassPermissions` on a turn."""
+    try:
+        with path.open("rb") as stream:
+            carry = b""
+            while True:
+                chunk = stream.read(_TRANSCRIPT_TAIL)
+                if not chunk:
+                    return False
+                if any(match.group(1) == b"bypassPermissions" for match in _MODE_RE.finditer(carry + chunk)):
+                    return True
+                carry = chunk[-64:]
+    except OSError:
+        return False
 
 
 def session_mode_class(session_id: str, pid: int | None = None) -> str | None:
+    """The class Claude Code gives the session now, from its transcript's last
+    stamped mode. Only `plan` needs more: it is `bypass` while bypass is
+    available to the session, which Claude Code fixes at start. It was
+    available if the session was ever in bypass mode (whether a flag or a
+    settings `defaultMode` put it there), or if its process was started with a
+    flag that allows it."""
     path = transcript_path(session_id)
     if path is None:
         return None
     mode = _last_permission_mode(path)
-    # Only plan mode depends on the launch flags; nothing else asks `ps`.
-    available = mode == "plan" and bypass_flag_in(process_argv(pid))
+    available = mode == "plan" and (_ever_bypass(path) or bypass_flag_in(process_argv(pid)))
     return mode_class_of(mode, available)
 
 
@@ -681,9 +726,11 @@ def registry_fingerprint() -> tuple:
 
 
 #: C-23.50: a `wait` that timed out stops watching its jobs until its client
-#: polls again, which it does at once, or after a busy answer's pause (C-16.1).
-#: For this long after a timed-out `wait`, its jobs count as watched.
-WAITER_GRACE_S = 30.0
+#: polls again, which it does at once, or after busy answers' pauses (C-16.1:
+#: up to 5 s each, for as long as the daemon is at its connection cap). For
+#: this long after a timed-out `wait`, its jobs count as watched; a waiter that
+#: died delays its jobs' push by this much and no more.
+WAITER_GRACE_S = 120.0
 
 
 def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None, *,
@@ -796,7 +843,12 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
             due(recent[0] + 60)
             continue
         recent.append(now)
-        out.pushes.append(Push(session_id=row.session_id, row=row, notices=tuple(usable)))
+        # At most what one push spells out: the rest stay `pending` for the next
+        # push, so no notice is reserved, and later marked as shown, unseen.
+        out.pushes.append(Push(session_id=row.session_id, row=row,
+                               notices=tuple(usable[:BODY_MAX_NOTICES])))
+        if len(usable) > BODY_MAX_NOTICES:
+            due(now + settings.session_gap_s)
     out.next_change = min(changes) if changes else math.inf
     return out
 
@@ -891,6 +943,13 @@ def deliver(push: Push, *, reserve: Callable[[Push, dict[str, Any]], list[int]],
         mode = mode_of(push.session_id, push.row.pid)
         outcome.mode_class = mode
         data = {**base, "mode_class": mode}
+        # Once more, right before the reservation: the lookups above take time
+        # (a transcript read, the process's arguments), and a waiter or a turn
+        # may have started in it (review of PR #114).
+        reason = check(push)
+        if reason is not None:
+            outcome.reason = reason
+            return outcome
         reserved = list(reserve(push, data))
     except Exception as exc:                            # noqa: BLE001 - never raises
         outcome.result, outcome.reason = "failed", f"{exc.__class__.__name__}: {exc}"

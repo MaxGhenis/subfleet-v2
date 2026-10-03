@@ -55,7 +55,8 @@ def claim(ids: list[int], event: str, *, keep: bool = True) -> dict:
     """The `notice.mark` a session hook sends for the notices it claims (C-15.7):
     with `keep_pushed_s` unless the process replaced the one a push wrote to."""
     return {"session_id": SESSION, "notice_ids": ids, "state": "surfaced",
-            "transport": f"hook:{event}", "keep_pushed_s": hooks.PUSH_OWNS_S if keep else 0}
+            "transport": f"hook:{event}", "keep_pushed_s": hooks.PUSH_OWNS_S if keep else 0,
+            "created": [STAMP] * len(ids)}
 
 
 # --- SessionStart hands the wake to the sessions kit (C-23.34) ----------------
@@ -405,8 +406,7 @@ def test_a_pushed_turn_is_not_told_again_what_its_prompt_carries(daemon, root):
     assert "1 detached run " in context and OTHER in context and PUSHED_HEADER not in context
     # What the prompt carries is marked as shown; the rest is claimed, keeping
     # what the push has just written.
-    shown = {key: value for key, value in claim([1], "UserPromptSubmit").items() if key != "keep_pushed_s"}
-    assert marked == [shown, claim([2], "UserPromptSubmit")]
+    assert marked == [claim([1], "UserPromptSubmit", keep=False), claim([2], "UserPromptSubmit")]
 
 
 def test_a_pushed_turn_whose_notices_are_all_in_its_prompt_prints_nothing(daemon, root):
@@ -749,8 +749,75 @@ def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
     assert stderr.getvalue().strip() == "demo done"
     # `offered`, not `surfaced`: this transport gets no acknowledgement, so
     # layer 3 must be free to show the row again (C-15.3).
-    assert marked == [{"session_id": SESSION, "notice_ids": [7],
-                       "state": "offered", "transport": "hook:PostToolUse"}]
+    assert marked == [{"session_id": SESSION, "notice_ids": [7], "state": "offered",
+                       "transport": "hook:PostToolUse", "keep_pushed_s": hooks.PUSH_OWNS_S,
+                       "created": [STAMP]}]
+
+
+def post_tool_use_with(daemon, root, mark):
+    daemon({"list": lambda request: {"jobs": [running_job()]},
+            "wait": lambda request: {"jobs": [finished_job()]},
+            "notice.pending": lambda request: {"notices": [notice(7, text="demo done")]},
+            "notice.mark": mark})
+    stderr = io.StringIO()
+    clock = Clock()
+    code = hooks.post_tool_use(
+        payload("PostToolUse", tool_name="Bash", tool_input={"command": "subfleet run -p p.md"},
+                tool_response=f"{JOB}\nrequest=req-1"),
+        root, budget_s=30, stderr=stderr, now=clock, sleep=clock.sleep)
+    return code, stderr.getvalue()
+
+
+def test_post_tool_use_says_nothing_when_its_claim_takes_nothing(daemon, root):
+    """Review of PR #114: the push (layer 4) wrote the notice while this hook
+    was between its `wait` and its claim. The claim takes nothing (`marked` is
+    empty), so the hook exits 0 silently, and neither shows the notice a second
+    time nor takes the push's ownership of it."""
+    code, shown = post_tool_use_with(daemon, root, lambda request: {"notices": [], "marked": []})
+    assert (code, shown) == (0, "")
+
+
+def test_post_tool_use_shows_what_its_claim_took(daemon, root):
+    code, shown = post_tool_use_with(daemon, root, lambda request: {"notices": [], "marked": [7]})
+    assert code == 2 and shown.strip() == "demo done"
+
+
+def test_a_claim_that_fails_twice_prints_nothing_now(daemon, root, monkeypatch):
+    """Review of PR #114: the daemon answered busy to the claim. Printing the
+    hook's stale read could repeat a notice the push wrote meanwhile, so the
+    hook asks once more and then leaves the notices for the next hook."""
+    monkeypatch.setattr(hooks, "CLAIM_RETRY_S", 0)
+    calls = []
+
+    def busy(request):
+        calls.append(request.args)
+        return protocol_fail(request)
+
+    daemon({"notice.pending": lambda request: {"notices": [notice(1)]}, "notice.mark": busy})
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit", prompt="hi"), root,
+                               stdout=stdout) == 0
+    assert stdout.getvalue() == "" and len(calls) == 2
+
+
+def test_a_claim_that_fails_once_is_asked_again(daemon, root, monkeypatch):
+    monkeypatch.setattr(hooks, "CLAIM_RETRY_S", 0)
+    calls = []
+
+    def busy_once(request):
+        calls.append(request.args)
+        return protocol_fail(request) if len(calls) == 1 else {"notices": [], "marked": [1]}
+
+    daemon({"notice.pending": lambda request: {"notices": [notice(1)]}, "notice.mark": busy_once})
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit", prompt="hi"), root,
+                               stdout=stdout) == 0
+    assert "run finished" in stdout.getvalue() and len(calls) == 2
+
+
+def protocol_fail(request):
+    from subfleet import protocol
+    return protocol.fail(request.id, Exit.DAEMON_UNAVAILABLE, "the daemon is serving 512 connections; try again shortly")
 
 
 def test_post_tool_use_exits_zero_and_silent_on_timeout(daemon, root):

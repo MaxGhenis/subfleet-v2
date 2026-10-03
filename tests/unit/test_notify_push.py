@@ -855,9 +855,45 @@ def test_plan_mode_is_bypass_only_while_bypass_is_available(mode, available, exp
     (["claude", "--permission-mode", "bypassPermissions"], True),
     (["claude", "--permission-mode=bypassPermissions"], True),
     (["claude", "--permission-mode", "plan"], False),
+    # Review of PR #114: a prompt that names the flag is one argument, not the
+    # flag, and nothing after `--` is an option.
+    (["claude", "--permission-mode", "plan", "Explain --allow-dangerously-skip-permissions"], False),
+    (["claude", "--", "--dangerously-skip-permissions"], False),
     (["claude"], False), ([], False)])
 def test_the_bypass_flag_is_read_from_the_command_line(argv, expected):
     assert notify_push.bypass_flag_in(argv) is expected
+
+
+def test_process_argv_keeps_argument_boundaries():
+    """Review of PR #114: `ps` joins arguments with spaces; the kernel's own
+    vector keeps an argument with spaces whole."""
+    import subprocess
+    import sys as _sys
+    child = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)",
+                              "Explain --allow-dangerously-skip-permissions", "--", "x y"])
+    try:
+        argv = notify_push.process_argv(child.pid)
+    finally:
+        child.kill()
+        child.wait()
+    assert argv[-3:] == ["Explain --allow-dangerously-skip-permissions", "--", "x y"]
+    assert not notify_push.bypass_flag_in(argv)
+
+
+def test_a_session_that_was_ever_in_bypass_mode_has_bypass_available(claude_home, monkeypatch):
+    """Review of PR #114: Claude Code fixes bypass availability at start, from a
+    flag or from a settings `defaultMode`. A session that was in bypass mode at
+    any point had it, whatever its command line says."""
+    projects = claude_home / "projects" / "repo"
+    projects.mkdir(parents=True)
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: ["claude"])
+    (projects / f"{SESSION}.jsonl").write_text(
+        json.dumps({"permissionMode": "bypassPermissions"}) + "\n" + "x" * 200_000 + "\n"
+        + json.dumps({"permissionMode": "plan"}) + "\n")
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "bypass"
+    (projects / f"{SESSION}.jsonl").write_text(
+        json.dumps({"permissionMode": "default"}) + "\n" + json.dumps({"permissionMode": "plan"}) + "\n")
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
 
 
 def test_a_session_in_plan_mode_is_classed_by_its_launch_flags(claude_home, monkeypatch):
@@ -879,6 +915,28 @@ def test_a_session_in_plan_mode_is_classed_by_its_launch_flags(claude_home, monk
 def test_process_argv_reads_a_live_process_and_nothing_else():
     assert "python" in " ".join(notify_push.process_argv(os.getpid())).lower()
     assert notify_push.process_argv(None) == [] and notify_push.process_argv(0) == []
+    assert notify_push.process_argv(999999) == []
+
+
+def test_a_push_carries_at_most_what_it_spells_out():
+    """Review of PR #114: a notice past the tenth would be reserved, named in
+    the trailer and marked as shown without its text. A push takes ten; the
+    rest stay `pending` for the next one."""
+    plan = planned([notice(i) for i in range(1, 14)], [row()])
+    push, = plan.pushes
+    assert push.notice_ids == tuple(range(1, 11))
+    assert "more:" not in notify_push.render_body(push.notices)
+    assert plan.next_change <= NOW + SETTINGS.session_gap_s
+
+
+def test_the_check_runs_again_right_before_the_reservation():
+    """Review of PR #114: the token and class lookups take time; a waiter or a
+    turn that starts in it holds the push, with nothing reserved."""
+    answers = iter([None, "waiter live"])
+    book = Book()
+    outcome, sent = run(a_push(), book, check=lambda push: next(answers))
+    assert (outcome.result, outcome.reason) == ("held", "waiter live")
+    assert book.calls == [] and sent == []
 
 
 def test_a_socket_that_cannot_be_made_wrote_nothing(monkeypatch):

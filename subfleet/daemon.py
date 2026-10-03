@@ -2397,32 +2397,45 @@ class Daemon:
                     raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
                 below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
                 movable = tuple(state for state in below if state != "acknowledged")
-                stamp = utcnow()
                 # C-15.7: a hook claims before it prints. With `keep_pushed_s` it
                 # does not take a notice the push wrote less than that long ago:
                 # the push's frame will deliver it, and the hook prints only what
                 # it took (`marked`), so the session is told once.
-                keep, keep_args = "", ()
+                keep_s = None
                 if a.keep_pushed_s is not None:
+                    try:
+                        keep_s = float(a.keep_pushed_s)
+                    except (TypeError, ValueError):
+                        raise protocol.ProtocolError("keep_pushed_s must be a number") from None
+                    if not math.isfinite(keep_s) or keep_s < 0:
+                        raise protocol.ProtocolError("keep_pushed_s must be a nonnegative finite number")
                     # A claim takes only what no one has taken: never a notice
                     # already at the state asked for, so two hooks racing do not
                     # both print it.
                     movable = tuple(state for state in movable if state != a.state)
-                if a.keep_pushed_s is not None and a.keep_pushed_s > 0:
-                    keep = (" AND NOT (state='offered' AND transport=? AND offered_at IS NOT NULL "
-                            "AND offered_at>? AND offered_at<=?)")
-                    keep_args = (notify_push.TRANSPORT, after(-float(a.keep_pushed_s)), stamp)
+                created = (list(a.created) if isinstance(a.created, list) and len(a.created) == len(a.notice_ids)
+                           else [None] * len(a.notice_ids))
                 marked = []
                 with self.store.transaction("notice." + a.state) as tx:
-                    for (table, row_id), wire_id in zip(targets, a.notice_ids):
+                    # Read inside the transaction: a push that reserved while this
+                    # claim waited for the store has an `offered_at` no later than
+                    # this, so its window is judged against the same instant.
+                    stamp = utcnow()
+                    keep, keep_args = "", ()
+                    if keep_s:
+                        keep = (" AND NOT (state='offered' AND transport=? AND offered_at IS NOT NULL "
+                                "AND offered_at>? AND offered_at<=?)")
+                        keep_args = (notify_push.TRANSPORT, after(-keep_s), stamp)
+                    for (table, row_id), wire_id, expected in zip(targets, a.notice_ids, created):
+                        same, same_args = ("", ()) if expected is None else (" AND created_at=?", (expected,))
                         moved = tx.execute(
                             f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
                             f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})"
-                            + keep,
+                            + keep + same,
                             (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable,
-                             *keep_args)).rowcount
+                             *keep_args, *same_args)).rowcount
                         if moved:
                             marked.append(wire_id)
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))

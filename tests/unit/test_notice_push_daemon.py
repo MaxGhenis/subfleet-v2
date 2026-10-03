@@ -592,3 +592,52 @@ def test_a_kept_plan_is_replanned_at_its_next_boundary(core, claude, monkeypatch
     time.sleep(1.2)
     core._push_notices()
     assert len(claude["inbox"].wait_for(1)) == 1
+
+
+def test_a_claim_takes_only_the_notice_the_hook_read(core, claude):
+    """Review of PR #114: SQLite reuses a deleted rowid. A hook's claim names
+    each notice by id and creation time; a notice that now holds the id but
+    was written at another time is left alone, and so is never marked as shown
+    without having been shown."""
+    notice_id = finish(core, "20261003-030000-identity")
+    stored = notice(core, notice_id)["created_at"]
+
+    def claim(created):
+        return core.dispatch("notice.mark", {
+            "session_id": SESSION, "notice_ids": [notice_id], "state": "surfaced",
+            "transport": "hook:UserPromptSubmit", "keep_pushed_s": 60, "created": [created]})["marked"]
+
+    assert claim("2026-01-01T00:00:00Z") == [] and notice(core, notice_id)["state"] == "pending"
+    assert claim(stored) == [notice_id] and notice(core, notice_id)["state"] == "surfaced"
+
+
+@pytest.mark.parametrize("value", ["soon", [60], -1, float("nan")])
+def test_a_claim_window_that_is_not_a_number_is_refused(core, claude, value):
+    notice_id = finish(core, "20261003-030000-typed")
+    with pytest.raises(protocol.ProtocolError, match="keep_pushed_s"):
+        core.dispatch("notice.mark", {"session_id": SESSION, "notice_ids": [notice_id],
+                                      "state": "surfaced", "keep_pushed_s": value})
+
+
+def test_a_claim_judges_the_push_window_at_its_own_transaction(core, claude, monkeypatch):
+    """Review of PR #114: a claim that read its clock before it had the store
+    could wait a second for it while a push reserved; the push's `offered_at`
+    would then be later than the claim's clock, look like a time ahead of it,
+    and be taken. The clock is read inside the transaction."""
+    import contextlib
+    import subfleet.daemon as daemon_module
+    notice_id = finish(core, "20261003-030000-stamp")
+    order = []
+    real_now, real_tx = daemon_module.utcnow, core.store.transaction
+
+    @contextlib.contextmanager
+    def transaction(*args, **kwargs):
+        with real_tx(*args, **kwargs) as tx:
+            order.append("in transaction")
+            yield tx
+
+    monkeypatch.setattr(core.store, "transaction", transaction)
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: order.append("clock") or real_now())
+    core.dispatch("notice.mark", {"session_id": SESSION, "notice_ids": [notice_id],
+                                  "state": "surfaced", "keep_pushed_s": 60})
+    assert order.index("in transaction") < order.index("clock")
