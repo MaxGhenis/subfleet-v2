@@ -20,6 +20,7 @@ import stat
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
@@ -46,6 +47,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   provider          TEXT NOT NULL CHECK (provider IN ('claude','codex')),
   native_session_id TEXT,
   title             TEXT,
+  title_source      TEXT CHECK (title_source IN ('person','generated','fallback')),
+  title_message_id  TEXT,
+  title_requested_at REAL,
   workspace         TEXT NOT NULL,
   workspace_kind    TEXT NOT NULL CHECK (workspace_kind IN ('in-place','worktree')),
   allow_main        INTEGER NOT NULL DEFAULT 0,
@@ -178,6 +182,14 @@ def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _validated_title(title: Any, *, optional: bool = False) -> str | None:
+    if optional and (title is None or title == ""):
+        return None
+    if not isinstance(title, str) or not title.strip() or len(title) > 200:
+        raise ConversationError("bad-title", "title must be 1 to 200 characters")
+    return " ".join(title.split())
+
+
 def new_id(prefix: str) -> str:
     """A sortable id: prefix, millisecond time, random tail."""
     return f"{prefix}-{int(time.time() * 1000):013d}-{secrets.token_hex(6)}"
@@ -230,6 +242,9 @@ def validate_settings(provider: str, settings: Any) -> dict:
 
 # Messages Subfleet writes to repair a session; they go ahead of queued person messages.
 REPAIR_ORIGINS = ("unblock-note", "failover")
+#: The `state_reason` prefix of a steer back in the queue after its turn ended
+#: without it (C-24.9); it runs next, behind only a repair message.
+MISSED_STEER = "steer-missed:"
 
 #: The legacy import's hold (C-30.4, design D-17): the legacy cockpit may be using
 #: the conversation's session. It lives in its own column, `legacy_hold`, beside
@@ -273,6 +288,17 @@ def _publish(path: Path, data: bytes) -> None:
         os.close(dfd)
 
 
+@dataclass
+class TitleUpdate:
+    """The first turn's optional title work for one events batch (`append_events`)."""
+
+    claim_at: float | None = None               # claim the conversation's one request, as of this time
+    answer: tuple[str, float] | None = None     # a generated title, and when it was received
+    claimed: bool = False                       # set by the store: the claim was granted
+    recorded: bool = False                      # set by the store: the answer is the conversation's title
+    error: str | None = None                    # set by the store: the title's statements failed
+
+
 class ConversationStore:
     def __init__(self, root: str | Path):
         self.root = Path(root)
@@ -312,6 +338,13 @@ class ConversationStore:
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
             if "worktree_json" not in columns:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
+            for name, kind in (("title_source", "TEXT"), ("title_message_id", "TEXT"),
+                               ("title_requested_at", "REAL")):
+                if name not in columns:
+                    self._db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {kind}")
+            # Preserve every pre-existing name; its authorship cannot be recovered.
+            self._db.execute("UPDATE conversations SET title_source='person' "
+                             "WHERE title IS NOT NULL AND title_source IS NULL")
             # A waiting message's reason (another writer, a deferral) reaches the
             # app with its state (design §12).
             if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
@@ -476,6 +509,8 @@ class ConversationStore:
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider must be claude or codex")
         settings = validate_settings(provider, settings)
+        if isinstance(title, str):
+            title = title.strip() or None
         native_session_id = canonical_native(native_session_id)
         now = utcnow()
         held = None
@@ -495,14 +530,52 @@ class ConversationStore:
                 held = row["reason"] if row else None
             cid = new_id("cv")
             tx.execute(
-                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,workspace,workspace_kind,"
+                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
                 "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
-                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, provider, native_session_id, title, workspace, workspace_kind, int(allow_main), lane_id,
+                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
                  json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
                  held, now, now))
             self._change(tx, cid, None, None)
         return self.conversation(cid), True
+
+    def rename_conversation(self, conversation_id: str, title: str) -> dict:
+        """A person's rename permanently takes precedence over an in-flight title."""
+        title = _validated_title(title)
+        self.conversation(conversation_id)
+        with self.transaction() as tx:
+            tx.execute("UPDATE conversations SET title=?,title_source='person',updated_at=? WHERE conversation_id=?",
+                       (title, utcnow(), conversation_id))
+            self._change(tx, conversation_id, None, None)
+        return self.conversation(conversation_id)
+
+    def _claim_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str, at: float) -> bool:
+        """The conversation's one title request, for its first person message's Claude
+        process, only while nothing else of the conversation waits: no stop of that
+        message recorded, no other message queued, waiting or steering. Run only
+        inside the transaction that records the turn's result (`append_events`):
+        it takes no lock and adds no commit of its own (review of 66d692a0, P2)."""
+        return bool(tx.execute(
+            "UPDATE conversations SET title_requested_at=? WHERE conversation_id=? AND provider='claude' "
+            "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM messages WHERE message_id=? AND stop_requested_at IS NOT NULL) "
+            "AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id=? AND message_id<>? "
+            "AND state IN ('queued','waiting','steering'))",
+            (at, conversation_id, message_id, message_id, conversation_id, message_id)).rowcount)
+
+    def _record_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str, title: str,
+                      received_at: float) -> bool:
+        """A generated title, received within the budget of its claim, unless a person
+        named the conversation meanwhile (a rename always wins)."""
+        from .titles import TITLE_BUDGET_S
+        changed = tx.execute(
+            "UPDATE conversations SET title=?,title_source='generated',updated_at=? WHERE conversation_id=? "
+            "AND title_message_id=? AND title_source='fallback' AND title_requested_at IS NOT NULL "
+            "AND title_requested_at<=? AND title_requested_at>?",
+            (title, utcnow(), conversation_id, message_id, received_at, received_at - TITLE_BUDGET_S)).rowcount
+        if changed:
+            self._change(tx, conversation_id, None, None)
+        return bool(changed)
 
     def by_request(self, request_id: str) -> dict | None:
         row = self.one("SELECT * FROM conversations WHERE request_id=?", (request_id,))
@@ -662,6 +735,14 @@ class ConversationStore:
                         "INSERT INTO messages(message_id,conversation_id,seq,after_message_id,origin,digest,text_path,"
                         "attachments_json,settings_json,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         prepared["rows"])
+                    tx.execute("UPDATE conversations SET title_source='person' WHERE conversation_id=? AND title IS NOT NULL",
+                               (cid,))
+                    if not prepared["title"] and prepared["moves"]:
+                        from .titles import fallback_title
+                        first = prepared["moves"][0]
+                        tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
+                                   "WHERE conversation_id=? AND title_source IS NULL",
+                                   (fallback_title(first["text"]), first["message_id"], cid))
                     self._change(tx, cid, None, None)
                     for row in prepared["rows"]:
                         self._change(tx, cid, row[0], QUEUED)
@@ -701,15 +782,21 @@ class ConversationStore:
             if source is None or source["blocked_by"] not in (None, fence):
                 return restored
             for item in restores:
+                # A steer that missed its turn keeps the mark the queue orders it by, so
+                # it still runs next (C-24.5): its last change back to `queued` has it.
+                last = tx.execute("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                  "ORDER BY seq DESC LIMIT 1", (item["message_id"], QUEUED)).fetchone()
+                missed = last is not None and (last["state_reason"] or "").startswith(MISSED_STEER)
+                reason = f"{MISSED_STEER} handoff-rolled-back" if missed else "handoff-rolled-back"
                 done = tx.execute(
-                    "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
+                    "UPDATE messages SET state='queued', state_reason=?, turn_seq=turn_seq+1, "
                     "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND turn_seq=? "
                     "AND (job_id IS NULL OR job_id=?) AND state IN ('queued','waiting','cancelled') "
                     "AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
-                    (now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
+                    (reason, now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
                 if done:
                     restored.append(item["message_id"])
-                    self._change(tx, conversation_id, item["message_id"], QUEUED)
+                    self._change(tx, conversation_id, item["message_id"], QUEUED, reason=reason)
             if tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
                           "AND blocked_by=?", (now, conversation_id, fence)).rowcount:
                 self._change(tx, conversation_id, None, None)
@@ -724,6 +811,8 @@ class ConversationStore:
         if "workspace" in fields and (not isinstance(fields["workspace"], str) or not fields["workspace"]):
             raise ValueError("a conversation's workspace is a directory path")
         sets, params = [], []
+        if "title" in fields:
+            sets.append("title_source='person'")
         for key, value in fields.items():
             if key == "native_session_id":
                 value = canonical_native(value)
@@ -870,6 +959,11 @@ class ConversationStore:
                  json.dumps(list(attachments)), json.dumps(settings), state, state_reason, now, now))
             tx.execute("UPDATE conversations SET updated_at=?, settings_json=? WHERE conversation_id=?",
                        (now, json.dumps(settings), conversation_id))
+            if origin == "person" and last is None:
+                from .titles import fallback_title
+                tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
+                           "WHERE conversation_id=? AND title IS NULL AND title_source IS NULL",
+                           (fallback_title(text), message_id, conversation_id))
             self._change(tx, conversation_id, message_id, state)
         return self.message(message_id), True
 
@@ -1035,7 +1129,9 @@ class ConversationStore:
         """For each unblocked conversation with no live message, its next queued one
         (C-24.5): a repair message first (an unblock note, a failover continuation;
         C-24.8, C-26.7), since the person's queued messages were written expecting
-        it; otherwise the lowest sequence."""
+        it; then a steer that missed its turn (C-24.9: it was meant for the running
+        turn, so it runs next, ahead of messages queued for later, as Claude Code
+        runs it); otherwise the lowest sequence."""
         repair = ",".join(f"'{origin}'" for origin in REPAIR_ORIGINS)
         source = "AND m.conversation_id=? " if conversation_id is not None else ""
         rows = self.query(
@@ -1043,10 +1139,52 @@ class ConversationStore:
             f"WHERE m.state='queued' AND {UNBLOCKED} AND c.archived_at IS NULL "
             f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
-            f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
+            f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, "
+            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]
+
+    def steers(self, host_message_id: str) -> list[dict]:
+        """Unsettled steers bound to a host; they never own a turn job."""
+        return [_decode_message(r) for r in self.query(
+            "SELECT * FROM messages WHERE state='steering' AND state_reason=? ORDER BY seq",
+            (f"steer:{host_message_id}",))]
+
+    def claim_steer(self, message_id: str, host_message_id: str) -> None:
+        """C-24.9: validate queue order and publish the binding in one transaction.
+
+        The service holds the message handover lock and excludes host settlement.
+        Checking the queue here also serializes a repair message arriving meanwhile.
+        """
+        with self.transaction() as tx:
+            message = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
+            if not message or message["state"] != QUEUED or message["job_id"] or message["stop_requested_at"]:
+                raise ConversationError("not-queued", "the message is no longer queued", code=7)
+            if message["origin"] != "person":
+                raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
+            cid = message["conversation_id"]
+            # Claude Code steers a new message while earlier ones wait "for later"
+            # (DESIGN.md section 8), so any queued person message may steer; the rest keep
+            # their order. A queued repair message (a failover or unblock continuation)
+            # must still run first.
+            repair = ",".join("?" for _ in REPAIR_ORIGINS)
+            ahead = tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND state='queued' "
+                               f"AND origin IN ({repair}) LIMIT 1", (cid, *REPAIR_ORIGINS)).fetchone()
+            if ahead:
+                raise ConversationError("not-next", "a repair message must run first", code=7)
+            host = tx.execute("SELECT * FROM messages WHERE message_id=? AND conversation_id=?",
+                              (host_message_id, cid)).fetchone()
+            conversation = tx.execute("SELECT * FROM conversations WHERE conversation_id=?", (cid,)).fetchone()
+            if (not host or host["state"] not in ("running", "approval-needed") or host["stop_requested_at"]
+                    or conversation["blocked_by"] or conversation["legacy_hold"] or conversation["archived_at"]):
+                raise ConversationError("no-live-turn", "the conversation has no steerable live turn", code=7)
+            if widens(json.loads(message["settings_json"]), json.loads(host["settings_json"])):
+                raise ConversationError("settings-narrower", "steering would widen this message's permission", code=7)
+            reason = f"steer:{host_message_id}"
+            tx.execute("UPDATE messages SET state='steering',state_reason=?,updated_at=? WHERE message_id=?",
+                       (reason, utcnow(), message_id))
+            self._change(tx, cid, message_id, "steering", reason=reason)
 
     def readmittable(self) -> list[dict]:
         """Waiting messages whose turn is re-admitted (`readmit:*`, design D-12),
@@ -1073,7 +1211,8 @@ class ConversationStore:
 
     def add_approvals(self, *, message_id: str, conversation_id: str, attempt_id: str, approvals: list[dict],
                       events: list[tuple[str, str, int, str, dict]] | None = None, stdout_offset: int = 0,
-                      stdin_seq: int = 0, expect: tuple[str, ...] | None = None) -> list[tuple[dict, bool]]:
+                      stdin_seq: int = 0, expect: tuple[str, ...] | None = None,
+                      title: "TitleUpdate | None" = None) -> list[tuple[dict, bool]]:
         """A provider's requests (C-27.1, design §8): each one's approval; with `events`,
         the batch that announces them and the attempt's watermark (as `append_events`);
         with `expect`, the message's move to `approval-needed` from those states. All in
@@ -1084,7 +1223,8 @@ class ConversationStore:
         as a message's text is before its row (C-24.3). A request already recorded
         (replayed, C-27.3), or named twice, keeps one approval; with nothing new and
         nothing else to write, nothing is committed. Each approval is returned with
-        whether it was made here."""
+        whether it was made here. `title` rides in the same transaction, as in
+        `append_events`."""
         staged: list[tuple[dict, tuple[str, Path, bytes] | None]] = []
         for approval in approvals:
             if any(new and earlier["provider_request_id"] == approval["provider_request_id"] for earlier, new in staged) \
@@ -1097,9 +1237,11 @@ class ConversationStore:
             path = self.dir / conversation_id / "approvals" / f"{approval_id}.json"
             self._publish(path, raw)
             staged.append((approval, (approval_id, path, raw)))
-        if events is None and expect is None and not any(new for _, new in staged):
+        if events is None and expect is None and title is None and not any(new for _, new in staged):
             return [(self._approval_row(attempt_id, a["provider_request_id"]), False) for a in approvals]
         with self.transaction() as tx:
+            if title is not None:
+                self._apply_title(tx, conversation_id, message_id, title)
             if events is not None:
                 self._insert_events(tx, conversation_id=conversation_id, message_id=message_id, attempt_id=attempt_id,
                                     events=events, stdout_offset=stdout_offset, stdin_seq=stdin_seq)
@@ -1184,13 +1326,38 @@ class ConversationStore:
             "attempt_id": attempt_id, "stdout_offset": 0, "stdin_seq": 0, "compacted": 0}
 
     def append_events(self, *, conversation_id: str, message_id: str, attempt_id: str,
-                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
+                      events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int,
+                      title: "TitleUpdate | None" = None) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
-        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6)."""
+        attempt's watermark, in one transaction. Duplicates are ignored (C-26.6).
+
+        `title` carries the first turn's optional title work (titles.py) into the same
+        transaction: its claim, with the batch that records the turn's result, and a
+        generated title the provider answered. It has a savepoint of its own, so a
+        failure there costs the title, never the batch; the store sets its results."""
         with self.transaction() as tx:
+            if title is not None:
+                self._apply_title(tx, conversation_id, message_id, title)
             return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
                                        attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
                                        stdin_seq=stdin_seq)
+
+    def _apply_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str,
+                     title: "TitleUpdate") -> None:
+        """The first turn's title work inside the caller's transaction (titles.py), under a
+        savepoint of its own: a failure there costs the title, never the batch it rides on."""
+        tx.execute("SAVEPOINT title")
+        try:
+            if title.claim_at is not None:
+                title.claimed = self._claim_title(tx, conversation_id, message_id, title.claim_at)
+            if title.answer is not None:
+                title.recorded = self._record_title(tx, conversation_id, message_id, *title.answer)
+            tx.execute("RELEASE title")
+        except sqlite3.Error as exc:
+            tx.execute("ROLLBACK TO title")
+            tx.execute("RELEASE title")
+            title.claimed = title.recorded = False
+            title.error = f"{type(exc).__name__}: {exc}"
 
     def _insert_events(self, tx: sqlite3.Connection, *, conversation_id: str, message_id: str, attempt_id: str,
                        events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int) -> int:
@@ -1332,7 +1499,11 @@ class ConversationStore:
                    "VALUES (?,?,?,?,?,?)", (conversation_id, message_id, state, pending, utcnow(), reason))
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
-        rows = self.query("SELECT * FROM changes WHERE seq>? ORDER BY seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
+                          "JOIN conversations c ON c.conversation_id=ch.conversation_id "
+                          "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        for row in rows:
+            row["steered_into"] = steered_into(row.get("state_reason"))
         return {"changes": rows, "next": rows[-1]["seq"] if rows else after}
 
     def wait(self, predicate, timeout_s: float) -> bool:
@@ -1484,7 +1655,28 @@ def _decode_message(row: dict) -> dict:
     out["attachments"] = json.loads(out.pop("attachments_json"))
     out["served"] = json.loads(out.pop("served_json")) if out.get("served_json") else None
     out["resolution"] = json.loads(out.pop("resolution_json")) if out.get("resolution_json") else None
+    out["steered_into"] = steered_into(out.get("state_reason"))
     return out
+
+
+#: Unicode White_Space, the property Swift's `Character.isWhitespace` reads, so the
+#: daemon and the app's `steerable(text:)` agree on where a text starts.
+WHITE_SPACE = frozenset("\t\n\x0b\x0c\r \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007"
+                        "\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000")
+
+
+def steerable_text(text: str) -> bool:
+    """Whether a message's text may steer a running turn (C-24.9, DESIGN.md section 9):
+    not a `/` command or `!` shell input, which wait for the turn to end, as in
+    Claude Code. The app's `steerable(text:)` applies the same rule."""
+    first = next((char for char in text if char not in WHITE_SPACE), "")
+    return first not in ("/", "!")
+
+
+def steered_into(reason: str | None) -> str | None:
+    """The fixed steer.v1 binding; no new store column or schema version."""
+    prefix, _, host = (reason or "").partition(":")
+    return host if prefix in ("steer", "steered", "steered-unanswered") and host else None
 
 
 def _decode_trees(row: dict) -> dict:

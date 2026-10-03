@@ -18,8 +18,8 @@ PROTOCOL_VERSION = 1
 # C-29: the conversation ops (design §5), answered by subfleet/conversations/service.py.
 CONVERSATION_OPS = (
     "capabilities", "conversation.list", "conversation.open", "conversation.create", "conversation.settings",
-    "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
-    "message.submit", "message.status", "message.cancel", "turn.interrupt", "message.resolve",
+    "conversation.rename", "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
+    "message.submit", "message.status", "message.cancel", "message.steer", "turn.interrupt", "message.resolve",
     "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
     "conversation.runs",
     "turn.diff", "conversation.diff",
@@ -233,6 +233,31 @@ class NoticeMarkArgs:
     notice_ids: list[int] = field(default_factory=list)
     state: str = "surfaced"                               # or `offered`
     transport: str | None = None                          # how it was delivered
+
+
+#: C-15.3: notice ids on the wire. A job notice (`notices`) keeps its own id; a
+#: service notice (`service_notices`: a `ping` message, a nudge, an alert, or a
+#: pin's notice) travels negated, so one list can carry both. Its `job_id` is
+#: None, except that `notice.pending` names a pin notice's job (C-11.8). Every
+#: op that takes an id back must route it with `notice_row`: on 2026-09-29,
+#: `notice.mark` ran negated ids against `notices`, matched nothing, and left
+#: 1,749 service notices `pending`, so every hook surfaced the same ones again.
+SERVICE_NOTICE_TABLE = "service_notices"
+JOB_NOTICE_TABLE = "notices"
+
+
+def service_notice_on_wire(row: dict[str, Any]) -> dict[str, Any]:
+    """A `service_notices` row with its wire id (C-15.3); `notice.pending` then names a pin's job."""
+    return {**row, "notice_id": -row["notice_id"], "job_id": None}
+
+
+def notice_row(notice_id: Any) -> tuple[str, int]:
+    """The table a wire notice id names, and the row id it has there (C-15.3)."""
+    if isinstance(notice_id, bool) or not isinstance(notice_id, int):
+        raise ProtocolError(f"notice id must be an integer, not {notice_id!r}")
+    if notice_id < 0:
+        return SERVICE_NOTICE_TABLE, -notice_id
+    return JOB_NOTICE_TABLE, notice_id
 
 
 @dataclass

@@ -74,13 +74,14 @@ SESSION_DEFAULTS: dict[str, Any] = {
 #: relay, then closing stdin, then C-5.6 containment, each that many seconds
 #: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
-#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
-#: on an unanswered approval. The two turn caps (C-26.9) are `null` by default,
-#: meaning no cap: a person's turn waits only for a lane that can take it, never
-#: for a count Subfleet imposes (Max, 2026-09-27, after a turn waited 12 minutes
+#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's optional
+#: bound on an unanswered tool approval; null means no limit. The two turn caps
+#: (C-26.9) are `null` by default, meaning no cap: a person's turn waits only for
+#: a lane that can take it, never for a count Subfleet imposes (Max, 2026-09-27,
+#: after a turn waited 12 minutes
 #: behind two other conversations' turns while one turn per lane was the rule).
 CONVERSATION_DEFAULTS: dict[str, float | None] = {
-    "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
+    "approval_wait_s": None,         # C-26.9: no approval timeout unless policy sets one
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
@@ -475,7 +476,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # `conversations` and `retention`: whole counts where the value counts
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
-    # days kept after a turn ends). A turn cap may also be null: no cap (C-26.9).
+    # days kept after a turn ends). Turn caps and the approval wait may also be
+    # null: no cap or timeout (C-26.9).
     # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
     default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
         value.get("conversations"), dict) else None
@@ -497,7 +499,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         settings = {**defaults, **supplied}
         for key in defaults:
             item = settings[key]
-            if item is None and section == "conversations" and key in TURN_CAPS:
+            if item is None and section == "conversations" and key in TURN_CAPS | {"approval_wait_s"}:
                 continue
             if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                     or item < 0 or (item == 0 and key not in may_be_zero)):

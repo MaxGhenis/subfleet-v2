@@ -240,7 +240,7 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0}
     policy = load_policy(write_policy(tmp_path, policy_data))
     assert policy["conversations"]["catalog_interval_s"] == 0 and policy["conversations"]["compact_after_s"] == 0
-    assert policy["conversations"]["approval_wait_s"] == 3600
+    assert policy["conversations"]["approval_wait_s"] is None
     assert policy["retention"]["turn_jobs"] == 50 and policy["retention"]["turn_keep_days"] == 0
     assert policy["retention"]["jobs"] == 500
 
@@ -275,7 +275,7 @@ def test_d260_the_shipped_policy_lets_writable_codex_jobs_reach_the_network():
 
 def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy_data):
     """C-24.7, C-26.5, C-26.9: a policy without `conversations` gets the runner's
-    defaults (10, 20, 30 and 135 s, approvals 3600 s); a supplied section is kept
+    defaults (10, 20, 30 and 135 s, approvals unlimited); a supplied section is kept
     and reaches the turn runner's clocks."""
     from subfleet.conversations.runner import Clocks
 
@@ -283,14 +283,30 @@ def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy
     loaded = load_policy(write_policy(tmp_path, policy_data))
     clocks = ("approval_wait_s", "stop_sigint_after_s", "stop_close_after_s", "stop_contain_after_s", "after_result_s")
     assert {k: loaded["conversations"][k] for k in clocks} == {
-        "approval_wait_s": 3600, "stop_sigint_after_s": 10, "stop_close_after_s": 20,
+        "approval_wait_s": None, "stop_sigint_after_s": 10, "stop_close_after_s": 20,
         "stop_contain_after_s": 30, "after_result_s": 135}
     assert Clocks.from_policy(loaded) == Clocks()
     policy_data["conversations"] = {"stop_sigint_after_s": 0.5, "stop_close_after_s": 1.5,
                                     "stop_contain_after_s": 2.5, "after_result_s": 4}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert Clocks.from_policy(loaded) == Clocks(sigint_after_s=0.5, close_after_s=1.5, contain_after_s=2.5,
-                                                after_result_s=4.0, approval_wait_s=3600.0)
+                                                after_result_s=4.0, approval_wait_s=None)
+
+
+@pytest.mark.parametrize("section,expected", [({}, None), ({"approval_wait_s": None}, None),
+                                           ({"approval_wait_s": 2.5}, 2.5)])
+def test_approval_wait_accepts_no_limit_or_a_positive_number(tmp_path, policy_data, section, expected):
+    """C-26.9: null and an omitted approval wait are unlimited; a finite policy
+    limit reaches the runner unchanged, including fractional seconds."""
+    from subfleet.conversations.runner import Clocks
+
+    policy_data["conversations"] = section
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["conversations"]["approval_wait_s"] == expected
+    assert Clocks.from_policy(loaded).approval_wait_s == expected
+    assert Clocks.from_policy({"conversations": section}).approval_wait_s == expected
+    assert Clocks.from_policy({}).approval_wait_s is None
+    assert load_policy(DEFAULT_POLICY_PATH)["conversations"]["approval_wait_s"] is None
 
 
 def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path, policy_data):
@@ -321,9 +337,8 @@ def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path,
     ({"max_active_turns": "3"}, "conversations.max_active_turns"),
     ({"turn_slots_per_lane": 1.5}, "conversations.turn_slots_per_lane"),
     ({"turn_slots_per_lane": float("inf")}, "conversations.turn_slots_per_lane"),
-    # Null means "no cap" for the two turn caps only.
+    # Counts that are not caps still require a number.
     ({"compact_per_tick": None}, "conversations.compact_per_tick"),
-    ({"approval_wait_s": None}, "conversations.approval_wait_s"),
 ])
 def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_key):
     """C-26.9, C-11.1: a turn cap is null or a positive whole number; nothing else is."""
@@ -342,6 +357,11 @@ def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_ke
     ({"stop_contain_after_s": True}, "conversations.stop_contain_after_s"),
     ({"after_result_s": "135"}, "conversations.after_result_s"),
     ({"approval_wait_s": float("inf")}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": 0}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": -1}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": True}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": "3600"}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": float("nan")}, "conversations.approval_wait_s"),
     # C-24.7: the escalation keeps its order.
     ({"stop_sigint_after_s": 20, "stop_close_after_s": 10}, "conversations.stop_close_after_s"),
     ({"stop_close_after_s": 30, "stop_contain_after_s": 30}, "conversations.stop_close_after_s"),

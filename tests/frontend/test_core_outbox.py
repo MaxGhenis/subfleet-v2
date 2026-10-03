@@ -302,7 +302,10 @@ def test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved(core_p
     result = second["results"][0]
     assert "error" not in result, result
     assert result["action"] == {"action": "cancel", "message_id": moved}
-    assert second["calls"] == [f"message.cancel {moved} answered", f"turn.interrupt {moved} answered"]
+    # Before interrupting, the app reads where the message is: one steered meanwhile is in
+    # another message's turn and is never interrupted (C-24.9, test_core_steer.py).
+    assert second["calls"] == [f"message.cancel {moved} answered", "message.status answered",
+                               f"turn.interrupt {moved} answered"]
     assert result["receipt"]["state"] == "starting" and result["receipt"]["stop_requested"] is True
     assert harness.store.message(moved)["stop_requested_at"]
 

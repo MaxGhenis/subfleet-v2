@@ -33,7 +33,7 @@ from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
 from . import redact
-from .turn import COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Outcome, Step, TurnSpec
+from .turn import COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Image, Outcome, Step, SteerTracking, TurnSpec
 
 ID_INIT, ID_HOOKS, ID_MODELS, ID_THREAD, ID_TURN, ID_INTERRUPT = 1, 2, 3, 4, 5, 6
 FAST_TIER = "priority"
@@ -65,6 +65,9 @@ def network_granted(permission: str, network: bool) -> bool:
 #: collabAgentToolCall, sleep, imageGeneration, subAgentActivity, ...).
 ITEM_PHASES = {"reasoning": "thinking", "agentMessage": "writing", "contextCompaction": "compacting",
                "userMessage": None}
+AGENT_ITEM_TYPES = frozenset({"reasoning", "agentMessage", "commandExecution", "fileChange", "mcpToolCall",
+                              "webSearch", "dynamicToolCall", "collabAgentToolCall", "imageGeneration",
+                              "subAgentActivity"})
 
 
 def unified_exec_off(permission: str, network: bool, environ=None) -> bool:
@@ -128,13 +131,13 @@ def _line(value: dict) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
-def _request(request_id: int, method: str, params: dict) -> str:
+def _request(request_id: int | str, method: str, params: dict) -> str:
     return _line({"id": request_id, "method": method, "params": params})
 
 
-class CodexTurn:
+class CodexTurn(SteerTracking):
     def __init__(self, spec: TurnSpec, *, frame_recorded: Callable[[str], bool] = lambda tag: False,
-                 image_path: Callable[[str], str] = lambda path: path):
+                 image_path: Callable[[Image], str] = lambda image: image.path):
         if spec.permission not in POLICY:
             raise ValueError(f"unknown permission {spec.permission!r}")
         self.spec = spec
@@ -158,6 +161,10 @@ class CodexTurn:
         self._tools: dict[str, bool] = {}
         self._phase: str | None = None                    # the last item phase announced
         self._buffers: dict[str, redact.DeltaBuffer] = {}
+        self._init_steers()
+        self._held_steers: dict[str, list[dict]] = {}
+        self._unanswered_steers: set[str] = set()
+        self._interrupted_terminal = False
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -194,6 +201,40 @@ class CodexTurn:
         frame = Frame("interrupt", "write", _request(ID_INTERRUPT, "turn/interrupt",
                                                      {"threadId": self.thread_id, "turnId": self.turn_id}))
         return Step(frames=[frame], events=[Event("status", {"phase": "stopping"}, source)])
+
+    @property
+    def steerable(self) -> bool:
+        return (self.phase in ("turn", "running") and self.outcome is None
+                and not self.interrupt_requested and not self.idle_pending)
+
+    def steer(self, message_id: str, text: str, images: tuple[Image, ...] = ()) -> Step:
+        if message_id in self.steers:
+            return Step()
+        if not self.steerable:
+            return self.drop_steer(message_id, "not-steerable")
+        # Built before the steer is tracked: an image that cannot be published
+        # raises, and the runner sends the steer back to the queue (`TurnRunner._steer`).
+        content = self._input(text, images)
+        self.restore_steer(message_id, "unsent")
+        self._held_steers[message_id] = content
+        return self._send_steers()
+
+    def drop_steer(self, message_id: str, detail: str) -> Step:
+        self._held_steers.pop(message_id, None)
+        return super().drop_steer(message_id, detail)
+
+    def _send_steers(self) -> Step:
+        step = Step()
+        if not self.turn_id or not self.steerable:
+            return step
+        for mid, content in self._held_steers.items():
+            frame = Frame(f"steer:{mid}", "write", _request(f"steer:{mid}", "turn/steer", {
+                "threadId": self.thread_id, "expectedTurnId": self.turn_id,
+                "input": content, "clientUserMessageId": mid}))
+            step.frames.append(frame)
+            step.events.append(Event("steer.sent", {"message_id": mid}, f"cmd:steer:{mid}"))
+        self._held_steers.clear()
+        return step
 
     def respond(self, request_id: str, decision: str, message: str | None = None) -> Step:
         found = self.pending.pop(request_id, None)
@@ -232,7 +273,7 @@ class CodexTurn:
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered, limited=self.limited,
-                               served_model=self.served_model, ended_by="eof")
+                               served_model=self.served_model, ended_by="eof", steers=self.steers)
         self.phase = "ended"
         step.outcome = self.outcome
         return step
@@ -248,6 +289,8 @@ class CodexTurn:
         if not isinstance(msg, dict):
             return Step()
         source = _Sources(offset)
+        if str(msg.get("id", "")).startswith("steer:") and "method" not in msg:
+            return self._steer_response(msg, source)
         if self.phase == "ended":
             if msg.get("method") == "turn/completed":
                 self.terminal_after_end = True
@@ -263,6 +306,22 @@ class CodexTurn:
         return Step()
 
     # --- responses to our requests --------------------------------------------
+
+    def _steer_response(self, msg: dict, source: "_Sources") -> Step:
+        mid = str(msg["id"]).partition(":")[2]
+        if mid not in self.steers:
+            return Step()
+        error, result = msg.get("error"), msg.get("result")
+        if error:
+            detail = redact.bounded_text(str(error.get("message") if isinstance(error, dict) else error))[:300]
+            return self._steer_refused(mid, detail or "provider-refused", source.next())
+        # RPC success is acceptance, not proof that a userMessage entered
+        # history. Keep unknown until its matching clientId is echoed.
+        if isinstance(result, dict) and result.get("turnId"):
+            if self.steers[mid]["fate"] == "unknown":
+                self.steers[mid]["detail"] = "accepted"
+                self._cancel_accepted_steers()
+        return Step()
 
     def _response(self, msg: dict, source: "_Sources") -> Step:
         rid, error, result = msg.get("id"), msg.get("error"), msg.get("result")
@@ -384,12 +443,13 @@ class CodexTurn:
         return Step(frames=[Frame("user-message", "write", _request(ID_TURN, "turn/start", params))],
                     events=events)
 
-    def _input(self) -> list[dict]:
+    def _input(self, text: str | None = None, images: tuple[Image, ...] | None = None) -> list[dict]:
         items: list[dict] = []
-        if self.spec.text:
-            items.append({"type": "text", "text": self.spec.text})
-        for image in self.spec.images:
-            items.append({"type": "localImage", "path": self._image_path(image.path)})
+        text = self.spec.text if text is None else text
+        if text:
+            items.append({"type": "text", "text": text})
+        for image in self.spec.images if images is None else images:
+            items.append({"type": "localImage", "path": self._image_path(image)})
         return items
 
     def _accept(self, turn_id: str, source: "_Sources") -> Step:
@@ -401,12 +461,18 @@ class CodexTurn:
             step.events.append(Event("accepted", {"message_id": self.spec.message_id, "turn_id": turn_id}, source.next()))
             if self.interrupt_requested and self.outcome is None:
                 step.extend(self._send_interrupt(source.next()))
-        return step
+        return step.extend(self._send_steers())
 
     # --- notifications ---------------------------------------------------------
 
     def _notification(self, method: str, params: dict, source: "_Sources") -> Step:
         if params.get("threadId") not in (None, self.thread_id):
+            return Step()
+        if self.turn_id is not None and params.get("turnId") not in (None, self.turn_id):
+            # An item or delta notification that names another turn. Before the turn
+            # id is known none is dropped, as before steer (design §5, invariant 5):
+            # a steer is sent only once it is known, so none of its items come earlier.
+            # (`turn/started` and `turn/completed` name their turn in `turn`, not here.)
             return Step()
         if method == "turn/started":
             turn = params.get("turn") or {}
@@ -489,6 +555,7 @@ class CodexTurn:
 
     def _delta(self, kind: str, block: str, text: str, source: "_Sources") -> Step:
         self.answered = True
+        self._answer_steers()
         ready = self._buffers.setdefault(f"{kind}|{block}", redact.DeltaBuffer()).feed(text)
         return Step(events=[Event(kind, {"block": block, "text": ready}, source.next())]) if ready else Step()
 
@@ -503,6 +570,10 @@ class CodexTurn:
 
     def _item_started(self, item: dict, source: "_Sources") -> Step:
         itype, item_id = item.get("type"), str(item.get("id"))
+        if itype == "userMessage":
+            return self._user_item(item, source)
+        if itype in AGENT_ITEM_TYPES:
+            self._answer_steers()
         name, value = _tool_view(item)
         # Reasoning shows nothing until a summary part streams, if one ever does:
         # the status strip says where the model is (design §12).
@@ -526,7 +597,9 @@ class CodexTurn:
     def _item_completed(self, item: dict, source: "_Sources") -> Step:
         itype, item_id = item.get("type"), str(item.get("id"))
         if itype == "userMessage":
-            return Step()
+            return self._user_item(item, source)
+        if itype in AGENT_ITEM_TYPES:
+            self._answer_steers()
         if itype == "contextCompaction":
             return self._announce("requesting", source)       # the model goes on after it
         if itype == "agentMessage":
@@ -547,6 +620,29 @@ class CodexTurn:
         return Step(events=[Event("tool.completed", redact.tool_completed(item_id, output, is_error=is_error,
                                                                           hidden=self._tools.get(item_id, False)),
                                   source.next())])
+
+    def _user_item(self, item: dict, source: "_Sources") -> Step:
+        mid = item.get("clientId")
+        if mid not in self.steers:
+            return Step()
+        if mid not in self._steer_announced:
+            self._unanswered_steers.add(mid)
+        self._steer_pending.discard(mid)
+        fate = "unanswered" if mid in self._unanswered_steers else "delivered"
+        return self._steer_delivered(mid, source.next(), fate=fate)
+
+    def _answer_steers(self) -> None:
+        for mid in self._unanswered_steers:
+            self.steers[mid].update(fate="delivered", detail=None)
+        self._unanswered_steers.clear()
+
+    def _cancel_accepted_steers(self) -> None:
+        # Only a proven interrupted terminal ends the active input queue. A
+        # requested interrupt or EOF is not proof; late user echoes still win.
+        if self._interrupted_terminal:
+            for entry in self.steers.values():
+                if entry["fate"] == "unknown" and entry.get("detail") == "accepted":
+                    entry.update(fate="cancelled", detail="interrupted-before-echo")
 
     def _completed(self, turn: dict, source: "_Sources") -> Step:
         step = self._flush(source.next())
@@ -611,8 +707,11 @@ class CodexTurn:
              extra: dict | None = None, ended_by: str = "driver") -> Step:
         if self.outcome is not None:
             return Step()
+        self._interrupted_terminal = state == INTERRUPTED and (
+            ended_by == "provider" or (extra or {}).get("ended_by") == "thread-idle")
+        self._cancel_accepted_steers()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model, ended_by=ended_by)
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers)
         self.phase = "ended"
         withdrawn = sorted(self.pending)
         self.pending.clear()
