@@ -477,6 +477,7 @@ def test_a_message_is_any_row_that_is_not_a_runs_end(root):
     assert not hooks.is_message(notice(9))
     assert not hooks.is_message({**notice(9), "notice_id": True})   # a bool is no id
     assert not hooks.is_message({**notice(9), "text": ""})           # still a run's end
+    assert not hooks.is_message({**notice(9), "notice_id": 0})      # 0 is not negated
 
 
 def test_offline_surface_reads_service_notices_and_marks_nothing(root):
