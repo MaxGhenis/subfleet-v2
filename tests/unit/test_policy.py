@@ -59,7 +59,7 @@ def test_missing_required_key_names_file_and_key(tmp_path, policy_data, key):
     ("chains.research", ["opus"], "chains.research"),
     ("chains.research", ["haiku", "sonnet", "typo", "astra"], "chains.research[2]"),
     ("chains.research", ["haiku", "sonnet", [], "astra"], "chains.research[2]"),
-    ("chains.research", ["haiku", "sonnet", "claude-fable-5", "astra"], "chains.research[2]"),
+    ("chains.research", ["haiku", "sonnet", "sol", "astra"], "chains.research[2]"),
     ("fallback", "downward", "fallback"),
     ("desktop_login", "sometimes", "desktop_login"),
     ("permissions", [], "permissions"),
@@ -189,13 +189,13 @@ def test_serialized_metadata_cannot_override_file_hash(tmp_path, policy_data):
     assert loaded["_policy_path"] == str(path)
 
 
-def test_retired_fable_alias_resolves_with_note(capsys):
-    """C-11.1: a retired model alias still resolves with a stderr note."""
+def test_retired_sol_alias_resolves_to_astra_with_note(capsys):
+    """C-11.1: the retired sol alias resolves to Astra with a stderr note."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    assert resolve_model(policy, "claude-fable-5") == "fable"
+    assert resolve_model(policy, "sol") == "astra"
     captured = capsys.readouterr()
     assert not captured.out
-    assert "retired" in captured.err and "claude-fable-5" in captured.err and "fable" in captured.err
+    assert "retired" in captured.err and "sol" in captured.err and "astra" in captured.err
 
 
 @pytest.mark.parametrize("name", ["astra", "gpt-6-astra"])
@@ -207,7 +207,7 @@ def test_current_name_and_exact_id_resolve_without_note(name, capsys):
 
 def test_retired_note_can_be_suppressed_for_repeat_evaluations(capsys):
     """C-11.1: reevaluation may suppress a retired alias note already emitted."""
-    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "claude-fable-5", note=False) == "fable"
+    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "astra"
     assert not capsys.readouterr().err
 
 
