@@ -239,6 +239,18 @@ def test_render_pending_gives_service_notices_their_own_header(root):
         "queued 2026-09-27T23:42:47Z:\nm\n\nn")
 
 
+def test_a_service_notice_that_names_a_job_is_still_a_message(root):
+    """C-15.3 the negated id decides: a service notice about a job (the release
+    line's pin notice, C-11.8, carries the job id) did not finish a run."""
+    about_a_job = {**service_notice(9, text="job waits for a lane"), "job_id": JOB}
+    text = hooks.render_pending([about_a_job])
+    assert text.startswith("subfleet: 1 message for this session:")
+    assert "detached run" not in text and "job waits for a lane" in text
+    assert hooks.is_service_notice(about_a_job)
+    assert not hooks.is_service_notice(notice(9))
+    assert hooks.is_service_notice({"job_id": None, "text": "no id at all"})
+
+
 def test_offline_surface_reads_service_notices_and_marks_nothing(root):
     """C-15.2 layer 3 offline: a service notice is printed with the id `notice.pending`
     would give it, and nothing is written, so it is surfaced again once the daemon
