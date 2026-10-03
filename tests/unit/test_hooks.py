@@ -213,6 +213,85 @@ def test_render_pending_names_the_job_when_a_row_has_no_text(root):
         [{"notice_id": 1, "job_id": JOB, "text": ""}])
 
 
+def service_notice(notice_id: int, text: str = "this session restarted",
+                   created_at: str | None = "2026-09-27T23:42:47Z") -> dict:
+    """A `service_notices` row as `notice.pending` returns it: negated id, no job."""
+    return {"notice_id": -notice_id, "session_id": SESSION, "job_id": None,
+            "state": "pending", "text": text, "created_at": created_at}
+
+
+def test_render_pending_gives_service_notices_their_own_header(root):
+    """C-15.3 a `ping` message is not a run: on 2026-09-29 a two-day-old restart
+    nudge (service notice 1382) was surfaced as "1 detached run dispatched by
+    this session finished while it was not running"."""
+    text = hooks.render_pending([service_notice(1382)])
+    assert text == ("subfleet: 1 message for this session:\n\n"
+                    "queued 2026-09-27T23:42:47Z:\nthis session restarted")
+    assert "detached run" not in text and "subfleet runs" not in text
+
+    mixed = hooks.render_pending([notice(1, text="a"), service_notice(2, text="m"),
+                                  service_notice(3, text="n", created_at=None)])
+    assert mixed == (
+        "subfleet: 1 detached run dispatched by this session finished while it "
+        "was not running:\n\na\n\n"
+        "List: subfleet runs --mine · details: subfleet runs show <id>\n\n"
+        "subfleet: 2 messages for this session:\n\n"
+        "queued 2026-09-27T23:42:47Z:\nm\n\nn")
+
+
+def test_a_message_is_any_row_that_is_not_a_runs_end(root):
+    """C-15.3 a service notice about a job (the release line's pin notice, C-11.8,
+    carries the job id) did not finish a run, and neither did a v1 outbox message
+    the importer carried into `notices` with no job (`import_outbox`)."""
+    about_a_job = {**service_notice(9, text="job waits for a lane"), "job_id": JOB}
+    text = hooks.render_pending([about_a_job])
+    assert text.startswith("subfleet: 1 message for this session:")
+    assert "detached run" not in text and "job waits for a lane" in text
+
+    imported = {"notice_id": 7, "session_id": SESSION, "job_id": None, "state": "offered",
+                "text": "continue the v1 run", "created_at": "2026-09-19T14:00:00Z"}
+    text = hooks.render_pending([imported])
+    assert text == ("subfleet: 1 message for this session:\n\n"
+                    "queued 2026-09-19T14:00:00Z:\ncontinue the v1 run")
+
+    assert hooks.is_message(about_a_job) and hooks.is_message(imported)
+    assert hooks.is_message({"job_id": None, "text": "no id at all"})
+    assert not hooks.is_message(notice(9))
+    assert not hooks.is_message({**notice(9), "notice_id": True})   # a bool is no id
+    assert not hooks.is_message({**notice(9), "text": ""})           # still a run's end
+
+
+def test_offline_surface_reads_service_notices_and_marks_nothing(root):
+    """C-15.2 layer 3 offline: a service notice is printed with the id `notice.pending`
+    would give it, and nothing is written, so it is surfaced again once the daemon
+    is back."""
+    from subfleet.store import Store
+    with Store(root / "state.sqlite3") as store:
+        with store.transaction() as tx:
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", (SESSION, "parked message", "pending",
+                                           "2026-09-27T23:42:47Z"))
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", (SESSION, "already seen", "surfaced",
+                                           "2026-09-27T23:42:48Z"))
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", ("someone-else", "not ours", "pending",
+                                           "2026-09-27T23:42:49Z"))
+    rows = hooks._offline_pending(root, SESSION)
+    assert [(row["notice_id"], row["job_id"], row["text"]) for row in rows] == [
+        (-1, None, "parked message")]
+
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                               stdout=stdout) == 0
+    context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "1 message for this session" in context and "parked message" in context
+    with Store(root / "state.sqlite3") as store:
+        assert [row["state"] for row in store.query(
+            "SELECT state FROM service_notices ORDER BY notice_id")] == [
+            "pending", "surfaced", "pending"]
+
+
 # --- PostToolUse (layer 2) ----------------------------------------------------
 
 class Clock:
