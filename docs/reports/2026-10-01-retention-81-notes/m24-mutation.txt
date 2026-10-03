@@ -1,0 +1,6 @@
+Command: /Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.venv/bin/python -u mutate.py M24
+M24 note 4: the survey trusts salvage inferred from a broken present workdir: KILLED (72 s) FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded | 1 failed in 54.97s
+
+1 killed, 0 survived or not applied
+
+Exit: 0; elapsed: 73.67s

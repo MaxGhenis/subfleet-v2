@@ -158,15 +158,19 @@ def is_remnant(admin: Path) -> bool:
     return True
 
 
-def registration(tree: Path) -> tuple[Registration | None, str | None]:
+def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None = None
+                 ) -> tuple[Registration | None, str | None]:
     """(registration, None), or (None, why) when the tree has none we may use.
 
     The tree's ``.git`` must be a gitdir file naming an admin directory directly
     under ``<common>/worktrees/``, whose ``gitdir`` backlink names this tree:
     we never act on someone else's registration (design 5.2 step 2). An admin
     directory that is only a remnant (`is_remnant`) answers ``admin-remnant``.
+    `read` is the tree's `gitfile_admin`, when the caller already read it: the
+    answer is then about those bytes, not a second read of a gitfile that
+    another tool may have moved in between.
     """
-    admin, gitfile, why = gitfile_admin(tree)
+    admin, gitfile, why = read if read is not None else gitfile_admin(tree)
     if admin is None:
         return None, why
     if not admin.is_dir():
@@ -186,20 +190,48 @@ def registration(tree: Path) -> tuple[Registration | None, str | None]:
     return Registration(admin, common, gitfile), None
 
 
+def backlink(admin: Path) -> Path | None:
+    """The tree's ``.git`` an admin directory's ``gitdir`` backlink names
+    (resolved), or None when it cannot be read. `git worktree move` rewrites it
+    to the tree's new place, and moving the tree back rewrites it again."""
+    try:
+        text = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+    except OSError:
+        return None
+    return _resolve(admin, text)
+
+
+def common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
+    """The common directory of the repository `path` is in, or None."""
+    try:
+        out = run(["rev-parse", "--git-common-dir"], cwd=path, timeout=timeout, cancel=cancel).stdout
+    except (GitError, OSError):
+        return None
+    return _resolve(path, out.decode("utf-8", "surrogateescape").strip())
+
+
 def find_registration(repository: Path, tree: Path, timeout: float = 60,
                       cancel: threading.Event | None = None) -> Registration | None:
     """The registration whose backlink names `tree` when the tree itself is gone."""
-    try:
-        out = run(["rev-parse", "--git-common-dir"], cwd=repository, timeout=timeout, cancel=cancel).stdout
-    except (GitError, OSError):
-        return None
-    common = _resolve(repository, out.decode("utf-8", "surrogateescape").strip())
+    common = common_dir(repository, timeout, cancel)
+    return None if common is None else registration_in(common, tree)
+
+
+def registration_in(common: Path, tree: Path, *, named: bool = False) -> Registration | None:
+    """The admin directory directly under ``<common>/worktrees`` whose ``gitdir``
+    backlink names `tree`, or None. With `named`, only those named after the
+    tree: git names a registration by its tree's basename (with digits added
+    when that is taken), and `git worktree move` keeps the name, so a search of
+    many repositories reads only the few that can be the tree's."""
     wanted = os.path.realpath(tree / ".git")
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
     try:
         admins = sorted((common / "worktrees").iterdir())
     except OSError:
         return None
     for admin in admins:
+        if named and not pattern.fullmatch(admin.name):
+            continue
         try:
             backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
         except OSError:
@@ -207,6 +239,82 @@ def find_registration(repository: Path, tree: Path, timeout: float = 60,
         if os.path.realpath(_resolve(admin, backlink)) == wanted:
             return Registration(Path(os.path.realpath(admin)), common, b"")
     return None
+
+
+def moved_tree(common: Path, tree: Path) -> Path | None:
+    """A live checkout under the registration id allocated for ``tree``.
+
+    Git keeps that id across ``worktree move``. Confirm both directions of
+    the registration before treating an unrelated path as a moved checkout;
+    the caller keeps the job and never acts on that checkout or registration.
+    """
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
+    try:
+        admins = sorted((common / "worktrees").iterdir())
+    except OSError:
+        return None
+    for admin in admins:
+        if not pattern.fullmatch(admin.name) or admin.is_symlink():
+            continue
+        try:
+            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+            gitfile = _resolve(admin, backlink)
+            if gitfile.name != ".git" or gitfile.parent == tree or not os.path.lexists(gitfile.parent):
+                continue
+            reg, _ = registration(gitfile.parent)
+        except OSError:
+            continue
+        if reg is not None and reg.admin == admin and reg.common == common:
+            return gitfile.parent
+    return None
+
+
+def named_admin(common: Path, tree: Path) -> Path | None:
+    """A registration id Git could have allocated for `tree`, regardless of
+    its current backlink. Moves change the backlink and checkout path, but
+    keep this id. A caller that missed the registration and moved checkout
+    must keep the job while such an id exists rather than infer their absence
+    from two reads that a move can invalidate. An unreadable listing raises:
+    it cannot prove that no registration remains.
+    """
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
+    try:
+        admins = sorted((common / "worktrees").iterdir())
+    except FileNotFoundError:
+        return None
+    return next((admin for admin in admins if pattern.fullmatch(admin.name)), None)
+
+
+def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
+    """For a directory that is gone: the common directory of the repository its
+    nearest existing ancestor is in, or, when git cannot use that (a linked
+    checkout whose admin directory was removed), the one whose
+    ``worktrees/<id>`` the first ``.git`` file above it names. None when
+    neither is there. Only a hint: a caller confirms it (a registration's
+    backlink, the job's own salvage refs) before acting on it."""
+    ancestor = path
+    while not os.path.isdir(ancestor):
+        if ancestor.parent == ancestor:
+            return None
+        ancestor = ancestor.parent
+    common = common_dir(ancestor, timeout, cancel)
+    if common is not None:
+        return common
+    for candidate in (ancestor, *ancestor.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        admin, _, _ = gitfile_admin(candidate)
+        if admin is not None and admin.parent.name == "worktrees" and os.path.isdir(admin.parent.parent / "objects"):
+            return admin.parent.parent
+        return None
+    return None
+
+
+def refs_under(common: Path, prefix: str, *, cancel: threading.Event | None = None) -> dict[str, str]:
+    """ref -> object id of every ref under `prefix` (one `for-each-ref`)."""
+    out = run(["for-each-ref", "--format=%(refname) %(objectname)", prefix], git_dir=common,
+              cancel=cancel).stdout.decode("utf-8", "surrogateescape")
+    return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 
 def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,

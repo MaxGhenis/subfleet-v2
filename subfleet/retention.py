@@ -207,14 +207,24 @@ _PIN_QUERIES = (
                         "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
                         "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
+#: `worktree-in-use` for a tree `_workspace` allocated that no row names yet
+#: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.
+_UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
+                      "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
+                      "AND (b.worktree = ?1 || a.job_id OR b.workdir = ?1 || a.job_id "
+                      "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
+                      "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
 
 
 def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | None, *,
                  pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0,
-                 only: str | None = None, hosted: dict[str, set[str]] | None = None) -> dict[str, str]:
+                 only: str | None = None, hosted: dict[str, set[str]] | None = None,
+                 root: Path | None = None) -> dict[str, str]:
     """job id -> why retention must keep it. Reads only database evidence (and
     the conversation service's, and `hosted`, which `nested_hosts` read from the
     trees before the pass), so it is as safe inside the delete transaction.
+    With the state `root`, a tree allocated before its row recorded it counts
+    for `worktree-in-use` like a recorded one.
 
     `landed_salvage` is the set of salvage artifact ids whose commit is (or, at
     selection, will be) in the job's verified archive bundle: C-8.4 pins a job
@@ -246,6 +256,9 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    if root is not None:
+        for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
+            add(row["job_id"], "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that
     # tree while it has rows: it retires first, with its own anchor (N4).
     for host in ([only] if only else sorted(hosted or ())):
@@ -433,11 +446,11 @@ class _Pass:
     def _reasons(self, only: str | None = None) -> dict[str, str]:
         vouched = self._vouched()
         reasons = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                               only=only, hosted=self.hosted)
+                               only=only, hosted=self.hosted, root=self.root)
         if vouched:
             # The caller vouches for these salvage artifacts; recompute those jobs.
             strict = _pin_reasons(self.store, self.explicit, vouched | self._owned_salvage(), pins=self.pins,
-                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted)
+                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root)
             reasons = {k: v for k, v in reasons.items() if k in strict}
         return reasons
 
@@ -448,7 +461,7 @@ class _Pass:
 
     def _pinned_at_commit(self, job_id: str, landed: set[int]) -> str | None:
         reasons = _pin_reasons(self.store, self.explicit, landed | self._vouched(), pins=self.pins,
-                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted)
+                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root)
         return reasons.get(job_id)
 
     # the pass ----------------------------------------------------------------------
@@ -735,7 +748,7 @@ class _Pass:
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                                  only=job_id, hosted=self.hosted).get(job_id)
+                                  only=job_id, hosted=self.hosted, root=self.root).get(job_id)
             if reason is None:
                 for key in keys:
                     current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()

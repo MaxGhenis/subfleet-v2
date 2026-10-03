@@ -117,10 +117,29 @@ class Context:
     #: this pass: the others are kept on it, not measured again each (their
     #: histories are the same one, give or take their own commits).
     history_over: dict[str, int] = field(default_factory=dict)
+    #: The repositories the store's jobs are in, read once a pass when a job
+    #: whose tree and workdir are both gone needs them (`known_repositories`).
+    repositories: list[Path] | None = None
+    #: repository -> its salvage refs, read once a pass for the same jobs.
+    salvage_listings: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
             raise Interrupted("cancelled")
+
+    def known_repositories(self) -> list[Path]:
+        if self.repositories is None:
+            self.repositories = known_repositories(self.store.list_jobs(), self.root, cancel=self.cancel)
+        return self.repositories
+
+    def salvage_refs(self, common: Path) -> dict[str, str]:
+        key = str(common)
+        if key not in self.salvage_listings:
+            try:
+                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/", cancel=self.cancel)
+            except (rgit.GitError, OSError):
+                self.salvage_listings[key] = {}
+        return self.salvage_listings[key]
 
 
 def journal_path(root: Path, job_id: str) -> Path:
@@ -185,18 +204,34 @@ def job_rows(conn_or_store: Any, job_id: str) -> dict[str, list[dict[str, Any]]]
 
 
 def owned_worktree(job: dict[str, Any], state_root: Path) -> Path | None:
-    """C-13.4: only daemon-allocated paths strictly below worktrees are owned."""
-    if job.get("in_place") or job.get("sandbox") != "workspace-write" or not job.get("worktree"):
+    """C-13.4: only daemon-allocated paths strictly below worktrees are owned.
+
+    That is `jobs.worktree`, or, while it is NULL, the `worktrees/<job id>`
+    that `_workspace` allocated before the reserving transaction recorded it
+    (C-6.12): a job that ended in between, cancelled while it waited, has that
+    tree and no row naming it (four live jobs on 2026-09-29; #81's note on
+    #76), and without this it was never archived or freed. A committed
+    baseline means admission could have allocated that path: keep its lease
+    and journal identity even while it is absent, so a moved checkout, an
+    existing registration, or a returning allocation cannot be overlooked.
+    No bytes at an absent path are touched."""
+    if job.get("in_place") or job.get("sandbox") != "workspace-write":
         return None
     allocated_root = state_root / "worktrees"
+    path = job.get("worktree")
+    if not path:
+        unrecorded = allocated_root / job["job_id"]
+        if not os.path.lexists(unrecorded) and tree_away(unrecorded) is None and not job.get("workdir_head"):
+            return None
+        path = str(unrecorded)
     # A symlinked container must not turn an external directory into our owner
     # boundary. Individual paths are resolved to reject escapes the same way,
     # and a link in the job's own place (to another job's tree) is refused.
     if allocated_root.resolve() != allocated_root:
         raise ValueError("allocated worktree root is a symlink")
-    if os.path.islink(job["worktree"]):
+    if os.path.islink(path):
         raise ValueError("allocated worktree path is a symlink")
-    worktree = Path(job["worktree"]).resolve()
+    worktree = Path(path).resolve()
     if worktree == allocated_root or allocated_root not in worktree.parents:
         raise ValueError("worktree path is outside the daemon's allocated worktrees")
     return worktree
@@ -272,31 +307,64 @@ class Retirement:
         reg = None
         remnant = None
         common = None
+        gitfile = None
+        tree_st = _lstat(worktree) if worktree is not None else None
+        present = tree_st is not None
+        if worktree is not None and not present:
+            away = tree_away(worktree)
+            if away is not None:
+                # #81's note on #76: `disk-guard` and `worktree-archive-sweep`
+                # `git worktree move` a tree to `.disk-guard-removing.<name>`,
+                # check it there, and move it back when a check fails. Retired
+                # meanwhile, the job's rows would go and the tree come back with
+                # no row naming it, never archived or freed.
+                raise Defer("tree away", DEFER_CHANGED_S,
+                            f"{worktree} is at {away}, another tool's quarantine; kept until it is back or gone")
+        salvage_rows = self.ctx.store.query(
+            "SELECT r.artifact_id,r.path,r.sha256 FROM artifacts r JOIN attempts a USING(attempt_id) "
+            "WHERE a.job_id=? AND r.role='salvage' ORDER BY r.artifact_id", (self.job_id,))
+        lost = None
+        inferred = False           # the repository was found without the job's workdir
         if worktree is not None:
-            if os.path.lexists(worktree):
-                reg, why = rgit.registration(worktree)
+            if present:
+                # One read of the gitfile decides the registration, and its
+                # digest is what the tree is held to once it is in quarantine
+                # (`_identity_changed`): read while another tool had the tree
+                # away, it finds none, and the tree moved back has one.
+                read = rgit.gitfile_admin(worktree)
+                reg, why = rgit.registration(worktree, read)
+                if why != "no-gitfile":
+                    gitfile = hashlib.sha256(read[1]).hexdigest()
                 if why == "admin-remnant":
                     # Only an index and logs/ are left of the registration:
                     # there is none, and its bytes go into the archive with the
                     # tree instead of keeping the job for ever (N5).
-                    remnant = rgit.gitfile_admin(worktree)[0]
+                    remnant = read[0]
                 elif why == "admin-missing":
-                    self._not_without_host(rgit.gitfile_admin(worktree)[0], worktree)
+                    self._not_without_host(read[0], worktree)
                 elif reg is None and why != "no-gitfile":
                     raise Defer("registration", DEFER_PERMANENT_S, why or "")
             elif job.get("workdir"):
-                reg = rgit.find_registration(Path(job["workdir"]), worktree, cancel=self.ctx.cancel)
-                if reg is None and not os.path.isdir(job["workdir"]):
+                workdir_common = (rgit.common_dir(Path(job["workdir"]), cancel=self.ctx.cancel)
+                                  if os.path.isdir(job["workdir"]) else None)
+                inferred = workdir_common is None
+                reg, common, lost = source_of_gone_tree(
+                    job, worktree, self.ctx.known_repositories, self.ctx.salvage_refs,
+                    {row["path"]: row["sha256"] for row in salvage_rows if isinstance(row["path"], str)},
+                    cancel=self.ctx.cancel, workdir_common=workdir_common)
+                if reg is None and inferred:
                     self._not_without_host(Path(os.path.realpath(job["workdir"])), worktree)
+                if lost and lost.startswith("tree away:"):
+                    raise Defer("tree away", DEFER_CHANGED_S, lost.removeprefix("tree away: "))
+                if lost and not salvage_rows:
+                    # No source means no way to bundle a private HEAD still
+                    # held by an undiscovered registration. Keep the rows so
+                    # a later pass can retire it once its source is available.
+                    raise Defer("repository not found", DEFER_PERMANENT_S, lost)
             if reg is not None:
                 common = reg.common
-            elif job.get("workdir") and os.path.isdir(job["workdir"]):
-                try:
-                    out = rgit.run(["rev-parse", "--git-common-dir"], cwd=Path(job["workdir"]),
-                                   cancel=self.ctx.cancel).stdout.decode("utf-8", "surrogateescape").strip()
-                    common = Path(os.path.realpath(Path(job["workdir"]) / out))
-                except (rgit.GitError, OSError):
-                    common = None
+            elif common is None and job.get("workdir") and os.path.isdir(job["workdir"]):
+                common = rgit.common_dir(Path(job["workdir"]), cancel=self.ctx.cancel)
         fmt = None
         if common is not None:
             try:
@@ -304,16 +372,19 @@ class Retirement:
             except (rgit.GitError, OSError) as exc:
                 raise Defer("repository unreadable", DEFER_ERROR_S, str(exc)) from exc
         salvage = []
-        for row in self.ctx.store.query(
-                "SELECT r.artifact_id,r.path FROM artifacts r JOIN attempts a USING(attempt_id) "
-                "WHERE a.job_id=? AND r.role='salvage' ORDER BY r.artifact_id", (self.job_id,)):
+        for row in salvage_rows:
             ref = row["path"]
             commit = None
             if common is not None and isinstance(ref, str) and ref.startswith("refs/subfleet-salvage/"):
                 commit = rgit.resolve(common, ref, cancel=self.ctx.cancel)
             if commit is None:
                 # C-8.4: a salvage ref that cannot be put into the archive pins its job, as before.
-                raise Defer("salvage not archivable", DEFER_PERMANENT_S, str(ref))
+                raise Defer("salvage not archivable", DEFER_PERMANENT_S, f"{ref}: {lost}" if lost else str(ref))
+            if inferred and salvage_digest(commit) != row["sha256"]:
+                # A repository found without the workdir must hold the commit
+                # the row recorded, not only a ref of the same name.
+                raise Defer("salvage not archivable", DEFER_PERMANENT_S,
+                            f"{ref}: in {common} it names {commit[:12]}, not the commit its row recorded")
             salvage.append({"artifact_id": row["artifact_id"], "ref": ref, "commit": commit})
         if common is not None:
             self._remote_less_history(common, reg, job.get("workdir_head"),
@@ -324,6 +395,10 @@ class Retirement:
             st = _lstat(path) if path is not None else None
             if st is not None and st.st_dev != device:
                 raise Defer("cross-device", DEFER_PERMANENT_S, str(path))
+        admin = reg.admin if reg is not None else remnant
+        admin_st = _lstat(admin) if admin is not None else None
+        if admin is not None and (admin_st is None or not stat.S_ISDIR(admin_st.st_mode)):
+            raise Defer("changed", DEFER_CHANGED_S, f"{admin} went while it was read")
         self.journal = {
             "schema": SCHEMA, "job_id": self.job_id, "state": "selected", "pool": pool,
             "worktree": str(worktree) if worktree else None, "job_dir": str(job_dir),
@@ -331,6 +406,11 @@ class Retirement:
             "admin": str(reg.admin) if reg else (str(remnant) if remnant else None),
             "admin_remnant": remnant is not None, "common": str(common) if common else None,
             "object_format": fmt, "lock": None, "moved": {"worktree": False, "job": False},
+            "worktree_present": present if worktree is not None else None,
+            # What `_identity_changed` holds the tree and its registration to.
+            "identity": {"tree": [tree_st.st_dev, tree_st.st_ino] if tree_st is not None else None,
+                         "gitfile": gitfile,
+                         "admin": [admin_st.st_dev, admin_st.st_ino] if admin_st is not None else None},
             "salvage": salvage, "archive": None, "started_at": _now(),
             "attempts": int(cache.get("attempts", 0)) + 1, "failures": int(cache.get("failures", 0)),
             "check1": False,
@@ -427,21 +507,102 @@ class Retirement:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        present = j.get("worktree_present")
+        if j["worktree"] is not None and not j["moved"]["worktree"] and present is not None \
+                and os.path.lexists(j["worktree"]) != present:
+            # The registration was read with the tree there (or gone); a tree
+            # moved away since (another tool's `git worktree move`) would have
+            # its registration archived and removed while it is elsewhere, and
+            # one moved back would go without its registration (#81's note on
+            # #76). Read again next time.
+            raise Defer("changed", DEFER_CHANGED_S,
+                        f"{j['worktree']} {'left' if present else 'came back'} after its registration was read")
         self.save(state="quarantining")
         moves = (("worktree", j["worktree"], self.q_worktree), ("job", j["job_dir"], self.q_job))
         for name, original, target in moves:
             if original is None or j["moved"][name]:
                 continue
+            if name == "worktree" and present is False:
+                continue           # gone at `begin`: never moved in, so one back now is the final check's
             if os.path.lexists(target):
                 raise RuntimeError(f"quarantine {target} is occupied")
-            if os.path.lexists(original):
-                if os.path.islink(original):
-                    raise Defer("job path is a symlink", DEFER_PERMANENT_S, original)
+            if os.path.islink(original):
+                raise Defer("job path is a symlink", DEFER_PERMANENT_S, original)
+            try:
                 os.rename(original, target)
-                j["moved"][name] = True
-                self.save()
+            except FileNotFoundError:
+                if name == "worktree":
+                    # There at `begin` and at the check above, gone now (the
+                    # sweep's move away). Skipped, the job would retire without
+                    # it, and the sweep move back a tree no row names.
+                    raise Defer("changed", DEFER_CHANGED_S,
+                                f"{original} left as it was moved into quarantine") from None
+                continue
+            j["moved"][name] = True
+            self.save()
         rfs.sync_path(self.work)
+        changed = self._identity_changed()
+        if changed is not None:
+            raise Defer("changed", DEFER_CHANGED_S, changed)
         self.save(state="quarantined")
+
+    def _identity_changed(self) -> str | None:
+        """Why the tree or its registration is not the one `begin` read, or None.
+
+        `disk-guard` and `worktree-archive-sweep` `git worktree move` a tree to
+        `.disk-guard-removing.<name>` and back, at any moment of a retirement
+        until retention's lock (or, for a tree with no registration retention
+        saw, its quarantine) stops them. Moved away while `begin` read the
+        gitfile and back before `quarantine`, the tree was there both times
+        and passed the presence check, while the journal named no
+        registration (the review of 43f09ea4). So nothing here depends on when
+        the sweep moved: the tree, once renamed into quarantine where no other
+        tool reaches it by path, must be the directory `begin` saw (device and
+        inode) with the gitfile `begin` read (its sha256, or none), and the
+        registration the journal names must be the directory `begin` read
+        (device and inode) with a backlink that still names the tree's
+        original path (`git worktree move` rewrites it to the tree's new
+        place). A tree gone at `begin` must still be gone, and not in another
+        tool's quarantine beside it. Called after the renames into quarantine
+        and as the last step of the final check, the last moment before the
+        commit; a journal from before this check has no identity and is read
+        again."""
+        j = self.journal
+        assert j is not None
+        if j.get("worktree") is None:
+            return None
+        identity = j.get("identity")
+        if not isinstance(identity, dict):
+            return "the journal holds no identity of the tree (written before 2026-10-03); read again"
+        original = Path(j["worktree"])
+        if j.get("worktree_present"):
+            if not j["moved"]["worktree"]:
+                return f"{original} was there when its registration was read, and is not in quarantine"
+            st = _lstat(self.q_worktree)
+            if st is None or not stat.S_ISDIR(st.st_mode) or [st.st_dev, st.st_ino] != identity.get("tree"):
+                return f"the tree moved in from {original} is not the directory whose registration was read"
+            gitfile = gitfile_digest(self.q_worktree)
+            if gitfile != identity.get("gitfile"):
+                if identity.get("gitfile") is None:
+                    return (f"{original} has a .git now and had none when its registration was read "
+                            "(another tool had it away?)")
+                return f"{original}/.git is not the one its registration was read from"
+        else:
+            if os.path.lexists(original):
+                return f"{original} came back"
+            away = tree_away(original)
+            if away is not None:
+                return f"{original} is at {away}, another tool's quarantine"
+        if j.get("admin"):
+            admin = Path(j["admin"])
+            st = _lstat(admin)
+            if st is None or not stat.S_ISDIR(st.st_mode) or [st.st_dev, st.st_ino] != identity.get("admin"):
+                return f"its registration {admin} is not the directory that was read"
+            if self.registration is not None:
+                names = rgit.backlink(admin)
+                if names != Path(os.path.realpath(original / ".git")):
+                    return f"its registration {admin} names {names}, not {original}"
+        return None
 
     def _reconcile_moves(self) -> None:
         """After a crash inside `quarantine`: which renames happened."""
@@ -518,6 +679,12 @@ class Retirement:
 
     def _final_check(self) -> None:
         manifest = self.manifest()
+        j = self.journal or {}
+        if j.get("worktree") and not j["moved"]["worktree"] and os.path.lexists(j["worktree"]):
+            # A tree that was gone came back (moved back by another tool):
+            # retired now, the job's rows would go and the tree stay with no
+            # row naming it (#81's note on #76).
+            raise Defer("changed after archive", DEFER_CHANGED_S, f"{j['worktree']} came back")
         for label, path in self.trees():
             tree = manifest["trees"].get(label)
             if tree is None:
@@ -528,7 +695,7 @@ class Retirement:
             try:
                 for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
                     entry = entries.get(rel)
-                    if entry is None or not rfs.unchanged(entry["sig"], st):
+                    if entry is None or not rfs.still_archived(entry, st, parent, name, self.ctx.check):
                         raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
                     if stat.S_ISLNK(st.st_mode) and os.fsdecode(os.readlink(name, dir_fd=parent)) != entry.get("link"):
                         raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
@@ -542,6 +709,12 @@ class Retirement:
         for label in manifest["trees"]:
             if label not in dict(self.trees()):
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} vanished")
+        # Last: the archive holds the tree as it is, which a `.git` rewritten
+        # before the archive read it passes; the tree and its registration
+        # must also still be the ones `begin` read.
+        changed = self._identity_changed()
+        if changed is not None:
+            raise Defer("changed after archive", DEFER_CHANGED_S, changed)
 
     # --- step 6: commit ------------------------------------------------------------------
 
@@ -655,6 +828,18 @@ class Retirement:
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
                                   "admin_kept": False, "done": False, "totals": manifest["totals"],
                                   "added_bytes": added_bytes(self.published_dir(), manifest["totals"])}
+        if not isinstance(j.get("identity"), dict) and os.path.lexists(self.q_worktree):
+            # An older pass may already have committed the lookup race. Its
+            # rows cannot be rolled back, but its remaining tree and private
+            # history must not be destroyed by resuming that incomplete
+            # archive. Keep the journal and quarantine for recovery. Normal
+            # older retirements that archived the registration can finish.
+            admin, _, _ = rgit.gitfile_admin(self.q_worktree)
+            if admin is not None and admin.is_dir() and not rgit.is_remnant(admin) \
+                    and manifest.get("git", {}).get("admin") != str(admin):
+                report["errors"].append({"path": str(self.q_worktree),
+                                         "error": "registration absent from committed archive; kept for recovery"})
+                return report
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
@@ -669,7 +854,18 @@ class Retirement:
             if label in trees:
                 delete(label, path)
         admin = j.get("admin")
-        if admin and "admin" in trees and os.path.isdir(admin):
+        claimed = self._claimed(Path(admin)) if admin and "admin" in trees and os.path.isdir(admin) else None
+        if claimed is not None:
+            # A tree outside the quarantine names the registration again: put
+            # back by hand after the final check (the sweep cannot move a
+            # tree retention locked). Deleted, the registration would leave
+            # that tree a `.git` naming nothing; it stays, unlocked, the
+            # tree's again.
+            self._remove_lock()
+            report["admin_kept"] = True
+            report["kept"].append({"path": "", "tree": "admin", "reason": "a tree names it", "where": admin,
+                                   "files": [str(claimed)]})
+        elif admin and "admin" in trees and os.path.isdir(admin):
             late = self._late_admin(trees["admin"], Path(admin))
             if late is not None:
                 report["late_anchor"] = late.get("anchor")
@@ -692,6 +888,30 @@ class Retirement:
         report["done"] = True
         return report
 
+    def _claimed(self, admin: Path) -> Path | None:
+        """A tree outside the quarantine whose `.git` names `admin`, or None:
+        at the tree's original path, in another tool's quarantine beside it,
+        or where the admin directory's backlink now says it is."""
+        j = self.journal or {}
+        if not j.get("worktree"):
+            return None
+        original = Path(j["worktree"])
+        wanted = Path(os.path.realpath(admin))
+        names = rgit.backlink(admin)
+        for place in (original, tree_away(original), names.parent if names is not None else None):
+            if place is not None and os.path.lexists(place) and rgit.gitfile_admin(place)[0] == wanted:
+                return place
+        return None
+
+    def _remove_lock(self) -> None:
+        """Remove the registration's lock if retention wrote it and it is still ours."""
+        lock = (self.journal or {}).get("lock")
+        if lock and lock.get("created"):
+            path = Path(lock["path"])
+            if _read_small(path) == lock["text"]:
+                path.unlink()
+                rfs.sync_path(path.parent)
+
     def _late_admin(self, tree: dict[str, Any], admin: Path) -> dict[str, Any] | None:
         """Admin entries new or changed since the archive: anchor what they name,
         and keep the registration (locked) instead of deleting it."""
@@ -702,7 +922,7 @@ class Retirement:
         try:
             for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
                 entry = entries.get(rel)
-                if entry is not None and rfs.unchanged(entry["sig"], st):
+                if entry is not None and rfs.still_archived(entry, st, parent, name, self.ctx.check):
                     continue
                 changed.append(rel)
                 if stat.S_ISREG(st.st_mode) and rel != "index" and st.st_size < 64 << 20:
@@ -779,12 +999,8 @@ class Retirement:
                 os.rename(target, original)
             j["moved"][name] = False
             self.save()
-        lock = j.get("lock")
-        if lock and lock.get("created") and not keep_lock:
-            path = Path(lock["path"])
-            if _read_small(path) == lock["text"]:
-                path.unlink()
-                rfs.sync_path(path.parent)
+        if not keep_lock:
+            self._remove_lock()
         rfs.remove_own_tree(self.work / "verify.git")
         if not keep_cache:
             rfs.remove_own_tree(self.building)
@@ -853,6 +1069,135 @@ def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
     return {"archived_bytes": int(totals.get("archived_bytes") or 0), "omitted_bytes": omitted,
             "regenerable_bytes": regenerable, "freed_bytes": omitted + regenerable,
             "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
+
+
+def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
+                       cancel: threading.Event | None = None) -> list[Path]:
+    """The common directories of the repositories the jobs' trees and workdirs
+    that are still there are in: where a job whose tree and workdir are both
+    gone (a lane checkout removed, a folder deleted) may still have its
+    registration and its salvage refs (#81's note on #76: 62 of 371 terminal
+    owned jobs on 2026-09-29)."""
+    found: dict[str, Path] = {}
+    jobs = list(jobs)
+    for job in jobs:
+        try:
+            tree = owned_worktree(job, root)
+        except ValueError:
+            continue
+        if tree is not None and os.path.lexists(tree):
+            try:
+                reg, _ = rgit.registration(tree)
+            except OSError:
+                continue           # another job's unreadable registration answers nothing here
+            if reg is not None:
+                found.setdefault(str(reg.common), reg.common)
+    for workdir in sorted({job["workdir"] for job in jobs if job.get("workdir")}):
+        if cancel is not None and cancel.is_set():
+            raise Interrupted("cancelled")
+        if os.path.isdir(workdir):
+            common = rgit.common_dir(Path(workdir), cancel=cancel)
+            if common is not None:
+                found.setdefault(str(common), common)
+    return list(found.values())
+
+
+def salvage_digest(commit: str) -> str:
+    """What the daemon records as a salvage artifact's `sha256`: the sha256
+    of its commit id (`Daemon._salvage`)."""
+    return hashlib.sha256(commit.encode()).hexdigest()
+
+
+_UNRESOLVED_COMMON = object()
+
+
+def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[], list[Path]],
+                        salvage_refs: Callable[[Path], dict[str, str]], wanted: dict[str, str], *,
+                        cancel: threading.Event | None = None,
+                        workdir_common: Any = _UNRESOLVED_COMMON) -> tuple[rgit.Registration | None, Path | None, str | None]:
+    """(registration, repository, None) for a job whose tree is gone, or with
+    None in place of what was not found, and why the repository was not.
+
+    With its workdir there, the repository is the workdir's and the
+    registration the one there whose backlink names the tree, as always. With
+    the workdir gone too, the registration is looked for, by its name and its
+    backlink, in the repository the workdir's nearest existing ancestor is in
+    (`rgit.repository_near`), then in every repository `known` names; without
+    one, a repository is the job's only when every salvage ref the job's rows
+    name (`wanted`: ref -> the digest its row recorded) is there at the commit
+    the row recorded. A ref's name alone proves nothing: it is the branch, the
+    reservation's second and the attempt (`refs/subfleet-salvage/detached-
+    20260929T120000Z-a1`), which two jobs of different repositories reserved
+    in the same second share. Before, such a job retired with no anchor while
+    its registration stayed behind, or was kept for ever as `salvage not
+    archivable` (#81's note on #76). A caller that already resolved the
+    workdir's repository passes `workdir_common` (None when unreadable), so
+    git is run only once for that resolution. An existing but broken linked
+    workdir uses the same fallback as a missing one."""
+    workdir = job.get("workdir")
+    if workdir and os.path.isdir(workdir):
+        common = (rgit.common_dir(Path(workdir), cancel=cancel)
+                  if workdir_common is _UNRESOLVED_COMMON else workdir_common)
+        if common is not None:
+            reg = rgit.registration_in(common, worktree)
+            if reg is not None:
+                return reg, common, None
+            away = rgit.moved_tree(common, worktree)
+            if away is not None:
+                return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+            admin = rgit.named_admin(common, worktree)
+            if admin is not None:
+                return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
+            return None, common, None
+    candidates: list[Path] = []
+    near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None
+    for common in ([near] if near is not None else []) + list(known()):
+        if common not in candidates:
+            candidates.append(common)
+    for common in candidates:
+        reg = rgit.registration_in(common, worktree, named=True)
+        if reg is not None:
+            return reg, common, None
+    for common in candidates:
+        away = rgit.moved_tree(common, worktree)
+        if away is not None:
+            return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+        admin = rgit.named_admin(common, worktree)
+        if admin is not None:
+            return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
+    if wanted:
+        for common in candidates:
+            listing = salvage_refs(common)
+            if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
+                return None, common, None
+    return None, None, f"repository not found (workdir {workdir} is gone)"
+
+
+def gitfile_digest(tree: Path) -> str | None:
+    """The sha256 of the tree's `.git` file; None without one. One that cannot
+    be read as a small regular file (a directory, a link) answers a reason,
+    which no digest equals."""
+    try:
+        return hashlib.sha256(rfs.read_regular(tree / ".git", limit=65536)).hexdigest()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"unreadable: {exc}"
+
+
+def tree_away(worktree: Path) -> Path | None:
+    """Where another tool keeps a job's tree it moved aside, or None: an entry
+    beside it named ``<anything>.<its name>``. `~/chief-of-staff/bin/disk-guard`
+    and `worktree-archive-sweep` `git worktree move` a tree to
+    ``.disk-guard-removing.<name>`` (which rewrites its registration's backlink),
+    check it there, and either remove it or move it back. Job ids hold no dots,
+    so no job's own tree has such a name."""
+    suffix = "." + worktree.name
+    try:
+        names = sorted(os.listdir(worktree.parent))
+    except OSError:
+        return None
+    return next((worktree.parent / name for name in names if name.endswith(suffix)), None)
 
 
 def host_absent(root: Path, where: Path | None, worktree: Path,
@@ -1088,8 +1433,10 @@ class _Builder:
               denied: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Every entry of one tree, archived, omitted or (the worktree only)
         regenerable (`rfs.RegenerableWalk`): listed with its signature, which
-        the final check and verified deletion need, but neither read nor stored
-        (d635 disk relief). Returns the entries and the regenerable records."""
+        the final check and verified deletion need. Multi-link regenerable
+        files also carry a digest to distinguish a sibling's unlink from a
+        write; their bytes are never stored (d635 disk relief). Returns the
+        entries and the regenerable records."""
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
@@ -1120,6 +1467,8 @@ class _Builder:
                         entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
                     elif t == "f":
                         entry["size"] = st.st_size
+                        if st.st_nlink > 1 and "sha256" not in entry:
+                            entry["sha256"] = self._digest(entry, st, parent, name)
                     entries.append(entry)
                     continue
                 if t == "l":
@@ -1163,8 +1512,8 @@ class _Builder:
             raise rfs.TreeError("changed", f"{entry['p']} vanished") from None
         try:
             before = os.fstat(fd)
-            if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):
-                raise rfs.TreeError("changed", f"{entry['p']} was replaced")
+            if not rfs.same_content_signature(st, before) or not stat.S_ISREG(before.st_mode):
+                raise rfs.TreeError("changed", f"{entry['p']} changed before it was read")
             digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
             if not rfs.same_content_signature(before, os.fstat(fd)):
                 raise rfs.TreeError("changed", f"{entry['p']} changed while it was read")
