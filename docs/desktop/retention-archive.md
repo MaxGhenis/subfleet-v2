@@ -75,6 +75,14 @@ still be gone and absent from a sibling quarantine. Immediately before the
 admin directory's deletion, a live checkout naming it at the original path,
 a sibling quarantine, or the backlink's path keeps the registration.
 Pre-commit journals without identity are rolled back and read again.
+If gone-tree discovery misses both the registration and a moved checkout,
+an admin id allocated for that tree still keeps the job: git moves rewrite
+the backlink but never move that id. This prevents successive moves from
+making two path checks falsely prove that neither checkout exists. An
+unreadable admin listing cannot establish absence and keeps the job too.
+An older already-committed archive that missed its live registration keeps
+its remaining quarantine and journal for recovery; its deleted rows cannot
+be rolled back. Valid older committed archives can finish reclaiming.
 
 The design verifies the registration read at `begin` against the quarantined
 tree. It keeps the existing anchor/bundle and archive cache machinery while
@@ -898,12 +906,15 @@ gitfile lookup, moves between the quarantine presence check and rename,
 registration changes before archiving, a moved gone tree's backlink, a copy
 replacing the original directory, a checkout returned after the final check,
 and recovery of a journal without identity. Its Hypothesis property generates
-away/back moves at 13 retention boundaries, including three lookup boundaries;
+away/back moves at 16 retention boundaries, including lookup and identity
+absence-check boundaries;
 an away without a later back represents away-and-stay. The oracle verifies a
 kept tree's files and git registration, or the removed tree's private HEAD
 and reflog commit in a bundle imported into a fresh remote clone, along with
 its untracked and ignored file bytes in the archive. It also checks that the
-shared stash ref survives, and that a later quiet pass can retire a kept job.
+shared stash list and a retained tree's HEAD reflog survive, and that a later
+quiet pass can retire a kept job. Legacy committed-journal tests distinguish
+safe completion from preserving an incomplete archive for recovery.
 The final fallback tests also cover an existing lane with a dangling `.git`
 file, both with and without salvage, and a replaced salvage ref in that source.
 

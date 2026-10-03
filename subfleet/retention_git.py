@@ -269,6 +269,22 @@ def moved_tree(common: Path, tree: Path) -> Path | None:
     return None
 
 
+def named_admin(common: Path, tree: Path) -> Path | None:
+    """A registration id Git could have allocated for `tree`, regardless of
+    its current backlink. Moves change the backlink and checkout path, but
+    keep this id. A caller that missed the registration and moved checkout
+    must keep the job while such an id exists rather than infer their absence
+    from two reads that a move can invalidate. An unreadable listing raises:
+    it cannot prove that no registration remains.
+    """
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
+    try:
+        admins = sorted((common / "worktrees").iterdir())
+    except FileNotFoundError:
+        return None
+    return next((admin for admin in admins if pattern.fullmatch(admin.name)), None)
+
+
 def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
     """For a directory that is gone: the common directory of the repository its
     nearest existing ancestor is in, or, when git cannot use that (a linked

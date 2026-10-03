@@ -828,6 +828,18 @@ class Retirement:
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
                                   "admin_kept": False, "done": False, "totals": manifest["totals"],
                                   "added_bytes": added_bytes(self.published_dir(), manifest["totals"])}
+        if not isinstance(j.get("identity"), dict) and os.path.lexists(self.q_worktree):
+            # An older pass may already have committed the lookup race. Its
+            # rows cannot be rolled back, but its remaining tree and private
+            # history must not be destroyed by resuming that incomplete
+            # archive. Keep the journal and quarantine for recovery. Normal
+            # older retirements that archived the registration can finish.
+            admin, _, _ = rgit.gitfile_admin(self.q_worktree)
+            if admin is not None and admin.is_dir() and not rgit.is_remnant(admin) \
+                    and manifest.get("git", {}).get("admin") != str(admin):
+                report["errors"].append({"path": str(self.q_worktree),
+                                         "error": "registration absent from committed archive; kept for recovery"})
+                return report
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
@@ -1133,6 +1145,9 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
             away = rgit.moved_tree(common, worktree)
             if away is not None:
                 return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+            admin = rgit.named_admin(common, worktree)
+            if admin is not None:
+                return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
             return None, common, None
     candidates: list[Path] = []
     near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None
@@ -1147,6 +1162,9 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
         away = rgit.moved_tree(common, worktree)
         if away is not None:
             return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+        admin = rgit.named_admin(common, worktree)
+        if admin is not None:
+            return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
     if wanted:
         for common in candidates:
             listing = salvage_refs(common)

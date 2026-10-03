@@ -30,7 +30,7 @@ from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_fs as rfs
 from subfleet import retention_git as rgit
-from tests.unit.retention_world import Clock, World, git, trust_temporary_directories
+from tests.unit.retention_world import Clock, World, git, snapshot, trust_temporary_directories
 
 SWEEP_PREFIX = ".disk-guard-removing."
 #: Untracked and ignored work in the tree (`World`'s .gitignore ignores `out/`).
@@ -533,17 +533,137 @@ def test_a_journal_written_before_the_identity_check_is_read_again(world, monkey
     assert violations(w, "job-old", wt, history) == []
 
 
+def test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled(world):
+    """A valid retirement committed before identity fields existed still
+    resumes: its verified archive already holds the registration and private
+    history, so the migration guard need not strand its quarantined bytes."""
+    w = world
+    wt, history = _job_with_private_history(w, "job-old-good")
+
+    class Crash(BaseException):
+        pass
+
+    def crash(self):
+        raise Crash()
+
+    with pytest.MonkeyPatch.context() as hooks:
+        hooks.setattr(rarch.Retirement, "reclaim", crash)
+        with pytest.raises(Crash):
+            run(w)
+    path = rarch.journal_path(w.root, "job-old-good")
+    journal = json.loads(path.read_bytes())
+    assert journal["state"] == "published" and journal["admin"], journal
+    assert w.store.get_job("job-old-good") is None
+    assert all(_bundled(w, "job-old-good", [history["head"], history["reflog"]]).values())
+    del journal["identity"]
+    path.write_bytes(rarch._canonical(journal))
+    resumed = run(w)
+    assert resumed["errors"] == [] and resumed["reclaimed"] == ["job-old-good"], resumed
+    assert not path.exists()
+    assert violations(w, "job-old-good", wt, history) == []
+
+
+def test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree(world):
+    """Rows already committed by the old lookup race cannot be rolled back
+    from a reclaim pass. Keep the journal, quarantine and admin untouched for
+    recovery instead of completing the old deletion without private history
+    in any verified bundle."""
+    w = world
+    wt, history = _job_with_private_history(w, "job-old-bad")
+    sweep = Sweep(w, wt)
+    in_begin = []
+    real_begin, real_lookup = rarch.Retirement.begin, rgit.gitfile_admin
+
+    class Crash(BaseException):
+        pass
+
+    def begin(self, job, pool):
+        in_begin.append(True)
+        try:
+            return real_begin(self, job, pool)
+        finally:
+            in_begin.clear()
+
+    def lookup(tree):
+        if not in_begin or Path(tree) != wt or sweep.log:
+            return real_lookup(tree)
+        assert sweep.away()
+        try:
+            return real_lookup(tree)
+        finally:
+            assert sweep.back()
+
+    def crash(self):
+        raise Crash()
+
+    with pytest.MonkeyPatch.context() as hooks:
+        hooks.setattr(rarch.Retirement, "begin", begin)
+        hooks.setattr(rgit, "gitfile_admin", lookup)
+        hooks.setattr(rarch.Retirement, "_identity_changed", lambda self: None)
+        hooks.setattr(rarch.Retirement, "reclaim", crash)
+        with pytest.raises(Crash):
+            run(w)
+    path = rarch.journal_path(w.root, "job-old-bad")
+    journal = json.loads(path.read_bytes())
+    assert journal["state"] == "published" and journal["admin"] is None, journal
+    assert w.store.get_job("job-old-bad") is None
+    assert not any(_bundled(w, "job-old-bad", [history["head"], history["reflog"]]).values())
+    held = w.root / "retention" / "job-old-bad" / "worktree"
+    held_job = w.root / "retention" / "job-old-bad" / "job"
+    before = snapshot(held), snapshot(held_job), snapshot(w.admin("job-old-bad"))
+    del journal["identity"]
+    path.write_bytes(rarch._canonical(journal))
+    resumed = run(w)
+    assert resumed["reclaimed"] == [], resumed
+    assert any("registration absent from committed archive" in e["error"] for e in resumed["errors"]), resumed
+    assert path.exists() and w.admin("job-old-bad").is_dir()
+    assert (snapshot(held), snapshot(held_job), snapshot(w.admin("job-old-bad"))) == before
+    assert git(held, "rev-parse", "HEAD") == history["head"]
+    assert git(w.repo, "stash", "list", "--format=%H %gs") == history["stash_list"]
+
+
+def test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job(world):
+    """Absent at the first lstat, the tree returns for each sibling check,
+    then moves away for each presence check. Its stable admin directory must
+    keep the job even when both gone-tree lookup methods miss the moving
+    backlink. Without that guard the identity checks can each see the
+    original path absent and, after a move back, its sibling absent: the
+    tree survives while its rows are retired without a bundle or its files.
+    All moves here are completed, real, non-forced `git worktree move`s."""
+    w = world
+    wt, history = _job_with_private_history(w, "job-late")
+    moves = {"begin": "away", "gone-check": "back", "gone-lookup": "away",
+             "moved-tree": "back", "lock": "away", "quarantine-away-check": "back",
+             "final-check": "away", "final-away-check": "back"}
+    schedule = Schedule(w, wt, moves)
+    state, clock = retention.RetentionState(), Clock()
+    with pytest.MonkeyPatch.context() as hooks:
+        schedule.install(hooks)
+        first = run(w, state=state, clock=clock)
+    trace = (schedule.fired, schedule.sweep.log, first)
+    assert schedule.sweep.log[:4] == ["away moved", "back moved", "away moved", "back moved"], trace
+    assert first["pruned"] == [] and "job-late" in first["deferred"], trace
+    assert violations(w, "job-late", wt, history) == [], trace
+    schedule.sweep.back()
+    clock.advance(LATER)
+    assert run(w, state=state, clock=clock)["pruned"] == ["job-late"]
+    assert violations(w, "job-late", wt, history) == []
+
+
 # --- the property: generated schedules of the sweep's moves -----------------------------------
 
 #: Where the sweep may act, in the order retention reaches them: before
 #: `begin`; inside it, at the gone-tree check, as the tree's gitfile is read,
 #: as its registration's backlink is read, and as a gone tree's registration
-#: is looked for; before the lock and the quarantine; inside the quarantine,
-#: after its presence check and before the renames; before the archive, the
-#: final check, the commit (the point of no return), the publish and the
-#: verified deletion.
-POINTS = ("begin", "gone-check", "lookup", "backlink", "gone-lookup", "lock", "quarantine", "moving-in",
-          "archive", "final-check", "commit", "publish", "reclaim")
+#: is looked for and its moved-tree fallback runs; before the lock and the
+#: quarantine; inside the quarantine, after its presence check and before the
+#: renames, and between the identity's presence and sibling checks; before
+#: the archive and final check, between the final identity's presence and
+#: sibling checks, and before the commit (the point of no return), publish
+#: and verified deletion.
+POINTS = ("begin", "gone-check", "lookup", "backlink", "gone-lookup", "moved-tree", "lock", "quarantine",
+          "moving-in", "quarantine-away-check", "archive", "final-check", "final-away-check",
+          "commit", "publish", "reclaim")
 ACTIONS = ("away", "back")
 
 
@@ -558,6 +678,7 @@ class Schedule:
         self.admin = w.admin(tree.name)
         self.fired: list[str] = []
         self.in_begin = False
+        self.identity_phase: str | None = None
 
     def at(self, point: str) -> None:
         if point in self.fired:
@@ -574,7 +695,7 @@ class Schedule:
         real = {name: getattr(rarch.Retirement, name) for name in
                 ("begin", "lock", "quarantine", "save", "archive", "final_check", "commit", "publish", "reclaim")}
         real_away, real_lookup = rarch.tree_away, rgit.gitfile_admin
-        real_read, real_in = rfs.read_regular, rgit.registration_in
+        real_read, real_in, real_moved = rfs.read_regular, rgit.registration_in, rgit.moved_tree
 
         def begin(self, job, pool):
             schedule.at("begin")
@@ -585,8 +706,11 @@ class Schedule:
                 schedule.in_begin = False
 
         def tree_away(worktree):
-            if schedule.in_begin:
-                schedule.at("gone-check")
+            if Path(worktree) == schedule.tree:
+                if schedule.in_begin:
+                    schedule.at("gone-check")
+                elif schedule.identity_phase is not None:
+                    schedule.at(schedule.identity_phase + "-away-check")
             return real_away(worktree)
 
         def gitfile_admin(tree):
@@ -600,9 +724,14 @@ class Schedule:
             return real_read(path, *args, **kwargs)
 
         def registration_in(common, tree, **kwargs):
-            if schedule.in_begin:
+            if schedule.in_begin and Path(tree) == schedule.tree:
                 schedule.at("gone-lookup")
             return real_in(common, tree, **kwargs)
+
+        def moved_tree(common, tree):
+            if schedule.in_begin and Path(tree) == schedule.tree:
+                schedule.at("moved-tree")
+            return real_moved(common, tree)
 
         def save(self, **changes):
             real["save"](self, **changes)
@@ -612,7 +741,15 @@ class Schedule:
         def before(name, point):
             def hooked(self, *args, **kwargs):
                 schedule.at(point)
-                return real[name](self, *args, **kwargs)
+                phase = schedule.identity_phase
+                if name == "quarantine":
+                    schedule.identity_phase = "quarantine"
+                elif name == "final_check":
+                    schedule.identity_phase = "final"
+                try:
+                    return real[name](self, *args, **kwargs)
+                finally:
+                    schedule.identity_phase = phase
             return hooked
 
         mp.setattr(rarch.Retirement, "begin", begin)
@@ -625,9 +762,10 @@ class Schedule:
         mp.setattr(rgit, "gitfile_admin", gitfile_admin)
         mp.setattr(rfs, "read_regular", read_regular)
         mp.setattr(rgit, "registration_in", registration_in)
+        mp.setattr(rgit, "moved_tree", moved_tree)
 
 
-schedules = st.dictionaries(st.sampled_from(POINTS), st.sampled_from(ACTIONS), max_size=6)
+schedules = st.dictionaries(st.sampled_from(POINTS), st.sampled_from(ACTIONS))
 
 
 @settings(max_examples=int(os.environ.get("RETENTION_SWEEP_EXAMPLES", "40")), deadline=None,
@@ -643,6 +781,9 @@ schedules = st.dictionaries(st.sampled_from(POINTS), st.sampled_from(ACTIONS), m
 @example(moves={"begin": "away", "gone-check": "back", "gone-lookup": "away"})
 @example(moves={"begin": "away", "gone-check": "back", "lock": "away"})
 @example(moves={"begin": "away", "gone-check": "back", "quarantine": "away"})
+@example(moves={"begin": "away", "gone-check": "back", "gone-lookup": "away", "moved-tree": "back",
+                "lock": "away", "quarantine-away-check": "back", "final-check": "away",
+                "final-away-check": "back"})
 @example(moves={"lock": "away"})
 @example(moves={"lock": "away", "quarantine": "back"})
 @example(moves={"quarantine": "away"})

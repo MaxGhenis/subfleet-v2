@@ -89,6 +89,16 @@ the external tools' lock or depend on observing a move while it happens.
   checkout names it at the original path, a sibling quarantine, or the path
   named by its current backlink. Release only retention's own lock in that
   case so the surviving checkout remains usable.
+- If discovery misses both a gone tree's registration and its moved
+  checkout, defer while an admin id allocated for that basename remains.
+  Successive moves can defeat the two path checks, but cannot hide this
+  persistent id. An unreadable listing also keeps the job. A stale or
+  conflicting id is conservatively kept until it can be resolved.
+- For an older already-committed journal lacking identity, preserve the
+  remaining quarantine and journal when its live registration was absent
+  from the committed archive. Its previously deleted rows need recovery;
+  completing the old deletion would destroy private history. Legitimate
+  older committed archives with their registration recorded can finish.
 
 The implementation is in `subfleet/retention_archive.py` (`begin`,
 `quarantine`, `_identity_changed`, `_final_check`, `_reclaim`, `_claimed`)
@@ -113,14 +123,14 @@ repaired elsewhere before the lock, a copy replacing the original directory,
 a checkout returned after the final check, and an older journal lacking
 identity.
 
-The Hypothesis property generates away/back actions at 13 boundaries, with
+The Hypothesis property generates away/back actions at 16 boundaries, with
 explicit examples for the lookup window and moves left away. Its oracle
 requires either an intact, usable retained tree or a removed tree whose
 private commits can be imported from the verified bundle into a fresh clone
 of the remote and whose untracked/ignored files match their archive copies.
 It rejects gitfiles naming missing admin directories and admin backlinks
 naming vanished trees without a bundle; it also checks the shared stash
-ref. After the sweep restores any held tree, a quiet retention pass must
+list and a kept tree's HEAD reflog. After the sweep restores any held tree, a quiet retention pass must
 finish, preventing safe-but-permanent deferral from satisfying the property.
 
 Current baseline, property, mutation and suite results belong to the
