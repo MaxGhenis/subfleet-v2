@@ -16,9 +16,8 @@ pytestmark = needs_swift
 
 
 @pytest.fixture(scope="module")
-def views(tmp_path_factory) -> dict:
-    probe = compile_probe(tmp_path_factory.mktemp("subfleet-conversation-view") / "probe",
-                          ROOT / "tests/frontend/ConversationViewProbe.swift", "SUBFLEET_VIEW_TEST")
+def views(conversation_view_probe) -> dict:
+    probe = conversation_view_probe
     result = subprocess.run([str(probe)], capture_output=True, text=True, timeout=60, check=True)
     return json.loads(result.stdout)
 

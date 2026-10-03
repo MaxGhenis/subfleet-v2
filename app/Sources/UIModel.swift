@@ -7,7 +7,7 @@
 // threads. Every answer is folded into `ConversationStoreState` on the main
 // actor, so the views only ever read settled state (design D-24).
 
-#if !SUBFLEET_MODEL_TEST
+#if !SUBFLEET_MODEL_TEST || SUBFLEET_UI_MODEL_TEST
 import AppKit
 import SwiftUI
 import UserNotifications
@@ -62,6 +62,7 @@ final class UIModel: ObservableObject {
 
     let paths: AppPaths
     let drafts: DraftStore
+    private let defaults: UserDefaults
     private(set) var engine: ConversationEngine?
     private let outboxQueue = DispatchQueue(label: "org.maxghenis.subfleet.outbox")
     /// Reads that run git on the daemon (the diffs) wait here, never behind a send.
@@ -79,9 +80,13 @@ final class UIModel: ObservableObject {
         self?.handleNotification(action: action, userInfo: userInfo)
     }
 
-    init() {
-        paths = AppPaths.standard()
+    init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
+         state initialState: ConversationStoreState = ConversationStoreState()) {
+        self.paths = paths
+        self.defaults = defaults
         drafts = DraftStore(directory: paths.draftsDirectory)
+        self.state = initialState
+        defaults.removeObject(forKey: "lastWorkspace")
         let draftURL = paths.support.appendingPathComponent("new-conversation-draft.json")
         if let data = try? Data(contentsOf: draftURL),
            var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
@@ -89,10 +94,8 @@ final class UIModel: ObservableObject {
             newDraft = saved
             draftNeedsWorkspaceDefault = false
         } else {
-            let defaults = UserDefaults.standard
             // Folder history is only considered after daemon admission; older
             // versions remembered home even when create had refused it.
-            defaults.removeObject(forKey: "lastWorkspace")
             let provider = defaults.string(forKey: "providerChoice") ?? "auto"
             newDraft.providerChoice = ["auto", "claude", "codex"].contains(provider) ? provider : "auto"
             newDraft.settings.permission = defaults.string(forKey: "lastPermission") ?? PermissionPolicy.ask.rawValue
@@ -101,9 +104,10 @@ final class UIModel: ObservableObject {
             try? ensurePrivateDirectory(directory)
         }
         do {
-            let client = try DaemonClient.forCurrentEndpoint()
+            let client = try client ?? DaemonClient.forCurrentEndpoint()
             engine = ConversationEngine(client: client, outbox: try Outbox(url: paths.outboxURL))
             failedDrafts = engine?.outbox.failedDrafts ?? []
+            if !failedDrafts.isEmpty { problem = "A conversation could not start. Review its saved draft." }
         } catch DaemonClientError.endpointRefused(let reason) {
             state.availability = .refused(reason)
         } catch {
@@ -476,7 +480,7 @@ final class UIModel: ObservableObject {
         }
         newDraft.reconcile(models: state.models[provider] ?? [], capabilities: state.availability.capabilities,
                            defaultModel: state.modelDefaults[provider],
-                           rememberedModel: UserDefaults.standard.string(forKey: "lastModel.\(provider)"))
+                           rememberedModel: defaults.string(forKey: "lastModel.\(provider)"))
     }
 
     func selectNewDraftProvider(_ choice: String) {
@@ -501,6 +505,7 @@ final class UIModel: ObservableObject {
         let generation = draftWorkspaceChecks
         let provider = newDraft.provider
         let permission = newDraft.settings.permission
+        let recovery = failedDrafts.first { $0.id == failedDraftKey }?.create
         let candidates = selectDefault && draftNeedsWorkspaceDefault ? recentWorkspaces() : []
         let selectingDefault = selectDefault && draftNeedsWorkspaceDefault
         Task {
@@ -529,11 +534,14 @@ final class UIModel: ObservableObject {
                 // existing parent applies the daemon's folder policy now; Start
                 // checks the new directory itself before journaling anything.
                 let checkPath = newDraft.workspace ?? paths.support.path
-                let result = try await onOutbox { try engine.checkWorkspace(checkPath, provider: provider, permission: permission) }
+                let result = try await onOutbox {
+                    try engine.checkWorkspace(checkPath, provider: provider, permission: permission,
+                                              kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
+                }
                 guard generation == draftWorkspaceChecks else { return }
                 newDraft.applyWorkspaceCheck(result, workspace: selected, provider: provider, permission: permission)
-                if !result.ok, UserDefaults.standard.string(forKey: "lastWorkspace") == newDraft.workspace {
-                    UserDefaults.standard.removeObject(forKey: "lastWorkspace")
+                if !result.ok, defaults.string(forKey: "lastWorkspace") == newDraft.workspace {
+                    defaults.removeObject(forKey: "lastWorkspace")
                 }
             } catch {
                 guard generation == draftWorkspaceChecks, let selected = newDraft.resolvedWorkspace else { return }
@@ -545,7 +553,13 @@ final class UIModel: ObservableObject {
     }
 
     private func saveNewDraft() {
-        guard let data = try? JSONEncoder().encode(newDraft) else { return }
+        var saved = newDraft
+        if saved.workspaceCheck?.ok == false {
+            saved.workspace = nil
+            saved.scratchWorkspace = nil
+            saved.invalidateWorkspaceCheck()
+        }
+        guard let data = try? JSONEncoder().encode(saved) else { return }
         try? atomicWrite(data, to: paths.support.appendingPathComponent("new-conversation-draft.json"))
     }
 
@@ -553,6 +567,7 @@ final class UIModel: ObservableObject {
         guard let engine, newDraft.canStart, let workspace = newDraft.resolvedWorkspace else { return }
         let draft = newDraft
         let recovering = failedDraftKey
+        let recovery = failedDrafts.first { $0.id == recovering }?.create
         let token = navigation
         let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key ?? Outbox.newMessageID()
         if !stayHere { draftDestinations[messageID] = token }
@@ -561,14 +576,17 @@ final class UIModel: ObservableObject {
             do {
                 try await onOutbox {
                     if draft.workspace == nil { try ensurePrivateDirectory(URL(fileURLWithPath: workspace, isDirectory: true)) }
-                    let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission)
+                    let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission,
+                                                         kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
                     guard check.ok else {
                         throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
                     }
-                    if let recovering {
-                        try engine.outbox.retryFailedCreate(recovering, args: ConversationCreateArgs(
-                            request_id: recovering, provider: draft.provider, workspace: workspace,
-                            settings: draft.settings, confirm_widen: draft.confirmWiden), text: draft.text, staged: draft.attachments)
+                    if let recovering, var args = recovery {
+                        args.provider = draft.provider
+                        args.workspace = workspace
+                        args.settings = draft.settings
+                        args.confirm_widen = draft.confirmWiden
+                        try engine.outbox.retryFailedCreate(recovering, args: args, text: draft.text, staged: draft.attachments)
                     } else {
                         let key = try engine.createConversation(provider: draft.provider, workspace: workspace,
                                                                 settings: draft.settings, confirmWiden: draft.confirmWiden)
@@ -578,7 +596,6 @@ final class UIModel: ObservableObject {
                 }
                 newDraft.journaled()
                 failedDraftKey = nil
-                let defaults = UserDefaults.standard
                 defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
@@ -598,6 +615,7 @@ final class UIModel: ObservableObject {
     func send(conversationID: String, text: String, staged: [StagedAttachment], settings: ConversationSettings,
               steer: Bool = false) {
         guard let engine else { return }
+        let provider = state.conversation(conversationID)?.provider
         let messageID = Outbox.newMessageID()
         // The turn the person steers into now: a steer that reaches the daemon after
         // it ended is refused, never joined to the next turn (C-24.9).
@@ -610,6 +628,7 @@ final class UIModel: ObservableObject {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
                                     messageID: messageID, steer: steer, into: into)
                 }
+                if let provider { defaults.set(settings.model, forKey: "lastModel.\(provider)") }
                 pump()
             } catch {
                 report(error)

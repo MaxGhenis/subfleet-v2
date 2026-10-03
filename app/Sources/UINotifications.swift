@@ -58,7 +58,7 @@ struct ApprovalNotificationTarget: Codable, Equatable {
     }
 }
 
-#if !SUBFLEET_MODEL_TEST
+#if !SUBFLEET_MODEL_TEST || SUBFLEET_UI_MODEL_TEST
 import UserNotifications
 
 final class ApprovalNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
