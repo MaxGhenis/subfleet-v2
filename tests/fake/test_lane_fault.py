@@ -44,6 +44,14 @@ BLOCK = ("auth-dead: Your organization has disabled Claude subscription access f
          "· Use an Anthropic API key instead, or ask your admin to enable access")
 
 
+def assertions_only(caught) -> None:
+    """A mutation's failure is the property's assertions, one or several (Hypothesis groups
+    distinct counterexamples), never an error of another kind."""
+    error = caught.value
+    found = list(error.exceptions) if isinstance(error, BaseExceptionGroup) else [error]
+    assert found and all(isinstance(item, AssertionError) for item in found), found
+
+
 class LaneRefuses(FakeAdapter):
     """The incident's verdict (C-9.3): the CLI's organisation block, no model answering."""
 
@@ -370,6 +378,16 @@ def fleet(root, lanes: int):
         patch.setattr(registry, "_factories", {**registry._factories, "codex": ByLane})
         service = Daemon(root)
         patch.setattr(service, "_launch", lambda attempt: None)
+        # C-11.4's probe, run before a moved-on job may use an unproven lane (C-4.5): a lane
+        # the test marked dead (`service.dead_lanes`) refuses it as it refuses every attempt.
+        service.dead_lanes, service.probes = set(), []
+
+        def probe(job, lane, model, holder):
+            service.probes.append((job["job_id"], lane.lane_id))
+            if lane.lane_id in service.dead_lanes:
+                return Outcome(OutcomeClass.AUTH_DEAD, BLOCK, evidence={"rc": 1, "model_answered": False})
+            return Outcome(OutcomeClass.OK, "admitted", evidence={"rc": 0, "model_answered": True})
+        patch.setattr(service, "_execute_probe", probe)
         try:
             for n in range(2, lanes + 1):
                 add_lane(service, harness, f"codex-{n}")
@@ -399,6 +417,7 @@ def run_fleet(root, lanes, dead, jobs, writable, prove, order):
     dead_lanes = {f"codex-{n}" for n in range(1, lanes + 1) if dead[n - 1]}
     with fleet(root / "state", lanes) as (service, harness):
         service.policy["admission"]["prove_idle_s"] = prove
+        service.dead_lanes = dead_lanes
         submitted = []
         for spec in jobs:
             pin = f"codex-{spec['pin']}" if spec["pin"] and spec["pin"] <= lanes else None
@@ -411,10 +430,11 @@ def run_fleet(root, lanes, dead, jobs, writable, prove, order):
         for _ in range(4 * (len(submitted) + lanes) + 4):
             with service.store.transaction("test.due") as tx:          # every wait due: no clocks in this model
                 tx.execute("UPDATE jobs SET next_check_at=NULL WHERE state='waiting'")
+            probes = len(service.probes)
             service._admit()
             live = service.store.query("SELECT * FROM attempts WHERE state='reserved'")
-            if not live:
-                break
+            if not live and len(service.probes) == probes:
+                break                                 # a pass that placed nothing and probed nothing
             order.shuffle(live)
             for attempt in live:
                 job = service.store.get_job(attempt["job_id"])
@@ -427,7 +447,8 @@ def run_fleet(root, lanes, dead, jobs, writable, prove, order):
         enabled = {lane.lane_id for lane in service.store.list_lanes() if lane.enabled}
         found = [(job_id, pin, workspace, service.store.get_job(job_id), service.store.list_attempts(job_id))
                  for job_id, pin, workspace in submitted]
-    return dead_lanes, enabled, found
+        probed = list(service.probes)
+    return dead_lanes, enabled, found, probed
 
 
 FLEETS = dict(lanes=st.integers(1, 4), dead=st.lists(st.booleans(), min_size=4, max_size=4), jobs=JOBS,
@@ -435,8 +456,14 @@ FLEETS = dict(lanes=st.integers(1, 4), dead=st.lists(st.booleans(), min_size=4, 
               order=st.randoms(use_true_random=False))
 
 
-def check_fleet(lanes, dead_lanes, enabled, found):
+def check_fleet(lanes, dead_lanes, enabled, found, probed, prove):
     alive = {f"codex-{n}" for n in range(1, lanes + 1)} - dead_lanes
+    moved = {job_id for job_id, _, _, _, rows in found
+             if any(json.loads(row["evidence_json"] or "{}").get("lane_fault") for row in rows)}
+    # C-4.5: only a job that moved on waits for a probe, and only of a lane not proven.
+    assert {job_id for job_id, _ in probed} <= moved
+    if prove is None:
+        assert probed == []
     evidence = lambda row: json.loads(row["evidence_json"] or "{}")                    # noqa: E731
     assert alive <= enabled                                   # no lane that works was ever disabled
     disabled_by: dict[str, int] = {}
@@ -453,7 +480,9 @@ def check_fleet(lanes, dead_lanes, enabled, found):
             disabled_by[row["lane_id"]] = disabled_by.get(row["lane_id"], 0) + 1
         if pin is None and workspace != "changed":
             if job["state"] == "failed":
-                # Never by the one dead lane it met: only by a second, which is left enabled.
+                # Never by the one dead lane it met: only by a second, which is left enabled, and
+                # with the hold on never at all: a moved-on job reaches no unproven lane unprobed.
+                assert prove is None, (job_id, rows)
                 assert [bool(evidence(row).get("lane_fault")) for row in refused] == [True, False], (job_id, rows)
                 assert evidence(refused[1])["auth_dead_again"]["lane_left_enabled"] is True
                 assert (job["rc"], rows[-1]["attempt_id"]) == (5, refused[1]["attempt_id"])
@@ -465,7 +494,8 @@ def check_fleet(lanes, dead_lanes, enabled, found):
                 assert (job["state"], job["rc"]) == ("failed", 5)
         elif rows and rows[0]["lane_id"] in dead_lanes:
             assert (job["state"], job["rc"]) == ("failed", 5) and not faults
-    assert set(disabled_by) == dead_lanes - enabled           # every disabled lane, by a job's first auth-dead
+    # Every disabled lane was disabled by a job's first auth-dead there, or by a probe.
+    assert dead_lanes - enabled == set(disabled_by) | ({lane for _, lane in probed} & dead_lanes)
 
 
 @settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -478,21 +508,24 @@ def test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(
     with the pilot hold on or off (C-6.14), and attempts ending in any order, run until
     nothing more can be placed:
 
-    - no unpinned job whose workspace is unchanged ends `failed` because of the `auth-dead`
-      lane it met while another enabled lane exists: it moves on, and then with a live
-      lane it succeeds, and with none it waits. It ends `failed` for `auth-dead` only at
-      a second such lane, which is left enabled;
-    - so in a fleet with one dead lane, as on 2026-09-30, no such job fails at all;
+    - no unpinned job whose workspace is unchanged ends `failed` because of `auth-dead`
+      while another enabled lane exists: it moves on, and then with a live lane it
+      succeeds, and with none it waits. With the pilot hold on (the default) that is all:
+      a moved-on job reaches an unproven lane only after Subfleet's own probe of it, and
+      a probe's `auth-dead` disables the lane, so the job never meets a second dead lane
+      itself. With the hold off it ends `failed` at a second dead lane, which is left
+      enabled, so with one dead lane, as on 2026-09-30, no such job fails either way;
+    - only a moved-on job waits for a probe, and only with the hold on;
     - no job disables more than one lane, no lane that works is ever disabled, and every
-      disabled lane was a job's first `auth-dead`;
+      disabled lane was a job's first `auth-dead` or a probe's;
     - `max_attempts` counts every attempt but a job's one lane fault;
     - a pinned job never runs elsewhere, and one pinned to a dead lane that it reached
       ends `failed` rc 5; a writable job whose tree changed ends `failed` rc 5 on a dead lane.
     """
-    dead_lanes, enabled, found = run_fleet(tmp_path_factory.mktemp("lane-fault"), lanes, dead, jobs, writable,
-                                           prove, order)
-    check_fleet(lanes, dead_lanes, enabled, found)
-    if len(dead_lanes) <= 1:                                  # the incident's shape: the stated property, exactly
+    dead_lanes, enabled, found, probed = run_fleet(tmp_path_factory.mktemp("lane-fault"), lanes, dead, jobs,
+                                                   writable, prove, order)
+    check_fleet(lanes, dead_lanes, enabled, found, probed, prove)
+    if prove is not None or len(dead_lanes) <= 1:             # the stated property, exactly
         assert not [job for _, pin, workspace, job, rows in found if pin is None and workspace != "changed"
                     and job["state"] == "failed"]
 
@@ -501,13 +534,15 @@ def test_c4_5_the_property_fails_under_the_rule_of_2026_09_30(tmp_path_factory, 
     """Mutation: with no lane fault (C-4.5 as it stood), the property above finds the
     incident: an unpinned read-only job failed by the one dead lane it met."""
     monkeypatch.setattr(Daemon, "_lane_fault", staticmethod(lambda *args: None))
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
         test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)
+    assertions_only(caught)
 
 
 def test_c4_5_the_property_fails_when_a_job_may_move_on_without_end(tmp_path_factory, monkeypatch):
     """Mutation: with nothing counting a job's lane faults, one job disables lane after
     lane, which the property's "no job disables more than one lane" catches."""
     monkeypatch.setattr(Daemon, "_uncharged", staticmethod(lambda conn, job_id, *, before: 0))
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
         test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)
+    assertions_only(caught)

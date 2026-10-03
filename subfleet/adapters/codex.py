@@ -549,8 +549,9 @@ class CodexAdapter(Adapter):
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
         session_id = launch.native_session_id
         failures = []
-        answered = False
+        answered, read = False, 0
         for event in _events(_stream_path(attempt_dir, launch)):
+            read += 1
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
@@ -559,10 +560,12 @@ class CodexAdapter(Adapter):
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
         signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
-        # C-4.5, C-6.14: whether the model answered at all, whatever the class.
+        # C-4.5, C-6.14: whether the model answered at all, whatever the class;
+        # None when no event was read, so nobody can say (C-4.5 then takes a
+        # writable attempt to have answered).
         evidence = {"rc": exit_info.rc, "signal": exit_info.signal,
                     "authentication": None, "admission": None, "quota": None,
-                    "model_answered": answered}
+                    "model_answered": answered if read else None}
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:

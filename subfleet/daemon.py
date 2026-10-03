@@ -1163,6 +1163,9 @@ class Daemon:
                     self.log.warning("attempt %s on lane %s has shown no model answering for %d s; it no longer "
                                      "holds the lane, which takes one more attempt (C-6.14)",
                                      aid, a["lane_id"], wait)
+                    with self._answer_lock:                # the lane is free: the jobs held for it look now
+                        self._answer_news = True
+                    self._notify()
             with open_regular(state["path"]) as stream:
                 size = os.fstat(stream.fileno()).st_size
                 if size <= state["offset"]:
@@ -1509,13 +1512,34 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
-    @staticmethod
-    def _needs_probe(decision, job: dict) -> bool:
-        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for admission."""
+    def _needs_probe(self, decision, job: dict) -> bool:
+        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for
+        admission; and C-4.5, C-6.14: a job that has moved on from an `auth-dead` lane is
+        never a pilot. On a lane not proven it waits for Subfleet's own probe (C-11.4),
+        which runs on the lane's credential with none of the job's settings, so its
+        `auth-dead` is the lane's (it disables the lane, C-23.44) and its answer proves
+        the lane. Then a second `auth-dead` on a proven lane points at the job."""
         try:
-            return scheduler.probe_required(decision, job)
+            if scheduler.probe_required(decision, job):
+                return True
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
+        return bool(decision.chosen_lane and job.get("kind") != "turn"
+                    and admission_settings(self.policy)["prove_idle_s"] is not None
+                    and not self._lane_proven(decision.chosen_lane)
+                    and self._moved_on_from(job["job_id"]))
+
+    def _lane_proven(self, lane_id: str) -> bool:
+        """C-6.14: has a model answered on `lane_id` within `admission.prove_idle_s`, now?"""
+        idle = admission_settings(self.policy)["prove_idle_s"]
+        last = self._lane_answers.get(lane_id)
+        return idle is None or (last is not None and datetime.now(timezone.utc).timestamp() - last < idle)
+
+    def _moved_on_from(self, job_id: str) -> int:
+        """C-4.5: how many lane faults the job has moved on from (at most one)."""
+        return sum(1 for row in self.store.query(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND outcome_class='auth-dead'", (job_id,))
+            if _lane_fault_of(row["evidence_json"]))
 
     def _retry_pin(self, job: dict) -> tuple[list[dict], tuple[str, ...], dict | None]:
         """C-4.5: a job's attempts, the lanes they exclude, and the one-time retry pin.

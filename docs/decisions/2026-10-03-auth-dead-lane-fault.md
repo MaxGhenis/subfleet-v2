@@ -68,15 +68,27 @@ points at the job. The guarantee is that no job disables more lanes than before
 this change: at most one. A lane that really is dead is disabled by the next
 job that meets it, whose first `auth-dead` it is, and that job moves on.
 
-What this costs: when two lanes are dead at once, the job that meets both fails,
-though a third lane might have run it. In the incident's shape (one dead lane)
-no job fails. I judged a rare failed job, which its caller sees and can
-resubmit, cheaper than a fleet that needs every lane re-enrolled.
+**A job that moved on is no pilot.** Round 2 of the review found what "leave the
+second lane enabled" costs when two lanes are dead: each moved-on job that
+reaches the second lane as its pilot fails there, the lane stays enabled, and the
+next moved-on job does the same, so a whole burst can fail one job at a time.
+The fix is the reviewer's: a moved-on job never tries an unproven lane itself.
+It waits for Subfleet's own admission probe of that lane (C-11.4: a fixed
+prompt, on the lane's credential, with none of the job's settings). The probe's
+`auth-dead` is the lane's and disables it; its answer proves the lane. So a
+moved-on job meets `auth-dead` again only on a lane a model answered on within
+`prove_idle_s`, which does point at the job, and a second dead lane is found by
+a probe, not by failing jobs. With the hold on (the default), the brief's
+property holds whole: no unpinned job with an unchanged workspace fails for
+`auth-dead` while another lane can run it. With the hold off there is no proof
+to ask for, and the earlier cost stands: a job that meets two dead lanes fails.
 
 **A job allowed one attempt still moves on once.** A writable job's lane fault
-ran nothing, since no model answered. A revive sets `max_attempts` 1 because "a
-retry would be a second continuation", and an attempt no model answered is not a
-first one. A read-only job's lane fault repeats only reading.
+ran nothing the job asked for, since no model answered. A revive sets
+`max_attempts` 1 because "a retry would be a second continuation", and an
+attempt no model answered is not a first one, though its prompt and Claude
+Code's placeholder may be left in the revived session's transcript, which the
+retry continues from. A read-only job's lane fault repeats only reading.
 
 **Why a writable job also needs "the model never answered".** The brief's test
 was the tree: read-only, or end tree equal to the start snapshot. The review
@@ -85,9 +97,10 @@ permissions skipped, so its model can push, comment on a PR, or write outside
 the worktree. If access is revoked after that, the tree and HEAD are unchanged,
 and a retry would repeat those effects. So a writable job is a lane fault only
 when its attempt's evidence records `model_answered` false; where an adapter
-records nothing, it is taken to have answered. The incident's writable jobs
-never got an answer, so they qualify. A read-only job moves on whether or not
-its model answered, as the brief asked: reading again repeats nothing.
+records nothing, or read no event of the stream (`model_answered` null), it is
+taken to have answered. The incident's writable jobs never got an answer, so
+they qualify. A read-only job moves on whether or not its model answered, as the
+brief asked: reading again repeats nothing.
 
 **A prerequisite: `auth-dead` only from the CLI's own words (C-9.3).** The
 Claude classifier matched its organisation-block and credential phrases
@@ -180,15 +193,16 @@ answer heard between them, changes that lane, and the lane is judged again.
 1. Lane-fault safety. An `auth-dead` attempt leads to another attempt only when
    it is a lane fault. A pinned job, a turn, or a job whose workspace changed
    ends `failed` with rc 5 (`tests/fake/test_lane_fault.py`).
-2. The brief's property, with its one limit. No unpinned job with an unchanged
-   workspace is failed by the one `auth-dead` lane it meets while another
-   enabled lane exists: it moves on, then succeeds on a live lane or waits if
-   there is none. It ends `failed` for `auth-dead` only at a second such lane,
-   which is left enabled. In a fleet with one dead lane (the incident), no such
-   job fails at all. This holds for random fleets, dead lanes, pins, writable
-   and read-only jobs, completion orders, and the pilot hold on or off
-   (Hypothesis). With the lane-fault path switched off, the property fails
-   (a checked-in mutation test).
+2. The brief's property. With the pilot hold on, no unpinned job with an
+   unchanged workspace ends `failed` because of `auth-dead` while another enabled
+   lane exists, however many lanes are dead: it moves on, then succeeds on a
+   live lane or waits if there is none. With the hold off it holds for the first
+   dead lane a job meets, so for the incident's shape; a job that meets a second
+   ends `failed` there and leaves that lane enabled. Only moved-on jobs wait for
+   probes, and only with the hold on. This holds for random fleets, dead lanes,
+   pins, writable and read-only jobs, completion orders, and the hold on or off
+   (Hypothesis). With the lane-fault path switched off, the property fails (a
+   checked-in mutation test).
 3. No amplification. No job disables more than one lane. No lane that works is
    ever disabled. A job has at most one lane fault, and its other attempts
    never exceed `max_attempts`. With lane faults uncounted, the property fails
@@ -244,3 +258,13 @@ Not taken: seeding the fake harness's lanes as proven so every fake test runs
 with the hold on. The harness builds its state root before any daemon or store
 exists, its tests add lanes as they go, and it already starts C-11.7's reserve
 off for the same reason. The hold has its own tests with it on.
+
+Round 2 (Subfleet run `20261003-152201-pr121-review-r2`, on `036bf377`) found
+every round-1 finding resolved and asked for one more change: with two dead
+lanes, moved-on jobs failed one at a time at the second. Taken, as above (a
+moved-on job is no pilot). Also taken: `model_answered` is null when no stream
+event was read, so stderr alone cannot make a writable job's lane fault; a
+lapsed pilot wakes admission; and the revive transcript note. Left as they
+are: a cancelled job's second `auth-dead` also leaves its lane enabled, and the
+notice line says "two lanes" even when the second is the first lane's
+re-enrolled successor.

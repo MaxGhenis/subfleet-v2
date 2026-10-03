@@ -30,7 +30,7 @@ from subfleet import daemon as daemon_module
 from subfleet.adapters import claude_stream, codex
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, ANSWER_EVENT
-from tests.fake.test_lane_fault import LaneRefuses, add_lane, finish, fleet
+from tests.fake.test_lane_fault import LaneRefuses, add_lane, assertions_only, finish, fleet
 from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401 (a fixture)
 from tests.fake_adapter import FakeAdapter
 
@@ -119,12 +119,28 @@ def test_c6_14_a_burst_onto_an_unproven_lane_places_one_then_the_rest_once_it_an
     assert sorted(row["job_id"] for row in placed(daemon)) == sorted(jobs)
 
 
+def probes_answer(daemon, monkeypatch, dead=()):
+    """C-11.4's probe, stubbed: `auth-dead` on the lanes named dead, else `ok`; who probed where."""
+    from subfleet.contracts import Outcome, OutcomeClass
+    probed = []
+
+    def probe(job, lane, model, holder):
+        probed.append((job["job_id"], lane.lane_id))
+        if lane.lane_id in dead:
+            return Outcome(OutcomeClass.AUTH_DEAD, "auth-dead: organization has disabled", evidence={"rc": 1})
+        return Outcome(OutcomeClass.OK, "admitted", evidence={"rc": 0})
+    monkeypatch.setattr(daemon, "_execute_probe", probe)
+    return probed
+
+
 def test_c6_14_auth_dead_on_the_pilot_disables_the_lane_and_the_burst_stays_queued(state_daemon, monkeypatch):
     """The incident with the hold: one attempt reaches the dead lane; it is disabled
     (C-23.44), the pilot's job moves on (C-4.5), and the other jobs are still queued,
-    not failed. When a lane comes, it is proven the same way."""
+    not failed. When a lane comes, the moved-on job is no pilot of it: Subfleet probes
+    it first (C-11.4), and its answer proves the lane for the whole burst."""
     daemon, harness = state_daemon
     hold_on(daemon)
+    probed = probes_answer(daemon, monkeypatch)
     jobs = submit_many(daemon, harness, 5)
     daemon._admit()
     pilot, = placed(daemon)
@@ -135,19 +151,47 @@ def test_c6_14_auth_dead_on_the_pilot_disables_the_lane_and_the_burst_stays_queu
     assert daemon.store.get_lane("codex-1").enabled is False
     due(daemon)
     daemon._admit()
-    assert placed(daemon) == []
+    assert placed(daemon) == [] and probed == []
     assert {daemon.store.get_job(job_id)["state"] for job_id in jobs} == {"waiting"}
     assert daemon.store.list_notices() == []
     add_lane(daemon, harness, "codex-2")
     due(daemon)
     daemon._admit()
-    second, = placed(daemon)
-    assert second["lane_id"] == "codex-2"
-    assert sum(daemon._holds.get(job_id, {}).get("reason") == "lane-proving" for job_id in jobs) == 4
-    stream(daemon, second, ANSWER)
-    run(daemon, monkeypatch, second)
-    daemon._admit()
+    assert probed == [(jobs[0], "codex-2")]                   # the moved-on job asked Subfleet's probe
+    assert "codex-2" in daemon._lane_answers
     assert sorted(row["job_id"] for row in placed(daemon)) == sorted(jobs)
+
+
+def test_c6_14_c4_5_two_dead_lanes_fail_no_job_of_a_burst(state_daemon, monkeypatch):
+    """Round 2 of the review: with two dead lanes, a job that moved on from the first and
+    reached the second as its pilot would fail there, leave it enabled (C-23.44), and the
+    next moved-on job would do the same. A moved-on job is no pilot: the second lane is
+    probed, the probe's `auth-dead` disables it, and the burst waits, every job queued."""
+    daemon, harness = state_daemon
+    hold_on(daemon)
+    add_lane(daemon, harness, "codex-2")
+    probed = probes_answer(daemon, monkeypatch, dead={"codex-2"})
+    jobs = submit_many(daemon, harness, 5)
+    daemon._admit()
+    flying = placed(daemon)
+    assert sorted(row["lane_id"] for row in flying) == ["codex-1", "codex-2"]     # one pilot each
+    for attempt in flying:                                   # both lanes are dead
+        finish(daemon, attempt, LaneRefuses)
+    register("codex", Streams)
+    for _ in range(4):
+        due(daemon)
+        daemon._admit()
+        assert placed(daemon) == []
+    assert [lane.enabled for lane in daemon.store.list_lanes()] == [False, False]
+    assert probed == []                                      # nothing left to probe: both found by pilots
+    assert {daemon.store.get_job(job_id)["state"] for job_id in jobs} == {"waiting"}
+    assert daemon.store.list_notices() == []
+    add_lane(daemon, harness, "codex-3")                     # dead too: its probe says so
+    probes_answer(daemon, monkeypatch, dead={"codex-3"})
+    due(daemon)
+    daemon._admit()
+    assert daemon.store.get_lane("codex-3").enabled is False and placed(daemon) == []
+    assert {daemon.store.get_job(job_id)["state"] for job_id in jobs} == {"waiting"}
 
 
 def test_c6_14_a_pilot_that_ends_ok_proves_its_lane(state_daemon):
@@ -575,8 +619,9 @@ def test_c6_14_the_invariant_fails_with_no_pilot_marks(tmp_path_factory, monkeyp
     """Mutation: with no marks laid (admission before C-6.14), the invariant finds a second
     unanswered attempt placed on an unproven lane."""
     monkeypatch.setattr(Daemon, "_pilot_marks", lambda self, attempts, instant: {})
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
         test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_factory=tmp_path_factory)
+    assertions_only(caught)
 
 
 def test_c6_3_the_differential_fails_with_marks_only_in_the_early_view(state_daemon, monkeypatch):
@@ -592,5 +637,6 @@ def test_c6_3_the_differential_fails_with_marks_only_in_the_early_view(state_dae
             monkeypatch.undo()
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(Daemon, "_route_rows", without_pilots)
-        with pytest.raises(AssertionError):
+        with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
             test_c6_3_c6_14_the_reservation_check_and_a_fresh_evaluation_agree_on_a_pilot(state_daemon)
+        assertions_only(caught)

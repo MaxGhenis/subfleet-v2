@@ -1541,7 +1541,9 @@ class ClaudeAdapter(Adapter):
             "system_init": summary.has_init,
             # C-4.5, C-6.14: whether the model answered at all, whatever the class;
             # `system_init` is no such evidence (the CLI writes it before any request).
-            "model_answered": summary.answered,
+            # None when no event was read: then nobody can say, and C-4.5 takes a
+            # writable attempt to have answered.
+            "model_answered": summary.answered if summary.lines_parsed else None,
             "error_kinds": list(summary.error_kinds),
             "unknown_event_types": list(summary.unknown_types),
         }

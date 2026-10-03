@@ -329,3 +329,21 @@ def test_c6_14_a_lane_full_for_another_reason_keeps_its_label():
             "unavailable_lanes": {"codex-1": "proving:j/a1", "codex-2": "probe:admission:k"}}
     decision = scheduler.evaluate(POLICY, view, {"job_id": "x", "kind": "dispatch", "pinned_model": "astra"})
     assert scheduler.dominant_rejection(decision) == "no-slot"
+
+
+def test_c4_5_an_attempt_with_no_stream_records_that_nobody_can_say(adapter, tmp_path):
+    """Round 2 of the review: a missing or empty stream read as "never answered" would let
+    stderr alone make a writable job's lane fault. With no event read it is None, which
+    C-4.5 takes as answered for a writable job."""
+    outcome = classify(adapter, tmp_path, "", rc=1, stderr="API Error: 401 authentication_error")
+    assert outcome.cls == OutcomeClass.AUTH_DEAD and outcome.evidence["model_answered"] is None
+    attempt_dir = tmp_path / "codex"
+    attempt_dir.mkdir()
+    (attempt_dir / "stdout").write_text("")
+    (attempt_dir / "stderr").write_text("Incorrect API key provided\n")
+    launch = Launch(argv=("codex", "exec", "--json"), env_add={"CODEX_HOME": str(attempt_dir / "home")},
+                    env_remove=(), cwd=str(attempt_dir), stdin_path=None, stdout_path=str(attempt_dir / "stdout"),
+                    stderr_path=str(attempt_dir / "stderr"), raw_stream_path=str(attempt_dir / "stream.jsonl"),
+                    native_session_id=None, lane_id="codex-4")
+    outcome = CodexAdapter().classify(attempt_dir, launch, exit_info(1))
+    assert outcome.cls == OutcomeClass.AUTH_DEAD and outcome.evidence["model_answered"] is None
