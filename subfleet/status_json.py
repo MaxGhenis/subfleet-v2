@@ -133,8 +133,21 @@ def _jobs(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     return {"live": [row(job) for job in live], "recent": [row(job) for job in recent], "counts": counts}
 
 
+#: C-18.4: what `status.json` says of each alert in force.
+ALERT_FIELDS = ("key", "severity", "subject", "body", "since", "last_sent")
+
+
+def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """C-18.4: the alerts in force, in the order `Alerts.active` gives them."""
+    return [{field: row.get(field) for field in ALERT_FIELDS}
+            for row in snapshot.get("alerts") or () if isinstance(row, Mapping) and row.get("key")]
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
-    """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels."""
+    """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels.
+
+    C-18.4 adds `alerts`, the alerts in force; the section is always present.
+    """
     codex, claude = [], []
     for lane in snapshot.get("lanes", ()):
         if lane.get("superseded_by"):
@@ -194,7 +207,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     credits = (sum(credit_counts) if credit_counts and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
                                        for count in credit_counts) else None)
     return {"generated_at": timestamp(now or snapshot.get("now")), "offline": bool(snapshot.get("offline", False)),
-            "jobs": _jobs(snapshot),
+            "jobs": _jobs(snapshot), "alerts": _alerts(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
                        "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits}},
