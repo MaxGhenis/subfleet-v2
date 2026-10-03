@@ -437,6 +437,10 @@ class Offline:
         try:
             os.killpg(int(pgid), sig)
         except (OSError, OverflowError, ValueError) as exc:
+            # Nothing was signalled, so nothing is the operator's: a later signal
+            # there must be judged as if this kill had not been tried (C-4.7).
+            with contextlib.suppress(OSError):
+                (directory / KILL_MARKER).unlink()
             return {"job_id": job_id, "action": "failed", "state": state,
                     "attempt_id": attempt.get("attempt_id"), "pid": pid, "pgid": pgid,
                     "reason": f"killpg({pgid}) failed: {exc}"}

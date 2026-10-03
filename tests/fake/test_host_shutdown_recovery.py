@@ -395,6 +395,57 @@ def test_c4_7_in_its_own_boot_a_signalled_attempt_waits_for_the_host(rebooted):
     assert daemon.store.get_job(job_id)["state"] == "failed"
 
 
+def test_c9_2_an_offline_kill_that_exits_zero_is_not_a_finished_deliverable(rebooted):
+    """C-9.2, C-17.5 (review of PR #119): Codex exits 0 after a SIGTERM and leaves
+    an interim message. Killed by the daemon, that is never `ok` (`killed_by`);
+    killed offline, only `kill.json` says a signal ended it, and it counts the same."""
+    daemon, harness = rebooted(boot=OLD_BOOT, lock=None)
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    daemon._admit()
+    [attempt] = daemon.store.list_attempts(job_id)
+    adir = launched(daemon, attempt)
+    (adir / host_shutdown.KILL_MARKER).write_text(json.dumps(
+        {"by": "offline-kill", "signal": 15, "pid": 42001, "pgid": 42001, "requested_at": utcnow()}))
+    daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001, pgid=42001,
+                                boot_id=OLD_BOOT, proc_start="unit-test-start")
+    (adir / "stdout").write_bytes(b"I am checking the newer validation code before finalizing\n")
+    for name in ("stderr", "lane.log"):
+        (adir / name).write_bytes(b"")
+    (adir / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": 1.0, "child_pid": 42101,
+                                                "finished_at": utcnow()}))
+    daemon._process_attempt(attempt["attempt_id"])
+    daemon._finalize(daemon.store.get_attempt(attempt["attempt_id"]))
+    a1 = daemon.store.get_attempt(attempt["attempt_id"])
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+    assert a1["outcome_class"] == "unknown" and a1["outcome_detail"] == (
+        "stopped by offline-kill: exit 0 after the operator's offline kill is not a finished deliverable")
+    assert evidence(a1)["provider_verdict"] == {"class": "ok", "detail": "fake provider succeeded",
+                                                "killed_by": "offline-kill"}
+
+
+def test_c4_7_the_hold_must_be_shorter_than_the_stops_lead(tmp_path):
+    """C-4.7: a daemon whose hold reached `BEFORE_STOP_S` could hold an attempt
+    and then leave it outside the stop's window, so it refuses to start."""
+    with pytest.raises(ValueError, match="signal_hold_s"):
+        Daemon(tmp_path, signal_hold_s=host_shutdown.BEFORE_STOP_S)
+    assert not (tmp_path / "daemon.lock").exists()
+
+
+def test_c4_7_a_cancel_ends_the_hold(rebooted):
+    """C-4.7, C-7.2: a cancelled job is never retried, whatever ended its attempt,
+    so its attempt is not held: it is finalized at once and the job is cancelled."""
+    daemon, harness = rebooted(boot=OLD_BOOT, lock=None)
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    held = run_attempt(daemon, job_id, rc=143, ended_at=utcnow())
+    assert held["state"] == "finalizing"
+    daemon.dispatch("kill", {"job_id": job_id})
+    daemon._finalize(daemon.store.get_attempt(held["attempt_id"]))
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("cancelled", 130)
+    assert daemon.store.get_attempt(held["attempt_id"])["state"] == "interrupted"
+
+
 def test_c4_7_a_held_attempt_is_a_host_shutdown_in_the_next_boot(rebooted):
     """C-4.7: the order the incident did not have. The provider gets SIGTERM, the
     daemon holds the attempt, and 20 s later the daemon is stopped too. The next
@@ -480,6 +531,13 @@ def test_c4_7_daemon_lock_carries_the_stop_and_the_previous_boot(rebooted):
     stamped = json.loads((harness.root / "daemon.lock").read_text())["stopping_at"]
     first.close()
     assert json.loads((harness.root / "daemon.lock").read_text())["stopping_at"] == stamped   # the first stamp stays
+    # Once close() has let the descriptor go, a late mark writes nothing: its
+    # number may be another file's by then.
+    before = (harness.root / "daemon.lock").read_bytes()
+    first._previous_boot = {"boot_id": "late"}
+    first._write_lock(stack_dumps=True)
+    assert (harness.root / "daemon.lock").read_bytes() == before
+    first._previous_boot = None
     old = json.loads((harness.root / "daemon.lock").read_text())
     assert old["boot_id"] == OLD_BOOT and old["stopping_at"] and "stack_dumps" not in old
     second, _ = rebooted(root=harness.root)

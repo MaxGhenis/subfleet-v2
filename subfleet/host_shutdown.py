@@ -54,9 +54,10 @@ SAME_BOOT_HOLD_S = 60
 #: ended and still be the host's: such an attempt was held (`SAME_BOOT_HOLD_S`)
 #: and then the stop came. Larger than the hold, so a held attempt always fits.
 BEFORE_STOP_S = 120
-#: Host shutdowns a job is retried after without charge. Later ones are charged
-#: like any transient, so a job whose own work restarts the host still ends
-#: within its `max_attempts`, and no reboot alone ends a job (review of PR #119).
+#: Host shutdowns a job is retried after without charge. Later ones are charged,
+#: so a job whose own work restarts the host still ends, within
+#: `RETRIES + max_attempts` attempts. A charged one can be a job's last attempt:
+#: a one-attempt job's fourth host shutdown ends it (review of PR #119).
 RETRIES = 3
 #: What an offline `subfleet kill` (C-17.5) writes in the attempt's directory
 #: before it signals: the daemon was down, so no `killed_by` records the kill.
@@ -191,7 +192,10 @@ def held_in_boot(*, kind: str | None, killed_by: str | None, attempt_boot: str |
     if stopping:
         return True
     ended = _parse(receipt.get("finished_at"))
-    return ended is not None and now < ended + timedelta(seconds=hold_s)
+    # Both stamps are this boot's clock. An end dated past `now` by more than the
+    # slack is not a time to wait for.
+    return (ended is not None
+            and ended - timedelta(seconds=CLOCK_SLACK_S) <= now < ended + timedelta(seconds=hold_s))
 
 
 def detail(evidence: Mapping[str, Any]) -> str:
@@ -242,7 +246,8 @@ def retry_after(*, cancel: bool, max_attempts: int, earlier: Iterable[Any],
     `earlier` is every attempt of the job before this one (rows or evidence).
     A host shutdown is retried uncharged, whatever its class and budget, while
     the job has had fewer than `RETRIES` uncharged ones; after that it is
-    charged and retried as a transient is. Every other attempt is charged, so a
+    charged, and retried while the budget lasts whatever `eligible` says, since
+    it is still no lane's transient. Every other attempt is charged, so a
     job tries again while fewer than `max_attempts` charged attempts have run,
     this one included, and this attempt's class allows it (`eligible`, C-4.5's
     rule). A cancel ends the job either way.

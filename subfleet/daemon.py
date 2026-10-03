@@ -514,6 +514,9 @@ class Daemon:
         self.stop_grace_s = stop_grace_s
         # C-4.7: how long finalization holds, in its own boot, an attempt a signal
         # from outside Subfleet ended (the fake daemon shortens it, as its graces).
+        if not 0 <= signal_hold_s < host_shutdown.BEFORE_STOP_S:
+            raise ValueError(f"signal_hold_s must be under {host_shutdown.BEFORE_STOP_S} s: an attempt held "
+                             "and then left to the next boot must fit the stop's window (C-4.7)")
         self.signal_hold_s = signal_hold_s
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
@@ -588,8 +591,11 @@ class Daemon:
         self._boot_at = _boot_at()
         self._stopping_at: str | None = None
         self._lock_stack_dumps = False
-        # The stop's mark and close() can both write daemon.lock; one at a time.
+        # The stop's mark and close() can both write daemon.lock; one at a time,
+        # and none once close() has let the descriptor go (its number may be
+        # another file's by then).
         self._lock_writes = threading.Lock()
+        self._lock_released = False
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
@@ -5723,14 +5729,15 @@ class Daemon:
             return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
-        if not (adir / "finalization.json").exists() and host_shutdown.held_in_boot(
+        if not job["cancel_requested_at"] and not (adir / "finalization.json").exists() and host_shutdown.held_in_boot(
                 kind=job["kind"], killed_by=self._killed_by(actual), attempt_boot=actual.get("boot_id"),
                 current_boot=self._ident["boot_id"], receipt=self._read_json(adir / "exit.json"),
                 now=datetime.now(timezone.utc), stopping=self.stopping.is_set(), hold_s=self.signal_hold_s):
             # C-4.7: a signal from outside Subfleet may be the host going down
             # before it has stopped this daemon, and an attempt judged in the boot
             # it ended in is never a host shutdown. It waits, before any census,
-            # and a stopping daemon leaves it to the next boot.
+            # and a stopping daemon leaves it to the next boot. A cancelled job
+            # is never retried, whatever ended its attempt, so it does not wait.
             return
         census = self._contain(a)
         if not census.verified_empty:
@@ -5805,7 +5812,9 @@ class Daemon:
         # reaches the same class (C-4.3), and the adapter's verdict is kept in
         # the attempt's evidence beside the class that decided.
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
-        if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
+        # C-17.5: an offline `subfleet kill` signalled too, and only its marker says so.
+        killed = self._killed_by(actual)
+        if outcome.cls == OutcomeClass.OK and killed and job["kind"] != "turn":
             # C-9.2: an attempt the daemon signalled (an operator's kill, the
             # wall limit, recovery) did not finish, whatever its rc and its
             # deliverable say. Codex exits 0 on SIGTERM and leaves its last
@@ -5818,10 +5827,10 @@ class Daemon:
             # an exit status or a last message, so a signal after it (a stop
             # that came too late, or containment of a process that lingered)
             # does not undo it (C-24.4, merge review 2026-09-25).
+            whose = "the daemon's signal" if actual.get("killed_by") else "the operator's offline kill"
             outcome = dataclasses.replace(
                 outcome, cls=OutcomeClass.UNKNOWN,
-                detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
-                       f"is not a finished deliverable")
+                detail=f"stopped by {killed}: exit {rc} after {whose} is not a finished deliverable")
         if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if shutdown is not None:
@@ -5891,7 +5900,7 @@ class Daemon:
             if offline_kill:
                 evidence["offline_kill"] = offline_kill       # C-17.5: who signalled it, with no daemon up
             if provider_verdict["class"] != outcome.cls.value or shutdown is not None:
-                evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
+                evidence["provider_verdict"] = {**provider_verdict, "killed_by": killed}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
@@ -6165,15 +6174,21 @@ class Daemon:
         C-4.7: it also carries the last daemon of the previous boot forward, and
         says when this daemon began to stop once it has."""
         with self._lock_writes:
-            record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
-            if self._previous_boot:
-                record[host_shutdown.PREVIOUS_BOOT_KEY] = self._previous_boot
-            if self._stopping_at:
-                record["stopping_at"] = self._stopping_at
             self._lock_stack_dumps = stack_dumps
-            os.ftruncate(self._lock_fd, 0)
-            os.pwrite(self._lock_fd, json_bytes(record), 0)
-            os.fsync(self._lock_fd)
+            self._write_lock_held()
+
+    def _write_lock_held(self) -> None:
+        """`_write_lock`'s write, for a caller that holds `_lock_writes`."""
+        if self._lock_released:
+            return
+        record = {**self._ident, **({"stack_dumps": True} if self._lock_stack_dumps else {})}
+        if self._previous_boot:
+            record[host_shutdown.PREVIOUS_BOOT_KEY] = self._previous_boot
+        if self._stopping_at:
+            record["stopping_at"] = self._stopping_at
+        os.ftruncate(self._lock_fd, 0)
+        os.pwrite(self._lock_fd, json_bytes(record), 0)
+        os.fsync(self._lock_fd)
 
     def _record_start(self) -> None:
         """C-4.7: one `daemon.started` event per start, naming this boot, when it began,
@@ -6194,13 +6209,15 @@ class Daemon:
         one that ended while this daemon still watched it. A truncate, a write and
         an fsync of the descriptor held open since the start; it never waits on the
         store. The first call stamps; a later one (close() after the stop's own
-        thread, `_watch_stopping`) changes nothing."""
-        with self._lock_writes:
-            if self._stopping_at:
-                return
-            self._stopping_at = utcnow()
+        thread, `_watch_stopping`) changes nothing. The stamp and its write are
+        one hold of the lock, so the write carries the `stack_dumps` flag of that
+        moment and lands before `close()` can release the file."""
         try:
-            self._write_lock(stack_dumps=self._lock_stack_dumps)
+            with self._lock_writes:
+                if self._stopping_at:
+                    return
+                self._stopping_at = utcnow()
+                self._write_lock_held()
         except OSError as exc:
             self.log.warning("daemon.lock could not record the stop: %s", exc)
 
@@ -6322,8 +6339,10 @@ class Daemon:
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
         self._disable_stack_dumps()
-        fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
-        self._lock_finalizer()
+        with self._lock_writes:
+            self._lock_released = True          # C-4.7: the stop's mark writes nothing after this
+            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
         self._log_handler.stream.close()
 

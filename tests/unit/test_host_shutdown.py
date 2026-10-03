@@ -161,6 +161,9 @@ def test_c4_7_the_same_boot_holds_only_what_the_next_boot_could_judge():
     assert not hs.held_in_boot(**{**hold, "now": ended + timedelta(seconds=hs.SAME_BOOT_HOLD_S)})
     assert hs.held_in_boot(**{**hold, "now": ended + timedelta(days=3), "stopping": True})
     assert hs.held_in_boot(**{**hold, "hold_s": 1, "now": ended + timedelta(seconds=0.5)})
+    # A receipt dated well past now is not a time to wait for.
+    assert hs.held_in_boot(**{**hold, "now": ended - timedelta(seconds=hs.CLOCK_SLACK_S)})
+    assert not hs.held_in_boot(**{**hold, "now": ended - timedelta(seconds=hs.CLOCK_SLACK_S + 1)})
     for other in ({"current_boot": NEW_BOOT}, {"killed_by": "operator"}, {"killed_by": "offline-kill"},
                   {"kind": "turn"}, {"receipt": {**INCIDENT_RECEIPT, "rc": 1}}, {"receipt": None},
                   {"attempt_boot": "1790732699", "current_boot": "1790732699"}):
@@ -252,12 +255,29 @@ ORDINARY = {"classification": {}}
 
 def simulate(kinds):
     """Rows for a history of attempts, each host shutdown marked as the daemon
-    marks it: charged once `RETRIES` uncharged ones came before it."""
-    rows = []
+    marks it: charged once `RETRIES` uncharged ones came before it. The count is
+    kept here, not asked of the code under test."""
+    rows, shutdowns = [], 0
     for kind in kinds:
-        evidence = ORDINARY if kind == "charged" else COUNTED if hs.charged_now(rows) else FREE
+        if kind == "charged":
+            evidence = ORDINARY
+        else:
+            evidence = FREE if shutdowns < hs.RETRIES else COUNTED
+            shutdowns += 1
         rows.append({"seq": len(rows) + 1, "evidence_json": json.dumps(evidence)})
     return rows
+
+
+def expected_retry(kinds, *, max_attempts, eligible, shutdown, cancel):
+    """C-4.5 and C-4.7 restated without the code: what the daemon must decide
+    after an attempt that follows `kinds`."""
+    shutdowns = sum(kind == "shutdown" for kind in kinds)
+    charged_before = sum(kind == "charged" for kind in kinds) + max(0, shutdowns - hs.RETRIES)
+    if cancel:
+        return False
+    if shutdown and shutdowns < hs.RETRIES:
+        return True
+    return (eligible or shutdown) and charged_before + 1 < max_attempts
 
 
 @settings(max_examples=400, deadline=None)
@@ -269,10 +289,14 @@ def test_c4_7_property_host_shutdowns_are_never_charged(history, max_attempts, e
     removed, a later host shutdown deciding as an ordinary attempt whose class
     allows a retry (a transient); one of the first is always retried (barring a
     cancel)."""
-    rows = simulate([kind for kind, _ in history])
+    kinds = [kind for kind, _ in history]
+    rows = simulate(kinds)
     free = [row for row in rows if hs.exempt(row)]
     decided = hs.retry_after(cancel=cancel, max_attempts=max_attempts, earlier=rows,
                              shutdown=shutdown, eligible=eligible)
+    assert decided == expected_retry(kinds, max_attempts=max_attempts, eligible=eligible,
+                                     shutdown=shutdown, cancel=cancel)
+    assert hs.charged_now(rows) == (sum(kind == "shutdown" for kind in kinds) >= hs.RETRIES)
     if shutdown and len(free) < hs.RETRIES:
         assert decided == (not cancel)
     else:
@@ -303,12 +327,15 @@ def test_c4_7_property_a_job_runs_its_budget_whatever_the_reboots(outcomes, max_
     `RETRIES + max_attempts` in all; it stops only when an attempt's class
     forbids a retry or its charged attempts reach `max_attempts`, never on an
     uncharged host shutdown."""
-    rows = []
+    rows, kinds = [], []
     for kind, eligible in outcomes:
         shutdown = kind == "shutdown"
         again = hs.retry_after(cancel=False, max_attempts=max_attempts, earlier=list(rows),
                                shutdown=shutdown, eligible=eligible)
-        rows = simulate([*("shutdown" if hs.marked(row) else "charged" for row in rows), kind])
+        assert again == expected_retry(kinds, max_attempts=max_attempts, eligible=eligible,
+                                       shutdown=shutdown, cancel=False)
+        kinds.append(kind)
+        rows = simulate(kinds)
         if not again:
             last = rows[-1]
             assert not hs.exempt(last)
@@ -317,6 +344,33 @@ def test_c4_7_property_a_job_runs_its_budget_whatever_the_reboots(outcomes, max_
     assert hs.charged(rows) <= max_attempts
     assert sum(hs.exempt(row) for row in rows) <= hs.RETRIES
     assert len(rows) <= hs.RETRIES + max_attempts
+
+
+@settings(max_examples=400, deadline=None)
+@given(kind=st.sampled_from(["dispatch"] * 5 + ["revive", "turn"]),
+       killed_by=st.sampled_from([None] * 6 + ["", "operator", "offline-kill"]),
+       same_boot=st.sampled_from([True] * 4 + [False]), legacy=st.sampled_from([False] * 6 + [True]),
+       rc=st.sampled_from([143] * 5 + [137, -15, -9, 0, 1, 4, None]),
+       age=st.integers(-400, 400), stopping=st.booleans(), has_end=st.sampled_from([True] * 6 + [False]),
+       hold_s=st.sampled_from([0, 1, 60, 119]))
+def test_c4_7_property_the_hold_needs_every_condition(kind, killed_by, same_boot, legacy, rc, age,
+                                                      stopping, has_end, hold_s):
+    """C-4.7: in its own boot the daemon holds an attempt exactly when the next
+    boot could judge it (a detached job's, signalled by nobody on record, ended
+    by SIGTERM or SIGKILL, in the daemon's boot by its UUID) and either the
+    daemon is stopping or the attempt ended less than the hold ago, and no more
+    than the clock slack in the future."""
+    ended = datetime(2026, 9, 30, 1, 44, 41, tzinfo=timezone.utc)
+    boot = "1790732699" if legacy else OLD_BOOT
+    held = hs.held_in_boot(
+        kind=kind, killed_by=killed_by, attempt_boot=boot, current_boot=boot if same_boot else NEW_BOOT,
+        receipt={"rc": rc, "signal": None, "finished_at": stamp(ended) if has_end else None},
+        now=ended + timedelta(seconds=age), stopping=stopping, hold_s=hold_s)
+    judged = kind != "turn" and not killed_by and rc in (143, 137, -15, -9) and same_boot and not legacy
+    in_hold = has_end and -hs.CLOCK_SLACK_S <= age < hold_s
+    assert held == (judged and (stopping or in_hold))
+    if held and not stopping:
+        assert age < hold_s < hs.BEFORE_STOP_S            # a hold always ends, inside the stop's lead
 
 
 OTHER_BOOT = "0f0f0f0f-0000-4000-8000-000000000000"

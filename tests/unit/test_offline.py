@@ -250,6 +250,20 @@ def test_offline_kill_signals_a_verified_process_group(root, capsys, monkeypatch
     assert "until a daemon reconciles it" in captured.err
 
 
+def test_offline_kill_whose_signal_fails_takes_its_mark_back(root, capsys, monkeypatch):
+    """C-4.7, C-17.5: nothing was signalled, so a later signal there is not the
+    operator's, and the marker must not say it was."""
+    build_store(root, guardian_pid=os.getpid(), proc_start="recorded")
+    monkeypatch.setattr("subfleet.offline.same_process", lambda *a, **k: True)
+
+    def gone(pgid, sig):
+        raise ProcessLookupError(3, "No such process")
+    monkeypatch.setattr(os, "killpg", gone)
+    assert cli.main(["kill", JOB]) == 1
+    assert not (root / "jobs" / JOB / "a1" / "kill.json").exists()
+    assert "killpg" in capsys.readouterr().err
+
+
 def test_offline_kill_that_cannot_leave_its_mark_does_not_signal(root, capsys, monkeypatch):
     """C-4.7, C-17.5: with no `kill.json` the next daemon could take the operator's
     signal for the host's shutdown and retry the job, so the kill refuses."""
