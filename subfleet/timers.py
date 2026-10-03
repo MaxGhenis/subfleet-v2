@@ -297,6 +297,7 @@ class Timers:
         snapshot['model_names'] = {entry['id']: short for short, entry in self.policy.get('models', {}).items()
                                    if isinstance(entry, dict) and entry.get('id')}
         self.fence_probes(snapshot)
+        snapshot['alerts'] = self.alerts.active()          # C-18.4: every publication
         return write_status(self.root, snapshot, now=self.now())
 
     def probe_rows(self):

@@ -23,13 +23,14 @@ wait is reported (rate-limited) through the store lock's `LockWatch`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -81,6 +82,77 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _pin_notice_key(data_json: str | None) -> tuple | None:
+    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
+    try:
+        data = json.loads(data_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+        return None
+    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+
+
+def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                    rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+    """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
+    `job.pin_noticed` event. `rows` are service notice rows with their stored
+    (positive) ids. A row matches its event by id, session and creation time
+    together: a service notice's id is reused once the row with the highest id is
+    deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
+    old pin notice's id names none."""
+    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    found: dict[int, str] = {}
+    if not wanted:
+        return found
+    for event in query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
+                       "ORDER BY event_id DESC LIMIT 1000", ()):
+        key = _pin_notice_key(event["data_json"])
+        if key in wanted and event["job_id"]:
+            found.setdefault(wanted[key], event["job_id"])
+    return found
+
+
+def notice_fingerprint(row: Mapping[str, Any]) -> str:
+    """C-15.8: what a listed notice is beyond its id: its creation time and a digest
+    of its text. A notice's id is reused once the newest row is deleted (neither
+    notice table has AUTOINCREMENT), so `--ack` and `--withdraw` act on a row only
+    while it still has the fingerprint the listing showed. Two rows alike in id,
+    session, creation second and text are one notice to the session that reads it."""
+    digest = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{row['created_at']} {digest}"
+
+
+#: C-15.8: the columns `notices` lists, common to job and service notices.
+NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
+
+
+def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
+                *, resolved: bool = False) -> list[dict[str, Any]]:
+    """C-15.8: a session's notices (every session's when None), as `notices` lists them.
+
+    Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
+    `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
+    service notice carries its id negated, and the job a pin's notice is about
+    (else none), as `notice.pending` returns it, so one id names one row across
+    both tables. Ordered by session
+    (a job notice with no caller session sorts first, as ""), then creation.
+    """
+    where, params = [], []
+    if session_id is not None:
+        where.append("session_id=?")
+        params.append(session_id)
+    if not resolved:
+        where.append("state IN ('pending','offered')")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS}, job_id FROM notices{clause}", params)]
+    service = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
+    about = pin_notice_jobs(query, service)
+    rows += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
+    rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    return rows
 
 
 class SchemaVersionError(RuntimeError):

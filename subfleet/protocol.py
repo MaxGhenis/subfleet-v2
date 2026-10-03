@@ -37,7 +37,7 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
-    "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations",
     *CONVERSATION_OPS,
@@ -295,9 +295,45 @@ class OperationsArgs:
 
 
 @dataclass
+class NoticeListArgs:
+    """`notice.list` (C-15.8): what `notices` shows; read-only, marks nothing."""
+
+    session_id: str | None = None          # every session's when None
+    resolved: bool = False                 # also `surfaced` and `acknowledged`
+
+
+@dataclass
+class NoticeWithdrawArgs:
+    """`notice.withdraw` (C-15.8): delete a session's named, undelivered service
+    notices (negated ids, as `notice.pending` lists them), with one event
+    saying what went and why. A separate shape, as `NoticeMarkArgs` is."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    reason: str | None = None
+    # One per id when given: the fingerprint the listing showed
+    # (`store.notice_fingerprint`). An id is reused once the newest row is
+    # deleted, so a row is withdrawn only while it is still the one listed.
+    fingerprints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NoticeAckArgs:
+    """`notice.ack` as the daemon reads it: `NoticeArgs` plus, for `notices --ack`
+    (C-15.8), each listed row's fingerprint, so an acknowledgement reaches a row
+    only while it is still the one listed. `NoticeArgs` keeps its shape, so the
+    `notice.ack` lines `runs show` and the hooks send are unchanged."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    fingerprints: list[str] = field(default_factory=list)
+
+
+@dataclass
 class PingArgs:
-    """`ping` (v1 `notify`): push or park a message in a session inbox."""
-    text: str
+    """`ping` (v1 `notify`): push or park a message in a session inbox. With no
+    text it is a liveness question and writes nothing (C-15.8, C-16.2)."""
+    text: str = ""
     session_id: str | None = None
 
 
