@@ -36,7 +36,8 @@ def reference_weekly_details(rows, now, ttl, admission):
             pair = row["scope"], row["window"]
             if pair not in newest or _time(newest[pair]["observed_at"]) < _time(row["observed_at"]):
                 newest[pair] = row
-    renewed = any(_time(row["resets_at"]) <= now for row in newest.values() if row.get("resets_at"))
+    renewed = any(_time(row["resets_at"]) <= now or _time(row["resets_at"]) <= _time(row["observed_at"])
+                  for row in newest.values() if row.get("resets_at"))
     current = [row for row in newest.values()
                if not renewed and fresh_provider(row, now=now, reading_ttl_s=ttl)]
     weekly_rows = [row for row in current if row["window"] == "seven_day"]
@@ -52,13 +53,13 @@ def reference_weekly_details(rows, now, ttl, admission):
                       for row in current if row["window"] == "five_hour")
     classes = {(False, False): "clear", (False, True): "five-hour",
                (True, False): "weekly", (True, True): "weekly+five-hour"}
-    ages = [(now - _time(row["observed_at"])).total_seconds() for row in (current or list(newest.values()))]
+    oldest = min((_time(row["observed_at"]) for row in (current or list(newest.values()))), default=None)
     return {"measured": bool(current), "weekly_headroom": weekly_room, "five_hour_headroom": primary_room,
             "seven_day_reset": _iso(_time(binding["resets_at"])) if binding and binding.get("resets_at") else None,
             "weekly_scope": binding["scope"] if binding else None,
             "weekly_reserve": low_weekly, "five_hour_reserve": low_primary,
             "reserve_class": classes[low_weekly, low_primary] if current else "unmeasured",
-            "reading_age_s": max(ages, default=None), "reading_renewed": renewed}
+            "reading_observed_at": _iso(oldest) if oldest else None, "reading_renewed": renewed}
 
 
 def reference_parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:

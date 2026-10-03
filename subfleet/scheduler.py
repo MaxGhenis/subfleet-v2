@@ -576,7 +576,11 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
         previous = latest.get(key)
         if previous is None or _time(row["observed_at"]) > _time(previous["observed_at"]):
             latest[key] = row
-    renewed = any(row.get("resets_at") and _time(row["resets_at"]) <= now for row in latest.values())
+    # A window already expired at its own observation was never usable. It is
+    # uncertain from the outset, even with clock skew, rather than becoming
+    # uncertain at a reset before its future observation (C-6.3).
+    renewed = any(row.get("resets_at") and _time(row["resets_at"]) <= max(now, _time(row["observed_at"]))
+                  for row in latest.values())
     fresh = [] if renewed else [row for row in latest.values()
         if fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
     weekly = min((row for row in fresh if row["window"] == "seven_day"),
@@ -595,14 +599,23 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
     reserve_class = ("weekly+five-hour" if weekly_low and five_hour_low else
                      "weekly" if weekly_low else "five-hour" if five_hour_low else
                      "clear" if fresh else "unmeasured")
-    ages = [(now - _time(row["observed_at"])).total_seconds() for row in (fresh or latest.values())]
+    observed = min((_time(row["observed_at"]) for row in (fresh or latest.values())), default=None)
     return {"measured": bool(fresh), "weekly_headroom": weekly_headroom,
             "five_hour_headroom": five_hour_headroom,
             "seven_day_reset": _iso(_time(weekly["resets_at"])) if weekly and weekly.get("resets_at") else None,
             "weekly_scope": weekly["scope"] if weekly else None,
             "weekly_reserve": weekly_low, "five_hour_reserve": five_hour_low,
-            "reserve_class": reserve_class, "reading_age_s": max(ages, default=None),
+            "reserve_class": reserve_class, "reading_observed_at": _iso(observed) if observed else None,
             "reading_renewed": renewed}
+
+
+def ranking_reading_age(detail: Mapping[str, Any], now: str | datetime) -> float | None:
+    """C-11.5: derive explanatory age without putting a ticking value in judgement.
+
+    Older decision records carried the age directly; keep their explanations.
+    """
+    observed = detail.get("reading_observed_at")
+    return (_time(now) - _time(observed)).total_seconds() if observed else detail.get("reading_age_s")
 
 
 def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],

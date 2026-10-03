@@ -15,7 +15,7 @@ from typing import Any
 
 from .capacity import fresh_provider
 from .policy import resolve_model
-from .scheduler import _earliest_reset, evaluate, prepare, rank_key
+from .scheduler import _earliest_reset, evaluate, prepare, rank_key, ranking_reading_age
 
 
 def _email(lane: dict) -> str | None:
@@ -145,8 +145,8 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
                    weekly_reserve=weekly_low, five_hour_reserve=five_low,
                    reserve_class=("weekly+five-hour" if weekly_low and five_low else
                                   "weekly" if weekly_low else "five-hour" if five_low else "clear"),
-                   reading_age_s=max((detail["reading_age_s"] for detail in details[identity]
-                                      if detail["reading_age_s"] is not None), default=None),
+                   reading_age_s=max((age for detail in details[identity]
+                                      if (age := ranking_reading_age(detail, now)) is not None), default=None),
                    model_details=dict(zip(models, details[identity])), stale=False,
                    in_flight=0, protected=False, as_of=timestamp)
         # The unknown-model recommendation binds across every model it must
