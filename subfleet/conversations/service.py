@@ -548,6 +548,7 @@ class ConversationService:
                 self._person(peer, "working on main")
             fields["allow_main"] = bool(args["allow_main"])
         self._check_codex_policy(conversation["provider"], after)
+        self._check_workspace(conversation["provider"], conversation["workspace"], after)
         return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"], **fields))}
 
     def op_conversation_unblock(self, args, peer) -> dict:
@@ -1973,6 +1974,8 @@ class ConversationService:
         daemon = self.daemon
         provider = conversation["provider"]
         settings = message["settings"]
+        # Recheck persisted/native conversations and paths that changed since creation.
+        self._check_workspace(provider, conversation["workspace"], settings)
         short = policy_model(daemon.policy, provider, settings["model"])
         effort_default = None
         if not settings.get("effort"):

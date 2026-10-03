@@ -121,7 +121,7 @@ def test_one_folder_has_one_spelling_whatever_case_it_is_typed_in(insensitive, f
     try:
         assert all(not os.access(directory, os.R_OK) for directory in locked)
         assert os.path.isdir(os.path.expanduser(spelled))
-        assert folders.spelling(spelled) == (want, None)
+        assert folders.canonical(spelled) == want
         assert folders.canonical(want) == want                   # already one spelling: unchanged
     finally:
         for directory in reversed(locked):
