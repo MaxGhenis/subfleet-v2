@@ -367,6 +367,72 @@ def test_session_events_surface_pending_notices_and_mark_them(daemon, root, even
     assert "notice.pending" in server.ops()
 
 
+PUSHED_HEADER = f"{JOB}: succeeded; rc=0; deliverable=-; out=-"
+
+
+def pushed_prompt(*headers: str) -> str:
+    """A turn the notice push started: its prompt is the envelope the push wrote
+    (`notify_push.envelope(notify_push.render_body(...))`)."""
+    from subfleet import notify_push
+    notices = [notify_push.Pending(i, header.split(":", 1)[0], SESSION, header + "\nattempt a1: ok", 0.0)
+               for i, header in enumerate(headers, 1)]
+    return notify_push.envelope(notify_push.render_body(notices), mode_class="bypass")
+
+
+def test_a_pushed_turn_is_not_told_again_what_its_prompt_carries(daemon, root):
+    """C-15.7: UserPromptSubmit fires for the turn the push started (observed
+    2026-10-03); a notice whose first line is in that prompt is marked
+    surfaced and not printed again, and any other notice still is."""
+    marked: list[dict] = []
+    daemon({
+        "notice.pending": lambda request: {"notices": [
+            notice(1, text=PUSHED_HEADER + "\nattempt a1: ok", state="offered"),
+            notice(2, OTHER, text=f"{OTHER}: failed; rc=1; deliverable=-; out=-")]},
+        "notice.mark": lambda request: marked.append(request.args) or {"notices": []},
+    })
+    stdout = io.StringIO()
+    event = payload("UserPromptSubmit", prompt=pushed_prompt(PUSHED_HEADER))
+    assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
+    context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "1 detached run " in context and OTHER in context and PUSHED_HEADER not in context
+    assert marked == [{"session_id": SESSION, "notice_ids": [1, 2],
+                       "state": "surfaced", "transport": "hook:UserPromptSubmit"}]
+
+
+def test_a_pushed_turn_whose_notices_are_all_in_its_prompt_prints_nothing(daemon, root):
+    """C-15.7: nothing left to say is silence (exit 0, no output), and the
+    notice is still marked as shown. The example payload's `user_prompt`
+    spelling is read too."""
+    marked: list[dict] = []
+    daemon({
+        "notice.pending": lambda request: {"notices": [
+            notice(1, text=PUSHED_HEADER + "\nattempt a1: ok", state="offered")]},
+        "notice.mark": lambda request: marked.append(request.args) or {"notices": []},
+    })
+    stdout = io.StringIO()
+    event = payload("UserPromptSubmit", user_prompt=pushed_prompt(PUSHED_HEADER))
+    assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
+    assert stdout.getvalue() == ""
+    assert marked and marked[0]["notice_ids"] == [1]
+
+
+@pytest.mark.parametrize("event,prompt", [
+    ("SessionStart", "pushed"),
+    ("UserPromptSubmit", f"what happened to {JOB}?"),
+])
+def test_session_start_and_a_prompt_naming_only_the_job_still_print(daemon, root, event, prompt):
+    """C-15.7: only UserPromptSubmit reads the prompt, and only a notice's whole
+    first line counts as carried; a prompt that mentions the job id is not the
+    notice."""
+    daemon({"notice.pending": lambda request: {"notices": [
+                notice(1, text=PUSHED_HEADER + "\nattempt a1: ok")]},
+            "notice.mark": lambda request: {"notices": []}})
+    stdout = io.StringIO()
+    text = pushed_prompt(PUSHED_HEADER) if prompt == "pushed" else prompt
+    assert hooks.session_event(event, payload(event, prompt=text), root, stdout=stdout) == 0
+    assert PUSHED_HEADER in json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+
+
 @pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit"])
 def test_session_events_exit_zero_with_nothing_to_say(daemon, root, event):
     """C-15.2 exit 2 on either event is destructive, so silence is exit 0.

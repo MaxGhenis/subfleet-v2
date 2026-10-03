@@ -151,6 +151,9 @@ class SessionRow:
     status: str | None = None
     status_updated_at: float | None = None
     updated_at: float | None = None
+    # C-15.7: `interactive` for a session a person or the desktop app drives;
+    # the notice push addresses no other kind.
+    kind: str | None = None
 
     @property
     def rank(self) -> tuple[bool, bool, float]:
@@ -163,6 +166,14 @@ class SessionRow:
                 "started_at": self.started_at, "alive": self.alive,
                 "socket_present": self.socket_present,
                 "registry_path": self.registry_path}
+
+
+def read_row(path: Path) -> SessionRow | None:
+    """One registry row file, read now, or None when it is not a readable row.
+
+    Its `alive` is judged on the pid alone; a caller that has a process table
+    applies `validated` itself."""
+    return _row(path)
 
 
 def _row(path: Path) -> SessionRow | None:
@@ -193,6 +204,7 @@ def _row(path: Path) -> SessionRow | None:
         status=data.get("status") if isinstance(data.get("status"), str) else None,
         status_updated_at=_millis(data.get("statusUpdatedAt")),
         updated_at=_millis(data.get("updatedAt")),
+        kind=data.get("kind") if isinstance(data.get("kind"), str) else None,
     )
 
 

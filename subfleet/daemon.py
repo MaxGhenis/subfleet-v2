@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, ids, lanes_transfer, machine, notify_push, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
@@ -574,6 +574,17 @@ class Daemon:
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
+        # C-15.7: the notice push's memory between passes, when its next pass is
+        # due (monotonic), and what `daemon.status` reports of it. C-23.50: the
+        # jobs a `wait` reported ended, by when (epoch), so the push stands aside
+        # while that waiter's session is being told.
+        self._push_history = notify_push.History()
+        self._push_due = 0.0
+        self._push_status: dict[str, Any] = {"passes": 0, "pushed": 0, "uncertain": 0, "failed": 0,
+                                             "raced": 0, "last_pass_at": None, "last_push": None,
+                                             "held": {}, "error": None}
+        self._wait_reported: dict[str, float] = {}
+        self._wait_reported_lock = threading.Lock()
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
@@ -2424,7 +2435,8 @@ class Daemon:
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "connections": self.connection_status(),
                     "read_pool": self.store.read_pool(),             # C-3.7
-                    "wait_hub": self.wait_hub.status()}              # C-15.5
+                    "wait_hub": self.wait_hub.status(),              # C-15.5
+                    "notice_push": self._notice_push_status()}       # C-15.7
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def _why_job(self, job: dict) -> dict:
@@ -2737,11 +2749,20 @@ class Daemon:
                 ready.clear()
                 answer = self._wait_answer(job_ids)
                 if answer is not None:
+                    self._note_waited(job["job_id"] for job in answer["jobs"])
                     return answer
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.stopping.is_set():
                     return {"timeout": True}
                 ready.wait(remaining)
+
+    def _note_waited(self, job_ids) -> None:
+        """C-23.50: these jobs' ends are on their way to a waiter, which tells its
+        session; the notice push leaves them alone for `notices.push_after_wait_s`."""
+        now = time.time()
+        with self._wait_reported_lock:
+            for job_id in job_ids:
+                self._wait_reported[job_id] = now
 
     def _wait_answer(self, job_ids: list[str]) -> dict | None:
         """The answer to a `wait` if every job has ended and every export is done."""
@@ -2921,6 +2942,10 @@ class Daemon:
                     # turn never waits for a detached pass to reach it.
                     self._schedule("admission:turns", self._admit_turns, paced=True)
                     self.timers.tick()
+                    if time.monotonic() >= self._push_due:        # C-15.7
+                        self._push_due = time.monotonic() + notify_push.PushSettings.from_policy(
+                            self.policy).interval_s
+                        self._schedule("notice-push", self._push_notices, paced=True)
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if time.monotonic() - self._last_maintenance >= 3600:
@@ -2928,6 +2953,111 @@ class Daemon:
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
+
+    # --- C-15.7: the notice push (C-15.2 layer 4) --------------------------------
+
+    def _notice_push_status(self) -> dict:
+        settings = notify_push.PushSettings.from_policy(self.policy)
+        return {"enabled": settings.enabled, **{key: (dict(value) if isinstance(value, dict) else value)
+                                                for key, value in self._push_status.items()}}
+
+    def _push_notices(self) -> None:
+        """C-15.7: one pass of the push that wakes an idle session with its jobs' notices.
+
+        Reads the `pending` notices that name a job and a session and are young
+        enough to push, the Claude Code registry as last read (`_session_rows`),
+        and the daemon's own record of lane and conversation sessions; plans
+        (`notify_push.plan`); and makes each push (`notify_push.deliver`). Only
+        `pending` rows are ever pushed, and a push moves them to `offered` with
+        transport `socket` before it writes, so a notice is pushed at most once
+        and a layer that reached it first is never repeated."""
+        settings = notify_push.PushSettings.from_policy(self.policy)
+        now = time.time()
+        status = self._push_status
+        status["passes"] += 1
+        status["last_pass_at"] = utcnow()
+        if not settings.enabled:
+            status["held"] = {}
+            return
+        with self._wait_reported_lock:
+            self._wait_reported = {job: at for job, at in self._wait_reported.items()
+                                   if now - at < settings.after_wait_s}
+            waited = dict(self._wait_reported)
+        cutoff = datetime.fromtimestamp(now - settings.max_age_s, timezone.utc).isoformat(
+            timespec="seconds").replace("+00:00", "Z")
+        pending = notify_push.pending_rows(self.store.query(
+            "SELECT notice_id,job_id,session_id,text,state,created_at FROM notices "
+            "WHERE state='pending' AND job_id IS NOT NULL AND session_id IS NOT NULL "
+            "AND session_id!='' AND created_at>=? ORDER BY notice_id", (cutoff,)))
+        self._push_history.prune(now, settings)
+        if not pending:
+            status["held"] = {}
+            return
+        found = self._session_rows()
+        plan = notify_push.plan(
+            pending, None if found is None else found["rows"], now=now, settings=settings,
+            lane_ids=self._lane_session_ids(), conversation_ids=self._conversation_session_ids(),
+            watched=self.wait_hub.watched_jobs(), waited=waited, history=self._push_history)
+        # Replaced whole, never changed in place: `daemon.status` reads it from
+        # another thread.
+        held = dict(plan.held)
+        status["held"] = dict(held)
+        for push in plan.pushes:
+            if self.stopping.is_set():
+                break
+            outcome = notify_push.deliver(push, reserve=self._push_reserve, release=self._push_release,
+                                          record=self._push_record, timeout=settings.timeout_s)
+            notify_push.settle(self._push_history, push, outcome, time.time())
+            if outcome.result == "held":
+                held[push.session_id.lower()] = outcome.reason
+                status["held"] = dict(held)
+                continue
+            counter = {"delivered": "pushed", "uncertain": "uncertain",
+                       "failed": "failed", "raced": "raced"}[outcome.result]
+            status[counter] += 1
+            status["last_push"] = {**outcome.to_dict(), "at": utcnow()}
+            if outcome.result in ("failed", "uncertain"):
+                status["error"] = outcome.reason
+                self.log.warning("notice push to %s (pid %s) %s: %s", push.session_id,
+                                 push.row.pid, outcome.result, outcome.reason)
+
+    def _push_reserve(self, push: "notify_push.Push", data: dict) -> list[int]:
+        """C-15.7: move the push's notices that are still `pending` to `offered`,
+        transport `socket`, in one transaction; return their ids. The
+        transaction's `notice.push` event names the session, the pid and socket
+        it is for, the message uuid and the notices."""
+        ids = list(push.notice_ids)
+        marks = ",".join("?" * len(ids))
+        record = {**data, "notice_ids": []}
+        with self.store.transaction("notice.push", data=record) as tx:
+            reserved = [row[0] for row in tx.execute(
+                f"SELECT notice_id FROM notices WHERE notice_id IN ({marks}) AND state='pending' "
+                "ORDER BY notice_id", ids)]
+            if reserved:
+                stamp = utcnow()
+                tx.execute(f"UPDATE notices SET state='offered',transport=?,offered_at=? "
+                           f"WHERE notice_id IN ({','.join('?' * len(reserved))}) AND state='pending'",
+                           (notify_push.TRANSPORT, stamp, *reserved))
+                record["notice_ids"] = reserved
+        return reserved
+
+    def _push_release(self, push: "notify_push.Push", ids: list[int], data: dict) -> None:
+        """C-15.7: a push that wrote nothing gives its notices back: `offered` by
+        this push (transport `socket`) returns to `pending`. A notice another
+        layer moved since is left as that layer left it."""
+        if not ids:
+            return
+        with self.store.transaction("notice.push_failed", data=data) as tx:
+            tx.execute(f"UPDATE notices SET state='pending',transport=NULL,offered_at=NULL "
+                       f"WHERE notice_id IN ({','.join('?' * len(ids))}) AND state='offered' "
+                       "AND transport=?", (*ids, notify_push.TRANSPORT))
+
+    def _push_record(self, kind: str, data: dict) -> None:
+        """C-15.7: an event about a push that changed no row (it was delivered, or
+        may have been)."""
+        with self.store.transaction(audit_kind(kind), data=data) as tx:
+            tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                       (utcnow(), kind, json.dumps(data, sort_keys=True)))
 
     def _timer_notice(self, notice: dict) -> bool:
         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when

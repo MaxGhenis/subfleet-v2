@@ -466,3 +466,34 @@ def test_invalid_admission_settings_name_the_key(tmp_path, policy_data, section,
     with pytest.raises(PolicyError) as caught:
         load_policy(write_policy(tmp_path, policy_data))
     assert caught.value.key == error_key
+
+
+def test_c15_7_the_notice_push_defaults_and_follows_the_policy_file(tmp_path, policy_data):
+    """C-15.7: the push is on by default with its clocks and counts; each can
+    be set, and zero means "no wait" where a wait is all the key is."""
+    from subfleet.policy import NOTICE_DEFAULTS
+    policy_data.pop("notices", None)
+    assert load_policy(write_policy(tmp_path, policy_data))["notices"] == NOTICE_DEFAULTS
+    policy_data["notices"] = {"push": False, "push_delay_s": 0, "push_per_minute": 3}
+    loaded = load_policy(write_policy(tmp_path, policy_data))["notices"]
+    assert (loaded["push"], loaded["push_delay_s"], loaded["push_per_minute"]) == (False, 0, 3)
+    assert loaded["push_max_age_min"] == NOTICE_DEFAULTS["push_max_age_min"]
+
+
+@pytest.mark.parametrize("key,value", [
+    ("push", "yes"), ("push", 1), ("push_delay_s", -1), ("push_delay_s", "10"),
+    ("push_interval_s", 0), ("push_max_age_min", 0), ("push_timeout_s", 0),
+    ("push_per_minute", 0), ("push_per_minute", 2.5), ("push_max_tries", 0),
+    ("push_session_gap_s", float("inf")), ("push_after_wait_s", True), ("push_retyr_s", 60),
+])
+def test_c15_7_a_bad_notices_value_names_its_key(tmp_path, policy_data, key, value):
+    """C-15.7: a bad value, or a key that is not a notices setting, names itself."""
+    policy_data["notices"] = {key: value}
+    with pytest.raises(PolicyError, match=f"notices.{key}"):
+        load_policy(write_policy(tmp_path, policy_data))
+
+
+def test_c15_7_notices_must_be_an_object(tmp_path, policy_data):
+    policy_data["notices"] = [True]
+    with pytest.raises(PolicyError, match="notices"):
+        load_policy(write_policy(tmp_path, policy_data))

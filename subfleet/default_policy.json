@@ -157,6 +157,18 @@
       "repository": 16000
     }
   },
+  "notices": {
+    "push": true,
+    "push_interval_s": 2,
+    "push_delay_s": 10,
+    "push_max_age_min": 120,
+    "push_session_gap_s": 60,
+    "push_per_minute": 10,
+    "push_after_wait_s": 120,
+    "push_retry_s": 60,
+    "push_max_tries": 3,
+    "push_timeout_s": 2
+  },
   "admission": {
     "lane_spread": 2,
     "desktop_recent_s": 1800,

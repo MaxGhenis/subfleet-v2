@@ -473,11 +473,14 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = [row for row in rows if names_a_job(row)]
     if not rows:
         return int(Exit.OK)
-    context = render_pending(rows)
-    if not context:
-        return int(Exit.OK)
-    stdout.write(json.dumps({"hookSpecificOutput": {
-        "hookEventName": event, "additionalContext": context}}) + "\n")
+    # C-15.7: a turn the notice push started has the notices in its prompt
+    # already, and this hook fires for that turn too; printing them again
+    # would tell the session twice in one turn. They are marked as shown.
+    shown = in_prompt(rows, payload) if event == "UserPromptSubmit" else []
+    context = render_pending([row for row in rows if row not in shown])
+    if context:
+        stdout.write(json.dumps({"hookSpecificOutput": {
+            "hookEventName": event, "additionalContext": context}}) + "\n")
     if marked:
         try:
             _mark(client, session, [row["notice_id"] for row in rows
@@ -486,6 +489,37 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
             pass
     return int(Exit.OK)
+
+
+def payload_prompt(payload: dict[str, Any]) -> str:
+    """UserPromptSubmit's prompt text. The hooks page's field list calls it
+    `prompt` and its example payload `user_prompt`; both are read
+    (`docs/reference/claude-hooks.md` section 2)."""
+    for key in ("prompt", "user_prompt"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def in_prompt(rows: Sequence[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The notices whose C-15.1 first line the prompt already carries.
+
+    A notice the push delivered (C-15.7) reaches the session as the prompt of
+    the turn it starts, its own text verbatim, and UserPromptSubmit fires for
+    that turn (observed 2026-10-03, Claude Code 2.1.286). The first line names
+    the job, its state and its rc, so finding it in the prompt is finding the
+    notice; a notice the prompt only mentions by job id is still printed.
+    """
+    prompt = payload_prompt(payload)
+    if not prompt:
+        return []
+    found = []
+    for row in rows:
+        header = str(row.get("text") or "").strip().split("\n", 1)[0].strip()
+        if header and names_a_job(row) and header in prompt:
+            found.append(row)
+    return found
 
 
 def wake_worker(session: str, payload: dict[str, Any], root: Path,

@@ -38,7 +38,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from . import capacity, ids, protocol
 from .client import (
@@ -1286,6 +1286,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
         else:
             note(_wait_summary(job))
         worst = max(worst, exit_for_job(job, quiet=as_json))
+    _ack_waited(client, finished)
     elapsed = time.monotonic() - started
     for job_id in sorted(pending):
         if as_json:
@@ -1538,6 +1539,39 @@ def _format_job(job: dict[str, Any]) -> str:
     for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
+
+
+#: C-23.50: how long `wait` gives each acknowledgement call after it has printed.
+ACK_TIMEOUT_S = 5
+
+
+def _ack_waited(client: Client, finished: Mapping[str, Any]) -> None:
+    """C-15.3, C-23.50: a `wait` that has just told its session that jobs ended
+    acknowledges that session's notices for them, so neither a hook nor the
+    notice push (C-15.7) tells the session a second time.
+
+    Only this session's notices (`notice.pending` answers for one session), only
+    for the jobs printed above, and only after they were printed. Best effort,
+    as `_ack_notices` is: the jobs were already reported, so a failure here
+    changes neither the output nor the exit code; the daemon's push still holds
+    back for `notices.push_after_wait_s` after the `wait` it answered.
+    """
+    session = session_id()
+    if not session or not finished:
+        return
+    try:
+        # A short bound: the jobs are printed, and a background `wait` tells its
+        # session only when it exits.
+        result = client.call("notice.pending", _asdict(protocol.NoticeArgs(session_id=session)),
+                             timeout=ACK_TIMEOUT_S)
+        ids = sorted({row["notice_id"] for row in rows_of(result.get("notices"))
+                      if row.get("job_id") in finished and isinstance(row.get("notice_id"), int)
+                      and not isinstance(row.get("notice_id"), bool)})
+        if ids:
+            client.call("notice.ack", _asdict(protocol.NoticeArgs(session_id=session, notice_ids=ids)),
+                        timeout=ACK_TIMEOUT_S)
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        pass
 
 
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:

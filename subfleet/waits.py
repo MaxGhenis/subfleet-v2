@@ -170,6 +170,12 @@ class WaitHub:
         with self._lock:
             return len(self._waiters)
 
+    def watched_jobs(self) -> frozenset[str]:
+        """Every job some waiter is registered for now (C-23.50: the notice push
+        stands aside while a job has a live waiter)."""
+        with self._lock:
+            return frozenset(job for waiter in self._waiters.values() for job in waiter.jobs)
+
     def status(self) -> dict[str, Any]:
         """For `daemon.status` (C-15.5): waiters, whether a thread runs, and the counts."""
         with self._lock:

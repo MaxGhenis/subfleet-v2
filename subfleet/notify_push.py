@@ -1,12 +1,16 @@
-"""Layer 4 of notice delivery: the best-effort push through v1's session inbox.
+"""Layer 4 of notice delivery: the push that wakes an idle session (C-15.2, C-15.7).
 
 C-15.2 ranks the delivery layers most to least reliable: `subfleet wait` in a
 background Bash call, the PostToolUse `asyncRewake` hook (`subfleet/hooks.py`),
-the SessionStart and UserPromptSubmit hooks, and last "a best-effort socket
-push through the v1 mechanism, kept until tickle, muster, and `ping` have
-tested replacements". This module is that last layer, ported from v1
-`subfleet/notify.py` with its behaviour preserved and its bookkeeping moved
-onto the store's `notices` rows.
+the SessionStart and UserPromptSubmit hooks, and last a best-effort socket push
+into the session's own inbox. The first three need the session to act: to have
+armed a waiter, to make a Bash call, or to start a turn. A session that
+dispatched a job and then went idle does none of them, so before the daemon ran
+this layer it learned of the job's end only when someone next typed into it
+(2026-10-02: four reviews finished between 17:34Z and 22:10Z, and their
+sessions sat idle until a person messaged them at 02:47Z the next day). This
+layer is the one that starts a turn. It is ported from v1 `subfleet/notify.py`,
+with its bookkeeping on the store's `notices` rows.
 
 The mechanism, unchanged from v1: every interactive Claude Code session
 registers `~/.claude/sessions/<pid>.json` (`sessionId`, `messagingSocketPath`,
@@ -17,7 +21,7 @@ on a unix socket: `{"type":"auth","token":...}` then
 exactly one `<cross-session-message>` envelope is parsed by the recipient, and
 `from-mode` declares the sender's permission class.
 
-Two rules this module keeps from v1 and one it adds:
+Rules kept from v1:
 
 * Resolve the recipient by SESSION ID at delivery time, never by a pid or
   socket captured at dispatch: an account switch restarts the session under a
@@ -28,6 +32,32 @@ Two rules this module keeps from v1 and one it adds:
   push records the notice as `offered` with transport `socket` and never as
   `acknowledged` (C-15.3). An unacknowledged notice is surfaced again by the
   session hooks, which is exactly what makes this layer safe to be lossy.
+
+What the frame adds, from what the installed Claude Code's inbox does with it
+(2.1.286; read from its inbox handler and command queue, not assumed):
+
+* `priority: "later"`. The inbox queues a user frame at the priority it names
+  (`now`, `next` or `later`; `next` when none). `now` aborts the running turn.
+  `next` is folded into the running turn between tool calls, and one that lands
+  as a turn opens restarts that turn (`rapid_followup`). `later` waits until the
+  running turn ends, and an idle session starts a turn for it at once. So a
+  push never interleaves with a turn, whatever the session is doing when the
+  bytes land.
+* `session_id`. The inbox drops a frame that names a session other than its
+  own, so a socket path or pid that now belongs to another session cannot
+  misdeliver a notice.
+* The envelope declares the recipient's own permission class (C-23.42). The
+  inbox holds, rather than runs, a frame whose declared class is not the
+  recipient's, and a bypass session holds one that declares none.
+
+The daemon's pass (C-15.7) is `plan` over the pending job notices and the
+registry as read, then `deliver` for each session it picked: reserve the rows
+(`pending` to `offered`, transport `socket`), write the frame, and settle. A
+connect failure, or a missing token, wrote nothing: the rows go back to
+`pending` and may be tried again. A failure after bytes may have reached the
+inbox leaves them `offered`, so a notice is pushed at most once. The planner is
+a pure function of what it is handed, so the rules are tested without a daemon
+(`tests/unit/test_notify_push.py`, `tests/unit/test_notice_push_properties.py`).
 """
 
 from __future__ import annotations
@@ -36,12 +66,20 @@ import json
 import os
 import re
 import socket
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
+
+from .sessions import registry
 
 FROM_NAME = "subfleet"
 MODE_CLASSES = ("bypass", "prompting")
 TRANSPORT = "socket"
+#: C-15.7: the inbox runs a `later` frame when the recipient's current turn ends,
+#: and at once when it is idle; it never interrupts a turn or folds into one.
+PRIORITY = "later"
 
 #: How far back into a transcript to look for the recipient's permission mode.
 _TRANSCRIPT_TAIL = 1024 * 1024
@@ -55,6 +93,20 @@ _ENVELOPE_CLOSE = "</cross-session-message>"
 #: a headless lane has no inbox socket, and the daemon knows its own lane
 #: sessions. `refuse_session` lets the caller supply that set.
 DEFAULT_TIMEOUT_S = 5.0
+
+
+class PushError(OSError):
+    """A push that did not land, and whether any of its bytes may have.
+
+    `written` is False only when nothing reached the socket: the connection was
+    never made. Once `sendall` has started, a failure may have left a complete
+    frame in the inbox (it parses a final line without its newline), so the
+    push counts as made and is never repeated (C-15.7: at most once).
+    """
+
+    def __init__(self, message: str, *, written: bool):
+        super().__init__(message)
+        self.written = written
 
 
 def claude_dir() -> Path:
@@ -251,20 +303,45 @@ def envelope(body: str, *, from_name: str = FROM_NAME,
     return f"<cross-session-message{attrs}>\n{safe_body.strip()}\n{_ENVELOPE_CLOSE}"
 
 
+def frame(content: str, *, priority: str | None = PRIORITY, session_id: str | None = None,
+          message_uuid: str | None = None) -> dict[str, Any]:
+    """The inbox's `user` frame (C-15.7): the message, the priority it is queued
+    at, the session it is for, and the uuid it is recorded under."""
+    item: dict[str, Any] = {"type": "user", "message": {"role": "user", "content": content}}
+    if priority:
+        item["priority"] = priority
+    if session_id:
+        item["session_id"] = session_id
+    if message_uuid:
+        item["uuid"] = message_uuid
+    return item
+
+
 def send_to_socket(socket_path: str, token: str | None, content: str, *,
-                   timeout: float = DEFAULT_TIMEOUT_S) -> None:
-    """Deliver one user message into a session inbox. Raises OSError on failure."""
+                   timeout: float = DEFAULT_TIMEOUT_S, priority: str | None = PRIORITY,
+                   session_id: str | None = None, message_uuid: str | None = None) -> None:
+    """Deliver one user message into a session inbox.
+
+    Raises `PushError` (an `OSError`) when it did not land, with `written` False
+    only when no byte can have reached the inbox.
+    """
     lines = []
     if token:
         lines.append(json.dumps({"type": "auth", "token": token}))
-    lines.append(json.dumps({"type": "user",
-                             "message": {"role": "user", "content": content}}))
+    lines.append(json.dumps(frame(content, priority=priority, session_id=session_id,
+                                  message_uuid=message_uuid)))
     payload = ("\n".join(lines) + "\n").encode("utf-8")
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(timeout)
     try:
-        client.connect(socket_path)
-        client.sendall(payload)
+        try:
+            client.connect(socket_path)
+        except (OSError, ValueError) as exc:
+            raise PushError(f"connect: {exc.__class__.__name__}: {exc}", written=False) from exc
+        try:
+            client.sendall(payload)
+        except OSError as exc:
+            raise PushError(f"send: {exc.__class__.__name__}: {exc}", written=True) from exc
         try:
             client.shutdown(socket.SHUT_WR)
         except OSError:
@@ -286,7 +363,7 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
                     timeout: float = DEFAULT_TIMEOUT_S,
                     lane_sessions: Iterable[str] = (),
                     force: bool = False) -> dict[str, Any]:
-    """Best-effort push; never raises.
+    """Best-effort push of one message, outside the daemon's pass; never raises.
 
     `delivered` means the inbox accepted the bytes. It is NOT an
     acknowledgement: the harness gives none to an address-less sender, which is
@@ -321,7 +398,7 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
     try:
         send_to_socket(entry["socket"], token,
                        envelope(body, from_name=from_name, mode_class=declared),
-                       timeout=timeout)
+                       timeout=timeout, session_id=session_id)
     except (OSError, ValueError) as exc:
         result["reason"] = f"send-failed: {exc.__class__.__name__}: {exc}"
         return result
@@ -329,44 +406,384 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
     return result
 
 
-# --- the adapter onto notice rows ---------------------------------------------
+# --- the daemon's pass (C-15.7) -----------------------------------------------
 
-def offer(rows: Sequence[dict[str, Any]], *,
-          mark: Callable[[int, str], None] | None = None,
-          push: Callable[..., dict[str, Any]] = push_to_session,
-          lane_sessions: Iterable[str] = (),
-          timeout: float = DEFAULT_TIMEOUT_S) -> list[dict[str, Any]]:
-    """Push each notice row and record what happened (C-15.2 layer 4, C-15.3).
+#: The statuses Claude Code records for a live session (`~/.claude/sessions`):
+#: `idle` between turns, `busy` in one, `waiting` on a person's answer. A push
+#: waits for `idle`; a row with no status (an older Claude Code) is pushed to,
+#: because a `later` frame is safe whatever the session is doing.
+IDLE_STATUSES = frozenset({"idle"})
+#: The registry's kind for a session a person or the desktop app drives.
+INTERACTIVE = "interactive"
+#: At most this many notices are spelled out in one push; the rest are counted.
+BODY_MAX_NOTICES = 10
+#: A notice's text longer than this is cut in the push (the store keeps it whole).
+BODY_MAX_TEXT = 4000
 
-    `rows` are `notices` rows: `notice_id`, `session_id`, `text`, `state`. Only
-    rows in `pending` or `offered` are attempted, because `acknowledged` and
-    `surfaced` have already reached their session. `mark(notice_id, transport)`
-    is called ONLY for a row whose bytes the inbox accepted, and its contract is
-    to move that row to `offered` — never to `acknowledged`, which belongs to
-    `notice.ack` or to the session running `runs show <job>` (C-15.3).
 
-    Returns one result dict per row, in order, so a caller can log why a push
-    did not land. It never raises: this is the least reliable layer and a
-    failure here must not disturb the layers above it.
-    """
-    lane_sessions = set(lane_sessions)
-    results: list[dict[str, Any]] = []
+@dataclass(frozen=True)
+class PushSettings:
+    """`notices.*` (C-15.7), as `policy.load_policy` validated them."""
+
+    enabled: bool = True
+    interval_s: float = 2.0
+    delay_s: float = 10.0
+    max_age_s: float = 7200.0
+    session_gap_s: float = 60.0
+    per_minute: int = 10
+    after_wait_s: float = 120.0
+    retry_s: float = 60.0
+    max_tries: int = 3
+    timeout_s: float = 2.0
+
+    @classmethod
+    def from_policy(cls, policy: Mapping[str, Any] | None) -> "PushSettings":
+        from .policy import NOTICE_DEFAULTS
+        supplied = (policy or {}).get("notices")
+        values = {**NOTICE_DEFAULTS, **(supplied if isinstance(supplied, Mapping) else {})}
+        return cls(enabled=bool(values["push"]), interval_s=float(values["push_interval_s"]),
+                   delay_s=float(values["push_delay_s"]),
+                   max_age_s=float(values["push_max_age_min"]) * 60,
+                   session_gap_s=float(values["push_session_gap_s"]),
+                   per_minute=int(values["push_per_minute"]),
+                   after_wait_s=float(values["push_after_wait_s"]),
+                   retry_s=float(values["push_retry_s"]),
+                   max_tries=int(values["push_max_tries"]),
+                   timeout_s=float(values["push_timeout_s"]))
+
+
+@dataclass(frozen=True)
+class Pending:
+    """One `pending` notice that names a job and the session that dispatched it."""
+
+    notice_id: int
+    job_id: str
+    session_id: str
+    text: str
+    created_at: float                   # epoch seconds
+
+    @property
+    def key(self) -> str:
+        return self.session_id.lower()
+
+
+def epoch(stamp: Any) -> float | None:
+    """A store time (`2026-10-02T22:10:05Z`) as epoch seconds, or None."""
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def pending_rows(rows: Iterable[Mapping[str, Any]]) -> list[Pending]:
+    """The store's `notices` rows the pass may push: `pending`, naming a job and a
+    session, with a creation time it can read. Anything else is not this layer's."""
+    found = []
     for row in rows:
-        session = row.get("session_id")
-        notice_id = row.get("notice_id")
-        state = row.get("state")
-        if not session or state not in ("pending", "offered"):
-            results.append({"delivered": False, "notice_id": notice_id,
-                            "session_id": session, "transport": TRANSPORT,
-                            "reason": f"state={state!r}: nothing to offer"})
+        notice_id, job_id, session = row.get("notice_id"), row.get("job_id"), row.get("session_id")
+        created = epoch(row.get("created_at"))
+        if (not isinstance(notice_id, int) or isinstance(notice_id, bool) or notice_id <= 0
+                or not isinstance(job_id, str) or not job_id.strip()
+                or not isinstance(session, str) or not session.strip()
+                or row.get("state", "pending") != "pending" or created is None):
             continue
-        outcome = push(session, str(row.get("text") or ""),
-                       lane_sessions=lane_sessions, timeout=timeout)
-        outcome["notice_id"] = notice_id
-        if outcome.get("delivered") and mark is not None and notice_id is not None:
-            try:
-                mark(int(notice_id), TRANSPORT)
-            except Exception as exc:                    # noqa: BLE001 - best effort
-                outcome["mark_failed"] = f"{exc.__class__.__name__}: {exc}"
-        results.append(outcome)
-    return results
+        found.append(Pending(notice_id, job_id, session.strip(), str(row.get("text") or ""), created))
+    return found
+
+
+@dataclass(frozen=True)
+class Push:
+    """One inbox message: every pending notice of one session, to the row that
+    speaks for that session now (C-23.30)."""
+
+    session_id: str                     # as the registry row spells it
+    row: registry.SessionRow
+    notices: tuple[Pending, ...]
+    #: The uuid the recipient records the message under, fresh for every push.
+    #: Claude Code writes a message to the transcript once per uuid: a second
+    #: message under a uuid it has recorded still starts a turn but is never
+    #: written, so a resumed session would not have it (2026-10-03, two pushes
+    #: whose uuid was derived from the session and a notice id that two stores
+    #: shared). A notice id is not unique for good either: SQLite reuses the
+    #: largest rowid once retention has deleted it.
+    message_uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    @property
+    def notice_ids(self) -> tuple[int, ...]:
+        return tuple(item.notice_id for item in self.notices)
+
+
+@dataclass
+class History:
+    """What the pass remembers between passes, in memory (C-15.7).
+
+    A restart forgets it, which costs at most one more try of a push that wrote
+    nothing; a push that may have landed is remembered by its notices' state,
+    which is the store's.
+    """
+
+    last_push: dict[str, float] = field(default_factory=dict)       # session (lower case) -> when
+    recent: list[float] = field(default_factory=list)               # pushes made, when
+    failures: dict[int, tuple[int, float]] = field(default_factory=dict)  # notice -> (tries, last)
+
+    def prune(self, now: float, settings: PushSettings) -> None:
+        self.recent = [at for at in self.recent if now - at < 60]
+        horizon = max(settings.session_gap_s, 60.0)
+        self.last_push = {key: at for key, at in self.last_push.items() if now - at < horizon}
+
+
+@dataclass
+class Plan:
+    """The pushes one pass makes, and why every other session waits or is passed over."""
+
+    pushes: list[Push] = field(default_factory=list)
+    held: dict[str, str] = field(default_factory=dict)       # session (lower case) -> reason
+
+
+def target_row(rows: Iterable[registry.SessionRow], session_key: str) -> registry.SessionRow | None:
+    """The row that speaks for a session id now (C-23.30), whichever case either
+    side spells the id in."""
+    return registry.speaker(row for row in rows if row.session_id.lower() == session_key)
+
+
+def row_refusal(row: registry.SessionRow | None) -> str | None:
+    """Why a registry row may not receive a push now, or None when it may.
+
+    Every reason here is a fact about the recipient at delivery time: it has to
+    be a live, interactive session with an inbox, between turns.
+    """
+    if row is None:
+        return "not registered"
+    if not row.alive:
+        return "not running"
+    if (row.entrypoint or "").startswith(registry.HEADLESS_ENTRYPOINT_PREFIX):
+        return "headless"
+    if row.kind is not None and row.kind != INTERACTIVE:
+        return "not interactive"
+    if not row.socket or not row.socket_present:
+        return "no inbox"
+    if row.status is not None and row.status not in IDLE_STATUSES:
+        return row.status
+    return None
+
+
+def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None, *,
+         now: float, settings: PushSettings, lane_ids: Iterable[str] = (),
+         conversation_ids: Iterable[str] = (), watched: Iterable[str] = (),
+         waited: Mapping[str, float] | None = None,
+         history: History | None = None) -> Plan:
+    """Which sessions get a push this pass (C-15.7, C-23.50). Pure: reads nothing.
+
+    `rows` is the registry as read now, or None when it could not be read (then
+    nothing is pushed). `lane_ids` and `conversation_ids` are the daemon's own
+    record of the sessions it ran as lanes and conversations. `watched` is the
+    jobs a waiter is registered for now; `waited` maps a job to when a `wait`
+    last reported it ended. `history` is the pass's memory.
+    """
+    history = history or History()
+    waited = waited or {}
+    out = Plan()
+    if not settings.enabled:
+        return out
+    lanes = registry.folded(lane_ids)
+    conversations = registry.folded(conversation_ids)
+    watching = frozenset(watched)
+    sessions: dict[str, list[Pending]] = {}
+    for item in pending:
+        sessions.setdefault(item.key, []).append(item)
+    recent = [at for at in history.recent if now - at < 60]
+    # The session whose oldest notice has waited longest goes first, so the
+    # per-minute cap delays the newest finishes, never the oldest.
+    order = sorted(sessions, key=lambda key: (min(item.created_at for item in sessions[key]), key))
+    for key in order:
+        items = sorted(sessions[key], key=lambda item: item.notice_id)
+        fresh = [item for item in items if now - item.created_at <= settings.max_age_s]
+        if not fresh:
+            out.held[key] = "too old"
+            continue
+        usable = []
+        waiting_retry = False
+        for item in fresh:
+            tries, last = history.failures.get(item.notice_id, (0, 0.0))
+            if tries >= settings.max_tries:
+                continue
+            if tries and now - last < settings.retry_s:
+                waiting_retry = True
+                continue
+            usable.append(item)
+        if not usable:
+            out.held[key] = "retry wait" if waiting_retry else "gave up"
+            continue
+        if max(now - item.created_at for item in usable) < settings.delay_s:
+            out.held[key] = "settling"
+            continue
+        if key in lanes:
+            out.held[key] = "lane session"
+            continue
+        if key in conversations:
+            out.held[key] = "conversation session"
+            continue
+        if rows is None:
+            out.held[key] = "registry unreadable"
+            continue
+        row = target_row(rows, key)
+        refusal = row_refusal(row)
+        if refusal is not None:
+            out.held[key] = refusal
+            continue
+        jobs = {item.job_id for item in usable}
+        if jobs & watching:
+            out.held[key] = "waiter live"
+            continue
+        if any(now - waited[job] < settings.after_wait_s for job in jobs if job in waited):
+            out.held[key] = "waiter reported"
+            continue
+        last_push = history.last_push.get(key)
+        if last_push is not None and now - last_push < settings.session_gap_s:
+            out.held[key] = "session gap"
+            continue
+        if len(recent) >= settings.per_minute:
+            out.held[key] = "rate"
+            continue
+        recent.append(now)
+        out.pushes.append(Push(session_id=row.session_id, row=row, notices=tuple(usable)))
+    return out
+
+
+def render_body(notices: Sequence[Pending]) -> str:
+    """The push's text: the notices' own text (C-15.1: metadata only), in order."""
+    count = len(notices)
+    blocks = [f"subfleet: {count} detached run{'s' if count != 1 else ''} this session "
+              f"dispatched {'have' if count != 1 else 'has'} finished:"]
+    for item in notices[:BODY_MAX_NOTICES]:
+        text = item.text.strip() or f"{item.job_id} finished"
+        if len(text) > BODY_MAX_TEXT:
+            text = text[:BODY_MAX_TEXT].rstrip() + " ..."
+        blocks.append(text)
+    if count > BODY_MAX_NOTICES:
+        blocks.append(f"... and {count - BODY_MAX_NOTICES} more: subfleet runs --mine")
+    blocks.append("Read one with `subfleet runs show <id>`, which also marks its notice read; "
+                  "list them with `subfleet runs --mine`.\n"
+                  "(pushed by the subfleet daemon to wake this idle session)")
+    return "\n\n".join(blocks)
+
+
+def recheck(push: Push) -> str | None:
+    """Read the target's registry row again just before the push, and say why
+    not to push now, or None. The pass read the registry up to a couple of
+    seconds ago; a session that started a turn since is left for later."""
+    fresh = registry.read_row(Path(push.row.registry_path))
+    if fresh is None:
+        return "registry row gone"
+    if fresh.session_id.lower() != push.session_id.lower() or fresh.pid != push.row.pid:
+        return "registry row changed"
+    if fresh.socket != push.row.socket:
+        return "inbox moved"
+    if fresh.status is not None and fresh.status not in IDLE_STATUSES:
+        return fresh.status
+    return None
+
+
+@dataclass
+class Outcome:
+    """What one push did. `result` is `delivered`, `failed` (nothing written;
+    the notices are `pending` again), `uncertain` (bytes may have landed; the
+    notices stay `offered`), `raced` (another layer reached every notice first)
+    or `held` (the recheck found the session busy or gone; nothing reserved)."""
+
+    session_id: str
+    pid: int | None
+    result: str
+    notice_ids: tuple[int, ...] = ()
+    reason: str = ""
+    mode_class: str | None = None
+    message_uuid: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"session_id": self.session_id, "pid": self.pid, "result": self.result,
+                "notice_ids": list(self.notice_ids), "reason": self.reason,
+                "mode_class": self.mode_class, "uuid": self.message_uuid}
+
+
+def deliver(push: Push, *, reserve: Callable[[Push, dict[str, Any]], list[int]],
+            release: Callable[[Push, list[int], dict[str, Any]], None],
+            record: Callable[[str, dict[str, Any]], None],
+            check: Callable[[Push], str | None] = recheck,
+            send: Callable[..., None] = send_to_socket,
+            token_of: Callable[[int | None], str | None] = peer_token,
+            mode_of: Callable[[str], str | None] = resolve_mode_class,
+            timeout: float = 2.0) -> Outcome:
+    """Reserve, write and settle one push (C-15.7). Never raises.
+
+    `reserve(push, data)` moves the push's notices that are still `pending` to
+    `offered` with transport `socket`, in one transaction, and returns their
+    ids; only those are written. `release(push, ids, data)` puts them back to
+    `pending` when nothing was written. `record(kind, data)` writes an event.
+    """
+    base = {"session_id": push.session_id, "pid": push.row.pid, "socket": push.row.socket,
+            "uuid": push.message_uuid}
+    outcome = Outcome(push.session_id, push.row.pid, "held", message_uuid=push.message_uuid)
+    try:
+        reason = check(push)
+        if reason is not None:
+            outcome.reason = reason
+            return outcome
+        token = token_of(push.row.pid)
+        if token is None:
+            outcome.result, outcome.reason = "failed", "no peer token"
+            return outcome
+        mode = mode_of(push.session_id)
+        outcome.mode_class = mode
+        data = {**base, "mode_class": mode}
+        reserved = list(reserve(push, data))
+    except Exception as exc:                            # noqa: BLE001 - never raises
+        outcome.result, outcome.reason = "failed", f"{exc.__class__.__name__}: {exc}"
+        return outcome
+    outcome.notice_ids = tuple(reserved)
+    if not reserved:
+        outcome.result, outcome.reason = "raced", "another layer reached every notice first"
+        return outcome
+    chosen = [item for item in push.notices if item.notice_id in set(reserved)]
+    data = {**base, "mode_class": mode, "notice_ids": reserved,
+            "job_ids": [item.job_id for item in chosen]}
+    try:
+        send(push.row.socket, token, envelope(render_body(chosen), mode_class=mode),
+             timeout=timeout, priority=PRIORITY, session_id=push.session_id,
+             message_uuid=push.message_uuid)
+    except Exception as exc:                            # noqa: BLE001 - never raises
+        written = getattr(exc, "written", True) if isinstance(exc, OSError) else True
+        outcome.reason = f"{exc.__class__.__name__}: {exc}"
+        if written:
+            outcome.result = "uncertain"
+            _quietly(record, "notice.push_uncertain", {**data, "reason": outcome.reason})
+        else:
+            outcome.result = "failed"
+            _quietly(release, push, reserved, {**data, "reason": outcome.reason})
+        return outcome
+    outcome.result = "delivered"
+    _quietly(record, "notice.pushed", data)
+    return outcome
+
+
+def _quietly(fn: Callable[..., Any], *args: Any) -> None:
+    try:
+        fn(*args)
+    except Exception:                                   # noqa: BLE001 - bookkeeping only
+        pass
+
+
+def settle(history: History, push: Push, outcome: Outcome, now: float) -> None:
+    """Fold one push's outcome into the pass's memory (C-15.7)."""
+    if outcome.result in ("delivered", "uncertain"):
+        history.last_push[push.session_id.lower()] = now
+        history.recent.append(now)
+    elif outcome.result == "failed":
+        for item in push.notices:
+            if not outcome.notice_ids or item.notice_id in outcome.notice_ids:
+                tries, _ = history.failures.get(item.notice_id, (0, 0.0))
+                history.failures[item.notice_id] = (tries + 1, now)

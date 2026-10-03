@@ -871,6 +871,71 @@ def test_a_failed_acknowledgement_does_not_change_the_show(daemon, monkeypatch, 
     assert JOB in capsys.readouterr().out
 
 
+def pending_notices(request):
+    return {"notices": [
+        {"notice_id": 4, "job_id": JOB, "session_id": "sess-9", "state": "pending"},
+        {"notice_id": 7, "job_id": "20260905-120001-other", "session_id": "sess-9", "state": "pending"},
+        {"notice_id": -3, "job_id": JOB, "session_id": "sess-9", "state": "offered"},
+        {"notice_id": -8, "job_id": None, "session_id": "sess-9", "state": "pending"},
+    ]}
+
+
+def test_wait_acknowledges_this_sessions_notices_for_the_jobs_it_printed(daemon, monkeypatch, capsys):
+    """C-15.3, C-23.50: a `wait` that told its session a job ended acknowledges
+    that session's notices for the job, so no hook and no push (C-15.7) tells
+    the session again. Only the printed job's: another job's notice and a
+    notice naming no job stay as they were."""
+    server = daemon({"wait": lambda request: terminal("succeeded", rc=0),
+                     "notice.pending": pending_notices,
+                     "notice.ack": lambda request: {"acknowledged": 2}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["wait", JOB]) == 0
+    assert server.args("notice.pending") == {"session_id": "sess-9", "notice_ids": []}
+    assert server.args("notice.ack") == {"session_id": "sess-9", "notice_ids": [-3, 4]}
+    assert server.ops().index("notice.ack") > server.ops().index("wait")
+    capsys.readouterr()
+
+
+def test_wait_json_acknowledges_too(daemon, monkeypatch, capsys):
+    """C-23.50: `--json` hands the same jobs to the session's tool output."""
+    server = daemon({"wait": lambda request: terminal("failed", rc=1),
+                     "notice.pending": pending_notices,
+                     "notice.ack": lambda request: {"acknowledged": 2}})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["wait", JOB, "--json"]) == 1
+    assert server.args("notice.ack")["notice_ids"] == [-3, 4]
+    capsys.readouterr()
+
+
+def test_wait_outside_a_session_acknowledges_nothing(daemon, capsys):
+    """C-15.3 acknowledgement belongs to a session; there is none to speak for here."""
+    server = daemon({"wait": lambda request: terminal("succeeded", rc=0),
+                     "notice.pending": pending_notices})
+    assert run_cli(["wait", JOB]) == 0
+    assert "notice.pending" not in server.ops() and "notice.ack" not in server.ops()
+    capsys.readouterr()
+
+
+def test_a_wait_that_timed_out_acknowledges_nothing(daemon, monkeypatch, capsys):
+    """C-23.50: nothing was printed as ended, so the session was told nothing."""
+    server = daemon({"wait": lambda request: {"timeout": True},
+                     "notice.pending": pending_notices})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["wait", JOB, "--timeout", "1"]) == 124
+    assert "notice.ack" not in server.ops()
+    capsys.readouterr()
+
+
+def test_a_failed_acknowledgement_does_not_change_the_wait(daemon, monkeypatch, capsys):
+    """C-23.50 acknowledgement is best effort: the jobs were printed, and the
+    exit code is theirs."""
+    daemon({"wait": lambda request: terminal("succeeded", rc=0),
+            "notice.pending": lambda request: protocol.fail(request.id, Exit.OPERATIONAL, "store gone")})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
+    assert run_cli(["wait", JOB]) == 0
+    assert JOB in capsys.readouterr().err
+
+
 def test_wait_summary_names_the_deliverable(daemon, root, capsys):
     """C-17.4 the wait summary points at the artifact `runs show --out` prints."""
     daemon({"wait": lambda request: {"jobs": {JOB: {
