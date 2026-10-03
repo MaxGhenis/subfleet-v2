@@ -233,6 +233,17 @@ class NoticeMarkArgs:
     notice_ids: list[int] = field(default_factory=list)
     state: str = "surfaced"                               # or `offered`
     transport: str | None = None                          # how it was delivered
+    #: C-15.7: a claim. Set (0 or more), the mark moves only notices still below
+    #: `state`, and leaves alone a notice the push wrote (`offered` over
+    #: `socket`) less than this many seconds ago, whose frame waits behind the
+    #: turn the hook is starting. The answer's `marked` names what moved. None:
+    #: the ladder's ordinary mark (C-15.3).
+    keep_pushed_s: float | None = None
+    #: C-15.7: each notice's `created_at` as the caller read it, in the order of
+    #: `notice_ids`. A notice is moved only while it still has that creation
+    #: time: SQLite reuses a deleted rowid, so an id alone could name a newer
+    #: notice the caller never read. Empty: ids alone.
+    created: list[str | None] = field(default_factory=list)
 
 
 #: C-15.3: notice ids on the wire. A job notice (`notices`) keeps its own id; a

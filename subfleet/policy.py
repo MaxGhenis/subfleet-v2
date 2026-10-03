@@ -67,6 +67,31 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_ultracode_default": True,
 }
 
+#: `notices.*` (C-15.7): the push that wakes an idle session with its finished
+#: jobs' notices (C-15.2 layer 4). `push` turns the layer off. The times hold a
+#: push back so a layer that reaches the session anyway goes first (`push_delay_s`
+#: after the notice is written; `push_after_wait_s` after a `wait` reported the
+#: job, C-23.50), keep it from waking a session over and over
+#: (`push_session_gap_s`, `push_per_minute`), and keep a backlog asleep: a notice
+#: older than `push_max_age_min` is left to the hooks, so an install never wakes
+#: every session a past job finished for.
+NOTICE_DEFAULTS: dict[str, Any] = {
+    "push": True,
+    "push_interval_s": 2,            # how often the daemon looks for notices to push
+    "push_delay_s": 10,              # a notice this young waits for layers 1 to 3
+    "push_max_age_min": 120,         # an older notice is not pushed
+    "push_session_gap_s": 60,        # at most one push per session in this window
+    "push_per_minute": 10,           # at most this many pushes a minute in all
+    "push_after_wait_s": 120,        # C-23.50: a job a `wait` reported waits this long
+    "push_retry_s": 60,              # a push that wrote nothing is tried again after this
+    "push_max_tries": 3,             # ...at most this many times per notice per daemon run
+    "push_timeout_s": 2,             # each inbox connection's timeout
+}
+#: The `notices` keys that count things: whole numbers of at least one.
+NOTICE_COUNTS = frozenset({"push_per_minute", "push_max_tries"})
+#: The `notices` keys that may be zero: no wait.
+NOTICE_ZERO_OK = frozenset({"push_delay_s", "push_session_gap_s", "push_after_wait_s", "push_retry_s"})
+
 #: `conversations.*` (C-24 to C-30): the desktop workspace's timings.
 #: The turn clocks, in seconds, are read by `TurnRunner` (`subfleet/conversations/runner.py`).
 #: A stop escalates as C-24.7, review IR-3 and design D-13 (revision 3) order
@@ -455,6 +480,29 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"{' + '.join(HANDOFF_BRIEF_SECTIONS)} is {brief:,} characters; the assembled brief is "
              f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
+
+    # `notices` (C-15.7): the push's switch, its clocks and its two counts.
+    supplied = value.get("notices", {})
+    if not isinstance(supplied, dict):
+        fail("notices", "must be an object")
+    for key in supplied:
+        if key not in NOTICE_DEFAULTS:
+            fail(f"notices.{key}", f"is not a notices setting ({', '.join(NOTICE_DEFAULTS)})")
+    settings = {**NOTICE_DEFAULTS, **supplied}
+    for key, default in NOTICE_DEFAULTS.items():
+        item = settings[key]
+        if isinstance(default, bool):
+            if not isinstance(item, bool):
+                fail(f"notices.{key}", "must be true or false")
+            continue
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item < 0):
+            fail(f"notices.{key}", "must be a nonnegative finite number")
+        if key in NOTICE_COUNTS and (item < 1 or item != int(item)):
+            fail(f"notices.{key}", "must be a whole number of at least 1")
+        if item == 0 and key not in NOTICE_ZERO_OK:
+            fail(f"notices.{key}", "must be a positive finite number")
+    value["notices"] = settings
 
     # `network` (d260): whether a writable Codex job's shell reaches the network.
     network = value.get("network", {})

@@ -75,6 +75,7 @@ import re
 import shlex
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -99,6 +100,10 @@ EVENTS = {
     "pre-bash": "PreToolUse",
 }
 SESSION_EVENTS = ("SessionStart", "UserPromptSubmit")
+#: The SessionStart sources that start a new process (C-23.33; the sessions
+#: kit's `nudge.RESTART_SOURCES`, kept equal by a test). `compact` and `clear`
+#: keep the process, and with it any frame queued in its inbox (C-15.7).
+RESTART_SOURCES = frozenset({"startup", "resume"})
 
 #: The C-5.1 markers that name a process Subfleet launched. Every launch path
 #: sets `SUBFLEET_ATTEMPT`: an attempt, turns included (`Daemon._launch`, with
@@ -386,11 +391,52 @@ def _pending(client: Client, session: str) -> list[dict[str, Any]]:
 
 def _mark(client: Client, session: str, notice_ids: Iterable[int], state: str,
           transport: str | None = None) -> None:
+    """`notice.mark`, the ladder's ordinary mark (C-15.3)."""
     ids = [int(item) for item in notice_ids]
     if not ids:
         return
     client.call("notice.mark", {"session_id": session, "notice_ids": ids,
                                 "state": state, "transport": transport})
+
+
+#: How long a hook waits before it asks a busy or failing daemon to take its
+#: claim a second time (C-15.7).
+CLAIM_RETRY_S = 0.3
+
+
+def _claim(client: Client, session: str, rows: Sequence[dict[str, Any]], state: str,
+           transport: str, *, keep_pushed_s: float, sleep=time.sleep) -> list[dict[str, Any]] | None:
+    """C-15.7: claim `rows` for this hook, and return the ones it may print.
+
+    The claim is `notice.mark` with `keep_pushed_s` and each row's creation
+    time: the daemon moves only a row still below `state`, still the notice
+    this hook read (SQLite reuses a deleted rowid), and not one the push wrote
+    less than `keep_pushed_s` ago, and answers `marked`. A daemon older than
+    C-15.7 answers no `marked`; every row is then returned, as before it.
+    A claim that fails is asked once more; failing again, None: the hook prints
+    none of these now (a push may hold them) and the next hook claims again.
+    """
+    rows = [row for row in rows if isinstance(row.get("notice_id"), int)]
+    if not rows:
+        return []
+    args = {"session_id": session, "notice_ids": [row["notice_id"] for row in rows],
+            "state": state, "transport": transport, "keep_pushed_s": keep_pushed_s,
+            "created": [row.get("created_at") if isinstance(row.get("created_at"), str) else None
+                        for row in rows]}
+    for attempt in (1, 2):
+        try:
+            result = client.call("notice.mark", args)
+        except (DaemonError, ProtocolError):
+            if attempt == 1:
+                sleep(CLAIM_RETRY_S)
+                continue
+            return None
+        marked = result.get("marked") if isinstance(result, dict) else None
+        if not isinstance(marked, list):
+            return list(rows)
+        taken = set(marked)
+        return [row for row in rows if row["notice_id"] in taken]
+    return None
 
 
 def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
@@ -473,19 +519,86 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = [row for row in rows if names_a_job(row)]
     if not rows:
         return int(Exit.OK)
-    context = render_pending(rows)
-    if not context:
-        return int(Exit.OK)
-    stdout.write(json.dumps({"hookSpecificOutput": {
-        "hookEventName": event, "additionalContext": context}}) + "\n")
+    # C-15.7: a turn the notice push started carries its notices in its prompt,
+    # and UserPromptSubmit fires for that turn too: those are shown already.
+    shown = in_prompt(rows, payload) if event == "UserPromptSubmit" else []
+    # A notice the push wrote moments ago is the push's while this process runs:
+    # its frame is queued behind the turn this hook starts. Only a process that
+    # replaced the one the push wrote to (SessionStart `startup` or `resume`)
+    # lost that frame; `compact` and `clear` keep the process and the queue.
+    keep = event == "UserPromptSubmit" or payload.get("source") not in RESTART_SOURCES
+    others = [row for row in rows if row not in shown and not (keep and pushed_moments_ago(row))]
+    printing = others
     if marked:
+        # Claim, then print only what was claimed, so a push that reserves a
+        # notice between this hook's read and its claim is never repeated here
+        # (review of PR #114). What the prompt carries is claimed whoever wrote
+        # it (it is in this turn already), and never printed.
         try:
-            _mark(client, session, [row["notice_id"] for row in rows
-                                    if row.get("notice_id") is not None],
-                  "surfaced", f"hook:{event}")
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-            pass
+            _claim(client, session, shown, "surfaced", f"hook:{event}", keep_pushed_s=0)
+            claimed = _claim(client, session, others, "surfaced", f"hook:{event}",
+                             keep_pushed_s=PUSH_OWNS_S if keep else 0)
+            printing = [] if claimed is None else claimed
+        except (DaemonUnavailable, OSError):
+            pass        # the daemon is gone: no push is running, so print as offline does
+    context = render_pending(printing)
+    if context:
+        stdout.write(json.dumps({"hookSpecificOutput": {
+            "hookEventName": event, "additionalContext": context}}) + "\n")
     return int(Exit.OK)
+
+
+
+
+def payload_prompt(payload: dict[str, Any]) -> str:
+    """UserPromptSubmit's prompt text. The hooks page's field list calls it
+    `prompt` and its example payload `user_prompt`; both are read
+    (`docs/reference/claude-hooks.md` section 2)."""
+    for key in ("prompt", "user_prompt"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def in_prompt(rows: Sequence[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The notices a push carried into this turn's prompt (C-15.7).
+
+    A notice the push delivered reaches the session as the prompt of the turn
+    it starts, and UserPromptSubmit fires for that turn (observed 2026-10-03,
+    Claude Code 2.1.286). The push's last line names its notices by id
+    (`render.push_trailer`); a notice is in the prompt only if that line names
+    it. Matching ids, not text, keeps a second notice for the same job (a
+    quarantine release's, C-15.1) from passing for the first.
+    """
+    carried = render.pushed_notices(payload_prompt(payload))
+    return [row for row in rows if isinstance(row.get("notice_id"), int)
+            and (row["notice_id"], row.get("created_at")) in carried and names_a_job(row)]
+
+
+#: C-15.7: how long a notice the push has written is the push's to deliver.
+#: Its frame waits behind a running turn (priority `later`), so for this long
+#: UserPromptSubmit leaves it alone; past it, the frame may have been held by
+#: the inbox, and the hook prints the notice as it prints any other.
+PUSH_OWNS_S = 60
+
+
+def pushed_moments_ago(row: dict[str, Any], *, now: float | None = None) -> bool:
+    """Whether the push wrote this notice less than `PUSH_OWNS_S` ago."""
+    if row.get("state") != "offered" or row.get("transport") != "socket":
+        return False
+    stamp = row.get("offered_at")
+    if not isinstance(stamp, str) or not stamp:
+        return False
+    try:
+        offered = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if offered.tzinfo is None:
+        offered = offered.replace(tzinfo=timezone.utc)
+    # A time ahead of the clock (a clock stepped back, or a bad row) is not
+    # the push's: the hook would otherwise hold the notice back past the window.
+    return 0 <= (time.time() if now is None else now) - offered.timestamp() < PUSH_OWNS_S
 
 
 def wake_worker(session: str, payload: dict[str, Any], root: Path,
@@ -624,19 +737,23 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) 
                 if row.get("job_id") == job_id]
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows = []
-    text = ("\n\n".join(str(row.get("text") or "").strip() for row in rows)
-            if rows else job_summary(job, client.root))
-    stderr.write(text.rstrip() + "\n")
     if rows:
-        # `offered`, not `surfaced`: this transport gets no acknowledgement from
-        # the harness, so an unacknowledged notice is offered again by layer 3
-        # (plan B rev 4, "Notices and waiting"; C-15.3).
+        # Claim before showing (C-15.7): a notice the push (layer 4) wrote is
+        # the push's to tell, and one another layer has reached is not shown
+        # again. `offered`, not `surfaced`: this transport gets no
+        # acknowledgement from the harness, so an unacknowledged notice is
+        # offered again by layer 3 (plan B rev 4, "Notices and waiting"; C-15.3).
         try:
-            _mark(client, session, [row["notice_id"] for row in rows
-                                    if row.get("notice_id") is not None],
-                  "offered", "hook:PostToolUse")
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-            pass
+            rows = _claim(client, session, rows, "offered", "hook:PostToolUse",
+                          keep_pushed_s=PUSH_OWNS_S) or []
+        except (DaemonUnavailable, OSError):
+            rows = []
+        if not rows:
+            return int(Exit.OK)             # nothing of this hook's to say
+        text = "\n\n".join(str(row.get("text") or "").strip() for row in rows)
+    else:
+        text = job_summary(job, client.root)
+    stderr.write(text.rstrip() + "\n")
     return int(Exit.INVALID_INPUT)          # 2: the harness's "show this to Claude"
 
 

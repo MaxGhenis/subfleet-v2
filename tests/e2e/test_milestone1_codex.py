@@ -51,7 +51,10 @@ def test_success_exports_by_rename_and_exposes_notices_and_artifacts(e2e):
 
     notice, = e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))
     assert notice["session_id"] == e2e.env["CLAUDE_CODE_SESSION_ID"]
-    assert notice["state"] == "pending"
+    # C-15.3, C-23.50: `run --wait` printed the job's end to the session that
+    # ran it, so it acknowledged that session's notice; no hook and no push
+    # (C-15.7) tells the session again.
+    assert notice["state"] == "acknowledged"
     assert identity in notice["text"] and "ok" in notice["text"]
     assert str(e2e.out) in notice["text"]
     listed = e2e.cli("runs")

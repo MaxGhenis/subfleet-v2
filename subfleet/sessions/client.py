@@ -3,9 +3,10 @@
 Everything the sessions kit makes durable — a nudge record, a retirement flag, a
 notice, a job — goes through here, because the daemon owns the store (C-3.4) and
 the dispatch path (C-23.54). Nothing in this package touches `state.sqlite3`, and
-nothing opens a session's inbox socket: a nudge is a notice row written by the
-`ping` op, and `subfleet/notify_push.py` is the daemon-side layer that later
-tries to push it (C-15.2 layer 4).
+nothing opens a session's inbox socket: a nudge is a service notice row written
+by the `ping` op, which the session hooks surface (C-15.2 layer 3). The daemon's
+socket push (`subfleet/notify_push.py`, C-15.7) carries job notices only, so a
+nudge does not start a turn in an idle session.
 
 `Sessions` is deliberately a thin object so every module above it can be tested
 against a recording double instead of a live daemon.

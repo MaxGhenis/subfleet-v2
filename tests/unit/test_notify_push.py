@@ -13,11 +13,15 @@ import os
 import socket
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from subfleet import notify_push
+from subfleet import notify_push, render
+from subfleet.sessions import registry
 
 SESSION = "sess-push"
 
@@ -282,6 +286,10 @@ def test_a_push_delivers_the_auth_line_then_the_envelope(claude_home, inbox):
     content = server.lines[1]["message"]["content"]
     assert content.startswith("<cross-session-message from-name=\"subfleet\"")
     assert "run finished" in content
+    # C-15.7: queued behind the recipient's running turn, and addressed to the
+    # session so a socket that now belongs to another one drops it.
+    assert server.lines[1]["priority"] == "later"
+    assert server.lines[1]["session_id"] == SESSION
 
 
 @pytest.mark.parametrize("setup,reason", [
@@ -340,71 +348,684 @@ def test_a_socket_that_refuses_the_connection_is_a_reason_not_an_exception(
     assert result["delivered"] is False and result["reason"].startswith("send-failed")
 
 
-# --- the adapter onto notice rows ---------------------------------------------
-
-def rows(*states: str) -> list[dict]:
-    return [{"notice_id": index, "session_id": SESSION, "state": state,
-             "text": f"notice {index}"} for index, state in enumerate(states, 1)]
 
 
-def test_a_delivered_push_records_offered_and_never_acknowledged():
-    """C-15.3 the harness gives an address-less sender no acknowledgement, so
-    this layer stops at `offered` — which is what makes it safe to be lossy,
-    because an unacknowledged notice is surfaced again by the session hooks."""
-    marked: list[tuple[int, str]] = []
-    results = notify_push.offer(
-        rows("pending"), mark=lambda nid, transport: marked.append((nid, transport)),
-        push=lambda session, body, **kwargs: {"delivered": True, "transport": "socket"})
-    assert results[0]["delivered"] is True
-    assert marked == [(1, "socket")]
+# --- the wire: what a failure may have written (C-15.7) -----------------------
+
+class _Socket:
+    """A socket double whose `sendall` fails, as a peer that resets mid-write does."""
+
+    def __init__(self, *args, **kwargs):
+        self.closed = False
+
+    def settimeout(self, value):
+        pass
+
+    def connect(self, path):
+        pass
+
+    def sendall(self, payload):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def close(self):
+        self.closed = True
 
 
-def test_nothing_is_marked_when_the_bytes_were_not_accepted():
-    """C-15.3 `offered` means a delivery attempt was made and its transport
-    recorded; bytes the inbox never took are not an attempt that landed."""
-    marked: list[tuple[int, str]] = []
-    notify_push.offer(
-        rows("pending"), mark=lambda nid, transport: marked.append((nid, transport)),
-        push=lambda session, body, **kwargs: {"delivered": False, "reason": "x"})
-    assert marked == []
+def test_a_refused_connection_wrote_nothing(sockdir):
+    """C-15.7 a push whose connection was never made wrote nothing, so its
+    notices may go back to `pending` and be tried again."""
+    dangling = sockdir / "gone.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(dangling))
+    server.close()
+    with pytest.raises(notify_push.PushError) as caught:
+        notify_push.send_to_socket(str(dangling), "tok", "body", timeout=0.5)
+    assert caught.value.written is False
+    assert isinstance(caught.value, OSError), "existing callers catch OSError"
 
 
-@pytest.mark.parametrize("state", ["acknowledged", "surfaced"])
-def test_a_row_that_already_reached_its_session_is_not_offered_again(state):
-    """C-15.3 `acknowledged` and `surfaced` have already reached the session."""
-    attempts: list[str] = []
-    results = notify_push.offer(
-        rows(state), push=lambda session, body, **kwargs: attempts.append(session))
-    assert attempts == []
-    assert results[0]["delivered"] is False and state in results[0]["reason"]
+def test_a_failure_once_sending_began_may_have_written(monkeypatch):
+    """C-15.7 at most once: once `sendall` has started, a complete frame may be
+    in the inbox (it parses a final line without its newline), so the push
+    counts as made and is never repeated."""
+    monkeypatch.setattr(notify_push.socket, "socket", _Socket)
+    with pytest.raises(notify_push.PushError) as caught:
+        notify_push.send_to_socket("/tmp/x.sock", "tok", "body")
+    assert caught.value.written is True
 
 
-def test_an_offered_row_may_be_offered_again():
-    """C-15.3 "a notice may be offered more than once; it is acknowledged once"."""
-    attempts: list[str] = []
-    notify_push.offer(rows("offered"),
-                      push=lambda session, body, **kwargs:
-                      attempts.append(session) or {"delivered": True})
-    assert attempts == [SESSION]
+def test_the_frame_names_its_priority_session_and_uuid():
+    """C-15.7 `later` waits for the recipient's running turn to end; the session
+    id makes the recipient drop a frame meant for another session; the uuid is
+    the one the push records."""
+    item = notify_push.frame("hi", session_id="S", message_uuid="u-1")
+    assert item == {"type": "user", "message": {"role": "user", "content": "hi"},
+                    "priority": "later", "session_id": "S", "uuid": "u-1"}
+    assert "priority" not in notify_push.frame("hi", priority=None)
 
 
-def test_a_mark_that_raises_is_recorded_and_does_not_stop_the_rest():
-    """C-15.2 the least reliable layer stays lossy rather than fatal: a store
-    that will not take the mark costs one row's bookkeeping, not the batch."""
-    def boom(notice_id, transport):
+# --- the planner (C-15.7, C-23.50) --------------------------------------------
+
+NOW = 1_800_000_000.0
+SETTINGS = notify_push.PushSettings(delay_s=10, max_age_s=7200, session_gap_s=60,
+                                    per_minute=10, after_wait_s=120, retry_s=60, max_tries=3)
+
+
+def row(session_id: str = SESSION, pid: int = 4100, *, status: str | None = "idle",
+        alive: bool = True, socket_present: bool = True, entrypoint: str | None = "claude-desktop",
+        kind: str | None = "interactive", started_at: float = 1000.0,
+        sock: str | None = "/tmp/cc-socks/4100.sock") -> registry.SessionRow:
+    return registry.SessionRow(
+        session_id=session_id, pid=pid, socket=sock, name="a session", cwd="/repo",
+        started_at=started_at, alive=alive, socket_present=socket_present,
+        registry_path=f"/nonexistent/{pid}.json", entrypoint=entrypoint, status=status, kind=kind)
+
+
+def notice(notice_id: int = 1, *, session_id: str = SESSION, job_id: str | None = None,
+           age_s: float = 30.0, text: str | None = None) -> notify_push.Pending:
+    job = job_id or f"20261002-120000-job-{notice_id}"
+    stamp = datetime.fromtimestamp(NOW - age_s, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return notify_push.Pending(notice_id, job, session_id,
+                               text or f"{job}: succeeded; rc=0; deliverable=-; out=-", NOW - age_s, stamp)
+
+
+def planned(pending, rows, **kwargs) -> notify_push.Plan:
+    kwargs.setdefault("settings", SETTINGS)
+    return notify_push.plan(pending, rows, now=NOW, **kwargs)
+
+
+def test_notice_recipient_resolved_by_session_id_at_finish_time():
+    """Ledger row 71, C-15.7: the job was dispatched from pid 4100; the session
+    then restarted (an account switch) under pid 5200 with a new socket. The
+    push goes to the row that speaks for the session id now, never to a pid
+    recorded at dispatch."""
+    stale = row(pid=4100, alive=False, started_at=1000.0)
+    live = row(pid=5200, started_at=2000.0, sock="/tmp/cc-socks/5200.sock")
+    plan = planned([notice()], [stale, live])
+    push, = plan.pushes
+    assert (push.row.pid, push.row.socket) == (5200, "/tmp/cc-socks/5200.sock")
+
+
+def test_the_session_id_is_matched_whatever_its_case():
+    """C-26.3's rule for session ids: a notice recorded in one case reaches the
+    registry row spelled in the other, and the frame names the registry's."""
+    plan = planned([notice(session_id=SESSION.upper())], [row()])
+    push, = plan.pushes
+    assert push.session_id == SESSION
+
+
+def test_lane_session_refused_as_notice_target():
+    """Ledger row 76, C-23.31: a lane's deliverable is its last message, so a
+    push into a lane session would become that deliverable."""
+    plan = planned([notice()], [row()], lane_ids=[SESSION.upper()])
+    assert plan.pushes == [] and plan.held[SESSION] == "lane session"
+
+
+def test_a_conversation_session_is_never_addressed():
+    """C-26.13: a conversation's next turn is the next message sent in the app."""
+    plan = planned([notice()], [row()], conversation_ids=[SESSION])
+    assert plan.pushes == [] and plan.held[SESSION] == "conversation session"
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"alive": False}, "not running"),
+    ({"entrypoint": "sdk-cli"}, "headless"),
+    ({"kind": "background"}, "not interactive"),
+    ({"socket_present": False}, "no inbox"),
+    ({"sock": None}, "no inbox"),
+])
+def test_only_a_live_interactive_session_with_an_inbox_is_addressed(change, reason):
+    """C-15.7 every condition on the recipient is read from its registry row at
+    delivery time: a live process, not a headless SDK run, interactive, an inbox."""
+    plan = planned([notice()], [row(**change)])
+    assert plan.pushes == [] and plan.held[SESSION] == reason
+
+
+def test_an_unregistered_session_waits_for_the_hooks():
+    plan = planned([notice()], [row(session_id="someone-else")])
+    assert plan.pushes == [] and plan.held[SESSION] == "not registered"
+
+
+@pytest.mark.parametrize("status", ["busy", "waiting"])
+def test_a_session_in_a_turn_is_deferred_not_skipped(status):
+    """C-15.7 a session in a turn may learn of the job from a hook (C-15.2 layers
+    2 and 3) before the turn ends, so the push waits for it to be idle."""
+    held = planned([notice()], [row(status=status)])
+    assert held.pushes == [] and held.held[SESSION] == status
+    assert planned([notice()], [row(status="idle")]).pushes
+
+
+def test_a_row_with_no_status_is_pushed_to():
+    """C-15.7 an older Claude Code records no status; a `later` frame is safe
+    whatever the session is doing, so the row is not refused for it."""
+    assert planned([notice()], [row(status=None)]).pushes
+
+
+def test_push_skipped_while_attached_waiter_alive_and_resumes_when_it_dies():
+    """Ledger row 79, C-23.50: while a waiter is registered for the job, the
+    push stands aside; once no waiter is, and none reported the job ended, it
+    goes."""
+    job = "20261002-120000-waited"
+    held = planned([notice(job_id=job)], [row()], watched={job})
+    assert held.pushes == [] and held.held[SESSION] == "waiter live"
+    assert planned([notice(job_id=job)], [row()], watched=set()).pushes
+
+
+def test_a_job_a_wait_reported_is_left_to_that_waiter_for_a_while():
+    """C-23.50 the push is never the reason a caller learns about a job twice: a
+    `wait` that answered the job's end tells its session and acknowledges the
+    notice; until `push_after_wait_s` has passed, the push stands aside."""
+    job = "20261002-120000-waited"
+    held = planned([notice(job_id=job)], [row()], waited={job: NOW - 30})
+    assert held.pushes == [] and held.held[SESSION] == "waiter reported"
+    assert planned([notice(job_id=job)], [row()], waited={job: NOW - 121}).pushes
+
+
+def test_a_waiter_holds_only_its_own_jobs_notice():
+    """C-23.50, per notice: the waiter tells its session about the job it
+    watches; the session's other notices go now, so one long wait never holds
+    them until they age out (review of PR #114: `wait A B` with B running for
+    three hours, while C ended and aged past the max age)."""
+    pending = [notice(1, job_id="20261002-120000-a"), notice(2, job_id="20261002-120000-b"),
+               notice(3, job_id="20261002-120000-c")]
+    plan = planned(pending, [row()], watched={"20261002-120000-a"},
+                   waited={"20261002-120000-b": NOW - 30})
+    push, = plan.pushes
+    assert push.notice_ids == (3,)
+    held = planned(pending[:2], [row()], watched={"20261002-120000-a"},
+                   waited={"20261002-120000-b": NOW - 30})
+    assert held.pushes == [] and held.held[SESSION] == "waiter live"
+
+
+def test_a_young_notice_settles_and_an_old_one_is_left_to_the_hooks():
+    """C-15.7 `push_delay_s` lets layers 1 to 3 go first; `push_max_age_min`
+    keeps a backlog asleep, so an install never wakes every past session."""
+    assert planned([notice(age_s=5)], [row()]).held[SESSION] == "settling"
+    assert planned([notice(age_s=7201)], [row()]).held[SESSION] == "too old"
+    assert planned([notice(age_s=11)], [row()]).pushes
+
+
+def test_a_sessions_notices_go_in_one_push():
+    """C-15.7 coalescing: every pending notice of one session in one message,
+    including one younger than the delay once an older one is due."""
+    plan = planned([notice(2, age_s=40), notice(1, age_s=2), notice(3, age_s=20)], [row()])
+    push, = plan.pushes
+    assert push.notice_ids == (1, 2, 3)
+
+
+def test_a_session_is_pushed_at_most_once_per_gap():
+    history = notify_push.History(last_push={SESSION: NOW - 30})
+    assert planned([notice()], [row()], history=history).held[SESSION] == "session gap"
+    history = notify_push.History(last_push={SESSION: NOW - 61})
+    assert planned([notice()], [row()], history=history).pushes
+
+
+def test_the_per_minute_cap_holds_the_newest_sessions_back():
+    """C-15.7 a herd guard: at most `push_per_minute` pushes a minute in all,
+    the sessions whose notices have waited longest first."""
+    settings = notify_push.PushSettings(delay_s=0, per_minute=2)
+    pending = [notice(i, session_id=f"s{i}", age_s=100 - i) for i in range(1, 5)]
+    rows = [row(session_id=f"s{i}", pid=4100 + i) for i in range(1, 5)]
+    plan = planned(pending, rows, settings=settings)
+    assert [push.session_id for push in plan.pushes] == ["s1", "s2"]
+    assert plan.held == {"s3": "rate", "s4": "rate"}
+    history = notify_push.History(recent=[NOW - 10, NOW - 70])
+    plan = planned(pending, rows, settings=settings, history=history)
+    assert [push.session_id for push in plan.pushes] == ["s1"]
+
+
+def test_a_failed_push_is_retried_after_a_wait_and_given_up_after_its_tries():
+    ident = notice().ident
+    history = notify_push.History(failures={ident: (1, NOW - 10)})
+    assert planned([notice()], [row()], history=history).held[SESSION] == "retry wait"
+    history = notify_push.History(failures={ident: (1, NOW - 61)})
+    assert planned([notice()], [row()], history=history).pushes
+    history = notify_push.History(failures={ident: (3, NOW - 600)})
+    assert planned([notice()], [row()], history=history).held[SESSION] == "gave up"
+
+
+def test_a_reused_notice_id_starts_with_no_tries():
+    """Review of PR #114: SQLite reuses the largest rowid once retention has
+    deleted it, so the pass remembers a failure by id and creation time; a new
+    notice under an old id is not held for the old one's tries."""
+    history = notify_push.History(failures={(1, NOW - 5000): (3, NOW - 600)})
+    assert planned([notice(1)], [row()], history=history).pushes
+    history.prune(NOW, notify_push.PushSettings(max_age_s=1000))
+    assert history.failures == {}
+
+
+def test_an_unreadable_registry_pushes_nothing():
+    assert planned([notice()], None).held[SESSION] == "registry unreadable"
+
+
+def test_the_push_switched_off_plans_nothing():
+    plan = planned([notice()], [row()], settings=notify_push.PushSettings(enabled=False))
+    assert plan.pushes == [] and plan.held == {}
+
+
+def test_pending_rows_take_only_job_notices_for_a_session():
+    """C-15.7 the layer pushes completion notices (C-15.1): a row naming no job
+    (an imported v1 outbox message) or no session is not its to push."""
+    rows = [
+        {"notice_id": 1, "job_id": "j1", "session_id": "S", "text": "t", "created_at": "2026-10-02T22:10:05Z"},
+        {"notice_id": 2, "job_id": None, "session_id": "S", "text": "t", "created_at": "2026-10-02T22:10:05Z"},
+        {"notice_id": 3, "job_id": "j3", "session_id": " ", "text": "t", "created_at": "2026-10-02T22:10:05Z"},
+        {"notice_id": 4, "job_id": "j4", "session_id": "S", "text": "t", "created_at": "never"},
+        {"notice_id": 5, "job_id": "j5", "session_id": "S", "text": "t", "state": "offered",
+         "created_at": "2026-10-02T22:10:05Z"},
+        {"notice_id": -6, "job_id": "j6", "session_id": "S", "text": "t", "created_at": "2026-10-02T22:10:05Z"},
+    ]
+    found = notify_push.pending_rows(rows)
+    assert [item.notice_id for item in found] == [1]
+    assert found[0].created_at == notify_push.epoch("2026-10-02T22:10:05Z")
+
+
+def test_settings_come_from_the_policy_with_its_defaults():
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    settings = notify_push.PushSettings.from_policy(load_policy(DEFAULT_POLICY_PATH))
+    assert settings == notify_push.PushSettings()
+    assert notify_push.PushSettings.from_policy({"notices": {"push": False}}).enabled is False
+
+
+# --- one push: reserve, write, settle (C-15.7) ---------------------------------
+
+class Book:
+    """A recording double for the daemon's reserve, release and record."""
+
+    def __init__(self, reservable: set[int] | None = None):
+        self.reservable = reservable
+        self.calls: list[tuple] = []
+
+    def reserve(self, push, data):
+        self.calls.append(("reserve", push.notice_ids, dict(data)))
+        return [i for i in push.notice_ids if self.reservable is None or i in self.reservable]
+
+    def release(self, push, ids, data):
+        self.calls.append(("release", tuple(ids), dict(data)))
+
+    def record(self, kind, data):
+        self.calls.append(("record", kind, dict(data)))
+
+
+def a_push(*ids: int) -> notify_push.Push:
+    return notify_push.Push(session_id=SESSION, row=row(), notices=tuple(notice(i) for i in ids or (1,)))
+
+
+def run(push, book, *, send=None, check=lambda push: None, token="tok", mode="bypass"):
+    sent = []
+
+    def default_send(path, tok, content, **kwargs):
+        sent.append((path, tok, content, kwargs))
+
+    outcome = notify_push.deliver(push, reserve=book.reserve, release=book.release, record=book.record,
+                                  check=check, send=send or default_send,
+                                  token_of=lambda pid: token, mode_of=lambda session, pid: mode)
+    return outcome, sent
+
+
+def test_notice_envelope_declares_recipient_permission_class():
+    """Ledger row 74, C-23.42: the frame's envelope declares the recipient's own
+    class, and the frame is `later`, for this session, under the push's uuid."""
+    book = Book()
+    push = a_push(1, 2)
+    outcome, sent = run(push, book)
+    assert outcome.result == "delivered" and outcome.notice_ids == (1, 2)
+    (path, token, content, kwargs), = sent
+    assert (path, token) == ("/tmp/cc-socks/4100.sock", "tok")
+    assert content.startswith('<cross-session-message from-name="subfleet" from-mode="bypass">')
+    assert kwargs["priority"] == "later" and kwargs["session_id"] == SESSION
+    assert kwargs["message_uuid"] == push.message_uuid == outcome.message_uuid
+    assert book.calls[0][2]["uuid"] == push.message_uuid
+    assert [call[0] for call in book.calls] == ["reserve", "record"]
+    assert book.calls[1][1] == "notice.pushed" and book.calls[1][2]["notice_ids"] == [1, 2]
+
+
+def test_the_notices_are_reserved_before_a_byte_is_written():
+    """C-15.7 at most once: the push moves the rows to `offered` first, so a
+    crash after the write cannot leave a notice that is pushed again."""
+    order = []
+    book = Book()
+    book.reserve = lambda push, data: order.append("reserve") or list(push.notice_ids)
+    run(a_push(), book, send=lambda *a, **k: order.append("send"))
+    assert order == ["reserve", "send"]
+
+
+def test_only_the_notices_still_pending_are_written():
+    """C-15.7 a notice another layer reached between the plan and the push is
+    left out; when every notice was reached, nothing is written."""
+    outcome, sent = run(a_push(1, 2), Book(reservable={2}))
+    assert outcome.notice_ids == (2,)
+    assert "job-2" in sent[0][2] and "job-1" not in sent[0][2]
+    outcome, sent = run(a_push(1), Book(reservable=set()))
+    assert outcome.result == "raced" and sent == []
+
+
+def test_a_push_that_wrote_nothing_gives_its_notices_back():
+    """C-15.7 a refused connection wrote nothing: the notices go back to
+    `pending` (`release`), and the push may be tried again."""
+    def refuse(*args, **kwargs):
+        raise notify_push.PushError("connect: ConnectionRefusedError", written=False)
+    book = Book()
+    outcome, _ = run(a_push(), book, send=refuse)
+    assert outcome.result == "failed"
+    assert [call[0] for call in book.calls] == ["reserve", "release"]
+
+
+def test_a_push_that_may_have_written_keeps_its_notices_offered():
+    """C-15.7 at most once: bytes may be in the inbox, so the notices stay
+    `offered` and the uncertainty is recorded, never retried."""
+    def reset(*args, **kwargs):
+        raise notify_push.PushError("send: BrokenPipeError", written=True)
+    book = Book()
+    outcome, _ = run(a_push(), book, send=reset)
+    assert outcome.result == "uncertain"
+    assert [call[:2] for call in book.calls] == [("reserve", (1,)), ("record", "notice.push_uncertain")]
+
+
+def test_a_session_that_started_a_turn_since_the_plan_is_held():
+    """C-15.7 the registry row is read again just before the push; a session no
+    longer idle keeps its notices `pending`, nothing reserved."""
+    book = Book()
+    outcome, sent = run(a_push(), book, check=lambda push: "busy")
+    assert (outcome.result, outcome.reason) == ("held", "busy")
+    assert book.calls == [] and sent == []
+
+
+def test_a_missing_peer_token_reserves_nothing():
+    book = Book()
+    outcome, sent = run(a_push(), book, token=None)
+    assert outcome.result == "failed" and book.calls == [] and sent == []
+
+
+def test_a_push_never_raises():
+    """C-15.2 the least reliable layer must not disturb the layers above it."""
+    def broken(push, data):
         raise RuntimeError("store is gone")
-
-    results = notify_push.offer(
-        rows("pending", "pending"), mark=boom,
-        push=lambda session, body, **kwargs: {"delivered": True})
-    assert len(results) == 2
-    assert all("mark_failed" in item for item in results)
+    book = Book()
+    book.reserve = broken
+    outcome, sent = run(a_push(), book)
+    assert outcome.result == "failed" and "store is gone" in outcome.reason and sent == []
 
 
-def test_offer_returns_one_result_per_row_in_order():
-    """C-15.3 the states are per notice, so the results are too: a caller
-    reading the log needs to know which row each reason belongs to."""
-    results = notify_push.offer(
-        rows("pending", "acknowledged", "offered"),
-        push=lambda session, body, **kwargs: {"delivered": True})
-    assert [item["notice_id"] for item in results] == [1, 2, 3]
+def test_settle_counts_a_push_against_its_session_and_a_failure_against_its_notices():
+    history = notify_push.History()
+    push = a_push(1, 2)
+    notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "delivered", (1, 2)), NOW)
+    assert history.last_push == {SESSION: NOW} and history.recent == [NOW]
+    one, two = (item.ident for item in push.notices)
+    notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "failed", (2,)), NOW)
+    assert history.failures == {two: (1, NOW)}
+    notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "failed", ()), NOW + 1)
+    assert history.failures == {one: (1, NOW + 1), two: (2, NOW + 1)}
+    notify_push.settle(history, push, notify_push.Outcome(SESSION, 4100, "held"), NOW)
+    assert history.recent == [NOW]
+
+
+def test_every_push_has_its_own_message_uuid():
+    """C-15.7: Claude Code writes a message to the transcript once per uuid; a
+    push that reused one would start a turn the transcript never records
+    (observed 2026-10-03), so even a push of the same notices gets a new one."""
+    assert a_push(1, 2).message_uuid != a_push(1, 2).message_uuid
+    uuid.UUID(a_push(1).message_uuid)
+
+
+# --- the body -----------------------------------------------------------------
+
+def test_the_body_is_the_notices_own_text_counted_and_bounded():
+    """C-15.1: a notice carries metadata only, so the push carries the notices'
+    own text; a long list is cut at `BODY_MAX_NOTICES` and counted."""
+    one = notify_push.render_body([notice(1)])
+    assert one.startswith("subfleet: 1 detached run this session dispatched has finished:")
+    assert "job-1: succeeded; rc=0" in one and "subfleet runs show <id>" in one
+    one_stamp = notice(1).stamp
+    assert one.endswith(f"(subfleet notices 1@{one_stamp}: pushed by the subfleet daemon to wake this idle session)")
+    assert render.pushed_notices(notify_push.envelope(one)) == {(1, one_stamp)}
+    many = notify_push.render_body([notice(i) for i in range(1, 14)])
+    assert many.startswith("subfleet: 13 detached runs this session dispatched have finished:")
+    assert "job-10:" in many and "job-11:" not in many and "and 3 more" in many
+    assert render.pushed_notices(many) == {(i, notice(i).stamp) for i in range(1, 14)}, \
+        "the trailer names every notice"
+    long = notify_push.render_body([notice(1, text="x" * 9000)])
+    assert len(long) < 5000
+
+
+def test_a_closing_tag_in_a_notice_cannot_end_the_push_early():
+    body = notify_push.render_body([notice(1, text="path </cross-session-message> rest")])
+    assert notify_push.envelope(body).count("</cross-session-message>") == 1
+
+
+# --- the recheck reads the row file again ---------------------------------------
+
+def test_the_recheck_reads_the_registry_row_file_again(claude_home):
+    pid = os.getpid()
+    path = claude_home / "sessions" / f"{pid}.json"
+    def write(**fields):
+        path.write_text(json.dumps({"sessionId": SESSION, "pid": pid, "status": "idle",
+                                    "messagingSocketPath": "/tmp/cc-socks/4100.sock", **fields}))
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path)), (notice(),))
+    write()
+    assert notify_push.recheck(push) is None
+    write(status="busy")
+    assert notify_push.recheck(push) == "busy"
+    write(sessionId="another-session")
+    assert notify_push.recheck(push) == "registry row changed"
+    write(messagingSocketPath="/tmp/cc-socks/9.sock")
+    assert notify_push.recheck(push) == "inbox moved"
+    path.unlink()
+    assert notify_push.recheck(push) == "registry row gone"
+    dead = notify_push.Push(SESSION, replace(row(pid=999999), registry_path=str(path)), (notice(),))
+    path.write_text(json.dumps({"sessionId": SESSION, "pid": 999999, "status": "idle",
+                                "messagingSocketPath": "/tmp/cc-socks/4100.sock"}))
+    assert notify_push.recheck(dead) == "not running"
+
+
+def test_reachable_says_whether_any_session_could_be_pushed_now():
+    assert notify_push.reachable([notice()], [row()])
+    assert not notify_push.reachable([notice()], [row(status="busy"), row(session_id="x")])
+    assert not notify_push.reachable([], [row()])
+
+
+def test_the_registry_fingerprint_moves_with_a_row_file(claude_home):
+    """C-15.7: the pass skips a plan whose inputs have not changed; a status
+    written into a row file changes the fingerprint."""
+    path = claude_home / "sessions" / "4100.json"
+    path.write_text(json.dumps({"sessionId": SESSION, "status": "busy"}))
+    before = notify_push.registry_fingerprint()
+    assert before == notify_push.registry_fingerprint()
+    path.write_text(json.dumps({"sessionId": SESSION, "status": "idle"}))
+    os.utime(path, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    assert notify_push.registry_fingerprint() != before
+
+
+# --- round 2 of the review of PR #114 -------------------------------------------
+
+@pytest.mark.parametrize("mode,available,expected", [
+    ("bypassPermissions", False, "bypass"), ("plan", True, "bypass"), ("plan", False, "prompting"),
+    ("default", True, "prompting"), ("acceptEdits", True, "prompting"), (None, True, None)])
+def test_plan_mode_is_bypass_only_while_bypass_is_available(mode, available, expected):
+    """Claude Code 2.1.286 classes `plan` as bypass when bypass is available to
+    the session (its `J2`); Subfleet declares the same, or the inbox holds the
+    push as `mode-mismatch`."""
+    assert notify_push.mode_class_of(mode, available) == expected
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["claude", "--allow-dangerously-skip-permissions"], True),
+    (["claude", "--dangerously-skip-permissions"], True),
+    (["claude", "--permission-mode", "bypassPermissions"], True),
+    (["claude", "--permission-mode=bypassPermissions"], True),
+    (["claude", "--permission-mode", "plan"], False),
+    # Review of PR #114: a prompt that names the flag is one argument, not the
+    # flag, and nothing after `--` is an option.
+    (["claude", "--permission-mode", "plan", "Explain --allow-dangerously-skip-permissions"], False),
+    (["claude", "--", "--dangerously-skip-permissions"], False),
+    (["claude"], False), ([], False)])
+def test_the_bypass_flag_is_read_from_the_command_line(argv, expected):
+    assert notify_push.bypass_flag_in(argv) is expected
+
+
+def test_process_argv_keeps_argument_boundaries():
+    """Review of PR #114: `ps` joins arguments with spaces; the kernel's own
+    vector keeps an argument with spaces whole."""
+    import subprocess
+    import sys as _sys
+    child = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)",
+                              "Explain --allow-dangerously-skip-permissions", "--", "x y"])
+    try:
+        argv = notify_push.process_argv(child.pid)
+    finally:
+        child.kill()
+        child.wait()
+    assert argv[-3:] == ["Explain --allow-dangerously-skip-permissions", "--", "x y"]
+    assert not notify_push.bypass_flag_in(argv)
+
+
+def test_a_session_that_was_ever_in_bypass_mode_has_bypass_available(claude_home, monkeypatch):
+    """Review of PR #114: Claude Code fixes bypass availability at start, from a
+    flag or from a settings `defaultMode`. A session that was in bypass mode at
+    any point had it, whatever its command line says."""
+    projects = claude_home / "projects" / "repo"
+    projects.mkdir(parents=True)
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: ["claude"])
+    (projects / f"{SESSION}.jsonl").write_text(
+        json.dumps({"permissionMode": "bypassPermissions"}) + "\n" + "x" * 200_000 + "\n"
+        + json.dumps({"permissionMode": "plan"}) + "\n")
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "bypass"
+    (projects / f"{SESSION}.jsonl").write_text(
+        json.dumps({"permissionMode": "default"}) + "\n" + json.dumps({"permissionMode": "plan"}) + "\n")
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
+
+
+def test_a_session_in_plan_mode_is_classed_by_its_launch_flags(claude_home, monkeypatch):
+    projects = claude_home / "projects" / "repo"
+    projects.mkdir(parents=True)
+    (projects / f"{SESSION}.jsonl").write_text(json.dumps({"permissionMode": "plan"}) + "\n")
+    asked = []
+    monkeypatch.setattr(notify_push, "process_argv",
+                        lambda pid: asked.append(pid) or ["claude", "--allow-dangerously-skip-permissions"])
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "bypass"
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: ["claude"])
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
+    (projects / f"{SESSION}.jsonl").write_text(json.dumps({"permissionMode": "default"}) + "\n")
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: pytest.fail("not plan: no ps"))
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
+    assert asked == [4100]
+
+
+def test_process_argv_reads_a_live_process_and_nothing_else():
+    assert "python" in " ".join(notify_push.process_argv(os.getpid())).lower()
+    assert notify_push.process_argv(None) == [] and notify_push.process_argv(0) == []
+    assert notify_push.process_argv(999999) == []
+
+
+def test_a_push_carries_at_most_what_it_spells_out():
+    """Review of PR #114: a notice past the tenth would be reserved, named in
+    the trailer and marked as shown without its text. A push takes ten; the
+    rest stay `pending` for the next one."""
+    plan = planned([notice(i) for i in range(1, 14)], [row()])
+    push, = plan.pushes
+    assert push.notice_ids == tuple(range(1, 11))
+    assert "more:" not in notify_push.render_body(push.notices)
+    assert plan.next_change <= NOW + SETTINGS.session_gap_s
+
+
+def test_the_check_runs_again_right_before_the_reservation():
+    """Review of PR #114: the token and class lookups take time; a waiter or a
+    turn that starts in it holds the push, with nothing reserved."""
+    answers = iter([None, "waiter live"])
+    book = Book()
+    outcome, sent = run(a_push(), book, check=lambda push: next(answers))
+    assert (outcome.result, outcome.reason) == ("held", "waiter live")
+    assert book.calls == [] and sent == []
+
+
+def test_a_socket_that_cannot_be_made_wrote_nothing(monkeypatch):
+    """Review of PR #114: descriptor exhaustion (EMFILE) at `socket()` means no
+    connection and no byte, so the notices are given back, not kept."""
+    import errno
+
+    def no_descriptors(*args, **kwargs):
+        raise OSError(errno.EMFILE, "Too many open files")
+    monkeypatch.setattr(notify_push.socket, "socket", no_descriptors)
+    with pytest.raises(notify_push.PushError) as caught:
+        notify_push.send_to_socket("/tmp/x.sock", "tok", "body")
+    assert caught.value.written is False
+    book = Book()
+    outcome, _ = run(a_push(), book, send=notify_push.send_to_socket)
+    assert outcome.result == "failed" and [call[0] for call in book.calls] == ["reserve", "release"]
+
+
+def test_sessions_are_ranked_by_their_oldest_notice_left_after_the_filter():
+    """Review of PR #114: notices held for their waiters do not order the
+    sessions. Ten sessions each hold an old watched notice and a young one; an
+    eleventh has an older pushable notice, which goes first."""
+    settings = notify_push.PushSettings(delay_s=0, per_minute=1, max_age_s=7200)
+    pending, rows, watched = [], [], set()
+    for index in range(10):
+        session = f"s{index}"
+        pending += [notice(100 + index, session_id=session, job_id=f"old-{index}", age_s=7195),
+                    notice(200 + index, session_id=session, job_id=f"new-{index}", age_s=20)]
+        watched.add(f"old-{index}")
+        rows.append(row(session_id=session, pid=5000 + index))
+    pending.append(notice(300, session_id="elder", age_s=7180))
+    rows.append(row(session_id="elder", pid=6000))
+    plan = planned(pending, rows, settings=settings, watched=watched)
+    assert [push.session_id for push in plan.pushes] == ["elder"]
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("settling", NOW - 3 + 10), ("gap", NOW - 30 + 60), ("retry", NOW - 10 + 60),
+    ("reported", NOW - 30 + 120), ("lapsed", NOW - 5 + notify_push.WAITER_GRACE_S),
+    ("rate", NOW - 50 + 60)])
+def test_the_plan_names_its_next_clock_boundary(case, expected):
+    """Review of PR #114: a kept plan is replanned no later than the first
+    moment a rule on the clock could change it, so the skip never carries a
+    notice past its last chance (a gap ending before the max age does)."""
+    item = notice(age_s=3 if case == "settling" else 30)
+    history = notify_push.History()
+    kwargs = {}
+    if case == "gap":
+        history.last_push[SESSION] = NOW - 30
+    if case == "retry":
+        history.failures[item.ident] = (1, NOW - 10)
+    if case == "reported":
+        kwargs["waited"] = {item.job_id: NOW - 30}
+    if case == "lapsed":
+        kwargs["lapsed"] = {item.job_id: NOW - 5}
+    if case == "rate":
+        history.recent = [NOW - 50] * SETTINGS.per_minute
+    plan = planned([item], [row()], history=history, **kwargs)
+    assert plan.pushes == []
+    assert plan.next_change == pytest.approx(min(expected, item.created_at + SETTINGS.max_age_s))
+
+
+def test_a_job_whose_wait_just_timed_out_counts_as_watched_for_the_grace():
+    """Review of PR #114: between two long polls of a `wait`, its jobs have no
+    registered waiter; for `WAITER_GRACE_S` after a timed-out poll they still
+    count as watched."""
+    item = notice(job_id="20261002-120000-polled")
+    assert planned([item], [row()], lapsed={item.job_id: NOW - 5}).held[SESSION] == "waiter live"
+    assert planned([item], [row()], lapsed={item.job_id: NOW - notify_push.WAITER_GRACE_S - 1}).pushes
+
+
+def test_a_session_id_with_spaces_is_found_and_kept_as_stored():
+    """Review of PR #114: the registry is searched trimmed and folded; the
+    notice keeps the stored spelling, which the reservation compares."""
+    item = notify_push.pending_rows([{"notice_id": 1, "job_id": "j", "session_id": f" {SESSION} ",
+                                      "text": "t", "created_at": "2026-10-02T22:10:05Z"}])[0]
+    assert item.session_id == f" {SESSION} " and item.key == SESSION
+    plan = notify_push.plan([item], [row()], now=item.created_at + 60, settings=SETTINGS)
+    assert plan.pushes and plan.pushes[0].session_id == SESSION
+
+
+def test_the_recheck_compares_the_process_start_when_both_are_known(claude_home):
+    pid = os.getpid()
+    path = claude_home / "sessions" / f"{pid}.json"
+    path.write_text(json.dumps({"sessionId": SESSION, "pid": pid, "status": "idle", "procStart": "B",
+                                "messagingSocketPath": "/tmp/cc-socks/4100.sock"}))
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path), proc_start="A"),
+                            (notice(),))
+    assert notify_push.recheck(push) == "registry row changed"
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path), proc_start="B"),
+                            (notice(),))
+    assert notify_push.recheck(push) is None
