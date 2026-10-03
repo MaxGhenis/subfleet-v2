@@ -162,7 +162,8 @@
     "desktop_recent_s": 1800,
     "machine_guard": null,
     "pin_grace_s": 1800,
-    "pin_hold_far_s": 604800
+    "pin_hold_far_s": 604800,
+    "prove_idle_s": 900
   },
   "conversations": {
     "approval_wait_s": null,

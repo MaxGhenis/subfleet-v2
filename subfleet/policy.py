@@ -168,6 +168,13 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
 #: closure must end to count as a hold rather than a wait (C-11.8): seven days
 #: is the longest usage window Subfleet reads (`seven_day`).
+#: `prove_idle_s` is how long a lane may go without showing a model's answer
+#: before it is proven again by one detached attempt, its pilot, while every
+#: other detached attempt waits for that answer (C-6.14); null never holds a
+#: lane. Fifteen probe intervals: a lane in use proves itself with every
+#: attempt it starts and never waits, and a lane idle that long costs one
+#: serialized start, where an unproven lane took 37 jobs in 40 s on
+#: 2026-09-30 and failed every one.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
@@ -178,6 +185,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "machine_guard": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
+    "prove_idle_s": 900,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -379,6 +387,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     far = settings["pin_hold_far_s"]
     if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
         fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    prove = settings["prove_idle_s"]
+    if prove is not None and (not isinstance(prove, (int, float)) or isinstance(prove, bool)
+                              or not math.isfinite(prove) or prove <= 0):
+        fail("admission.prove_idle_s", "must be a positive finite number of seconds, or null never to hold "
+                                       "a lane for its pilot (C-6.14)")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
