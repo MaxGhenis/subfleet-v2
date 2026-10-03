@@ -159,6 +159,41 @@ def test_c15_3_state_a_stale_offer_never_puts_a_surfaced_notice_back(state_daemo
     assert surface(daemon, harness.root, "raced") == ""
 
 
+def test_c15_3_state_a_pushed_notice_is_never_pending_again(state_daemon, no_wake):
+    """C-15.3 with C-15.2 layer 4: a notice the socket push offered never goes back to `pending`.
+
+    The push records a delivery as `offered` with transport `socket`. No mark
+    returns a notice to `pending`, a later push of the same rows changes
+    nothing a hook already did, and the next hook prints each one once.
+    """
+    daemon, harness = state_daemon
+    job_id, notice_id = job_notice(daemon, harness, "pushed")
+    message_id = daemon.dispatch("ping", {"session_id": "pushed", "text": "pushed message"})["notice_id"]
+    ids = sorted(pending_ids(daemon, "pushed"))
+
+    def states() -> list[str]:
+        return [daemon.store.one("SELECT state FROM notices WHERE notice_id=?", (notice_id,))["state"],
+                service_row(daemon, message_id)["state"]]
+
+    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
+                                    "state": "offered", "transport": "socket"})
+    assert states() == ["offered", "offered"]
+    for state in ("pending", "queued", ""):
+        with pytest.raises(protocol.ProtocolError, match="unknown notice state"):
+            daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids, "state": state})
+    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
+                                    "state": "offered", "transport": "socket"})
+    assert states() == ["offered", "offered"]
+
+    context = surface(daemon, harness.root, "pushed")
+    assert job_id in context and "pushed message" in context
+    assert states() == ["surfaced", "surfaced"]
+    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
+                                    "state": "offered", "transport": "socket"})
+    assert states() == ["surfaced", "surfaced"]
+    assert surface(daemon, harness.root, "pushed") == ""
+
+
 @pytest.mark.parametrize("bad", ["-3", 1.5, True, None])
 def test_c15_3_state_notice_ids_are_integers(state_daemon, bad):
     """C-15.3 a notice id names a table by its sign, so anything but an integer is refused."""
