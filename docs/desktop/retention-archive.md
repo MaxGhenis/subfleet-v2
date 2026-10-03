@@ -915,6 +915,9 @@ its untracked and ignored file bytes in the archive. It also checks that the
 shared stash list and a retained tree's HEAD reflog survive, and that a later
 quiet pass can retire a kept job. Legacy committed-journal tests distinguish
 safe completion from preserving an incomplete archive for recovery.
+The older late-return regressions bypass the initial discovery guards so
+they continue to exercise the quarantine and final presence checks
+independently of the earlier persistent-id deferral.
 The final fallback tests also cover an existing lane with a dangling `.git`
 file, both with and without salvage, and a replaced salvage ref in that source.
 

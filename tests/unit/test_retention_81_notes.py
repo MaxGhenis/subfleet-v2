@@ -465,10 +465,11 @@ def test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_i
         return original(self)
 
     monkeypatch.setattr(rarch.Retirement, "quarantine", back_then_quarantine)
-    # The sibling check alone would keep the job at `begin`; this case is the
-    # tree that comes back after it, so take the sweep's name away from `begin`.
+    # Bypass the initial discovery guards to exercise the quarantine presence
+    # check independently; the persistent admin id normally defers even sooner.
     monkeypatch.setattr(rarch, "tree_away", lambda worktree: None, raising=False)
     monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
+    monkeypatch.setattr(rgit, "named_admin", lambda common, tree: None)
     result = run(w)
     assert result["pruned"] == [], result
     assert wt.is_dir() and _registration_works(wt)
@@ -510,9 +511,10 @@ def test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job(world,
     wt, private = _job_with_private_commit(w, "job-qm")
     elsewhere = w.base / "elsewhere"
     git(w.repo, "worktree", "move", str(wt), str(elsewhere))
-    # Exercise the final window even when the initial moved-tree lookup did
-    # not observe the checkout (e.g. an unavailable volume).
+    # Bypass initial discovery to exercise the final presence check independently
+    # of the persistent admin id, which normally keeps this job at begin.
     monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
+    monkeypatch.setattr(rgit, "named_admin", lambda common, tree: None)
     original = rarch.Retirement.final_check
 
     def back_then_check(self):
@@ -846,7 +848,9 @@ def test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in(world, mo
     wt, private = _job_with_private_commit(w, "job-t")
     elsewhere = w.base / "elsewhere"
     git(w.repo, "worktree", "move", str(wt), str(elsewhere))
+    # Exercise the return inside quarantine independently of the initial guards.
     monkeypatch.setattr(rgit, "moved_tree", lambda common, tree: None)
+    monkeypatch.setattr(rgit, "named_admin", lambda common, tree: None)
     original_save = rarch.Retirement.save
 
     def save(self, **changes):
