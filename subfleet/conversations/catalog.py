@@ -546,7 +546,7 @@ def activity_times(root: Path) -> dict[tuple[str, str], float]:
         native, mtime = item.get("native_session_id"), item.get("mtime")
         if not isinstance(native, str) or not native or not isinstance(mtime, (int, float)) or isinstance(mtime, bool):
             continue
-        if not math.isfinite(mtime) or not 0 <= mtime <= 253402300799:
+        if not 0 <= mtime <= 253402300799 or not math.isfinite(mtime):
             continue
         key = (item["provider"], canonical_native(native))
         times[key] = max(times.get(key, 0), mtime)

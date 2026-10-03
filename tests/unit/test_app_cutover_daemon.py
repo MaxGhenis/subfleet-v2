@@ -184,6 +184,7 @@ def test_activity_times_keeps_all_provider_bound_entries_and_ignores_bad_mtimes(
     rows += [{"provider": "codex", "native_session_id": "s-1", "mtime": 500},
              {"provider": "claude", "native_session_id": "s-1", "mtime": 600},
              {"provider": "claude", "native_session_id": "bad", "mtime": float("nan")},
+             {"provider": "claude", "native_session_id": "huge", "mtime": 10 ** 400},
              {"provider": "claude", "native_session_id": "bool", "mtime": True}, "bad"]
     write_catalog(tmp_path, "2026-09-28T12:00:00Z", rows)
     activity = catalog.activity_times(tmp_path)
