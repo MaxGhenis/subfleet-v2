@@ -376,7 +376,7 @@ def submit_args(candidate: Candidate, *, model: str | None, request_id: str,
         in_place=True,
         no_preamble=True,
         caller_session=candidate.session_id,
-        max_attempts=1,             # a retry would be a second continuation
+        max_attempts=1,             # a retry would be a second continuation (a host shutdown is retried: C-4.7)
     )
 
 

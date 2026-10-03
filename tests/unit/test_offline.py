@@ -231,16 +231,40 @@ def test_offline_kill_of_a_finished_job_is_already_finished(store, capsys):
 
 
 def test_offline_kill_signals_a_verified_process_group(root, capsys, monkeypatch):
-    """C-5.4, C-17.5 a verified identity is the only thing offline kill signals."""
-    signalled: list[tuple[int, int]] = []
+    """C-5.4, C-17.5 a verified identity is the only thing offline kill signals.
+    C-4.7: it leaves `kill.json` in the attempt's directory before it signals."""
+    signalled: list[tuple[int, int, dict]] = []
     build_store(root, guardian_pid=os.getpid(), proc_start="recorded")
     monkeypatch.setattr("subfleet.offline.same_process", lambda *a, **k: True)
-    monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append((pgid, sig)))
+    marker = root / "jobs" / JOB / "a1" / "kill.json"
+
+    def killpg(pgid, sig):
+        signalled.append((pgid, sig, json.loads(marker.read_text())))     # already there
+    monkeypatch.setattr(os, "killpg", killpg)
     assert cli.main(["kill", JOB]) == 0
-    assert signalled == [(os.getpid(), 15)]
+    [(pgid, sig, recorded)] = signalled
+    assert (pgid, sig) == (os.getpid(), 15)
+    assert recorded["by"] == "offline-kill" and recorded["signal"] == 15 and recorded["pgid"] == os.getpid()
     captured = capsys.readouterr()
     assert "signalled" in captured.out
     assert "until a daemon reconciles it" in captured.err
+
+
+def test_offline_kill_that_cannot_leave_its_mark_does_not_signal(root, capsys, monkeypatch):
+    """C-4.7, C-17.5: with no `kill.json` the next daemon could take the operator's
+    signal for the host's shutdown and retry the job, so the kill refuses."""
+    signalled = []
+    build_store(root, guardian_pid=os.getpid(), proc_start="recorded")
+    monkeypatch.setattr("subfleet.offline.same_process", lambda *a, **k: True)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: signalled.append((pgid, sig)))
+
+    def full_disk(path, data):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr("subfleet.guardian.atomic_publish", full_disk)
+    assert cli.main(["kill", JOB]) == 1
+    assert signalled == []
+    captured = capsys.readouterr()
+    assert "refused" in captured.out and "cannot record the kill" in captured.err
 
 
 def test_offline_kill_json_emits_one_object(store, capsys):

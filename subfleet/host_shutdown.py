@@ -1,8 +1,8 @@
-"""C-4.7: an attempt the host's shutdown ended is retried and never charged.
+"""C-4.7: an attempt the host's shutdown ended is retried, and a job's first three are not charged.
 
 A provider that the host killed as it shut down or restarted did not fail at its
-work, so its attempt is `transient` and does not count against the job's
-`max_attempts` (C-4.5). Everything here is a pure function of recorded facts: the
+work, so its attempt is `transient` and, for a job's first `RETRIES`, does not
+count against the job's `max_attempts` (C-4.5). Everything here is a pure function of recorded facts: the
 attempt's row and exit receipt, the boot the daemon runs in, and what the last
 daemon of the attempt's boot wrote in `daemon.lock` as it stopped. The daemon
 pins the verdict in `finalization.json` the first time it finalizes the attempt
@@ -44,9 +44,23 @@ WINDOW_S = 600
 #: host between 2026-09-30 and 2026-10-03), and the receipt's clock is the old
 #: boot's.
 CLOCK_SLACK_S = 120
-#: Host shutdowns a job is retried after. One more ends it, still uncharged, so
-#: that a job whose own work restarts the host cannot restart it forever.
+#: How long a daemon holds, in its own boot, the finalization of an attempt a
+#: signal from outside Subfleet ended, and holds it for good once it is
+#: stopping: the daemon cannot count on being stopped before the providers are
+#: signalled (on 2026-09-30 it was, by 18 s), and an attempt finalized in the
+#: boot it ended in can never be a host shutdown (review of PR #119).
+SAME_BOOT_HOLD_S = 60
+#: How long before the last daemon of its boot began to stop a provider may have
+#: ended and still be the host's: such an attempt was held (`SAME_BOOT_HOLD_S`)
+#: and then the stop came. Larger than the hold, so a held attempt always fits.
+BEFORE_STOP_S = 120
+#: Host shutdowns a job is retried after without charge. Later ones are charged
+#: like any transient, so a job whose own work restarts the host still ends
+#: within its `max_attempts`, and no reboot alone ends a job (review of PR #119).
 RETRIES = 3
+#: What an offline `subfleet kill` (C-17.5) writes in the attempt's directory
+#: before it signals: the daemon was down, so no `killed_by` records the kill.
+KILL_MARKER = "kill.json"
 
 #: The attempt evidence key that marks a host-shutdown attempt. Only the daemon
 #: writes it, so no provider text can claim it (C-9.2 keeps the adapter's verdict
@@ -127,9 +141,12 @@ def verdict(*, kind: str | None, killed_by: str | None, attempt_boot: str | None
       their boot session UUIDs (C-5.3: a differing UUID means the boot ended;
       a legacy `kern.boottime` value decides nothing);
     * it ended as that boot ended: no more than `WINDOW_S` before the current
-      boot began (and no more than `CLOCK_SLACK_S` after it), or within
-      `WINDOW_S` after the last daemon of its boot began to stop
-      (`daemon_stopping_at`, which the caller passes only for that boot).
+      boot began (and no more than `CLOCK_SLACK_S` after it), or from
+      `BEFORE_STOP_S` before to `WINDOW_S` after the moment the last daemon of
+      its boot began to stop (`daemon_stopping_at`, which the caller passes only
+      for that boot).
+
+    The caller passes an offline kill's marker as `killed_by`.
     """
     if kind == "turn" or killed_by or not isinstance(receipt, Mapping):
         return None
@@ -146,7 +163,8 @@ def verdict(*, kind: str | None, killed_by: str | None, attempt_boot: str | None
     if began is not None and began - window <= ended <= began + slack:
         basis = "next-boot"
     stopping = _parse(daemon_stopping_at)
-    if basis is None and stopping is not None and stopping <= ended <= stopping + window:
+    if (basis is None and stopping is not None
+            and stopping - timedelta(seconds=BEFORE_STOP_S) <= ended <= stopping + window):
         basis = "daemon-stopping"
     if basis is None:
         return None
@@ -155,12 +173,36 @@ def verdict(*, kind: str | None, killed_by: str | None, attempt_boot: str | None
             "daemon_stopping_at": daemon_stopping_at, "basis": basis}
 
 
+def held_in_boot(*, kind: str | None, killed_by: str | None, attempt_boot: str | None,
+                 current_boot: str | None, receipt: Mapping[str, Any] | None, now: datetime,
+                 stopping: bool, hold_s: float = SAME_BOOT_HOLD_S) -> bool:
+    """C-4.7: whether a daemon, in the boot an attempt ran in, holds its finalization.
+
+    Only an attempt `verdict` could judge from the next boot is held: a detached
+    job's, which the daemon did not signal, and a signal ended. It waits
+    `hold_s` from its end, in case the host is going down, and for good once the
+    daemon is stopping, so that the next boot judges it. After the hold the
+    signal was not the host's, and the attempt is finalized as before."""
+    if kind == "turn" or killed_by or not isinstance(receipt, Mapping) or ended_by_signal(receipt) is None:
+        return False
+    old, new = session_uuid(str(attempt_boot or "")), session_uuid(str(current_boot or ""))
+    if not old or old != new:
+        return False
+    if stopping:
+        return True
+    ended = _parse(receipt.get("finished_at"))
+    return ended is not None and now < ended + timedelta(seconds=hold_s)
+
+
 def detail(evidence: Mapping[str, Any]) -> str:
     """The attempt's `outcome_detail` for a host shutdown."""
     up = evidence.get("boot_at") or "an unrecorded time"
+    charge = (f"The job has had {RETRIES} host shutdowns that did not count, so this one counts against "
+              "its attempts (C-4.7)" if evidence.get("charged") else
+              "Not a failure of the work, and not counted against the job's attempts (C-4.7)")
     return (f"transient: host shutdown: the provider ended at {evidence['ended_at']} on "
             f"{evidence['signal']} (rc {evidence.get('rc')}) as the host shut down; it was up again at {up}. "
-            "Not a failure of the work, and not counted against the job's attempts (C-4.7)")
+            + charge)
 
 
 def marked(evidence: Any) -> dict | None:
@@ -181,28 +223,41 @@ def marked(evidence: Any) -> dict | None:
     return dict(found) if isinstance(found, Mapping) else None
 
 
+def exempt(attempt: Any) -> bool:
+    """Whether this attempt is a host shutdown that is not charged."""
+    found = marked(attempt)
+    return found is not None and not found.get("charged")
+
+
+def charged_now(earlier: Iterable[Any]) -> bool:
+    """Whether a host shutdown after these attempts is charged: the job has had
+    `RETRIES` uncharged ones already."""
+    return sum(1 for attempt in earlier if exempt(attempt)) >= RETRIES
+
+
 def retry_after(*, cancel: bool, max_attempts: int, earlier: Iterable[Any],
                 shutdown: bool, eligible: bool) -> bool:
     """C-4.5, C-4.7: whether the job tries again after this attempt.
 
     `earlier` is every attempt of the job before this one (rows or evidence).
-    Only attempts without a host-shutdown mark are charged, this one included,
-    so a job tries again while fewer than `max_attempts` charged attempts have
-    run and this attempt's class allows a retry (`eligible`, C-4.5's rule). A
-    host-shutdown attempt is retried whatever its class and budget, until the
-    job has had more than `RETRIES` of them. A cancel ends the job either way.
+    A host shutdown is retried uncharged, whatever its class and budget, while
+    the job has had fewer than `RETRIES` uncharged ones; after that it is
+    charged and retried as a transient is. Every other attempt is charged, so a
+    job tries again while fewer than `max_attempts` charged attempts have run,
+    this one included, and this attempt's class allows it (`eligible`, C-4.5's
+    rule). A cancel ends the job either way.
     """
     if cancel:
         return False
-    marks = [marked(attempt) is not None for attempt in earlier]
-    if shutdown:
-        return marks.count(True) + 1 <= RETRIES
-    return eligible and marks.count(False) + 1 < max_attempts
+    free = [exempt(attempt) for attempt in earlier]
+    if shutdown and free.count(True) < RETRIES:
+        return True
+    return (eligible or shutdown) and free.count(False) + 1 < max_attempts
 
 
 def charged(attempts: Iterable[Any]) -> int:
     """How many of these attempts count against the job's `max_attempts`."""
-    return sum(1 for attempt in attempts if marked(attempt) is None)
+    return sum(1 for attempt in attempts if not exempt(attempt))
 
 
 def notice_line(attempts: Iterable[Mapping[str, Any]], max_attempts: int | None = None) -> str:
@@ -213,11 +268,10 @@ def notice_line(attempts: Iterable[Mapping[str, Any]], max_attempts: int | None 
     which = ", ".join(f"a{seq} at {evidence['ended_at']}" for seq, evidence in found)
     noun = "attempt" if len(found) == 1 else "attempts"
     budget = f" {max_attempts}" if max_attempts else ""
-    return (f"host shutdown: the host shut down or restarted under {noun} {which}; that was not the work, "
-            f"and {'it does' if len(found) == 1 else 'they do'} not count against the job's{budget} attempts (C-4.7)")
-
-
-def cap_line(shutdowns: int) -> str:
-    """The notice's line for a job ended by its `RETRIES + 1`th host shutdown."""
-    return (f"the host shut down under this job {shutdowns} times; it is not retried again, in case its own "
-            "work restarts the host (C-4.7). Resubmit it once the host is stable")
+    line = f"host shutdown: the host shut down or restarted under {noun} {which}; that was not the work"
+    counted = [f"a{seq}" for seq, evidence in found if evidence.get("charged")]
+    if not counted:
+        return line + (f", and {'it does' if len(found) == 1 else 'they do'} not count against "
+                       f"the job's{budget} attempts (C-4.7)")
+    return line + (f"; past the first {RETRIES}, {', '.join(counted)} counted against the job's{budget} "
+                   "attempts (C-4.7)")

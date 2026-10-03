@@ -1,22 +1,25 @@
-"""C-4.7: a provider the host's shutdown ended is `transient`, retried, and never charged.
+"""C-4.7: a provider the host's shutdown ended is `transient`, retried, and not charged.
 
 The rule and the attempt budget are pure functions of recorded facts
 (`subfleet/host_shutdown.py`), which the daemon calls from finalization and
 admission. The cases below replay the 2026-09-30 reboot from its recorded facts,
 and the properties hold for every input:
 
-- no attempt marked as a host shutdown is ever counted against `max_attempts`:
-  every retry decision is the one the same history would reach with the
-  shutdowns removed;
+- no host shutdown within a job's first `RETRIES` is ever counted against
+  `max_attempts`: every retry decision for another attempt is the one the same
+  history reaches with those shutdowns removed, and each of them is retried
+  whatever the job's budget and its class;
+- past `RETRIES` a host shutdown is charged like a transient, so a job that
+  restarts its own host still ends, within `RETRIES + max_attempts` attempts,
+  and no reboot alone ends a job while it has charged attempts left;
 - with no host shutdown in a job's history, the decision is the one C-4.5 made
   before C-4.7 (`seq < max_attempts` and the class allows it): a differential
   check against that rule;
-- a host-shutdown attempt is retried whatever its budget and class, until the
-  job has had `RETRIES` of them, so a job that restarts its own host ends;
 - a cancel always ends the job;
-- the verdict is never given to an attempt the daemon signalled, one that ran
-  in the current boot, one with a legacy boot timestamp, one a signal did not
-  end, or one that ended outside both windows, and it is deterministic.
+- the verdict is given exactly when every condition holds (an attempt the daemon
+  did not signal, that a signal ended, from an earlier boot, ending in one of
+  the two windows), and it is deterministic;
+- in the boot it ended in, such an attempt is held, and only then.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
 
-from hypothesis import given, settings
+from hypothesis import event, given, settings
 from hypothesis import strategies as st
 import pytest
 
@@ -129,10 +132,39 @@ def test_c4_7_the_two_windows_and_their_edges():
     later = at(BOOT_AT, 8 * 3600)
     assert judge(boot_at=later)["basis"] == "daemon-stopping"
     assert judge(boot_at=later, daemon_stopping_at=None) is None
-    assert judge(boot_at=later, daemon_stopping_at=at(ENDED_AT, 1)) is None          # ended before the stop
     assert judge(boot_at=later, daemon_stopping_at=ENDED_AT)["basis"] == "daemon-stopping"
     assert judge(boot_at=later, daemon_stopping_at=at(ENDED_AT, -hs.WINDOW_S))["basis"] == "daemon-stopping"
     assert judge(boot_at=later, daemon_stopping_at=at(ENDED_AT, -hs.WINDOW_S - 1)) is None
+    # The provider may end before the daemon's stop is stamped: SIGTERM reaches
+    # both at once, or the daemon held the attempt and was stopped meanwhile.
+    assert judge(boot_at=later, daemon_stopping_at=at(ENDED_AT, hs.BEFORE_STOP_S))["basis"] == "daemon-stopping"
+    assert judge(boot_at=later, daemon_stopping_at=at(ENDED_AT, hs.BEFORE_STOP_S + 1)) is None
+
+
+def test_c4_7_a_held_attempt_always_fits_the_stop_window():
+    """C-4.7: an attempt its daemon held (`SAME_BOOT_HOLD_S`) and then left to the
+    next boot because it began to stop ended less than the hold before the stop,
+    which `BEFORE_STOP_S` covers."""
+    assert hs.BEFORE_STOP_S > hs.SAME_BOOT_HOLD_S
+    stop = at(ENDED_AT, hs.SAME_BOOT_HOLD_S)
+    assert judge(boot_at=at(BOOT_AT, 8 * 3600), daemon_stopping_at=stop)["basis"] == "daemon-stopping"
+
+
+def test_c4_7_the_same_boot_holds_only_what_the_next_boot_could_judge():
+    """C-4.7: in the boot it ended in, an attempt a signal from outside Subfleet
+    ended waits `SAME_BOOT_HOLD_S`, and for good once the daemon is stopping;
+    nothing else waits."""
+    ended = datetime.fromisoformat(ENDED_AT.replace("Z", "+00:00"))
+    hold = dict(kind="dispatch", killed_by=None, attempt_boot=OLD_BOOT, current_boot=OLD_BOOT,
+                receipt=INCIDENT_RECEIPT, now=ended + timedelta(seconds=5), stopping=False)
+    assert hs.held_in_boot(**hold)
+    assert not hs.held_in_boot(**{**hold, "now": ended + timedelta(seconds=hs.SAME_BOOT_HOLD_S)})
+    assert hs.held_in_boot(**{**hold, "now": ended + timedelta(days=3), "stopping": True})
+    assert hs.held_in_boot(**{**hold, "hold_s": 1, "now": ended + timedelta(seconds=0.5)})
+    for other in ({"current_boot": NEW_BOOT}, {"killed_by": "operator"}, {"killed_by": "offline-kill"},
+                  {"kind": "turn"}, {"receipt": {**INCIDENT_RECEIPT, "rc": 1}}, {"receipt": None},
+                  {"attempt_boot": "1790732699", "current_boot": "1790732699"}):
+        assert not hs.held_in_boot(**{**hold, "stopping": True, **other}), other
 
 
 def test_c4_7_previous_boot_is_the_last_daemon_of_the_boot_before():
@@ -182,17 +214,30 @@ def test_c4_7_the_incident_jobs_would_have_retried():
     assert hs.notice_line([limited]) == ""
 
 
-def test_c4_7_a_job_whose_host_keeps_shutting_down_ends():
-    """C-4.7: the `RETRIES + 1`th host shutdown ends the job, so a job whose own
-    work restarts the host cannot restart it forever; a cancel ends it at once."""
-    shutdown = {hs.EVIDENCE_KEY: judge()}
+def test_c4_7_past_the_first_shutdowns_they_are_charged_like_transients():
+    """C-4.7: the first `RETRIES` host shutdowns are retried uncharged whatever the
+    budget; later ones count against `max_attempts` as a transient does, so a job
+    whose own work restarts the host still ends, and only by spending its
+    budget. A cancel ends the job at once."""
+    free = {hs.EVIDENCE_KEY: judge()}
+    counted = {hs.EVIDENCE_KEY: {**judge(), "charged": True}}
     for before in range(hs.RETRIES):
-        assert hs.retry_after(cancel=False, max_attempts=1, earlier=[shutdown] * before,
+        assert not hs.charged_now([free] * before)
+        assert hs.retry_after(cancel=False, max_attempts=1, earlier=[free] * before,
                               shutdown=True, eligible=False)
-    assert not hs.retry_after(cancel=False, max_attempts=99, earlier=[shutdown] * hs.RETRIES,
-                              shutdown=True, eligible=True)
+    assert hs.charged_now([free] * hs.RETRIES)
+    assert not hs.retry_after(cancel=False, max_attempts=1, earlier=[free] * hs.RETRIES,
+                              shutdown=True, eligible=False)                   # its first charged attempt is its last
+    assert hs.retry_after(cancel=False, max_attempts=2, earlier=[free] * hs.RETRIES,
+                          shutdown=True, eligible=False)
+    assert not hs.retry_after(cancel=False, max_attempts=2, earlier=[free] * hs.RETRIES + [counted],
+                              shutdown=True, eligible=False)
+    assert hs.charged([free] * hs.RETRIES + [counted]) == 1
     assert not hs.retry_after(cancel=True, max_attempts=99, earlier=[], shutdown=True, eligible=True)
-    assert "3 times" in hs.cap_line(3)
+    assert "counts against its attempts" in hs.detail({**judge(), "charged": True})
+    rows = [{"seq": n + 1, hs.EVIDENCE_KEY: free[hs.EVIDENCE_KEY]} for n in range(hs.RETRIES)]
+    rows.append({"seq": hs.RETRIES + 1, hs.EVIDENCE_KEY: counted[hs.EVIDENCE_KEY]})
+    assert "past the first 3, a4 counted against the job's 2 attempts" in hs.notice_line(rows, 2)
 
 
 # --- properties --------------------------------------------------------------
@@ -200,31 +245,42 @@ def test_c4_7_a_job_whose_host_keeps_shutting_down_ends():
 #: An attempt in a generated history: a host shutdown, or an ordinary attempt
 #: whose class does or does not allow a retry (C-4.5's `eligible`).
 ATTEMPT = st.one_of(st.just(("shutdown", False)), st.tuples(st.just("charged"), st.booleans()))
-EVIDENCE_OF = {"shutdown": {hs.EVIDENCE_KEY: {"ended_at": ENDED_AT}}, "charged": {"classification": {}}}
+FREE = {hs.EVIDENCE_KEY: {"ended_at": ENDED_AT}}
+COUNTED = {hs.EVIDENCE_KEY: {"ended_at": ENDED_AT, "charged": True}}
+ORDINARY = {"classification": {}}
 
 
-def history_rows(kinds):
-    return [{"seq": n, "evidence_json": json.dumps(EVIDENCE_OF[kind])} for n, kind in enumerate(kinds, 1)]
+def simulate(kinds):
+    """Rows for a history of attempts, each host shutdown marked as the daemon
+    marks it: charged once `RETRIES` uncharged ones came before it."""
+    rows = []
+    for kind in kinds:
+        evidence = ORDINARY if kind == "charged" else COUNTED if hs.charged_now(rows) else FREE
+        rows.append({"seq": len(rows) + 1, "evidence_json": json.dumps(evidence)})
+    return rows
 
 
 @settings(max_examples=400, deadline=None)
 @given(history=st.lists(ATTEMPT, max_size=12), max_attempts=st.integers(1, 6), eligible=st.booleans(),
        shutdown=st.booleans(), cancel=st.booleans())
 def test_c4_7_property_host_shutdowns_are_never_charged(history, max_attempts, eligible, shutdown, cancel):
-    """C-4.7: every decision is the one the same history reaches with every host
-    shutdown removed (for an ordinary attempt), or depends only on how many host
-    shutdowns came before (for a host shutdown): none is ever charged."""
-    rows = history_rows([kind for kind, _ in history])
+    """C-4.7: no host shutdown within a job's first `RETRIES` is charged. Every
+    other decision is the one the same history reaches with those shutdowns
+    removed, a later host shutdown deciding as an ordinary attempt whose class
+    allows a retry (a transient); one of the first is always retried (barring a
+    cancel)."""
+    rows = simulate([kind for kind, _ in history])
+    free = [row for row in rows if hs.exempt(row)]
     decided = hs.retry_after(cancel=cancel, max_attempts=max_attempts, earlier=rows,
                              shutdown=shutdown, eligible=eligible)
-    if shutdown:
-        shutdowns = sum(kind == "shutdown" for kind, _ in history)
-        assert decided == (not cancel and shutdowns < hs.RETRIES)
+    if shutdown and len(free) < hs.RETRIES:
+        assert decided == (not cancel)
     else:
-        without = [row for row in rows if hs.marked(row) is None]
+        without = [row for row in rows if not hs.exempt(row)]
         assert decided == hs.retry_after(cancel=cancel, max_attempts=max_attempts, earlier=without,
-                                         shutdown=False, eligible=eligible)
-    assert hs.charged(rows) == sum(kind == "charged" for kind, _ in history)
+                                         shutdown=False, eligible=eligible or shutdown)
+    assert len(free) == min(hs.RETRIES, sum(kind == "shutdown" for kind, _ in history))
+    assert hs.charged(rows) == len(rows) - len(free)
 
 
 @settings(max_examples=300, deadline=None)
@@ -232,7 +288,7 @@ def test_c4_7_property_host_shutdowns_are_never_charged(history, max_attempts, e
 def test_c4_7_property_without_shutdowns_the_budget_is_c4_5s(earlier, max_attempts, eligible, cancel):
     """C-4.5, differential: with no host shutdown, `retry_after` is the rule the
     daemon applied before C-4.7, `not cancel and seq < max_attempts and eligible`."""
-    rows = history_rows(["charged"] * earlier)
+    rows = simulate(["charged"] * earlier)
     seq = earlier + 1
     assert hs.retry_after(cancel=cancel, max_attempts=max_attempts, earlier=rows, shutdown=False,
                           eligible=eligible) == (not cancel and seq < max_attempts and eligible)
@@ -243,65 +299,75 @@ def test_c4_7_property_without_shutdowns_the_budget_is_c4_5s(earlier, max_attemp
 def test_c4_7_property_a_job_runs_its_budget_whatever_the_reboots(outcomes, max_attempts):
     """C-4.7, end to end over a job's life: attempts run in order until one is not
     retried. However the host shutdowns fall, the job runs at most `max_attempts`
-    charged attempts and at most `RETRIES + 1` host-shutdown ones; it stops on a
-    charged attempt only when that attempt's class forbids a retry or it is the
-    `max_attempts`th charged one; it stops on a host shutdown only at the cap."""
-    rows, charged, shutdowns = [], 0, 0
+    charged attempts and `RETRIES` uncharged ones, so at most
+    `RETRIES + max_attempts` in all; it stops only when an attempt's class
+    forbids a retry or its charged attempts reach `max_attempts`, never on an
+    uncharged host shutdown."""
+    rows = []
     for kind, eligible in outcomes:
         shutdown = kind == "shutdown"
         again = hs.retry_after(cancel=False, max_attempts=max_attempts, earlier=list(rows),
                                shutdown=shutdown, eligible=eligible)
-        rows.append({"seq": len(rows) + 1, "evidence_json": json.dumps(EVIDENCE_OF[kind])})
-        charged += not shutdown
-        shutdowns += shutdown
+        rows = simulate([*("shutdown" if hs.marked(row) else "charged" for row in rows), kind])
         if not again:
-            if shutdown:
-                assert shutdowns == hs.RETRIES + 1
-            else:
-                assert not eligible or charged == max_attempts
+            last = rows[-1]
+            assert not hs.exempt(last)
+            assert hs.charged(rows) == max_attempts or (not shutdown and not eligible)
             break
-    assert charged <= max_attempts and shutdowns <= hs.RETRIES + 1
-    assert hs.charged(rows) == charged
+    assert hs.charged(rows) <= max_attempts
+    assert sum(hs.exempt(row) for row in rows) <= hs.RETRIES
+    assert len(rows) <= hs.RETRIES + max_attempts
 
 
-BOOTS = st.sampled_from([OLD_BOOT, NEW_BOOT, "0f0f0f0f-0000-4000-8000-000000000000", "1790732697", "", None])
-TIMES = st.integers(-2 * 86400, 2 * 86400).map(lambda s: at(BOOT_AT, s))
-RECEIPTS = st.fixed_dictionaries({
-    "rc": st.one_of(st.none(), st.sampled_from([0, 1, 4, 124, 127, 130, 137, 143, -9, -15, -2])),
-    "signal": st.one_of(st.none(), st.sampled_from([2, 9, 15])),
-    "finished_at": st.one_of(TIMES, st.just(None), st.just("garbage")),
-})
+OTHER_BOOT = "0f0f0f0f-0000-4000-8000-000000000000"
+#: Each condition is drawn satisfied far more often than not, so that most
+#: examples miss a verdict by one condition or meet it: drawn independently and
+#: evenly, under 1 % of examples reached a verdict (review of PR #119).
+KINDS = st.sampled_from(["dispatch"] * 5 + ["revive", "gate-review", "turn"])
+KILLED_BY = st.sampled_from([None] * 8 + ["", "operator", "max_wall_s", "recovery", "offline-kill"])
+BOOT_PAIRS = st.sampled_from([(OLD_BOOT, NEW_BOOT)] * 8 + [
+    (NEW_BOOT, OTHER_BOOT), (OLD_BOOT, OLD_BOOT), ("1790732697", NEW_BOOT), (OLD_BOOT, "1790732697"),
+    ("", NEW_BOOT), (None, NEW_BOOT), (OLD_BOOT, None)])
+RCS = st.sampled_from([143] * 6 + [137, -15, -9, 0, 1, 4, 124, 127, 130, -2, None])
+SIGNALS = st.sampled_from([None] * 8 + [2, 9, 15])
+ENDS = st.sampled_from(["time"] * 9 + [None, "garbage"])
+#: Offsets from the boot's start and from the stop: mostly inside a window or
+#: at its edges, some far away.
+NEAR = st.one_of(st.integers(-hs.WINDOW_S - 200, hs.WINDOW_S + 200),
+                 st.sampled_from([-hs.WINDOW_S, -hs.WINDOW_S - 1, hs.CLOCK_SLACK_S, hs.CLOCK_SLACK_S + 1,
+                                  -hs.BEFORE_STOP_S, -hs.BEFORE_STOP_S - 1, hs.WINDOW_S, hs.WINDOW_S + 1, 0]),
+                 st.integers(-2 * 86400, 2 * 86400))
 
 
-@settings(max_examples=600, deadline=None)
-@given(kind=st.sampled_from(["dispatch", "revive", "turn", "gate-review"]),
-       killed_by=st.sampled_from([None, "", "operator", "max_wall_s", "recovery"]),
-       attempt_boot=BOOTS, current_boot=BOOTS, boot_at=st.one_of(st.none(), TIMES),
-       receipt=RECEIPTS, stopping=st.one_of(st.none(), TIMES))
-def test_c4_7_property_the_verdict_needs_every_condition(kind, killed_by, attempt_boot, current_boot,
-                                                         boot_at, receipt, stopping):
+@settings(max_examples=800, deadline=None)
+@given(kind=KINDS, killed_by=KILLED_BY, boots=BOOT_PAIRS, has_boot=st.booleans(), from_boot=NEAR,
+       has_stop=st.booleans(), from_stop=NEAR, rc=RCS, signal_number=SIGNALS, end=ENDS)
+def test_c4_7_property_the_verdict_needs_every_condition(kind, killed_by, boots, has_boot, from_boot,
+                                                         has_stop, from_stop, rc, signal_number, end):
     """C-4.7: a verdict is given exactly when every condition holds, and the same
     facts always give the same verdict."""
+    attempt_boot, current_boot = boots
+    ended = at(BOOT_AT, from_boot)
+    boot_at = BOOT_AT if has_boot else None
+    stopping = at(ended, -from_stop) if has_stop else None
+    receipt = {"rc": rc, "signal": signal_number,
+               "finished_at": ended if end == "time" else end}
     facts = dict(kind=kind, killed_by=killed_by, attempt_boot=attempt_boot, current_boot=current_boot,
                  boot_at=boot_at, receipt=receipt, daemon_stopping_at=stopping)
     found = hs.verdict(**facts)
     assert found == hs.verdict(**facts)
-    uuids = {OLD_BOOT, NEW_BOOT, "0f0f0f0f-0000-4000-8000-000000000000"}
-    ended = receipt["finished_at"]
-    in_window = False
-    if ended not in (None, "garbage"):
-        end = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-        if boot_at:
-            began = datetime.fromisoformat(boot_at.replace("Z", "+00:00"))
-            in_window |= began - timedelta(seconds=hs.WINDOW_S) <= end <= began + timedelta(seconds=hs.CLOCK_SLACK_S)
-        if stopping:
-            stop = datetime.fromisoformat(stopping.replace("Z", "+00:00"))
-            in_window |= stop <= end <= stop + timedelta(seconds=hs.WINDOW_S)
-    expected = (kind != "turn" and not killed_by and hs.ended_by_signal(receipt) is not None
+    event(f"verdict: {found['basis'] if found else 'none'}")        # both answers are drawn (review of #119)
+    uuids = {OLD_BOOT, NEW_BOOT, OTHER_BOOT}
+    in_window = end == "time" and (
+        (has_boot and -hs.WINDOW_S <= from_boot <= hs.CLOCK_SLACK_S)
+        or (has_stop and -hs.BEFORE_STOP_S <= from_stop <= hs.WINDOW_S))
+    signalled = (signal_number in (9, 15) or rc in (137, 143, -9, -15))
+    expected = (kind != "turn" and not killed_by and signalled
                 and attempt_boot in uuids and current_boot in uuids and attempt_boot != current_boot
                 and in_window)
     assert (found is not None) == expected
     if found is not None:
         assert found["boot_id"] == attempt_boot and found["next_boot_id"] == current_boot
-        assert found["basis"] in {"next-boot", "daemon-stopping"}
+        boot_fits = has_boot and -hs.WINDOW_S <= from_boot <= hs.CLOCK_SLACK_S
+        assert found["basis"] == ("next-boot" if boot_fits else "daemon-stopping")
         assert hs.detail(found).startswith("transient: host shutdown: ")

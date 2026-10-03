@@ -1,4 +1,4 @@
-"""C-4.7: a provider the host's shutdown ended is retried and never charged.
+"""C-4.7: a provider the host's shutdown ended is retried, and a job's first three are not charged.
 
 Incident: 2026-09-30, the host restarted at 01:44Z. Fourteen running attempts
 ended at 01:44:41Z with rc 143 (SIGTERM); the next daemon recorded eleven of them
@@ -23,8 +23,11 @@ import os
 from pathlib import Path
 import signal
 import sqlite3
+import threading
 import time
 
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module
@@ -308,10 +311,11 @@ def test_c4_7_subfleet_kill_stays_a_cancel_across_a_reboot(rebooted, how):
 
 
 def test_c4_7_a_host_shutdown_is_no_lanes_transient(rebooted):
-    """C-4.5, C-4.7: a host shutdown neither pins the retry to its lane nor counts
-    toward excluding it, and a pinned job's ordinary transient after one is still
-    its first. Counted as a lane transient, a2 below would have excluded codex-1
-    (two transients there) and stopped the pinned job's retry."""
+    """C-4.5, C-4.7: a host shutdown is transparent to the lane rules. It does not
+    count toward excluding its lane, the same-lane retry it cut off is still owed,
+    and a pinned job's ordinary transient after one is still its first. Counted
+    as a lane transient, a2 below would have excluded a1's lane (two transients
+    there) and stopped the pinned job's retry."""
     daemon, harness = rebooted(lock=lock_record())
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     register("codex", TransientAdapter)
@@ -321,7 +325,8 @@ def test_c4_7_a_host_shutdown_is_no_lanes_transient(rebooted):
     a2 = run_attempt(daemon, job_id, rc=143)         # pinned to a1's lane for its one same-lane retry
     assert a2["lane_id"] == a1["lane_id"] and host_shutdown.marked(a2) is not None
     _, exclusions, pin = daemon._retry_pin(daemon.store.get_job(job_id))
-    assert exclusions == () and pin is None          # routed as submitted
+    assert exclusions == ()                          # one transient there, not two
+    assert pin["pinned_lane"] == a1["lane_id"]       # a1's same-lane retry is still owed (C-9.5)
     daemon.dispatch("kill", {"job_id": job_id})      # out of the way of the next job's admission
     [text] = notices(daemon, job_id)
     assert text.splitlines()[1].startswith("cancelled while waiting to retry")
@@ -337,30 +342,101 @@ def test_c4_7_a_host_shutdown_is_no_lanes_transient(rebooted):
     register("codex", FakeAdapter)
 
 
-def test_c4_7_a_job_the_host_keeps_shutting_under_ends_at_the_cap(rebooted):
-    """C-4.7: the host shut down under every attempt. Each is retried, uncharged,
-    until the job has had `RETRIES` such retries; the next ends it `failed`, still
-    uncharged, and its notice says why it was not retried again."""
+def test_c4_7_past_three_host_shutdowns_the_next_are_charged(rebooted):
+    """C-4.7: the host shut down under every attempt of a two-attempt job. The
+    first `RETRIES` are retried uncharged; the fourth and fifth are charged like
+    any transient, so the job ends when its two charged attempts are spent, and
+    a job whose own work restarts the host cannot restart it forever."""
     daemon, harness = rebooted(lock=lock_record())
-    job_id = daemon.dispatch("submit", harness.submit_args(max_attempts=1))["job_id"]
-    boots = [OLD_BOOT, NEW_BOOT] + [f"0000000{n}-0000-4000-8000-000000000000" for n in range(1, hs_cap() + 1)]
-    for n in range(hs_cap() + 1):
+    job_id = daemon.dispatch("submit", harness.submit_args(max_attempts=2))["job_id"]
+    free = host_shutdown.RETRIES
+    boots = [OLD_BOOT, NEW_BOOT] + [f"0000000{n}-0000-4000-8000-000000000000" for n in range(1, free + 2)]
+    for n in range(free + 2):
         # Each attempt ran in its own boot, and the daemon finalizing it in the next.
         daemon._ident["boot_id"], daemon._previous_boot = boots[n + 1], {
             "boot_id": boots[n], "pid": 1, "proc_start": "x", "version": "x", "stopping_at": STOPPING_AT}
         attempt = run_attempt(daemon, job_id, rc=143, boot=boots[n])
         assert attempt["outcome_class"] == "transient", attempt
-        expected = "waiting" if n < hs_cap() else "failed"
-        assert daemon.store.get_job(job_id)["state"] == expected
+        assert bool(evidence(attempt)[host_shutdown.EVIDENCE_KEY].get("charged")) == (n >= free)
+        assert ("counts against its attempts" in attempt["outcome_detail"]) == (n >= free)
+        assert daemon.store.get_job(job_id)["state"] == ("waiting" if n < free + 1 else "failed")
     job = daemon.store.get_job(job_id)
-    assert job["rc"] == 143 and host_shutdown.charged(daemon.store.list_attempts(job_id)) == 0
+    assert job["rc"] == 143 and host_shutdown.charged(daemon.store.list_attempts(job_id)) == 2
     [text] = notices(daemon, job_id)
-    assert host_shutdown.cap_line(hs_cap() + 1) in text
     assert "under attempts a1 at" in text
+    assert "past the first 3, a4, a5 counted against the job's 2 attempts (C-4.7)" in text
 
 
-def hs_cap() -> int:
-    return host_shutdown.RETRIES
+def test_c4_7_in_its_own_boot_a_signalled_attempt_waits_for_the_host(rebooted):
+    """C-4.7: the daemon cannot count on being stopped before the providers are
+    signalled. A provider that ended on SIGTERM seconds ago, in the boot
+    the daemon runs in, is held: finalized now it would be `unknown` for good,
+    and the reboot that followed could never be seen. A stopping daemon leaves it
+    to the next boot; with no stop within `signal_hold_s` it is finalized as
+    before."""
+    daemon, harness = rebooted(boot=OLD_BOOT, lock=None)
+    assert daemon.signal_hold_s == host_shutdown.SAME_BOOT_HOLD_S
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    held = run_attempt(daemon, job_id, rc=143, ended_at=utcnow())
+    adir = daemon.root / "jobs" / job_id / "a1"
+    assert held["state"] == "finalizing" and not (adir / "finalization.json").exists()
+    assert daemon.store.get_job(job_id)["state"] == "running"
+    daemon.stopping.set()                               # the host is going down: left for the next boot
+    old = (datetime.now(timezone.utc) - timedelta(seconds=host_shutdown.SAME_BOOT_HOLD_S + 5))
+    (adir / "exit.json").write_text(json.dumps({
+        "rc": 143, "signal": None, "wall_s": 1.0, "child_pid": 42101,
+        "finished_at": old.isoformat(timespec="seconds").replace("+00:00", "Z")}))
+    daemon._finalize(daemon.store.get_attempt(held["attempt_id"]))
+    assert daemon.store.get_attempt(held["attempt_id"])["state"] == "finalizing"
+    daemon.stopping.clear()                             # no stop, and the hold has passed
+    daemon._finalize(daemon.store.get_attempt(held["attempt_id"]))
+    a1 = daemon.store.get_attempt(held["attempt_id"])
+    assert (a1["state"], a1["outcome_class"]) == ("failed", "unknown")
+    assert daemon.store.get_job(job_id)["state"] == "failed"
+
+
+def test_c4_7_a_held_attempt_is_a_host_shutdown_in_the_next_boot(rebooted):
+    """C-4.7: the order the incident did not have. The provider gets SIGTERM, the
+    daemon holds the attempt, and 20 s later the daemon is stopped too. The next
+    boot began eight hours on. The provider ended before the stop was stamped,
+    within `BEFORE_STOP_S` of it, so the next daemon still judges it the host's."""
+    daemon, harness = rebooted(lock=lock_record(stopping_at="2026-09-30T01:45:01Z"),
+                               boot_seconds=BOOT_SECONDS + 8 * 3600)
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    a1 = run_attempt(daemon, job_id, rc=143)            # ended 01:44:41, 20 s before the stop
+    assert a1["outcome_class"] == "transient"
+    assert evidence(a1)[host_shutdown.EVIDENCE_KEY]["basis"] == "daemon-stopping"
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+
+
+def test_c4_7_an_offline_kill_is_never_a_host_shutdown(rebooted):
+    """C-4.7, C-17.5: with the daemon down, `subfleet kill` cannot record
+    `killed_by`, so it leaves `kill.json` in the attempt's directory before it
+    signals. Everything else here says reboot (the old boot, rc 143, both
+    windows); the marker decides, and the job is not run again."""
+    daemon, harness = rebooted(lock=lock_record())
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    daemon._admit()
+    [attempt] = daemon.store.list_attempts(job_id)
+    adir = launched(daemon, attempt)
+    (adir / host_shutdown.KILL_MARKER).write_text(json.dumps(
+        {"by": "offline-kill", "signal": 15, "pid": 42001, "pgid": 42001, "requested_at": "2026-09-30T01:44:40Z"}))
+    daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001, pgid=42001,
+                                boot_id=OLD_BOOT, proc_start="unit-test-start")
+    for name in ("stdout", "stderr", "lane.log"):
+        (adir / name).write_bytes(b"")
+    receipt = {"rc": 143, "signal": None, "wall_s": 1.0, "child_pid": 42101, "finished_at": ENDED_AT}
+    (adir / "exit.json").write_text(json.dumps(receipt))
+    assert host_shutdown.verdict(kind="dispatch", killed_by=None, attempt_boot=OLD_BOOT, current_boot=NEW_BOOT,
+                                 boot_at=BOOT_AT, receipt=receipt, daemon_stopping_at=STOPPING_AT) is not None
+    daemon._process_attempt(attempt["attempt_id"])
+    daemon._finalize(daemon.store.get_attempt(attempt["attempt_id"]))
+    a1 = daemon.store.get_attempt(attempt["attempt_id"])
+    assert (a1["state"], a1["outcome_class"]) == ("failed", "unknown")
+    assert host_shutdown.EVIDENCE_KEY not in evidence(a1)
+    assert evidence(a1)["offline_kill"]["by"] == "offline-kill"
+    assert daemon.store.get_job(job_id)["state"] == "failed"
+    assert len(daemon.store.list_attempts(job_id)) == 1
 
 
 def test_c4_7_a_replay_keeps_the_verdict_finalization_pinned(rebooted, monkeypatch):
@@ -396,7 +472,14 @@ def test_c4_7_daemon_lock_carries_the_stop_and_the_previous_boot(rebooted):
     finds it carried forward. Each start is a `daemon.started` event."""
     first, harness = rebooted(boot=OLD_BOOT, boot_seconds=BOOT_SECONDS - 86400)
     assert first._previous_boot is None
+    # The stop's own thread stamps it as soon as `stopping` is set, before close().
+    marker = threading.Thread(target=first._watch_stopping)
+    marker.start()
+    first.stopping.set()
+    marker.join(timeout=10)
+    stamped = json.loads((harness.root / "daemon.lock").read_text())["stopping_at"]
     first.close()
+    assert json.loads((harness.root / "daemon.lock").read_text())["stopping_at"] == stamped   # the first stamp stays
     old = json.loads((harness.root / "daemon.lock").read_text())
     assert old["boot_id"] == OLD_BOOT and old["stopping_at"] and "stack_dumps" not in old
     second, _ = rebooted(root=harness.root)
@@ -414,6 +497,60 @@ def test_c4_7_daemon_lock_carries_the_stop_and_the_previous_boot(rebooted):
     assert [event["boot_id"] for event in events] == [OLD_BOOT, NEW_BOOT, NEW_BOOT,
                                                        "0000000b-0000-4000-8000-000000000000"]
     assert [(event["previous_boot"] or {}).get("boot_id") for event in events] == [None, OLD_BOOT, OLD_BOOT, NEW_BOOT]
+
+
+# --- the daemon against a model of the budget ---------------------------------
+
+
+class ScriptedAdapter(FakeAdapter):
+    """rc 75 is an ordinary transient (C-9.5); everything else as the fake classifies it."""
+
+    def classify(self, attempt_dir, launch, exit_info):
+        if exit_info.rc == 75:
+            return Outcome(OutcomeClass.TRANSIENT, "transient: fixture stream disconnected")
+        return super().classify(attempt_dir, launch, exit_info)
+
+
+@settings(max_examples=25, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(outcomes=st.lists(st.sampled_from(["shutdown", "shutdown", "transient", "unknown", "ok"]),
+                         min_size=1, max_size=9),
+       max_attempts=st.integers(1, 3))
+def test_c4_7_property_the_daemon_keeps_the_budget_a_model_keeps(rebooted, outcomes, max_attempts):
+    """C-4.5, C-4.7, differential: a job's attempts end as drawn (a host shutdown,
+    an ordinary transient, an `unknown`, a success) and go through the daemon's own
+    admission and finalization. After each, the job's state, whether the attempt is
+    charged, and the charged count are what this model says: the first `RETRIES`
+    host shutdowns are free and retried; every other attempt is charged, and the
+    job tries again only if that attempt can be retried (a transient or a host
+    shutdown) and fewer than `max_attempts` charged attempts have run."""
+    daemon, harness = rebooted(lock=lock_record(), adapter=ScriptedAdapter)
+    try:
+        job_id = daemon.dispatch("submit", harness.submit_args(max_attempts=max_attempts))["job_id"]
+        charged = free = 0
+        for kind in outcomes:
+            daemon.store.update_job(job_id, next_check_at=None)       # past a transient's minute (C-9.5)
+            if kind == "shutdown":
+                attempt = run_attempt(daemon, job_id, rc=143)
+            else:
+                attempt = run_attempt(daemon, job_id, rc={"transient": 75, "unknown": 1, "ok": 0}[kind],
+                                      boot=NEW_BOOT, ended_at=utcnow(), stdout=b"the work\n")
+            is_free = kind == "shutdown" and free < host_shutdown.RETRIES
+            if is_free:
+                free += 1
+                expected = "waiting"
+            else:
+                charged += 1
+                again = kind in ("shutdown", "transient") and charged < max_attempts
+                expected = "succeeded" if kind == "ok" else "waiting" if again else "failed"
+            assert daemon.store.get_job(job_id)["state"] == expected, (outcomes, max_attempts, kind)
+            assert host_shutdown.exempt(attempt) == is_free
+            assert (host_shutdown.marked(attempt) is not None) == (kind == "shutdown")
+            assert host_shutdown.charged(daemon.store.list_attempts(job_id)) == charged <= max_attempts
+            if expected != "waiting":
+                break
+    finally:
+        daemon.close()
 
 
 # --- a writable job: the retry is an ordinary retry ---------------------------
@@ -640,3 +777,44 @@ def test_c4_7_e2e_a_sigterm_with_no_reboot_is_unchanged(daemon):
     [a1] = daemon.attempts(job_id)
     assert (a1["outcome_class"], a1["outcome_detail"]) == ("unknown", "fake provider failed")
     assert host_shutdown.EVIDENCE_KEY not in json.loads(a1["evidence_json"])
+
+
+def test_c4_7_e2e_an_offline_kill_then_a_reboot_is_not_retried(daemon):
+    """C-4.7, C-17.5 end to end (review of PR #119): with the daemon down,
+    `subfleet kill` signals the provider itself. It leaves `kill.json` first, so
+    when the host then restarts and the attempt looks like a host shutdown in
+    every other way, the next daemon does not run the job again."""
+    from subfleet.offline import Offline
+    daemon.start()
+    job_id = daemon.call("submit", **daemon.submit_args("term-exits-143", delay_s=120))["job_id"]
+    running_attempt(daemon, job_id, 1)
+    daemon.crash()
+    result = Offline(daemon.root).kill(job_id)
+    assert result["action"] == "signalled", result
+    adir = daemon.root / "jobs" / job_id / "a1"
+    daemon.until((adir / "exit.json").exists, timeout=30)
+    assert json.loads((adir / "exit.json").read_text())["rc"] == 143
+    assert json.loads((adir / host_shutdown.KILL_MARKER).read_text())["by"] == "offline-kill"
+    stage_reboot(daemon, job_id, 1, basis="daemon-stopping")
+    daemon.start()
+    job = daemon.until(lambda: (row := daemon.job(job_id))["state"] in {"failed", "succeeded", "cancelled"} and row,
+                       timeout=60)
+    [a1] = daemon.attempts(job_id)
+    assert (job["state"], a1["outcome_class"]) == ("failed", "unknown"), (job, a1)
+    found = json.loads(a1["evidence_json"])
+    assert host_shutdown.EVIDENCE_KEY not in found and found["offline_kill"]["signal"] == 15
+
+
+def test_c4_7_e2e_a_stopping_daemon_says_so_in_daemon_lock(daemon):
+    """C-4.7, C-5.8 end to end: a daemon stopped by SIGTERM leaves `stopping_at` in
+    `daemon.lock`, which the next daemon carries as `previous_boot` only when it
+    starts in another boot (here it is the same boot, so it carries none)."""
+    daemon.start()
+    before = stamp(time.time() - 1)
+    daemon.process.terminate()
+    daemon.process.wait(timeout=60)
+    lock = json.loads((daemon.root / "daemon.lock").read_text())
+    assert before <= lock["stopping_at"] <= stamp(time.time() + 1)
+    daemon.start()
+    live = json.loads((daemon.root / "daemon.lock").read_text())
+    assert "stopping_at" not in live and host_shutdown.PREVIOUS_BOOT_KEY not in live

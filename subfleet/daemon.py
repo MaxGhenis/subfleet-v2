@@ -36,6 +36,7 @@ from typing import Any, Callable
 from . import __version__
 from . import capacity, host_shutdown, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
+from .boot_identity import session_uuid
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -489,6 +490,7 @@ class Daemon:
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
+                 signal_hold_s: float = host_shutdown.SAME_BOOT_HOLD_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
                  desktop_prober: Callable[[], Any] | None = None):
@@ -510,6 +512,9 @@ class Daemon:
         # `close()` calls first, on its own thread, to start that bound. Only
         # `main` sets it: a daemon built in a test process ends nothing.
         self.stop_grace_s = stop_grace_s
+        # C-4.7: how long finalization holds, in its own boot, an attempt a signal
+        # from outside Subfleet ended (the fake daemon shortens it, as its graces).
+        self.signal_hold_s = signal_hold_s
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-10.3: who asks the desktop app's own credential who it is. `None`
@@ -583,6 +588,8 @@ class Daemon:
         self._boot_at = _boot_at()
         self._stopping_at: str | None = None
         self._lock_stack_dumps = False
+        # The stop's mark and close() can both write daemon.lock; one at a time.
+        self._lock_writes = threading.Lock()
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
@@ -1370,9 +1377,12 @@ class Daemon:
                 transient[lane_of[a["lane_id"]]] = transient.get(lane_of[a["lane_id"]], 0) + 1
         exclusions += tuple(dict.fromkeys(lane for a in previous if transient.get(lane_of[a["lane_id"]], 0) >= 2
                                           for lane in (a["lane_id"], lane_of[a["lane_id"]])))
-        last = previous[-1] if previous else None
+        # C-4.7: transparent to the pin as well. A same-lane retry the host's
+        # shutdown cut off is still owed, and one never started is not used up.
+        ordinary = [a for a in previous if host_shutdown.marked(a) is None]
+        last = ordinary[-1] if ordinary else None
         pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
-               if last and last["outcome_class"] == "transient" and host_shutdown.marked(last) is None
+               if last and last["outcome_class"] == "transient"
                and transient[lane_of[last["lane_id"]]] == 1 and self._retry_pair_routable(last) else None)
         return previous, exclusions, pin
 
@@ -5690,10 +5700,20 @@ class Daemon:
         daemon of the attempt's boot, which `daemon.lock` carried to this one, and
         only when the attempt ran in that boot."""
         previous = self._previous_boot or {}
-        stopping = previous.get("stopping_at") if previous.get("boot_id") == attempt.get("boot_id") else None
-        return host_shutdown.verdict(kind=job["kind"], killed_by=attempt.get("killed_by"),
+        ours = session_uuid(str(attempt.get("boot_id") or ""))
+        stopping = (previous.get("stopping_at")
+                    if ours and session_uuid(str(previous.get("boot_id") or "")) == ours else None)
+        return host_shutdown.verdict(kind=job["kind"], killed_by=self._killed_by(attempt),
                                      attempt_boot=attempt.get("boot_id"), current_boot=self._ident["boot_id"],
                                      boot_at=self._boot_at, receipt=receipt, daemon_stopping_at=stopping)
+
+    def _killed_by(self, attempt: dict) -> str | None:
+        """Who signalled the attempt: the row's `killed_by`, or else an offline
+        `subfleet kill` by the marker it left (C-17.5, C-4.7)."""
+        if attempt.get("killed_by"):
+            return attempt["killed_by"]
+        marker = self._read_json(attempt_dir(self.root, attempt["job_id"], attempt["seq"]) / host_shutdown.KILL_MARKER)
+        return "offline-kill" if marker else None
 
     def _finalize(self, a: dict, *, lost: bool = False) -> None:
         job = self._job(a["job_id"])
@@ -5703,6 +5723,15 @@ class Daemon:
             return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
+        if not (adir / "finalization.json").exists() and host_shutdown.held_in_boot(
+                kind=job["kind"], killed_by=self._killed_by(actual), attempt_boot=actual.get("boot_id"),
+                current_boot=self._ident["boot_id"], receipt=self._read_json(adir / "exit.json"),
+                now=datetime.now(timezone.utc), stopping=self.stopping.is_set(), hold_s=self.signal_hold_s):
+            # C-4.7: a signal from outside Subfleet may be the host going down
+            # before it has stopped this daemon, and an attempt judged in the boot
+            # it ended in is never a host shutdown. It waits, before any census,
+            # and a stopping daemon leaves it to the next boot.
+            return
         census = self._contain(a)
         if not census.verified_empty:
             # The guardian writes the receipt just before it exits, and processes
@@ -5800,7 +5829,8 @@ class Daemon:
             # provider's last words (on 2026-09-30 one was `limited` and two were
             # `transient` from the agent's own prose). Never `killed_by` (the rule
             # requires it null), never rc 0, so neither override above applies;
-            # a transient writes no closure (C-9.5), and the readings stand.
+            # a transient writes no closure (C-9.5), and the readings stand. The
+            # detail says whether it is charged, which the transaction decides.
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                           detail=host_shutdown.detail(shutdown), closure=None)
         artifacts = [x for x in [deliverable,
@@ -5838,7 +5868,11 @@ class Daemon:
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
             earlier = tx.execute("SELECT seq,evidence_json FROM attempts WHERE job_id=? AND seq<?",
                                  (job["job_id"], a["seq"])).fetchall()
-            # C-4.5 counts only charged attempts; C-4.7's host shutdowns are not.
+            if shutdown is not None and host_shutdown.charged_now(earlier):
+                # C-4.7: past `RETRIES` uncharged host shutdowns, one is charged.
+                shutdown = {**shutdown, "charged": True}
+                outcome = dataclasses.replace(outcome, detail=host_shutdown.detail(shutdown))
+            # C-4.5 counts only charged attempts; C-4.7's first host shutdowns are not.
             retry = host_shutdown.retry_after(
                 cancel=cancel, max_attempts=job["max_attempts"], earlier=earlier, shutdown=shutdown is not None,
                 eligible=((lost and job["sandbox"] == "read-only") or
@@ -5853,6 +5887,9 @@ class Daemon:
                                                                      "end_tree", "skipped", "error")}
             if shutdown is not None:
                 evidence[host_shutdown.EVIDENCE_KEY] = shutdown
+            offline_kill = self._read_json(adir / host_shutdown.KILL_MARKER)
+            if offline_kill:
+                evidence["offline_kill"] = offline_kill       # C-17.5: who signalled it, with no daemon up
             if provider_verdict["class"] != outcome.cls.value or shutdown is not None:
                 evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
@@ -5892,10 +5929,6 @@ class Daemon:
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
                 summary += self._salvage_summary(job, salvage_artifacts, salvage_evidence)
-                if shutdown is not None and not cancel:
-                    # C-4.7: retried RETRIES times already; this one ends the job.
-                    summary += "\n" + host_shutdown.cap_line(sum(
-                        1 for row in earlier if host_shutdown.marked(row) is not None) + 1)
                 if receipt and receipt.get("spawn_error") and receipt.get("child_pid") is None:
                     # C-13.1, C-15.1: no provider ran (refused on main at launch, a home
                     # or credential that could not be resolved, a binary that could not
@@ -6058,6 +6091,9 @@ class Daemon:
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
+        # C-4.7: the stop is stamped in daemon.lock as soon as it begins, not when
+        # the accept loop next looks (or never, for a main thread C-5.8a ends).
+        threading.Thread(target=self._watch_stopping, name="subfleet-stop-mark", daemon=True).start()
         self.lock_watch.start()
         try:
             while not self.stopping.is_set():
@@ -6080,6 +6116,12 @@ class Daemon:
                 self._admit_connection(conn)
         finally:
             self.close()
+
+    def _watch_stopping(self) -> None:
+        """C-4.7: stamp `stopping_at` once `stopping` is set. The stop was armed
+        before the event was set (C-5.8a), so its bound holds whatever this does."""
+        self.stopping.wait()
+        self._mark_stopping()
 
     def _admit_connection(self, conn: socket.socket) -> None:
         """Give an accepted connection a reader, or answer it busy at once."""
@@ -6122,15 +6164,16 @@ class Daemon:
 
         C-4.7: it also carries the last daemon of the previous boot forward, and
         says when this daemon began to stop once it has."""
-        record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
-        if self._previous_boot:
-            record[host_shutdown.PREVIOUS_BOOT_KEY] = self._previous_boot
-        if self._stopping_at:
-            record["stopping_at"] = self._stopping_at
-        self._lock_stack_dumps = stack_dumps
-        os.ftruncate(self._lock_fd, 0)
-        os.pwrite(self._lock_fd, json_bytes(record), 0)
-        os.fsync(self._lock_fd)
+        with self._lock_writes:
+            record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
+            if self._previous_boot:
+                record[host_shutdown.PREVIOUS_BOOT_KEY] = self._previous_boot
+            if self._stopping_at:
+                record["stopping_at"] = self._stopping_at
+            self._lock_stack_dumps = stack_dumps
+            os.ftruncate(self._lock_fd, 0)
+            os.pwrite(self._lock_fd, json_bytes(record), 0)
+            os.fsync(self._lock_fd)
 
     def _record_start(self) -> None:
         """C-4.7: one `daemon.started` event per start, naming this boot, when it began,
@@ -6148,9 +6191,14 @@ class Daemon:
     def _mark_stopping(self) -> None:
         """C-4.7: `daemon.lock` says when this daemon began to stop, so the first daemon
         of the next boot can tell a provider that ended as the host went down from
-        one that ended while this daemon still watched it. One write to a descriptor
-        held open since the start; it never waits on the store."""
-        self._stopping_at = utcnow()
+        one that ended while this daemon still watched it. A truncate, a write and
+        an fsync of the descriptor held open since the start; it never waits on the
+        store. The first call stamps; a later one (close() after the stop's own
+        thread, `_watch_stopping`) changes nothing."""
+        with self._lock_writes:
+            if self._stopping_at:
+                return
+            self._stopping_at = utcnow()
         try:
             self._write_lock(stack_dumps=self._lock_stack_dumps)
         except OSError as exc:
