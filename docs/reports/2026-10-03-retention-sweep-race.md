@@ -30,7 +30,9 @@ fresh remote clone, and its untracked/ignored bytes must match the archive.
 Both orphan directions are checked before/after sweep restoration, followed
 by a successful quiet retry. Bounded phase slices passed 8 generated cases
 (two seeds, four each) and all 15 explicit schedules (three slices of five).
-Each bounded slice finished below ten minutes. An initial combined run also
+Each bounded slice finished below ten minutes. The foreground full run also
+passed the property at its default 40-example setting, including the 15
+explicit schedules. An initial combined run also
 passed (848.07 pytest seconds; 872.09 including the wrapper), but exceeded
 its 550-second cap under load; it was awaited to exit
 because required `ps` inspection was denied. No process was abandoned.
@@ -53,17 +55,46 @@ check took 576.21 pytest seconds (590.36 including the wrapper). A setup attempt
 expectation used a path containing `tmp` that intentionally means scratch;
 corrected isolated system-temp reruns passed.
 
-The required foreground `uv run pytest -q` is still running. Its 7,200-second
-wrapper threshold elapsed; the wrapper awaited its owned child without a signal
-because `ps` inspection is denied. Final counts will be recorded after it exits.
+The foreground `uv run pytest -q` completed: **7,020 passed, 164 failed,
+47 errors, 131 skipped**, in 12,955.62 seconds. Three failures were the older
+retention hooks described below; the other 161 failures and all 47 errors
+were outside retention. The wrapper exceeded its 7,200-second threshold and
+safely awaited its child because `ps` inspection is denied. Pytest exited 1;
+the wrapper returned 124 to record the exceeded threshold after waiting
+12,977.88 seconds. No process was abandoned or signalled.
+
+All 211 failed/error results were classified from their diagnostics:
+
+| Diagnostic category | Cases |
+|---|---:|
+| macOS boot identity unavailable | 142 |
+| `/bin/ps` operation denied | 12 |
+| Swift compilation (3 macro-server errors, 7 timeouts) | 10 |
+| Other process/daemon-state expectations | 24 |
+| Guard timeout/report expectations | 5 |
+| Timing/scheduling bounds | 14 |
+| Earlier collected retention hooks | 3 |
+| Hard-coded PID fixture collision | 1 |
+
+The eight baseline comparisons below establish representative pre-existing
+failures; they do not claim that every unrelated timing case was rebaselined.
+No unexpected retention failure appeared.
 
 Three older note-2 tests deliberately bypass earlier discovery to reach their
 later injected moves. Their hooks now bypass the new persistent-id guard too;
 the affected 20-case cohort passes. No tests outside retention were edited.
-Two representative unrelated failures reproduce on `43f09ea4`: admission
-priority cannot execute `/bin/ps`, and daemon-stack setup cannot read macOS's
-boot identity. The full run collected the old three hooks before they changed;
+Eight representative unrelated failures reproduce on `43f09ea4`: admission
+priority, daemon stacks, notice header, conversation service, guard preflight,
+importer, stop watchdog and probe-record lookup. Several fail before their
+tested behavior because `/bin/ps` or macOS boot identity is unavailable; the
+guard preflight also fails on the baseline at its 0.5-second deadline. The full run collected the old three hooks before they changed;
 those results must be distinguished from their corrected follow-up cohort.
+
+The peer-token test has a separate fixture collision: it writes token files
+for its own PID, then assumes PID 4242 has none (`test_notify_push.py:180`).
+The full pytest process happened to be PID 4242. The unchanged test passes
+on both the baseline and the current tree when their pytest PID differs; the
+current rerun passed at PID 8128. No unrelated test was changed.
 
 An already-committed older archive that missed its live registration preserves
 its remaining quarantine, admin and journal for recovery. Its previously
@@ -76,6 +107,7 @@ Git directory on `fix/retention-sweep-race-cont` with the required coauthor line
 The delivered bundle requires exactly `43f09ea4`; its branch head is printed by
 `git bundle list-heads`. Verification includes import into a fresh Git directory.
 
-Preflight native process inspection found all 80 earlier wrapper/child PIDs
-absent. Only the owned full-suite chain and its read-only monitor remain active.
-The final descendant audit is pending that run's exit.
+Final native process inspection found all **90 recorded wrapper, child,
+pytest and monitor PIDs absent** (`ESRCH`). The read-only descendant monitor
+observed **1,880 exact PID/start-time identities** and found **zero survivors**,
+then exited normally. All foreground sessions finished; no signals were sent.
