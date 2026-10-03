@@ -106,6 +106,30 @@ def test_c15_8_a_blank_or_non_string_session_names_no_one(core, named):
     assert service_rows(core.store) == []
 
 
+@pytest.mark.parametrize("text", [5, ["hello"], {"t": 1}])
+def test_c15_8_ping_text_that_is_not_a_string_is_refused(core, text):
+    """C-15.8 text that is not a string is refused with exit 2, never quietly
+    answered as a liveness question with the caller's message lost."""
+    with pytest.raises(protocol.ProtocolError) as refused:
+        core.dispatch("ping", {"text": text, "session_id": "s-1"})
+    assert refused.value.code == Exit.INVALID_INPUT
+    assert service_rows(core.store) == []
+
+
+def test_c15_8_a_session_name_is_used_without_the_spaces_around_it(core):
+    """C-15.8 `" s-1 "` addresses `s-1`, the session whose hooks will read it."""
+    assert core.dispatch("ping", {"text": "hello", "session_id": " s-1 "})["session_id"] == "s-1"
+    assert [row["session_id"] for row in service_rows(core.store)] == ["s-1"]
+
+
+@pytest.mark.parametrize("args,writes", [({}, False), ({"text": ""}, False), ({"text": " \n"}, False),
+                                         ({"text": None}, False), ({"text": 5}, False), ({"text": "x"}, True)])
+def test_c15_8_one_test_says_whether_a_ping_writes(args, writes):
+    """C-15.8, C-16.5, C-16.7 the read-only classing and the daemon agree on what
+    "no text" is: none, or only whitespace."""
+    assert protocol.ping_writes(args) is writes
+
+
 def test_c15_8_a_ping_goes_to_the_session_named_else_the_configured_operator(core):
     """C-15.8 a named session wins; with none named, the configured operator session."""
     core.policy["alerts"]["operator_session"] = "ops-1"
@@ -446,6 +470,17 @@ def test_c15_3_an_ack_without_fingerprints_is_unchanged(core):
 
 
 @pytest.mark.parametrize("op", ["notice.withdraw", "notice.ack"])
+@pytest.mark.parametrize("bad", [None, 7, ["x"]])
+def test_c15_8_a_fingerprint_is_a_string(core, op, bad):
+    """C-15.8 a fingerprint that is not a string is refused by both actions: a
+    `null` must never stand for "no guard" in one and "no match" in the other."""
+    seed(core.store, [("service", "a", "pending", "x")])
+    with pytest.raises(protocol.ProtocolError):
+        core.dispatch(op, {"session_id": "a", "notice_ids": [-1], "fingerprints": [bad]})
+    assert [row["state"] for row in service_rows(core.store)] == ["pending"]
+
+
+@pytest.mark.parametrize("op", ["notice.withdraw", "notice.ack"])
 def test_c15_8_fingerprints_are_one_per_id(core, op):
     """C-15.8 fingerprints, when given, are one per id; otherwise exit 2 and nothing changes."""
     seed(core.store, [("service", "a", "pending", "x")])
@@ -707,3 +742,9 @@ def test_c18_4_a_reset_credit_publication_keeps_the_alerts_in_force(tmp_path):
         finally:
             timer.stop()
     assert [row["key"] for row in published["alerts"]] == ["codex-revoked:/homes/one"]
+
+
+def test_c16_7_a_whitespace_ping_is_read_only_as_the_daemon_treats_it():
+    """C-16.7 a ping whose text is only whitespace writes nothing (C-15.8), so it is read-only."""
+    from subfleet import descriptors
+    assert descriptors.read_only("ping", {"text": " \n"}) and not descriptors.read_only("ping", {"text": "x"})

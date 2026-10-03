@@ -1609,6 +1609,8 @@ class Daemon:
                     raise protocol.ProtocolError(
                         f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
                         "give one per id, or none")
+                if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
                 unique: dict = {}                       # a repeated id: once, with its first fingerprint
                 for index, notice_id in enumerate(a.notice_ids):
                     unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
@@ -1652,7 +1654,10 @@ class Daemon:
                         self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
             return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text") or ""
+            text = args.get("text")
+            text = "" if text is None else text
+            if not isinstance(text, str):
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
             # C-15.8: a notice goes to the session named, else to the configured
             # operator session; there is no default inbox nobody reads. A blank
             # or non-string session names none, and whitespace is no text.
@@ -1660,7 +1665,7 @@ class Daemon:
             named = named.strip() if isinstance(named, str) and named.strip() else None
             session = named or operator_session(self.policy)
             notice_id = None
-            if isinstance(text, str) and text.strip():
+            if text.strip():
                 if not session:
                     raise protocol.ProtocolError(
                         "ping: no session named, and alerts.operator_session is not set; "
@@ -2084,6 +2089,8 @@ class Daemon:
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
                 "give one per id, or none")
+        if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
         listed: dict = {}
         for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
             if a.fingerprints:

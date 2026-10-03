@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import protocol
+
 #: C-16.6: the soft open-file limit the daemon asks for at start, and the value
 #: `daemon install` writes into the launchd plist. The hard limit bounds it.
 OPEN_FILES_WANTED = 65536
@@ -116,7 +118,7 @@ def read_only(op: str, args: dict) -> bool:
     if op in READ_ONLY_OPS:
         return True
     if op == "ping":
-        return not args.get("text")            # a ping with text records a notice
+        return not protocol.ping_writes(args)  # a ping with text records a notice (C-15.8)
     if op == "lanes":
         return args.get("action") in (None, "", "list")
     return False

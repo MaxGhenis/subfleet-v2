@@ -292,6 +292,13 @@ class NoticeAckArgs:
     fingerprints: list[str] = field(default_factory=list)
 
 
+def ping_writes(args: dict[str, Any]) -> bool:
+    """C-15.8: whether a `ping` has text, and so may write a notice. No text, or
+    only whitespace, is a liveness question that reads nothing (C-16.5, C-16.7)."""
+    text = args.get("text")
+    return isinstance(text, str) and bool(text.strip())
+
+
 @dataclass
 class PingArgs:
     """`ping` (v1 `notify`): push or park a message in a session inbox. With no
