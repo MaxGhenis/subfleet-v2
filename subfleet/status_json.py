@@ -262,6 +262,16 @@ def _conversations(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             "truncated": bool(summary.get("truncated")), "turns": turn_counts}
 
 
+#: C-18.4: what `status.json` says of each alert in force.
+ALERT_FIELDS = ("key", "severity", "subject", "body", "since", "last_sent")
+
+
+def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """C-18.4: the alerts in force, in the order `Alerts.active` gives them."""
+    return [{field: row.get(field) for field in ALERT_FIELDS}
+            for row in snapshot.get("alerts") or () if isinstance(row, Mapping) and row.get("key")]
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels.
 
@@ -269,7 +279,8 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     Claude account (every provider-reported window keyed by scope and window),
     `claude.earliest_reset`, `kind` on every job row, and `conversations`.
     `snapshot["model_names"]` (policy model id to short name) labels the
-    model-scoped windows; without it they carry only their scope.
+    model-scoped windows; without it they carry only their scope. C-18.4 adds
+    `alerts`, the alerts in force; the section is always present.
     """
     at = instant(now or snapshot.get("now"))
     model_names = snapshot.get("model_names") or {}
@@ -335,7 +346,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     credits = (sum(credit_counts) if credit_counts and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
                                        for count in credit_counts) else None)
     return {"generated_at": timestamp(at), "offline": bool(snapshot.get("offline", False)),
-            "jobs": _jobs(snapshot), "conversations": _conversations(snapshot),
+            "jobs": _jobs(snapshot), "conversations": _conversations(snapshot), "alerts": _alerts(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
                        "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits,

@@ -26,6 +26,13 @@ struct StatusModelProbe {
                     "tone": String(describing: display.tone)]
         }
         let result: [String: Any] = [
+            "has_alerts_section": snapshot.alerts != nil,
+            "alerts": (snapshot.alerts ?? []).map { alert -> [String: Any] in
+                let display = alertDisplay(alert)
+                return ["title": display.title, "detail": display.detail,
+                        "since": display.since as Any? ?? NSNull(), "tone": String(describing: display.tone)]
+            },
+            "alerts_need_attention": alertsNeedAttention(snapshot),
             "has_jobs_section": snapshot.jobs != nil,
             "job_groups": jobGroups(snapshot.jobs?.live ?? []).map {
                 ["title": $0.title as Any? ?? NSNull(), "jobs": $0.jobs.map(show)] as [String: Any]
