@@ -236,17 +236,18 @@ class NoticeMarkArgs:
 
 
 #: C-15.3: notice ids on the wire. A job notice (`notices`) keeps its own id; a
-#: service notice (`service_notices`, a jobless `ping` message) travels negated
-#: with `job_id` None, so one list can carry both. Every op that takes an id
-#: back must route it with `notice_row`: on 2026-09-29, `notice.mark` ran
-#: negated ids against `notices`, matched nothing, and left 1,749 service
-#: notices `pending`, so every hook surfaced the same ones again.
+#: service notice (`service_notices`: a `ping` message, a nudge, an alert, or a
+#: pin's notice) travels negated, so one list can carry both. Its `job_id` is
+#: None, except that `notice.pending` names a pin notice's job (C-11.8). Every
+#: op that takes an id back must route it with `notice_row`: on 2026-09-29,
+#: `notice.mark` ran negated ids against `notices`, matched nothing, and left
+#: 1,749 service notices `pending`, so every hook surfaced the same ones again.
 SERVICE_NOTICE_TABLE = "service_notices"
 JOB_NOTICE_TABLE = "notices"
 
 
 def service_notice_on_wire(row: dict[str, Any]) -> dict[str, Any]:
-    """A `service_notices` row as `notice.pending` returns it (C-15.3)."""
+    """A `service_notices` row with its wire id (C-15.3); `notice.pending` then names a pin's job."""
     return {**row, "notice_id": -row["notice_id"], "job_id": None}
 
 

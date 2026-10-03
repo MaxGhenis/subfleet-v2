@@ -27,7 +27,9 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet import hooks, protocol
+from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401 - fixture of `fleet`
 from tests.fake.test_state_contract import state_daemon  # noqa: F401 - the fixture
+from tests.fake.test_unadmittable_pin_admission import fleet, settle, submit  # noqa: F401
 
 
 class InProcess:
@@ -40,11 +42,16 @@ class InProcess:
         return self.daemon.dispatch(op, dict(args or {}))
 
 
-def surface(daemon, root, session: str, event: str = "UserPromptSubmit") -> str:
-    """Run one session hook; return the context it gave Claude ("" for none)."""
+def surface(daemon, root, session: str, event: str = "UserPromptSubmit", env=None) -> str:
+    """Run one session hook; return the context it gave Claude ("" for none).
+
+    `env` is the hook process's environment (C-26.13: a launch marker makes it a
+    process Subfleet launched); by default, an ordinary session's (no markers).
+    """
     stdout = io.StringIO()
     assert hooks.session_event(event, {"session_id": session, "hook_event_name": event},
-                               root, client=InProcess(daemon), stdout=stdout) == 0
+                               root, client=InProcess(daemon), stdout=stdout,
+                               env={} if env is None else env) == 0
     printed = stdout.getvalue()
     return json.loads(printed)["hookSpecificOutput"]["additionalContext"] if printed else ""
 
@@ -159,39 +166,69 @@ def test_c15_3_state_a_stale_offer_never_puts_a_surfaced_notice_back(state_daemo
     assert surface(daemon, harness.root, "raced") == ""
 
 
-def test_c15_3_state_a_pushed_notice_is_never_pending_again(state_daemon, no_wake):
-    """C-15.3 with C-15.2 layer 4: a notice the socket push offered never goes back to `pending`.
+def test_c15_3_state_an_offered_notice_is_never_pending_again(state_daemon, no_wake):
+    """C-15.3: no `notice.mark` returns a notice to `pending`, and an offer never lowers a surfaced one.
 
-    The push records a delivery as `offered` with transport `socket`. No mark
-    returns a notice to `pending`, a later push of the same rows changes
-    nothing a hook already did, and the next hook prints each one once.
+    The offer here is the PostToolUse hook's (`hooks._deliver`: `offered`,
+    transport `hook:PostToolUse`). `pending` is not a mark state, a repeated
+    offer changes nothing, the next session hook prints each notice once, and an
+    offer read before that hook leaves it `surfaced`. The socket push (C-15.7)
+    moves rows with its own SQL, not `notice.mark`, so its give-back of an
+    unwritten push is that clause's to test.
     """
     daemon, harness = state_daemon
-    job_id, notice_id = job_notice(daemon, harness, "pushed")
-    message_id = daemon.dispatch("ping", {"session_id": "pushed", "text": "pushed message"})["notice_id"]
-    ids = sorted(pending_ids(daemon, "pushed"))
+    job_id, notice_id = job_notice(daemon, harness, "offered-to")
+    message_id = daemon.dispatch("ping", {"session_id": "offered-to", "text": "offered message"})["notice_id"]
+    ids = sorted(pending_ids(daemon, "offered-to"))
 
     def states() -> list[str]:
         return [daemon.store.one("SELECT state FROM notices WHERE notice_id=?", (notice_id,))["state"],
                 service_row(daemon, message_id)["state"]]
 
-    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
-                                    "state": "offered", "transport": "socket"})
+    daemon.dispatch("notice.mark", {"session_id": "offered-to", "notice_ids": ids,
+                                    "state": "offered", "transport": "hook:PostToolUse"})
     assert states() == ["offered", "offered"]
     for state in ("pending", "queued", ""):
         with pytest.raises(protocol.ProtocolError, match="unknown notice state"):
-            daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids, "state": state})
-    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
-                                    "state": "offered", "transport": "socket"})
+            daemon.dispatch("notice.mark", {"session_id": "offered-to", "notice_ids": ids, "state": state})
+    daemon.dispatch("notice.mark", {"session_id": "offered-to", "notice_ids": ids,
+                                    "state": "offered", "transport": "hook:PostToolUse"})
     assert states() == ["offered", "offered"]
 
-    context = surface(daemon, harness.root, "pushed")
-    assert job_id in context and "pushed message" in context
+    context = surface(daemon, harness.root, "offered-to")
+    assert job_id in context and "offered message" in context
     assert states() == ["surfaced", "surfaced"]
-    daemon.dispatch("notice.mark", {"session_id": "pushed", "notice_ids": ids,
-                                    "state": "offered", "transport": "socket"})
+    daemon.dispatch("notice.mark", {"session_id": "offered-to", "notice_ids": ids,
+                                    "state": "offered", "transport": "hook:PostToolUse"})
     assert states() == ["surfaced", "surfaced"]
-    assert surface(daemon, harness.root, "pushed") == ""
+    assert surface(daemon, harness.root, "offered-to") == ""
+
+
+@pytest.mark.parametrize("launched", [False, True], ids=["session", "launched"])
+def test_c15_3_state_a_pin_notice_is_a_message_surfaced_once(fleet, no_wake, launched):
+    """C-15.3 with C-11.8 and C-26.13: a real pin notice prints under the message header, once.
+
+    `notice.pending` names the pin notice's job, so a process Subfleet launched
+    keeps it (`hooks.names_a_job`) as an ordinary session does; the hook prints
+    it as a message, not a run's end, and marks it `surfaced` by its negated id,
+    so no later hook prints it again.
+    """
+    service, harness = fleet
+    stuck = submit(service, harness)
+    service.store.update_lane("claude-9", enabled=0)
+    service._admit()
+    settle(service, stuck)
+    pins = [row for row in service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"]
+            if row["notice_id"] < 0]
+    assert len(pins) == 1 and pins[0]["job_id"] == stuck
+    env = {"SUBFLEET_JOB": "20261003-000000-turn"} if launched else {}
+
+    context = surface(service, harness.root, "caller-session", env=env)
+    assert context.startswith("subfleet: 1 message for this session:"), context
+    assert stuck in context and "detached run" not in context
+    row = service_row(service, pins[0]["notice_id"])
+    assert row["state"] == "surfaced" and row["transport"] == "hook:UserPromptSubmit"
+    assert surface(service, harness.root, "caller-session", env=env) == ""
 
 
 @pytest.mark.parametrize("bad", ["-3", 1.5, True, None])
@@ -299,10 +336,10 @@ def test_c15_3_state_repeated_hooks_never_surface_a_notice_twice(state_daemon, n
         elif kind == "offer":
             daemon.dispatch("notice.mark", {"session_id": session, "state": "offered",
                                             "notice_ids": sorted(pending_ids(daemon, session)),
-                                            "transport": "socket"})
+                                            "transport": "hook:PostToolUse"})
         else:
             daemon.dispatch("notice.mark", {"session_id": session, "state": "offered",
-                                            "notice_ids": last_read[key], "transport": "socket"})
+                                            "notice_ids": last_read[key], "transport": "hook:PostToolUse"})
         for wire_id, was in acknowledged.items():
             assert row(wire_id) == was, "acknowledged is terminal"
         for wire_id in markers:

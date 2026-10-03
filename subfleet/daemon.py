@@ -4517,7 +4517,7 @@ class Daemon:
     def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
         """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from
         its `job.pin_noticed` event, so `notice.pending` names the job and a session
-        Subfleet launched surfaces it as it does a job's end (C-26.13). A row matches
+        Subfleet launched surfaces it too (C-26.13), as a message (C-15.3). A row matches
         its event by id, session and creation time together: a service notice's id is
         reused once the row with the highest id is deleted (it has no AUTOINCREMENT),
         and a ping, a nudge or an alert that gets an old pin notice's id names none."""
