@@ -59,7 +59,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    allow_desktop: bool = False, policy_hash: str = "",
                    isolated_review: bool = False, review_root: str | None = None,
                    round_lease: str | None = None, resume: Mapping[str, Any] | None = None,
-                   unmeasured_reserve_reason: str | None = None) -> str:
+                   unmeasured_reserve_reason: str | None = None,
+                   mcp_servers: Collection[str] = ()) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -89,6 +90,9 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
             # Default submissions retain their old digest across this additive
             # upgrade; explicit authorization is part of the exact request.
             payload["unmeasured_reserve_reason"] = unmeasured_reserve_reason
+        if mcp_servers:
+            # C-12.9: likewise, a job that names no MCP server keeps its old digest.
+            payload["mcp_servers"] = sorted(mcp_servers)
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

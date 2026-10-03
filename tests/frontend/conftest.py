@@ -17,6 +17,8 @@ CORE_PROBE = [ROOT / "tests/frontend/CoreProbe.swift", ROOT / "tests/frontend/Co
               ROOT / "tests/frontend/CoreProbeLive.swift"]
 needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun") is None,
                                  reason="native Swift frontend validation requires macOS developer tools")
+# The ⌘K palette's matching and the text scale (C-29.12, C-29.13).
+CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
 
 
 @pytest.fixture(scope="session")

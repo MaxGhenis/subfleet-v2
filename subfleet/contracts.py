@@ -18,6 +18,24 @@ PROVIDERS = ("codex", "claude")
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
+#: C-13.1: where git finds a repository, its objects and its index when the
+#: environment names them, before `-C` and before discovery. Inherited by the
+#: daemon (a `subfleet daemon start` run from a git hook passes its caller's
+#: environment through), every salvage call went to that repository instead: a
+#: salvage wrote its ref there and reported success (adversarial review of the
+#: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
+#: temporary index a caller names), and so does the daemon's environment
+#: (`cli.STRIPPED_ENV`).
+GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
+#: C-13.1: how git reads every pathspec when the environment says so. Salvage
+#: leaves out a nested repository with no commit by a `:(top,exclude,literal)`
+#: pathspec, which `GIT_LITERAL_PATHSPECS=1` reads as a file of that name: the
+#: exclusion was lost and the snapshot failed on the repository as before, so
+#: the incident's case had no ref again (review of ceacf18b, P3-3). Dropped
+#: where `GIT_LOCATION_ENV` is.
+GIT_PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS")
 
 # C-23.14: the most characters the credential scrubber matches in one call. A
 # longer text is matched as a head and a tail excerpt within the same bound; a
@@ -369,6 +387,11 @@ class JobSpec:
     # (`network.codex_workspace_write`), not the job row; Claude's writable
     # launch has it already, and read-only and isolated launches never do.
     network: bool = False
+    # C-12.9, d714: the MCP servers a writable Claude launch starts, none unless
+    # the job named them (`run --mcp`), and the daemon's copy of their entries
+    # (`jobs/<job>/mcp.json`). Read-only and isolated launches start none.
+    mcp_servers: tuple[str, ...] = ()
+    mcp_config: str | None = None
 
 
 @dataclass(frozen=True)

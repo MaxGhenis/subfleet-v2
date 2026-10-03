@@ -18,8 +18,8 @@ PROTOCOL_VERSION = 1
 # C-29: the conversation ops (design §5), answered by subfleet/conversations/service.py.
 CONVERSATION_OPS = (
     "capabilities", "conversation.list", "conversation.open", "conversation.create", "conversation.settings",
-    "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
-    "message.submit", "message.status", "message.cancel", "turn.interrupt", "message.resolve",
+    "conversation.rename", "conversation.unblock", "conversation.history", "conversation.events", "conversation.watch",
+    "message.submit", "message.status", "message.cancel", "message.steer", "turn.interrupt", "message.resolve",
     "approval.list", "approval.get", "approval.respond", "attachment.add", "catalog.refresh", "models.list",
     "conversation.runs",
     "turn.diff", "conversation.diff",
@@ -37,7 +37,7 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
-    "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations",
     *CONVERSATION_OPS,
@@ -115,6 +115,9 @@ class SubmitArgs:
     review_root: str | None = None
     round_lease: str | None = None
     unmeasured_reserve_reason: str | None = None
+    # C-12.9, d714: the MCP servers a writable Claude job starts, by name; none
+    # unless named. The daemon finds their entries itself; a client sends names only.
+    mcp_servers: list[str] = field(default_factory=list)
     # C-11.2, C-17.2: the provider the pin's flag names, `claude` for `-a` and
     # `codex` for `-H`. It narrows a name both providers answer to; a lane id
     # says its own provider. Not stored and not part of the request digest.
@@ -232,6 +235,31 @@ class NoticeMarkArgs:
     transport: str | None = None                          # how it was delivered
 
 
+#: C-15.3: notice ids on the wire. A job notice (`notices`) keeps its own id; a
+#: service notice (`service_notices`: a `ping` message, a nudge, an alert, or a
+#: pin's notice) travels negated, so one list can carry both. Its `job_id` is
+#: None, except that `notice.pending` names a pin notice's job (C-11.8). Every
+#: op that takes an id back must route it with `notice_row`: on 2026-09-29,
+#: `notice.mark` ran negated ids against `notices`, matched nothing, and left
+#: 1,749 service notices `pending`, so every hook surfaced the same ones again.
+SERVICE_NOTICE_TABLE = "service_notices"
+JOB_NOTICE_TABLE = "notices"
+
+
+def service_notice_on_wire(row: dict[str, Any]) -> dict[str, Any]:
+    """A `service_notices` row with its wire id (C-15.3); `notice.pending` then names a pin's job."""
+    return {**row, "notice_id": -row["notice_id"], "job_id": None}
+
+
+def notice_row(notice_id: Any) -> tuple[str, int]:
+    """The table a wire notice id names, and the row id it has there (C-15.3)."""
+    if isinstance(notice_id, bool) or not isinstance(notice_id, int):
+        raise ProtocolError(f"notice id must be an integer, not {notice_id!r}")
+    if notice_id < 0:
+        return SERVICE_NOTICE_TABLE, -notice_id
+    return JOB_NOTICE_TABLE, notice_id
+
+
 @dataclass
 class LanesArgs:
     """`lanes` sub-actions (C-17.1). Additive: the CLI needs stable key names."""
@@ -267,9 +295,52 @@ class OperationsArgs:
 
 
 @dataclass
+class NoticeListArgs:
+    """`notice.list` (C-15.8): what `notices` shows; read-only, marks nothing."""
+
+    session_id: str | None = None          # every session's when None
+    resolved: bool = False                 # also `surfaced` and `acknowledged`
+
+
+@dataclass
+class NoticeWithdrawArgs:
+    """`notice.withdraw` (C-15.8): delete a session's named, undelivered service
+    notices (negated ids, as `notice.pending` lists them), with one event
+    saying what went and why. A separate shape, as `NoticeMarkArgs` is."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    reason: str | None = None
+    # One per id when given: the fingerprint the listing showed
+    # (`store.notice_fingerprint`). An id is reused once the newest row is
+    # deleted, so a row is withdrawn only while it is still the one listed.
+    fingerprints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NoticeAckArgs:
+    """`notice.ack` as the daemon reads it: `NoticeArgs` plus, for `notices --ack`
+    (C-15.8), each listed row's fingerprint, so an acknowledgement reaches a row
+    only while it is still the one listed. `NoticeArgs` keeps its shape, so the
+    `notice.ack` lines `runs show` and the hooks send are unchanged."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    fingerprints: list[str] = field(default_factory=list)
+
+
+def ping_writes(args: dict[str, Any]) -> bool:
+    """C-15.8: whether a `ping` has text, and so may write a notice. No text, or
+    only whitespace, is a liveness question that reads nothing (C-16.5, C-16.7)."""
+    text = args.get("text")
+    return isinstance(text, str) and bool(text.strip())
+
+
+@dataclass
 class PingArgs:
-    """`ping` (v1 `notify`): push or park a message in a session inbox."""
-    text: str
+    """`ping` (v1 `notify`): push or park a message in a session inbox. With no
+    text it is a liveness question and writes nothing (C-15.8, C-16.2)."""
+    text: str = ""
     session_id: str | None = None
 
 
