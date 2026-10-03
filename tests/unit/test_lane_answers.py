@@ -51,6 +51,7 @@ def test_c6_14_the_incident_stream_shows_no_model_answering():
     ("spawn-failure", False),           # no stream at all
     ("stream-disconnect", False),
     ("cli-too-old", False),
+    ("org-block", False),               # assembled: a frame the CLI stamped oauth_org_not_allowed, an error result
     ("success-allowed", True),          # a served Haiku turn (live probe payloads)
     ("content-filter", True),           # the model itself declined
 ])
@@ -66,14 +67,25 @@ def served(model="claude-opus-5-5", **usage):
 
 def test_c6_14_each_claude_event_kind():
     assert claude_stream.model_answered(served())                              # a model id: served
-    assert claude_stream.model_answered(served(model=None, output_tokens=4))   # usage alone: served
+    assert not claude_stream.model_answered(served(model=None, output_tokens=4))   # no model named: not known
     assert not claude_stream.model_answered(served(model="<synthetic>"))       # the sentinel
     assert not claude_stream.model_answered({**served(), "is_api_error_message": True})
     assert not claude_stream.model_answered({**served(), "isApiErrorMessage": True})
     assert not claude_stream.model_answered(served(model=""))
+    # A frame the CLI stamped with one of its error kinds proves nothing, whatever it carries.
+    for kind in claude_stream.ERROR_KINDS:
+        assert not claude_stream.model_answered({**served(output_tokens=9), "error": kind}), kind
     assert claude_stream.model_answered({"type": "result", "usage": {"input_tokens": 9}})
+    assert claude_stream.model_answered({"type": "result", "is_error": False, "usage": {"input_tokens": 9}})
+    assert not claude_stream.model_answered({"type": "result", "is_error": True, "usage": {"input_tokens": 9}})
     assert not claude_stream.model_answered({"type": "result", "usage": {"input_tokens": 0}})
     assert not claude_stream.model_answered({"type": "result", "usage": {"input_tokens": True}})
+    # What is the CLI's own, for C-9.3: its markers, a missing or sentinel model, an auth error kind.
+    assert not claude_stream.cli_placeholder(served())
+    assert not claude_stream.cli_placeholder({**served(), "error": "max_output_tokens"})    # the model's words still
+    for row in (served(model="<synthetic>"), served(model=None), {**served(), "is_api_error_message": True},
+                *({**served(), "error": kind} for kind in claude_stream.AUTH_ERROR_KINDS)):
+        assert claude_stream.cli_placeholder(row)
     # Claude Code 2.1.284 writes these while the model streams its thinking, before any frame.
     assert claude_stream.model_answered({"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 50})
     assert not claude_stream.model_answered({"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 0})
@@ -162,6 +174,16 @@ def test_c9_3_the_block_in_the_clis_own_words_is_auth_dead(adapter, tmp_path, wh
     assert outcome.evidence["model_answered"] is False
 
 
+def test_c9_3_a_truncated_model_frame_quoting_the_block_is_neither_auth_dead_nor_an_answer(adapter, tmp_path):
+    """A served frame the CLI stamped `max_output_tokens`: its text is still the model's
+    (no `auth-dead` from it), and it is no proof of a lane either."""
+    frame = {**served(), "error": "max_output_tokens"}
+    frame["message"]["content"] = [{"type": "text", "text": ORG_BLOCK}]
+    outcome = classify(adapter, tmp_path, line(INIT) + line(frame), rc=1)
+    assert outcome.cls != OutcomeClass.AUTH_DEAD, outcome.detail
+    assert outcome.evidence["model_answered"] is False
+
+
 def test_c9_3_a_401_only_the_model_wrote_before_init_is_not_auth_dead(adapter, tmp_path):
     """Without `system/init` a credential failure in the CLI's words is `auth-dead`; the
     same words in a served frame are not the lane's."""
@@ -227,6 +249,15 @@ def test_c6_14_a_cold_lane_is_marked_by_its_least_unanswered_detached_attempt():
     assert capacity.pilot_marks([attempt("t/a1", kind="turn"), attempt("j/a1", state="failed")],
                                 answered={}, lane_answers={}, now=1000.0, idle_s=900) == {}
     assert capacity.pilot_marks([attempt("j1/a1")], answered={}, lane_answers={}, now=1000.0, idle_s=None) == {}
+    # A pilot reserved more than `wait_s` ago holds its lane no longer; the next unanswered attempt does.
+    old, new = {**attempt("j1/a1"), "reserved_at": "1970-01-01T00:05:00Z"}, {**attempt("j2/a1"), "reserved_at": "1970-01-01T00:15:00Z"}
+    assert capacity.pilot_marks([old], answered={}, lane_answers={}, now=1000.0, idle_s=900, wait_s=300) == {}
+    assert capacity.pilot_marks([old, new], answered={}, lane_answers={}, now=1000.0, idle_s=900,
+                                wait_s=300) == {"codex-1": "proving:j2/a1"}
+    assert capacity.pilot_marks([old], answered={}, lane_answers={}, now=1000.0, idle_s=900,
+                                wait_s=None) == {"codex-1": "proving:j1/a1"}
+    assert capacity.pilot_marks([{**old, "reserved_at": "not a time"}], answered={}, lane_answers={}, now=1000.0,
+                                idle_s=900, wait_s=300) == {"codex-1": "proving:j1/a1"}
 
 
 ATTEMPTS = st.lists(st.builds(attempt, st.text("abcd/", min_size=1, max_size=4),
@@ -241,20 +272,28 @@ ATTEMPTS = st.lists(st.builds(attempt, st.text("abcd/", min_size=1, max_size=4),
 def test_c6_14_pilot_marks_name_exactly_the_cold_lanes_with_an_unanswered_detached_attempt(attempts, data):
     """For all rows, answers and clocks: a lane is marked exactly when it is cold (never
     answered, or not within `idle_s`) and has a live detached attempt that has not
-    answered; the mark names the least such attempt; the result does not depend on the
+    answered and was reserved within `wait_s`; the mark names the least such attempt; the result does not depend on the
     order the rows come in; and marking a view keeps any reason already there."""
     ids = [row["attempt_id"] for row in attempts]
     answered = {aid: 0.0 for aid in data.draw(st.lists(st.sampled_from(ids), unique=True) if ids else st.just([]))}
     lane_answers = data.draw(st.dictionaries(st.sampled_from(["codex-1", "codex-2", "claude-1"]),
                                              st.floats(0, 2000, allow_nan=False)))
     now, idle = data.draw(st.floats(0, 3000, allow_nan=False)), data.draw(st.sampled_from([1.0, 60.0, 900.0]))
-    marks = capacity.pilot_marks(attempts, answered=answered, lane_answers=lane_answers, now=now, idle_s=idle)
+    wait = data.draw(st.sampled_from([None, 30.0, 300.0]))
+    reserved = {aid: data.draw(st.floats(0, 3000, allow_nan=False)) for aid in ids}
+    attempts = [{**row, "reserved_at": capacity._iso(capacity.datetime.fromtimestamp(reserved[row["attempt_id"]],
+                                                                                     capacity.timezone.utc))}
+                for row in attempts]
+    marks = capacity.pilot_marks(attempts, answered=answered, lane_answers=lane_answers, now=now, idle_s=idle,
+                                 wait_s=wait)
     shuffled = data.draw(st.permutations(attempts))
-    assert capacity.pilot_marks(shuffled, answered=answered, lane_answers=lane_answers, now=now, idle_s=idle) == marks
+    assert capacity.pilot_marks(shuffled, answered=answered, lane_answers=lane_answers, now=now, idle_s=idle,
+                                wait_s=wait) == marks
     for lane in ("codex-1", "codex-2", "claude-1"):
         cold = lane not in lane_answers or now - lane_answers[lane] >= idle
         pilots = sorted(row["attempt_id"] for row in attempts if row["lane_id"] == lane and row["kind"] != "turn"
-                        and row["state"] in capacity.ACTIVE_ATTEMPT_STATES and row["attempt_id"] not in answered)
+                        and row["state"] in capacity.ACTIVE_ATTEMPT_STATES and row["attempt_id"] not in answered
+                        and (wait is None or now - int(reserved[row["attempt_id"]]) < wait))
         assert marks.get(lane) == (f"proving:{pilots[0]}" if cold and pilots else None)
     view = {"unavailable_lanes": {"codex-1": "probe:admission:x"}}
     capacity.mark_pilots(view, marks)

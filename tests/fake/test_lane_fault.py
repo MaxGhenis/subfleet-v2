@@ -10,10 +10,13 @@ while the daemon disabled claude-5 (C-23.44).
 
 Now an `auth-dead` attempt of a job with no lane pin, that is no conversation
 turn, whose workspace it left as it found it (a read-only job, or a writable one
-whose salvage found its end tree equal to its start snapshot with HEAD where it
-was), moves on to the next candidate as a `limited` one does, and `max_attempts`
-does not count it. A pinned job, and a job whose workspace changed, end as before.
-These drive the daemon's own finalization and admission in-process, no provider run.
+whose model never answered and whose salvage found its end tree equal to its
+start snapshot with HEAD where it was), moves on to the next candidate as a
+`limited` one does, and `max_attempts` does not count it. A job moves on once: a
+second `auth-dead` ends it and leaves that lane enabled, because two lanes
+refusing one job points at the job, so no job disables more lanes than before. A
+pinned job, and a job whose workspace changed, end as before. These drive the
+daemon's own finalization and admission in-process, no provider run.
 """
 
 from __future__ import annotations
@@ -46,6 +49,13 @@ class LaneRefuses(FakeAdapter):
 
     def classify(self, attempt_dir, launch, exit_info):
         return Outcome(OutcomeClass.AUTH_DEAD, BLOCK, evidence={"rc": exit_info.rc, "model_answered": False})
+
+
+class RevokedMidRun(FakeAdapter):
+    """The lane's access went while the attempt ran: the model had answered."""
+
+    def classify(self, attempt_dir, launch, exit_info):
+        return Outcome(OutcomeClass.AUTH_DEAD, BLOCK, evidence={"rc": exit_info.rc, "model_answered": True})
 
 
 class Transient(FakeAdapter):
@@ -195,23 +205,142 @@ def test_c4_5_a_lane_fault_is_not_counted_against_max_attempts(state_daemon):
     assert "attempt a1: lane codex-1 went auth-dead" in text
 
 
-def test_c4_5_a_job_moves_on_from_at_most_every_lane_and_then_waits_never_failing(state_daemon):
-    """Each lane fault disables its lane (C-23.44), so a job moves on from at most as
-    many as there are; with none left it waits, held for good (C-11.8), not failed."""
+def test_c4_5_a_job_moves_on_once_and_a_second_auth_dead_ends_it_leaving_that_lane_enabled(state_daemon):
+    """Two lanes refusing one job points at the job (a tool's `invalid_api_key` on
+    stderr, a project setting that overrides the lane's credential), so the second
+    lane is not disabled on that job's word: no job disables more lanes than before
+    this rule. A lane that really is dead is found by the next job, whose first
+    `auth-dead` it is."""
+    daemon, harness = state_daemon
+    for lane_id in ("codex-2", "codex-3"):
+        add_lane(daemon, harness, lane_id)
+    job_id, first, _ = reserve(daemon, harness)
+    finish(daemon, first, LaneRefuses)
+    daemon._admit()
+    second = attempts(daemon, job_id)[-1]
+    assert second["lane_id"] == "codex-2"
+    finish(daemon, second, LaneRefuses)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 5)
+    assert [lane.enabled for lane in daemon.store.list_lanes()] == [False, True, True]
+    evidence = json.loads(daemon.store.get_attempt(second["attempt_id"])["evidence_json"])
+    assert evidence["auth_dead_again"] == {"lane_id": "codex-2", "lane_left_enabled": True}
+    assert "lane_fault" not in evidence
+    text = notice(daemon, job_id)
+    assert "attempt a2: auth-dead, rc=1: " + BLOCK in text
+    assert "attempt a1: lane codex-1 went auth-dead" in text
+    assert ("attempt a2: lane codex-2 answered auth-dead too; two lanes refusing one job points at the job, "
+            "so codex-2 was left enabled") in text
+    daemon._admit()
+    assert len(attempts(daemon, job_id)) == 2
+    # codex-2 is dead after all: the next job's first auth-dead disables it, and that job moves on.
+    other, attempt, _ = reserve(daemon, harness)
+    assert attempt["lane_id"] == "codex-2"
+    finish(daemon, attempt, LaneRefuses)
+    assert daemon.store.get_lane("codex-2").enabled is False
+    daemon._admit()
+    assert [row["lane_id"] for row in attempts(daemon, other)] == ["codex-2", "codex-3"]
+
+
+def test_c4_5_a_read_only_job_moves_on_even_after_its_model_answered(state_daemon):
+    """Access revoked mid-run: a read-only job reads again on the next lane."""
+    daemon, harness = state_daemon
+    add_lane(daemon, harness, "codex-2")
+    job_id, first, _ = reserve(daemon, harness)
+    finish(daemon, first, RevokedMidRun)
+    fault = json.loads(daemon.store.get_attempt(first["attempt_id"])["evidence_json"])["lane_fault"]
+    assert fault["model_answered"] is True and fault["workspace"] == "read-only"
+    daemon._admit()
+    assert [row["lane_id"] for row in attempts(daemon, job_id)] == ["codex-1", "codex-2"]
+
+
+@pytest.mark.parametrize("adapter", [RevokedMidRun, "unsaid"])
+def test_c4_5_a_writable_job_whose_model_answered_does_not_move_on(state_daemon, adapter):
+    """A writable attempt runs with permissions skipped: its model may have pushed or
+    commented, which an unchanged tree does not show. With an answer, or an adapter
+    that cannot say, the job ends for a person, as before; a revive (`max_attempts`
+    1: "a retry would be a second continuation") is never run twice this way."""
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id, first, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True, max_attempts=1)
+    add_lane(daemon, harness, "codex-2", measured=True)
+    if adapter == "unsaid":
+        class adapter(FakeAdapter):                      # noqa: N801 - an adapter with no `model_answered`
+            def classify(self, attempt_dir, launch, exit_info):
+                return Outcome(OutcomeClass.AUTH_DEAD, BLOCK, evidence={"rc": exit_info.rc})
+    finish(daemon, first, adapter)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 5)
+    assert "lane_fault" not in json.loads(daemon.store.get_attempt(first["attempt_id"])["evidence_json"])
+    daemon._admit()
+    assert len(attempts(daemon, job_id)) == 1
+
+
+def test_c4_5_a_writable_job_in_a_worktree_admission_cut_moves_on_in_that_worktree(state_daemon):
+    """C-6.6: not in place, so admission cuts the job a worktree; the lane fault's tree
+    test reads that worktree, and the retry starts in it."""
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id, first, _ = reserve(daemon, harness, sandbox="workspace-write")
+    worktree = daemon.store.get_job(job_id)["worktree"]
+    assert worktree and worktree != str(harness.workdir)
+    add_lane(daemon, harness, "codex-2", measured=True)
+    finish(daemon, first, LaneRefuses)
+    assert json.loads(daemon.store.get_attempt(first["attempt_id"])["evidence_json"])["lane_fault"]["workspace"] == "unchanged"
+    daemon._admit()
+    assert [row["lane_id"] for row in attempts(daemon, job_id)] == ["codex-1", "codex-2"]
+    assert daemon.store.get_job(job_id)["worktree"] == worktree
+
+
+def test_c4_5_a_finalization_replayed_after_a_lane_fault_changes_nothing(state_daemon):
+    """C-4.2: finalization is idempotent. The row the first pass read is offered again."""
+    daemon, harness = state_daemon
+    add_lane(daemon, harness, "codex-2")
+    job_id, first, adir = reserve(daemon, harness)
+    register("codex", LaneRefuses)
+    finalizing = receipt_fixture(daemon, first, adir, rc=1)
+    daemon._finalize(finalizing)
+    before = (daemon.store.get_job(job_id), attempts(daemon, job_id), len(daemon.store.list_events(job_id)))
+    daemon._finalize(finalizing)
+    daemon._finalize(daemon.store.get_attempt(first["attempt_id"]))
+    register("codex", FakeAdapter)
+    assert (daemon.store.get_job(job_id), attempts(daemon, job_id), len(daemon.store.list_events(job_id))) == before
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+
+
+@pytest.mark.parametrize("max_attempts,state", [(1, "failed"), (2, "queued")])
+def test_c4_5_an_attempt_that_never_launched_after_a_lane_fault_is_counted_as_ever(state_daemon, max_attempts, state):
+    """`_unlaunched` asks `_attempts_left` too: the lane fault is not counted, the
+    attempt after it that never launched is."""
+    daemon, harness = state_daemon
+    add_lane(daemon, harness, "codex-2")
+    job_id, first, _ = reserve(daemon, harness, max_attempts=max_attempts)
+    finish(daemon, first, LaneRefuses)
+    daemon._admit()
+    second = attempts(daemon, job_id)[-1]
+    daemon._pending_launches.discard(second["attempt_id"])
+    daemon._unlaunched(second, "reserved-no-launch")
+    assert daemon.store.get_job(job_id)["state"] == state
+
+
+def test_c4_5_other_attempts_are_counted_around_a_lane_fault(state_daemon):
+    """a1 transient, a2 the lane fault, a3 and a4 transient: three counted attempts,
+    which is `max_attempts`, and the fault between them not one of them."""
     daemon, harness = state_daemon
     for lane_id in ("codex-2", "codex-3"):
         add_lane(daemon, harness, lane_id)
     job_id, attempt, _ = reserve(daemon, harness)
-    for _ in range(3):
-        finish(daemon, attempt, LaneRefuses)
+    for adapter in (Transient, LaneRefuses, Transient, Transient):
+        assert daemon.store.get_job(job_id)["state"] == "running"
+        finish(daemon, attempt, adapter)
+        daemon.store.update_job(job_id, next_check_at=None) if daemon.store.get_job(job_id)["state"] == "waiting" else None
         daemon._admit()
         attempt = attempts(daemon, job_id)[-1]
-    assert [row["lane_id"] for row in attempts(daemon, job_id)] == ["codex-1", "codex-2", "codex-3"]
-    assert all(not lane.enabled for lane in daemon.store.list_lanes())
+    rows = attempts(daemon, job_id)
+    assert [row["outcome_class"] for row in rows] == ["transient", "auth-dead", "transient", "transient"]
+    assert rows[0]["lane_id"] == rows[1]["lane_id"] == "codex-1"          # C-9.5: the same lane once more
     job = daemon.store.get_job(job_id)
-    assert job["state"] == "waiting" and job["rc"] is None
-    assert daemon._holds[job_id].get("for_good") == ["disabled"]
-    assert daemon.store.list_notices() == []
+    assert (job["state"], job["rc"]) == ("failed", 1)
 
 
 def test_c4_5_a_conversation_turn_is_never_a_lane_fault():
@@ -226,7 +355,7 @@ def test_c4_5_a_conversation_turn_is_never_a_lane_fault():
             assert Daemon._lane_fault({**job, "kind": "dispatch"}, attempt, Outcome(cls, "x"), None, [], {}) is None
 
 
-# --- the property: an unchanged unpinned job never fails for a dead lane while another is open ----
+# --- the property: a job is never failed by the one dead lane it meets -------------------------------
 
 @contextmanager
 def fleet(root, lanes: int):
@@ -264,27 +393,9 @@ class ByLane(FakeAdapter):
 JOBS = st.lists(st.fixed_dictionaries({"pin": st.none() | st.integers(1, 4)}), min_size=1, max_size=5)
 
 
-@settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-@given(lanes=st.integers(1, 4), dead=st.lists(st.booleans(), min_size=4, max_size=4), jobs=JOBS,
-       writable=st.sampled_from([None, "unchanged", "changed"]), prove=st.sampled_from([None, 900]),
-       order=st.randoms(use_true_random=False))
-def test_c4_5_no_unchanged_unpinned_job_fails_for_auth_dead_while_another_lane_is_open(
-        tmp_path_factory, lanes, dead, jobs, writable, prove, order):
-    """For any fleet of 1 to 4 lanes, some of them dead (every attempt there `auth-dead`
-    before a model answers), any jobs (lane-pinned or not, read-only, and at most one
-    writable job in the one checkout whose tree its attempts leave unchanged or change),
-    with the pilot hold on or off (C-6.14), and attempts ending in any order, run until
-    nothing more can be placed:
-
-    - no unpinned job whose workspace is unchanged ends `failed` because of `auth-dead`
-      while another enabled lane exists: with a live lane it succeeds, and with none it
-      waits, never failed;
-    - each lane fault disabled its lane, and no job moved on from more of them than there
-      were lanes; `max_attempts` counted none of them;
-    - a pinned job never runs elsewhere, and one pinned to a dead lane that it reached
-      ends `failed` rc 5; a writable job whose tree changed ends `failed` rc 5 on a dead lane.
-    """
-    root = tmp_path_factory.mktemp("lane-fault")
+def run_fleet(root, lanes, dead, jobs, writable, prove, order):
+    """One example: the fleet, the jobs, attempts ending in `order` until nothing more can be
+    placed; then every job as (id, pin, workspace, row, attempts) and the lanes as they ended."""
     dead_lanes = {f"codex-{n}" for n in range(1, lanes + 1) if dead[n - 1]}
     with fleet(root / "state", lanes) as (service, harness):
         service.policy["admission"]["prove_idle_s"] = prove
@@ -314,22 +425,89 @@ def test_c4_5_no_unchanged_unpinned_job_fails_for_auth_dead_while_another_lane_i
                 service._finalize(receipt_fixture(service, attempt, adir, rc=1 if attempt["lane_id"] in dead_lanes else 0,
                                                   stdout=b"DEAD" if attempt["lane_id"] in dead_lanes else b"done\n"))
         enabled = {lane.lane_id for lane in service.store.list_lanes() if lane.enabled}
-        alive = {f"codex-{n}" for n in range(1, lanes + 1)} - dead_lanes
-        assert enabled == alive | (dead_lanes - {row["lane_id"] for row in service.store.list_attempts()})
-        for job_id, pin, workspace in submitted:
-            job = service.store.get_job(job_id)
-            rows = service.store.list_attempts(job_id)
-            faults = [row for row in rows if json.loads(row["evidence_json"] or "{}").get("lane_fault")]
-            assert all(row["lane_id"] in dead_lanes and row["outcome_class"] == "auth-dead" for row in faults)
-            assert len(faults) <= lanes and len({row["lane_id"] for row in faults}) == len(faults)
-            assert len(rows) - len(faults) <= job["max_attempts"]
-            if pin is None and workspace != "changed":
-                # The property: never failed for auth-dead while another lane was open.
-                assert not (job["state"] == "failed" and rows and rows[-1]["outcome_class"] == "auth-dead")
+        found = [(job_id, pin, workspace, service.store.get_job(job_id), service.store.list_attempts(job_id))
+                 for job_id, pin, workspace in submitted]
+    return dead_lanes, enabled, found
+
+
+FLEETS = dict(lanes=st.integers(1, 4), dead=st.lists(st.booleans(), min_size=4, max_size=4), jobs=JOBS,
+              writable=st.sampled_from([None, "unchanged", "changed"]), prove=st.sampled_from([None, 900]),
+              order=st.randoms(use_true_random=False))
+
+
+def check_fleet(lanes, dead_lanes, enabled, found):
+    alive = {f"codex-{n}" for n in range(1, lanes + 1)} - dead_lanes
+    evidence = lambda row: json.loads(row["evidence_json"] or "{}")                    # noqa: E731
+    assert alive <= enabled                                   # no lane that works was ever disabled
+    disabled_by: dict[str, int] = {}
+    for job_id, pin, workspace, job, rows in found:
+        faults = [row for row in rows if evidence(row).get("lane_fault")]
+        refused = [row for row in rows if row["outcome_class"] == "auth-dead"]
+        assert all(row["lane_id"] in dead_lanes for row in refused)
+        assert len(faults) <= 1                               # a job moves on once
+        assert len(rows) - len(faults) <= job["max_attempts"]  # and that attempt is not counted
+        # No job disables more lanes than before the rule: at most one, its first auth-dead's.
+        disabling = [row for row in refused if not evidence(row).get("auth_dead_again")]
+        assert len(disabling) <= 1 and all(row["lane_id"] not in enabled for row in disabling)
+        for row in disabling:
+            disabled_by[row["lane_id"]] = disabled_by.get(row["lane_id"], 0) + 1
+        if pin is None and workspace != "changed":
+            if job["state"] == "failed":
+                # Never by the one dead lane it met: only by a second, which is left enabled.
+                assert [bool(evidence(row).get("lane_fault")) for row in refused] == [True, False], (job_id, rows)
+                assert evidence(refused[1])["auth_dead_again"]["lane_left_enabled"] is True
+                assert (job["rc"], rows[-1]["attempt_id"]) == (5, refused[1]["attempt_id"])
+            else:
                 assert job["state"] == ("succeeded" if alive else "waiting"), (job_id, job["state"], rows)
-            elif pin is not None:
-                assert {row["lane_id"] for row in rows} <= {pin}
-                if pin in dead_lanes and rows:
-                    assert (job["state"], job["rc"]) == ("failed", 5)
-            elif rows and rows[0]["lane_id"] in dead_lanes:
-                assert (job["state"], job["rc"]) == ("failed", 5) and not faults
+        elif pin is not None:
+            assert {row["lane_id"] for row in rows} <= {pin}
+            if pin in dead_lanes and rows:
+                assert (job["state"], job["rc"]) == ("failed", 5)
+        elif rows and rows[0]["lane_id"] in dead_lanes:
+            assert (job["state"], job["rc"]) == ("failed", 5) and not faults
+    assert set(disabled_by) == dead_lanes - enabled           # every disabled lane, by a job's first auth-dead
+
+
+@settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(**FLEETS)
+def test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(
+        tmp_path_factory, lanes, dead, jobs, writable, prove, order):
+    """For any fleet of 1 to 4 lanes, some of them dead (every attempt there `auth-dead`
+    before a model answers), any jobs (lane-pinned or not, read-only, and at most one
+    writable job in the one checkout whose tree its attempts leave unchanged or change),
+    with the pilot hold on or off (C-6.14), and attempts ending in any order, run until
+    nothing more can be placed:
+
+    - no unpinned job whose workspace is unchanged ends `failed` because of the `auth-dead`
+      lane it met while another enabled lane exists: it moves on, and then with a live
+      lane it succeeds, and with none it waits. It ends `failed` for `auth-dead` only at
+      a second such lane, which is left enabled;
+    - so in a fleet with one dead lane, as on 2026-09-30, no such job fails at all;
+    - no job disables more than one lane, no lane that works is ever disabled, and every
+      disabled lane was a job's first `auth-dead`;
+    - `max_attempts` counts every attempt but a job's one lane fault;
+    - a pinned job never runs elsewhere, and one pinned to a dead lane that it reached
+      ends `failed` rc 5; a writable job whose tree changed ends `failed` rc 5 on a dead lane.
+    """
+    dead_lanes, enabled, found = run_fleet(tmp_path_factory.mktemp("lane-fault"), lanes, dead, jobs, writable,
+                                           prove, order)
+    check_fleet(lanes, dead_lanes, enabled, found)
+    if len(dead_lanes) <= 1:                                  # the incident's shape: the stated property, exactly
+        assert not [job for _, pin, workspace, job, rows in found if pin is None and workspace != "changed"
+                    and job["state"] == "failed"]
+
+
+def test_c4_5_the_property_fails_under_the_rule_of_2026_09_30(tmp_path_factory, monkeypatch):
+    """Mutation: with no lane fault (C-4.5 as it stood), the property above finds the
+    incident: an unpinned read-only job failed by the one dead lane it met."""
+    monkeypatch.setattr(Daemon, "_lane_fault", staticmethod(lambda *args: None))
+    with pytest.raises(AssertionError):
+        test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)
+
+
+def test_c4_5_the_property_fails_when_a_job_may_move_on_without_end(tmp_path_factory, monkeypatch):
+    """Mutation: with nothing counting a job's lane faults, one job disables lane after
+    lane, which the property's "no job disables more than one lane" catches."""
+    monkeypatch.setattr(Daemon, "_uncharged", staticmethod(lambda conn, job_id, *, before: 0))
+    with pytest.raises(AssertionError):
+        test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)

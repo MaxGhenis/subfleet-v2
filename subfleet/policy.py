@@ -174,7 +174,10 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: lane. Fifteen probe intervals: a lane in use proves itself with every
 #: attempt it starts and never waits, and a lane idle that long costs one
 #: serialized start, where an unproven lane took 37 jobs in 40 s on
-#: 2026-09-30 and failed every one.
+#: 2026-09-30 and failed every one. `prove_wait_s` is how long a pilot that has
+#: not answered keeps its lane to itself; after it the lane takes one more
+#: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
+#: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
@@ -186,6 +189,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
+    "prove_wait_s": 300,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -392,6 +396,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                               or not math.isfinite(prove) or prove <= 0):
         fail("admission.prove_idle_s", "must be a positive finite number of seconds, or null never to hold "
                                        "a lane for its pilot (C-6.14)")
+    wait = settings["prove_wait_s"]
+    if wait is not None and (not isinstance(wait, (int, float)) or isinstance(wait, bool)
+                             or not math.isfinite(wait) or wait <= 0):
+        fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
+                                       "pilot's answer however long (C-6.14)")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)

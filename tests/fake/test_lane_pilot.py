@@ -185,6 +185,81 @@ def test_c6_14_a_pilot_that_fails_hands_the_hold_to_the_next_job(state_daemon):
     assert following["job_id"] == jobs[1]
 
 
+def test_c6_14_a_pilot_that_never_answers_holds_its_lane_for_prove_wait_s_and_no_longer(state_daemon, monkeypatch,
+                                                                                       caplog):
+    """A pilot that hangs before its first answer (a slow hook, an MCP server that never
+    starts) would hold its lane until `max_wall_s`. After `admission.prove_wait_s` (300 s)
+    it is a pilot no longer: the lane takes one more attempt, the next pilot, and
+    `daemon.log` says so once. Null waits for the pilot however long."""
+    daemon, harness = state_daemon
+    hold_on(daemon)
+    jobs = submit_many(daemon, harness, 4)
+    daemon._admit()
+    pilot, = placed(daemon)
+    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-299))
+    due(daemon)
+    daemon._admit()
+    assert len(placed(daemon)) == 1                            # within the wait: still its lane's pilot
+    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-301))
+    daemon.policy["admission"]["prove_wait_s"] = None
+    due(daemon)
+    daemon._admit()
+    assert len(placed(daemon)) == 1                            # null: however long
+    daemon.policy["admission"]["prove_wait_s"] = 300
+    due(daemon)
+    daemon._admit()
+    flying = placed(daemon)
+    assert sorted(row["job_id"] for row in flying) == sorted(jobs[:2])     # one more, and it is the pilot now
+    following, = [row for row in flying if row["attempt_id"] != pilot["attempt_id"]]
+    assert daemon._holds[jobs[2]]["reason"] == "lane-proving"
+    now = daemon._pick(daemon.store.get_job(jobs[2]))          # as a look now judges it
+    assert now.evaluations[0]["rejections"][0]["slot_block"] == f"proving:{following['attempt_id']}"
+    stream(daemon, pilot, STARTED)
+    with caplog.at_level("WARNING"):
+        run(daemon, monkeypatch, daemon.store.get_attempt(pilot["attempt_id"]))
+        run(daemon, monkeypatch, daemon.store.get_attempt(pilot["attempt_id"]))
+    said = [record.getMessage() for record in caplog.records if "no longer holds the lane" in record.getMessage()]
+    assert said == [f"attempt {pilot['attempt_id']} on lane codex-1 has shown no model answering for 300 s; it no "
+                    "longer holds the lane, which takes one more attempt (C-6.14)"]
+
+
+def test_c6_14_an_ok_attempt_proves_its_lane_whatever_its_stream_showed(state_daemon):
+    """A stream shape the predicate does not know (`model_answered` False) with a
+    verdict of `ok`: the lane is proven, or it would serve one attempt at a time for good."""
+    from subfleet.contracts import Outcome, OutcomeClass
+    daemon, harness = state_daemon
+    daemon.policy["admission"]["prove_idle_s"] = IDLE
+    jobs = submit_many(daemon, harness, 3)
+    daemon._admit()
+    pilot, = placed(daemon)
+
+    class UnknownShape(FakeAdapter):
+        def classify(self, attempt_dir, launch, exit_info):
+            return Outcome(OutcomeClass.OK, "ok", evidence={"rc": 0, "model_answered": False})
+    finish(daemon, pilot, UnknownShape, rc=0)
+    assert "codex-1" in daemon._lane_answers
+    daemon._admit()
+    assert sorted(row["job_id"] for row in placed(daemon)) == sorted(jobs[1:])
+
+
+def test_c6_14_only_an_answer_on_an_unproven_lane_wakes_admission(state_daemon):
+    """C-6.10: a proven lane's every start answers too; a look at every backed-off wait
+    for each would be the cost C-6.10 keeps timer probes out of."""
+    daemon, harness = state_daemon
+    hold_on(daemon)
+    daemon._record_answer("codex-1", "probe")                 # unproven until now: jobs may have waited on it
+    assert daemon._take_answer_news() is True
+    daemon._record_answer("codex-1", "keepalive")             # proven: nothing was held for it
+    assert daemon._take_answer_news() is False
+    daemon._lane_answers = {"codex-1": datetime.now(timezone.utc).timestamp() - IDLE - 1}
+    daemon._record_answer("codex-1", "probe")
+    assert daemon._take_answer_news() is True
+    daemon.policy["admission"]["prove_idle_s"] = None         # no hold, so nothing to wake
+    daemon._lane_answers = {}
+    daemon._record_answer("codex-1", "probe")
+    assert daemon._take_answer_news() is False
+
+
 # --- which lanes are held ----------------------------------------------------------------------
 
 def test_c6_14_a_lane_that_answered_within_the_window_takes_the_whole_burst(state_daemon):
@@ -492,3 +567,30 @@ def test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_fact
         if any(lane.enabled for lane in service.store.list_lanes()):
             assert {job["state"] for job in service.store.list_jobs()} <= {"succeeded", "failed"}
         assert not any(hold.get("reason") == "lane-proving" for hold in service._holds.values())
+
+
+# --- the tests above can fail -----------------------------------------------------------------
+
+def test_c6_14_the_invariant_fails_with_no_pilot_marks(tmp_path_factory, monkeypatch):
+    """Mutation: with no marks laid (admission before C-6.14), the invariant finds a second
+    unanswered attempt placed on an unproven lane."""
+    monkeypatch.setattr(Daemon, "_pilot_marks", lambda self, attempts, instant: {})
+    with pytest.raises(AssertionError):
+        test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_factory=tmp_path_factory)
+
+
+def test_c6_3_the_differential_fails_with_marks_only_in_the_early_view(state_daemon, monkeypatch):
+    """Mutation: with the reservation's check laying no marks, it keeps a lane the early
+    view chose although a pilot was placed there since, and the differential says so."""
+    rows = Daemon._route_rows
+
+    def without_pilots(self, basis, now):
+        monkeypatch.setattr(self, "_pilot_marks", lambda attempts, instant: {})
+        try:
+            return rows(self, basis, now)
+        finally:
+            monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Daemon, "_route_rows", without_pilots)
+        with pytest.raises(AssertionError):
+            test_c6_3_c6_14_the_reservation_check_and_a_fresh_evaluation_agree_on_a_pilot(state_daemon)

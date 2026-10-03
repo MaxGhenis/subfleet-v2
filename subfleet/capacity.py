@@ -507,7 +507,8 @@ def pilot_block(value: Any) -> bool:
 
 
 def pilot_marks(attempts: Iterable[Mapping[str, Any]], *, answered: Mapping[str, Any],
-                lane_answers: Mapping[str, float], now: float, idle_s: float | None) -> dict[str, str]:
+                lane_answers: Mapping[str, float], now: float, idle_s: float | None,
+                wait_s: float | None = None) -> dict[str, str]:
     """C-6.14: lane id -> `proving:<attempt id>` for each lane being proven.
 
     A lane is being proven while no model has answered on it for `idle_s`
@@ -516,8 +517,14 @@ def pilot_marks(attempts: Iterable[Mapping[str, Any]], *, answered: Mapping[str,
     attempt is in flight on it that has not answered yet (`answered` names the
     attempts that have): that attempt is the lane's pilot, the least attempt id
     when there are several. `attempts` are rows with `attempt_id`, `lane_id`,
-    `state` and `kind`, the job's (a `turn` attempt is never a pilot). With
-    `idle_s` None (`admission.prove_idle_s` null) no lane is held.
+    `state` and `kind`, the job's (a `turn` attempt is never a pilot), and
+    `reserved_at`. With `idle_s` None (`admission.prove_idle_s` null) no lane is
+    held. An attempt reserved more than `wait_s` seconds before `now`
+    (`admission.prove_wait_s`; None, however long) that still has not answered is
+    a pilot no longer: its lane takes one more attempt, the next pilot, so a pilot
+    that hangs costs its lane one attempt per `wait_s`, not every attempt until
+    `max_wall_s`. A row with no `reserved_at`, or one that does not parse, is
+    taken as reserved now.
 
     Pure, so the early view (`Daemon._capacity_view`) and the reservation's check
     (`Daemon._route_rows`) lay the same marks over the same rows and clock (C-6.3).
@@ -531,6 +538,12 @@ def pilot_marks(attempts: Iterable[Mapping[str, Any]], *, answered: Mapping[str,
         lane_id = row["lane_id"]
         if lane_id in marks or row["attempt_id"] in answered:
             continue
+        if wait_s is not None and row.get("reserved_at"):
+            try:
+                if now - _time(row["reserved_at"]).timestamp() >= wait_s:
+                    continue
+            except (TypeError, ValueError):
+                pass
         last = lane_answers.get(lane_id)
         if last is not None and now - last < idle_s:
             continue

@@ -51,6 +51,8 @@ def daemon(tmp_path, monkeypatch):
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
+    core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
+    core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
     core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")

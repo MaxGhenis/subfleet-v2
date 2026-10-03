@@ -37,9 +37,10 @@ launched. Example jobs: `20260930-114330-salvage-r3-cont3`,
 - the job is no conversation turn, since its conversation decides a turn's
   failover (C-26.7);
 - the attempt left the workspace as it found it. Either the job is read-only,
-  or its salvage at finalization found the end tree equal to the attempt's start
-  snapshot (no ref written, nothing left out, no error) with HEAD where the
-  attempt began.
+  or it is writable, its model never answered, and its salvage at finalization
+  found the end tree equal to the attempt's start snapshot (no ref written,
+  nothing left out, no error) with HEAD where the attempt began;
+- it is the job's first lane fault.
 
 On a lane fault, the job moves on to the next candidate as it would after
 `limited`. The lane is disabled as before (C-23.44). The attempt records
@@ -48,40 +49,53 @@ eventual notice names each lane it moved on from. A pinned job, or one whose
 workspace changed, keeps today's behaviour: it ends `failed` with rc 5 for
 reconciliation.
 
-**Not counted, rather than one more attempt.** `max_attempts` does not count a
-lane fault. A job may have `max_attempts` attempts besides its lane faults.
-The reasons:
+**One more attempt, once.** The brief offered two options: not count the
+attempt, or grant one more. The rule grants one more attempt, once per job. The
+lane fault is not counted against `max_attempts`, and a job has at most one.
 
-- A lane fault is the fleet finding a dead lane, not the job failing. Charging
-  it to the job would spend the job's budget on the fleet's state.
-- Lanes can go dead together: several accounts, or a provider-side refusal for
-  a while. "One more attempt" would fail a job on the second dead lane even
-  while a third lane worked.
-- The count is bounded anyway. Each lane fault disables its lane in the same
-  transaction that decides the retry, and a disabled lane is never a candidate
-  again until re-enrolment gives it a new id (C-1.3). So a job moves on from at
-  most as many lane faults as there were lanes to try. When none is left, the
-  job waits, held for good (C-11.8). It does not fail. Cancelling it is a
-  person's call.
+I first built "not counted, bounded by the number of lanes", on the reasoning
+that each lane fault disables its lane. The independent review of PR #121 showed
+why that bound is the wrong one. `auth-dead` can be caused by the job, not the
+lane: a tool that prints `invalid_api_key` to Codex's stderr, or a project
+setting that overrides the lane's credential (writable Claude launches read
+project settings). Such a job would move from lane to lane and disable every
+one, and each then needs `subfleet lanes enroll`. Before this change that job
+disabled one lane and failed.
 
-**Why the tree test, and nothing about the model.** The request asked for the
-tree test, and it is the right safety line. A writable job that changed nothing
-in its worktree, at the same HEAD, has nothing to reconcile. A read-only job
-was already treated as safe to run again (`lost` retries).
+So a second `auth-dead` on a job that already moved on ends the job (`failed`,
+rc 5) and **leaves that lane enabled** (C-23.44). Two lanes refusing one job
+points at the job. The guarantee is that no job disables more lanes than before
+this change: at most one. A lane that really is dead is disabled by the next
+job that meets it, whose first `auth-dead` it is, and that job moves on.
 
-I first also required "the model never answered". I dropped that because it
-would fail a read-only job whose lane was revoked mid-run. The hazard it was
-guarding against is better fixed at the source (below). Each lane fault's
-evidence still records `model_answered`.
+What this costs: when two lanes are dead at once, the job that meets both fails,
+though a third lane might have run it. In the incident's shape (one dead lane)
+no job fails. I judged a rare failed job, which its caller sees and can
+resubmit, cheaper than a fleet that needs every lane re-enrolled.
+
+**A job allowed one attempt still moves on once.** A writable job's lane fault
+ran nothing, since no model answered. A revive sets `max_attempts` 1 because "a
+retry would be a second continuation", and an attempt no model answered is not a
+first one. A read-only job's lane fault repeats only reading.
+
+**Why a writable job also needs "the model never answered".** The brief's test
+was the tree: read-only, or end tree equal to the start snapshot. The review
+pointed out what the tree cannot show. A writable Claude attempt runs with
+permissions skipped, so its model can push, comment on a PR, or write outside
+the worktree. If access is revoked after that, the tree and HEAD are unchanged,
+and a retry would repeat those effects. So a writable job is a lane fault only
+when its attempt's evidence records `model_answered` false; where an adapter
+records nothing, it is taken to have answered. The incident's writable jobs
+never got an answer, so they qualify. A read-only job moves on whether or not
+its model answered, as the brief asked: reading again repeats nothing.
 
 **A prerequisite: `auth-dead` only from the CLI's own words (C-9.3).** The
 Claude classifier matched its organisation-block and credential phrases
 against every assistant frame, the model's included. A review of this very
-classifier quotes "Your organization has disabled Claude subscription access".
-Today that disables one lane. With moves, the job would disable every lane it
-reached. Now only these count as evidence: stderr, the frames no model
-answered (Claude Code's placeholders), the result's `errors`, and its text when
-it is marked `is_error`. A test pins that a model quoting the phrases ends
+classifier quotes "Your organization has disabled Claude subscription access",
+and that disabled a lane. Now only these count as evidence: stderr, the frames
+that are the CLI's own (its placeholders), the result's `errors`, and its text
+when it is marked `is_error`. A test pins that a model quoting the phrases ends
 `ok`. Codex already read only its failure events and stderr.
 
 ## Call 2: prove a lane before a burst (C-6.14)
@@ -96,17 +110,26 @@ pilot that ends without an answer hands the hold to the next job. A pilot that
 goes `auth-dead` disables the lane while the rest of the burst is still queued.
 Turns are never held and are never pilots.
 
+A pilot that has not answered after `admission.prove_wait_s` (300 s; null
+waits however long) stops holding the lane, which then takes one more attempt
+as the next pilot. Without this, a pilot that hangs before its first answer
+would hold its lane until `max_wall_s` (the review's finding). Five minutes,
+because the incident's refusals took 78 to 181 s to arrive under its load.
+
 **What counts as an answer.** The first non-synthetic assistant event, or usage:
 
-- Claude: an `assistant` frame a model served, any `usage` counting a token, or
+- Claude: an `assistant` frame a model served (and that the CLI stamped with no
+  error kind), a non-error `result` whose usage counts a token, or
   `system/thinking_tokens` with a positive count. A real 2026-10-03 stream
   (`20261003-101520-mpv-mg-openmessage`) shows Claude Code writing these while
   the model thinks, before the first assistant frame, so a long-thinking pilot
   proves its lane early.
 - Codex: a thread item only the model produces, or `turn.completed` usage.
 - An admission probe, keepalive or heal turn that ends `ok`.
-- An attempt whose classification records `model_answered`, or that ends `ok`
-  where the adapter records none.
+- An attempt whose classification records `model_answered`, or whose adapter's
+  verdict is `ok`.
+
+When in doubt the predicate says no: a lane read as proven takes a burst.
 
 `system/init` does not count: every refused attempt on 2026-09-30 had one. The
 daemon reads each live detached attempt's stream for this as the attempt worker
@@ -128,6 +151,10 @@ probe interval or longer. 900 s is fifteen of C-18.1's 60 s probe intervals:
 A shorter window gates lanes in light use for no gain. A longer one trusts an
 older proof. The incident's lane had been idle for at least 6,742 s, well past
 either.
+
+The limit of the rule: a lane whose access goes within the window of its last
+answer is still taken as proven, and can take a burst. Each of those jobs then
+moves on once (call 1).
 
 **Why "answered", not "placed".** The request was framed as "a lane that has
 placed nothing for a long time". Placement is no proof: the incident placed 37.
@@ -153,29 +180,35 @@ answer heard between them, changes that lane, and the lane is judged again.
 1. Lane-fault safety. An `auth-dead` attempt leads to another attempt only when
    it is a lane fault. A pinned job, a turn, or a job whose workspace changed
    ends `failed` with rc 5 (`tests/fake/test_lane_fault.py`).
-2. Your property. No unpinned job with an unchanged workspace ends `failed`
-   because of `auth-dead` while another enabled lane exists. With a live lane it
-   succeeds; with none it waits. This holds for random fleets, dead lanes,
-   pins, writable and read-only jobs, completion orders, and the pilot hold on
-   or off (Hypothesis). With the lane-fault path switched off, the property
-   fails.
-3. Boundedness. Each lane fault disabled its lane. No job has more lane faults
-   than there are lanes. Attempts other than lane faults never exceed
-   `max_attempts`.
+2. The brief's property, with its one limit. No unpinned job with an unchanged
+   workspace is failed by the one `auth-dead` lane it meets while another
+   enabled lane exists: it moves on, then succeeds on a live lane or waits if
+   there is none. It ends `failed` for `auth-dead` only at a second such lane,
+   which is left enabled. In a fleet with one dead lane (the incident), no such
+   job fails at all. This holds for random fleets, dead lanes, pins, writable
+   and read-only jobs, completion orders, and the pilot hold on or off
+   (Hypothesis). With the lane-fault path switched off, the property fails
+   (a checked-in mutation test).
+3. No amplification. No job disables more than one lane. No lane that works is
+   ever disabled. A job has at most one lane fault, and its other attempts
+   never exceed `max_attempts`. With lane faults uncounted, the property fails
+   (a checked-in mutation test).
 4. The pilot invariant. A pass never places an attempt on an unproven lane that
    already had an unanswered detached attempt in flight, and places at most one
    on an unproven lane that had none. No job is held `lane-proving` unless a
    pilot is in flight. Once every remaining lane has answered, nothing is left
    held. This is checked over random orders of submissions, passes, answers,
-   ends, dead lanes and aging (Hypothesis). With no marks, it fails.
+   ends, dead lanes and aging (Hypothesis). With no marks, it fails (a
+   checked-in mutation test).
 5. C-6.3 agreement (differential). After a pilot is placed, or an answer is
    heard, between a job's early evaluation and its reservation, the check
    decides what a fresh evaluation decides, verdict for verdict. With the marks
-   left out of the check, this fails.
+   left out of the check, this fails (a checked-in mutation test).
 6. The incremental reader agrees with parsing the whole stream, for any write
    splits and chunk sizes (Hypothesis).
 7. `capacity.pilot_marks` is order-independent, and marks exactly the cold
-   lanes with an unanswered live detached attempt (Hypothesis). The Claude
+   lanes with an unanswered live detached attempt reserved within the wait
+   (Hypothesis). The Claude
    predicate never raises, and it never counts a placeholder (Hypothesis).
 
 ## Where the hold shows, and where it does not
@@ -187,3 +220,27 @@ answer heard between them, changes that lane, and the lane is judged again.
 - `status.json` (C-18.1) is built from the timers' snapshot, not
   `_capacity_view`, so the app does not show a lane being proven. That is left
   for a follow-up.
+
+## The review, and what it changed
+
+An independent Opus review of PR #121 (Subfleet run
+`20261003-143159-pr121-review`) asked for changes. Taken:
+
+- One lane fault per job, and a second `auth-dead` leaves its lane enabled
+  (its finding 1).
+- A writable job needs `model_answered` false (finding 2).
+- `admission.prove_wait_s` bounds a silent pilot's hold (finding 3).
+- An `ok` verdict always proves its lane (finding 4).
+- A frame carrying an error kind, and an error result's usage, are no answer
+  (finding 5).
+- Only an answer on an unproven lane wakes admission (finding 6).
+- The contract's `open_lanes` and `no-slot` wording, and the rule's limit
+  (finding 7).
+- Tests for a replayed finalization, `_unlaunched` after a lane fault, an
+  admission-cut worktree, mixed counting, and checked-in mutation tests
+  (finding 8).
+
+Not taken: seeding the fake harness's lanes as proven so every fake test runs
+with the hold on. The harness builds its state root before any daemon or store
+exists, its tests add lanes as they go, and it already starts C-11.7's reserve
+off for the same reason. The hold has its own tests with it on.
