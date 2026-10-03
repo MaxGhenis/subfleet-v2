@@ -15,7 +15,7 @@ from typing import Any
 
 from .capacity import fresh_provider
 from .policy import resolve_model
-from .scheduler import _earliest_reset, evaluate
+from .scheduler import _earliest_reset, evaluate, prepare, rank_key
 
 
 def _email(lane: dict) -> str | None:
@@ -107,6 +107,7 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
     order = {identity: index for index, identity in enumerate(
         evaluations[0]["candidates"] if evaluations else [])}
     ranked, excluded, accounts = [], [], set()
+    ranking_details = {}
     for identity in sorted(roster, key=lambda key: (order.get(key, len(roster)), key)):
         lane = roster[identity]
         account = lane.get("account_key")
@@ -148,7 +149,16 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
                                       if detail["reading_age_s"] is not None), default=None),
                    model_details=dict(zip(models, details[identity])), stale=False,
                    in_flight=0, protected=False, as_of=timestamp)
+        # The unknown-model recommendation binds across every model it must
+        # qualify for. Rank that same evidence, rather than the first model's
+        # account window while displaying a different scoped weekly reset.
+        ranking_details[identity] = {**details[identity][0],
+            "weekly_headroom": row["weekly_headroom"], "seven_day_reset": row["weekly_reset_at"],
+            "weekly_reserve": weekly_low, "five_hour_reserve": five_low}
         ranked.append(row)
+    if ranked:
+        setup = prepare(rules, view, {"pinned_model": models[0], "sandbox": "read-only"})
+        ranked.sort(key=lambda row: rank_key(setup, models[0], row["lane_id"], ranking_details[row["lane_id"]]))
     return {"generated_at": timestamp, "best": (ranked[0]["home" if family == "codex" else "email"]
             if ranked else None), "ranked": ranked, "excluded": excluded,
             "family": family, "model": policy["models"][selected]["id"] if selected else None,

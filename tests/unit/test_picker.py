@@ -112,6 +112,23 @@ def test_unknown_model_picker_retains_each_models_scoped_evidence(policy):
     assert detail["model_details"]["terra"]["weekly_scope"] == model
 
 
+def test_unknown_model_picker_ranks_the_same_binding_evidence_it_displays(policy):
+    """C-11.3, C-11.5: a later model's binding reset and reserve affect unknown-model order."""
+    policy["headroom_floor"] = 0
+    model = policy["models"]["terra"]["id"]
+    data = view([lane(), lane("codex-2")], [reading(used=.1),
+        reading(used=.9, scope=model, resets_at="2026-09-23T16:00:00Z"),
+        reading("codex-2", .6, resets_at="2026-09-22T16:00:00Z")])
+    assert picker.rank(policy, data, model="astra")["best"] == "/lanes/codex-1"
+    result = picker.rank(policy, data)
+    assert [row["lane_id"] for row in result["ranked"]] == ["codex-2", "codex-1"]
+    assert result["ranked"][0]["weekly_reset_at"] < result["ranked"][1]["weekly_reset_at"]
+    # A later model can also put an account under reserve despite an earlier reset.
+    data["readings"][1].update(utilization=.99, resets_at=LATER)
+    result = picker.rank(policy, data)
+    assert [row["reserve_class"] for row in result["ranked"]] == ["clear", "weekly"]
+
+
 def test_picker_requires_a_reread_after_an_applicable_window_renews(policy):
     """A fresh weekly observation cannot hide a primary window already reset."""
     data = view(readings=[reading(), reading(used=.9, window="five_hour", resets_at=NOW)])
