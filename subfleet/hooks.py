@@ -313,12 +313,16 @@ class Lease:
 
 # --- rendering ----------------------------------------------------------------
 
-def is_service_notice(row: dict[str, Any]) -> bool:
-    """C-15.3: a `service_notices` row, by its negated wire id (or, without one, no job)."""
+def is_message(row: dict[str, Any]) -> bool:
+    """C-15.3: a row that does not report a run's end, so not a "detached run".
+
+    A service notice (negated wire id), even one that names a job (the release
+    line's pin notice, C-11.8), and any notice that names no job (a v1 outbox
+    message the importer carried into `notices` with `job_id` NULL).
+    """
     notice_id = row.get("notice_id")
-    if isinstance(notice_id, int) and not isinstance(notice_id, bool):
-        return notice_id < 0
-    return row.get("job_id") is None
+    negated = isinstance(notice_id, int) and not isinstance(notice_id, bool) and notice_id < 0
+    return negated or row.get("job_id") is None
 
 
 def render_pending(rows: Sequence[dict[str, Any]]) -> str:
@@ -330,14 +334,14 @@ def render_pending(rows: Sequence[dict[str, Any]]) -> str:
     the job's state and rc, the deliverable and `-o` path of an accepted job,
     a summary naming the final attempt's class and rc, and any uncertainty.
 
-    A service notice (a `ping` message, such as a restart nudge; negated id) is
-    not a run's end, even when it names a job, so it gets its own header after
-    the runs, with the time it was queued: on 2026-09-29 a two-day-old restart
+    A row that is not a run's end (`is_message`: a service notice, such as a
+    restart nudge, or a notice that names no job) gets its own header after the
+    runs, with the time it was queued: on 2026-09-29 a two-day-old restart
     nudge was surfaced as "1 detached run dispatched by this session finished
     while it was not running".
     """
-    messages = [row for row in rows if is_service_notice(row)]
-    runs = [row for row in rows if not is_service_notice(row)]
+    messages = [row for row in rows if is_message(row)]
+    runs = [row for row in rows if not is_message(row)]
     blocks: list[str] = []
     if runs:
         blocks.append(f"subfleet: {len(runs)} detached run{'s' if len(runs) != 1 else ''} "
