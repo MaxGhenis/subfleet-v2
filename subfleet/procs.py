@@ -104,6 +104,17 @@ def forget_boot_id() -> None:
         _boot_cache = None
 
 
+def boot_time() -> int:
+    """`kern.boottime` seconds: when this boot began, by the wall clock (C-4.7).
+
+    It moves when macOS corrects the clock, so it dates a boot and never
+    identifies one (C-5.3); `InspectionError` when it cannot be read."""
+    value = boot_identity.boot_seconds(_read)
+    if not value or not value.isdecimal():
+        raise InspectionError("kern.boottime is unavailable")
+    return int(value)
+
+
 def proc_start(pid: int) -> str | None:
     """Read exactly ps's lstart value; an absent process returns None."""
     if pid <= 0:

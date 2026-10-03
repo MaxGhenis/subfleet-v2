@@ -70,6 +70,10 @@ def main() -> int:
     prompt = sys.stdin.read()
     if scenario == "ignore-sigterm":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if scenario == "term-exits-143":
+        # Claude Code's end on SIGTERM (2026-09-30, C-4.7): it handles the
+        # signal and exits 128 + 15 rather than dying of it.
+        signal.signal(signal.SIGTERM, lambda *_: os._exit(143))
     if scenario == "nested-setsid":
         subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "--escaped-child"],
@@ -80,7 +84,7 @@ def main() -> int:
         print(json.dumps(qos_report()), flush=True)
         return 0
     print(f"fake provider ready: {scenario}", flush=True)
-    if scenario in {"ignore-sigterm", "nested-setsid"}:
+    if scenario in {"ignore-sigterm", "nested-setsid", "term-exits-143"}:
         time.sleep(delay or 30)
     elif scenario == "slow":
         time.sleep(delay or 1)

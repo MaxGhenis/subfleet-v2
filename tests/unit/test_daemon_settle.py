@@ -58,6 +58,8 @@ def daemon(tmp_path, monkeypatch):
     core._record_identity = lambda *args: None
     core._export = lambda job_id: None
     core.timers = SimpleNamespace(record_auth_dead=lambda *args: None, metadata={})   # C-11.2: the pin roster reads it
+    # C-4.7: this boot only, with no record of another, so no attempt is a host shutdown.
+    core._ident, core._boot_at, core._previous_boot = {"boot_id": "boot"}, None, None
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
