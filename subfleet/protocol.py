@@ -274,16 +274,29 @@ class NoticeWithdrawArgs:
     session_id: str
     notice_ids: list[int] = field(default_factory=list)
     reason: str | None = None
-    # One per id when given: the creation time the listing showed. A service
-    # notice's id is reused once the newest row is deleted (no AUTOINCREMENT),
-    # so a row is withdrawn only while it is still the one that was listed.
-    created_at: list[str] = field(default_factory=list)
+    # One per id when given: the fingerprint the listing showed
+    # (`store.notice_fingerprint`). An id is reused once the newest row is
+    # deleted, so a row is withdrawn only while it is still the one listed.
+    fingerprints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NoticeAckArgs:
+    """`notice.ack` as the daemon reads it: `NoticeArgs` plus, for `notices --ack`
+    (C-15.8), each listed row's fingerprint, so an acknowledgement reaches a row
+    only while it is still the one listed. `NoticeArgs` keeps its shape, so the
+    `notice.ack` lines `runs show` and the hooks send are unchanged."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    fingerprints: list[str] = field(default_factory=list)
 
 
 @dataclass
 class PingArgs:
-    """`ping` (v1 `notify`): push or park a message in a session inbox."""
-    text: str
+    """`ping` (v1 `notify`): push or park a message in a session inbox. With no
+    text it is a liveness question and writes nothing (C-15.8, C-16.2)."""
+    text: str = ""
     session_id: str | None = None
 
 

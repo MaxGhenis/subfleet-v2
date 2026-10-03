@@ -7,6 +7,7 @@ record the resulting state. The shared connection is serialized across workers.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -46,6 +47,16 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def notice_fingerprint(row: Mapping[str, Any]) -> str:
+    """C-15.8: what a listed notice is beyond its id: its creation time and a digest
+    of its text. A notice's id is reused once the newest row is deleted (neither
+    notice table has AUTOINCREMENT), so `--ack` and `--withdraw` act on a row only
+    while it still has the fingerprint the listing showed. Two rows alike in id,
+    session, creation second and text are one notice to the session that reads it."""
+    digest = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{row['created_at']} {digest}"
 
 
 #: C-15.8: the columns `notices` lists, common to job and service notices.

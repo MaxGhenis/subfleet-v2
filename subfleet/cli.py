@@ -56,6 +56,7 @@ from .contracts import (REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState,
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .store import notice_fingerprint
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
@@ -1930,10 +1931,10 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def cmd_ping(args: argparse.Namespace) -> int:
+    """C-15.8: the session named, else this Claude session, else none: the daemon
+    then addresses `alerts.operator_session`, or refuses text addressed to no one.
+    With no text it is a liveness question, answered `pong`."""
     target = args.session or session_id()
-    if not target:
-        return fail(Exit.INVALID_INPUT,
-                    "ping: --session ID is required outside a Claude session")
     if args.text:
         text = " ".join(args.text)
     else:
@@ -1953,10 +1954,15 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if args.json:
         emit(result)
         return int(Exit.OK)
-    if result.get("delivered"):
-        out(f"delivered to {result.get('name') or target}")
+    if not text:
+        out(f"pong from subfleet {result.get('version')}")
         return int(Exit.OK)
-    out(f"parked for {result.get('name') or target}")
+    # The daemon names the session it chose (C-15.8: the operator's, when none was named).
+    recipient = result.get("name") or result.get("session_id") or target
+    if result.get("delivered"):
+        out(f"delivered to {recipient}")
+        return int(Exit.OK)
+    out(f"parked for {recipient}")
     note(f"  {result.get('reason') or 'the session has no live inbox'}")
     return int(Exit.OK)
 
@@ -1996,7 +2002,7 @@ def cmd_notices(args: argparse.Namespace) -> int:
     if action and not args.session:
         return fail(Exit.INVALID_INPUT, f"notices: --{action} acts on one inbox and needs --session ID",
                     f"see every inbox first: {PROG} notices")
-    if args.reason and action != "withdraw":
+    if args.reason is not None and action != "withdraw":
         return fail(Exit.INVALID_INPUT, "notices: --reason is the withdrawal's reason; it needs --withdraw")
     listing = protocol.NoticeListArgs(session_id=args.session, resolved=bool(args.all) and not action)
     try:
@@ -2026,16 +2032,20 @@ def cmd_notices(args: argparse.Namespace) -> int:
     try:
         if action == "ack":
             ids = [row["notice_id"] for row in open_rows]
-            if ids:
-                client.call("notice.ack", _asdict(protocol.NoticeArgs(session_id=args.session, notice_ids=ids)))
-            result = {"session_id": args.session, "acknowledged": ids}
+            answer = (client.call("notice.ack", _asdict(protocol.NoticeAckArgs(
+                session_id=args.session, notice_ids=ids,
+                fingerprints=[notice_fingerprint(row) for row in open_rows]))) if ids else {})
+            # A daemon that predates C-15.8 answers without the two lists.
+            result = {"session_id": args.session,
+                      "acknowledged": answer.get("acknowledged", ids) if ids else [],
+                      "kept": answer.get("kept", []) if ids else []}
         else:
             service = [row for row in open_rows if row["notice_id"] < 0]
             ids = [row["notice_id"] for row in service]
             jobs = [row["notice_id"] for row in open_rows if row["notice_id"] >= 0]
             result = (client.call("notice.withdraw", _asdict(protocol.NoticeWithdrawArgs(
                 session_id=args.session, notice_ids=ids, reason=args.reason,
-                created_at=[str(row.get("created_at")) for row in service]))) if ids
+                fingerprints=[notice_fingerprint(row) for row in service]))) if ids
                 else {"session_id": args.session, "withdrawn": [], "kept": []})
             result["job_notices_left"] = jobs
     except DaemonUnavailable as exc:
@@ -2049,6 +2059,8 @@ def cmd_notices(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if action == "ack":
         out(f"acknowledged {len(result['acknowledged'])} notice(s) for {args.session}")
+        if result["kept"]:
+            note(f"  {len(result['kept'])} no longer the notice listed, or acknowledged already, and kept")
         return int(Exit.OK)
     out(f"withdrew {len(result.get('withdrawn') or [])} service notice(s) for {args.session}")
     if result.get("kept"):

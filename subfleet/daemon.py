@@ -53,7 +53,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store, _json, notice_rows
+from .store import Store, _json, notice_fingerprint, notice_rows
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -1593,19 +1593,37 @@ class Daemon:
             return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.
             targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
-                stamp = utcnow()
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for table, row_id in targets:
-                        tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
-                                   "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                                   (stamp, row_id, a.session_id))
+                    for index, (table, row_id) in enumerate(targets):
+                        if a.fingerprints:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint(
+                                    {"text": row[0], "created_at": row[1]}) != a.fingerprints[index]:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(a.notice_ids[index])
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in a.notice_ids if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
@@ -1629,7 +1647,7 @@ class Daemon:
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             notices += [protocol.service_notice_on_wire(row) for row in
                         self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
-            return {"notices": notices}
+            return {"notices": notices, **answered}
         if op == "ping":
             text = args.get("text", "")
             # C-15.8: a notice goes to the session named, else to the configured
@@ -2056,11 +2074,11 @@ class Daemon:
                 f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
                 "terminal record and is acknowledged, never withdrawn (C-15.8)",
                 fix=f"subfleet notices --session {a.session_id} --ack")
-        if a.created_at and len(a.created_at) != len(a.notice_ids):
+        if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
             raise protocol.ProtocolError(
-                f"notice.withdraw: {len(a.created_at)} creation times for {len(a.notice_ids)} ids; "
+                f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
                 "give one per id, or none")
-        listed = dict(zip((-notice_id for notice_id in a.notice_ids), a.created_at)) if a.created_at else {}
+        listed = dict(zip((-notice_id for notice_id in a.notice_ids), a.fingerprints)) if a.fingerprints else {}
         wanted = sorted({-notice_id for notice_id in a.notice_ids})
         record: dict = {"session_id": a.session_id, "reason": a.reason or "withdrawn by the operator",
                         "service_notice_ids": [], "count": 0, "first_created_at": None,
@@ -2073,7 +2091,8 @@ class Daemon:
                 rows = [row for row in tx.execute(
                             f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
                             "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
-                        if not listed or listed.get(row[0]) == row[2]]
+                        if not listed or listed.get(row[0]) == notice_fingerprint(
+                            {"text": row[1], "created_at": row[2]})]
                 if rows:                            # at most one chunk's worth
                     tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
                                [row[0] for row in rows])

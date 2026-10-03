@@ -25,6 +25,7 @@ Invariants, for every input (Hypothesis), beside the examples:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -38,7 +39,7 @@ from subfleet.contracts import Exit
 from subfleet.daemon import Daemon
 from subfleet.offline import Offline
 from subfleet.status_json import build_status
-from subfleet.store import Store
+from subfleet.store import Store, notice_fingerprint
 
 NOW = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
 FIXTURE_HEALTH = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow]
@@ -320,22 +321,23 @@ def test_c15_8_a_withdrawal_deletes_exactly_the_named_undelivered_service_notice
     made = seed(core.store, rows)
     named = data.draw(st.lists(st.sampled_from([row[0] for row in made] or [-99]), unique=True))
     session = data.draw(st.sampled_from(["a", "b", "c"]))
-    # With creation times (as the CLI sends them), some deliberately not the row's:
+    # With fingerprints (as the CLI sends them), some deliberately not the row's:
     # an id that was reused since the listing names a different row.
     stamped = data.draw(st.booleans())
-    actual = {row[0]: row[5] for row in made}
+    actual = {row[0]: notice_fingerprint({"text": row[4], "created_at": row[5]}) for row in made}
     stale = set(data.draw(st.lists(st.sampled_from(named), unique=True))) if stamped and named else set()
-    stamps = [("2026-10-03T13:59:59Z" if notice_id in stale else actual.get(notice_id, "2026-10-03T00:00:00Z"))
+    stamps = [("2026-10-03T13:59:59Z 0000000000000000" if notice_id in stale
+               else actual.get(notice_id, "2026-10-03T00:00:00Z 0000000000000000"))
               for notice_id in named] if stamped else []
     before = everything(core.store)
     if any(notice_id >= 0 for notice_id in named):
         with pytest.raises(protocol.ProtocolError) as refused:
-            core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "created_at": stamps})
+            core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "fingerprints": stamps})
         assert refused.value.code == Exit.INVALID_INPUT and "--ack" in (refused.value.fix or "")
         assert everything(core.store) == before
         return
     reply = core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "reason": "test",
-                                              "created_at": stamps})
+                                              "fingerprints": stamps})
     gone = {notice_id for notice_id, table, owner, state, _, _ in made
             if table == "service" and notice_id in named and owner == session and state in ("pending", "offered")
             and notice_id not in stale}
@@ -376,29 +378,91 @@ def test_c15_8_notice_list_agrees_with_notice_pending_and_with_the_offline_reade
     assert len(everyone) == len(rows)
 
 
-def test_c15_8_a_reused_id_is_not_withdrawn_for_the_row_that_was_listed(core):
-    """C-15.8 a service notice's id is reused once the newest row is deleted (no
-    AUTOINCREMENT): a withdrawal that names the listed row's creation time leaves a
-    later row that took the same id."""
+def reuse_the_listed_id(core, listed, *, text, created_at):
+    """Delete the listed row (as a C-11.8 withdrawal or another operator's might) and
+    write another that takes its id, as SQLite gives the newest id again."""
+    table = "service_notices" if listed["notice_id"] < 0 else "notices"
+    with core.store.transaction() as tx:
+        tx.execute(f"DELETE FROM {table} WHERE notice_id=?", (abs(listed["notice_id"]),))
+        if table == "service_notices":
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
+                       (listed["session_id"], text, created_at))
+        else:
+            tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
+                       (JOB, listed["session_id"], text, created_at))
+    taken = core.store.one(f"SELECT notice_id FROM {table} WHERE text=?", (text,))["notice_id"]
+    assert taken == abs(listed["notice_id"])
+
+
+@pytest.mark.parametrize("same_second", [True, False])
+def test_c15_8_a_reused_id_is_not_withdrawn_for_the_row_that_was_listed(core, same_second):
+    """C-15.8 a notice's id is reused once the newest row is deleted (no AUTOINCREMENT):
+    a withdrawal that names the listed row's fingerprint leaves a later row that took
+    the id, even one written in the same second."""
     seed(core.store, [("service", "a", "pending", "listed")])
     (listed,) = core.dispatch("notice.list", {"session_id": "a"})["notices"]
-    with core.store.transaction() as tx:
-        tx.execute("DELETE FROM service_notices")                       # e.g. a pin notice withdrawn
-        tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES('a','newer','pending',"
-                   "'2026-10-03T13:00:00Z')")
-    assert core.store.one("SELECT notice_id FROM service_notices")["notice_id"] == -listed["notice_id"]
+    reuse_the_listed_id(core, listed, text="newer",
+                        created_at=listed["created_at"] if same_second else "2026-10-03T13:00:00Z")
     reply = core.dispatch("notice.withdraw", {"session_id": "a", "notice_ids": [listed["notice_id"]],
-                                              "created_at": [listed["created_at"]]})
+                                              "fingerprints": [notice_fingerprint(listed)]})
     assert reply == {"session_id": "a", "withdrawn": [], "kept": [listed["notice_id"]]}
     assert [row["text"] for row in service_rows(core.store)] == ["newer"]
 
 
-def test_c15_8_withdrawal_creation_times_are_one_per_id(core):
-    """C-15.8 creation times, when given, are one per id; otherwise exit 2 and nothing changes."""
+@pytest.mark.parametrize("table", ["service", "job"])
+def test_c15_8_an_acknowledgement_reaches_only_the_row_that_was_listed(core, table):
+    """C-15.8 `notices --ack` names each row's fingerprint: a row that took a listed
+    id in the same second is not acknowledged, and the answer says which were."""
+    seed(core.store, [(table, "a", "pending", "listed"), (table, "a", "offered", "other")])
+    listed = core.dispatch("notice.list", {"session_id": "a"})["notices"]
+    first, second = listed
+    reuse_the_listed_id(core, second, text="newer, unread", created_at=second["created_at"])
+    reply = core.dispatch("notice.ack", {"session_id": "a", "notice_ids": [row["notice_id"] for row in listed],
+                                         "fingerprints": [notice_fingerprint(row) for row in listed]})
+    assert (reply["acknowledged"], reply["kept"]) == ([first["notice_id"]], [second["notice_id"]])
+    states = {row["text"]: row["state"] for row in core.store.query(
+        f"SELECT text, state FROM {'service_notices' if table == 'service' else 'notices'}")}
+    assert states == {"listed": "acknowledged", "newer, unread": "pending"}
+    again = core.dispatch("notice.ack", {"session_id": "a", "notice_ids": [first["notice_id"]],
+                                         "fingerprints": [notice_fingerprint(first)]})
+    assert (again["acknowledged"], again["kept"]) == ([], [first["notice_id"]])   # acknowledged once
+
+
+def test_c15_3_an_ack_without_fingerprints_is_unchanged(core):
+    """C-15.3 `runs show` and the hooks send `notice.ack` as before, ids alone."""
+    seed(core.store, [("service", "a", "pending", "x"), ("job", "a", "pending", "y")])
+    ids = [row["notice_id"] for row in core.dispatch("notice.list", {"session_id": "a"})["notices"]]
+    reply = core.dispatch("notice.ack", {"session_id": "a", "notice_ids": ids})
+    assert sorted(reply["acknowledged"]) == sorted(ids) and reply["notices"] == []
+
+
+@pytest.mark.parametrize("op", ["notice.withdraw", "notice.ack"])
+def test_c15_8_fingerprints_are_one_per_id(core, op):
+    """C-15.8 fingerprints, when given, are one per id; otherwise exit 2 and nothing changes."""
     seed(core.store, [("service", "a", "pending", "x")])
     with pytest.raises(protocol.ProtocolError):
-        core.dispatch("notice.withdraw", {"session_id": "a", "notice_ids": [-1], "created_at": ["a", "b"]})
-    assert len(service_rows(core.store)) == 1
+        core.dispatch(op, {"session_id": "a", "notice_ids": [-1], "fingerprints": ["a", "b"]})
+    assert [row["state"] for row in service_rows(core.store)] == ["pending"]
+
+
+def test_c15_8_a_notice_a_hook_printed_is_not_withdrawn(core, monkeypatch, capsys):
+    """C-15.3, C-15.8 the real UserPromptSubmit hook surfaces a service notice and
+    marks it `surfaced`; a withdrawal from a listing made before that keeps it."""
+    from subfleet import hooks
+    seed(core.store, [("service", "s-hook", "pending", "codex: no dispatchable lanes\nRun: subfleet status")])
+    (listed,) = core.dispatch("notice.list", {"session_id": "s-hook"})["notices"]
+
+    class Direct:
+        def call(self, op, args=None):
+            return core.dispatch(op, args or {})
+
+    assert hooks.session_event("UserPromptSubmit", {"session_id": "s-hook"}, core.root, client=Direct()) == 0
+    assert "no dispatchable lanes" in capsys.readouterr().out
+    assert [row["state"] for row in service_rows(core.store)] == ["surfaced"]
+    reply = core.dispatch("notice.withdraw", {"session_id": "s-hook", "notice_ids": [listed["notice_id"]],
+                                              "fingerprints": [notice_fingerprint(listed)]})
+    assert reply["withdrawn"] == [] and reply["kept"] == [listed["notice_id"]]
+    assert [row["state"] for row in service_rows(core.store)] == ["surfaced"]
 
 
 def test_c15_8_listing_marks_nothing(core):
@@ -444,12 +508,15 @@ def test_c15_8_notices_ack_acknowledges_exactly_the_unresolved_rows_listed(daemo
     operator = [row for row in LISTED if row["session_id"] == "operator"]
     resolved = {**operator[0], "notice_id": -9, "state": "surfaced"}
     server = daemon({"notice.list": lambda request: {"notices": [*operator, resolved]},
-                     "notice.ack": lambda request: {"notices": []}})
+                     "notice.ack": lambda request: {"notices": [], "acknowledged": [-7], "kept": [12]}})
     assert cli.main(["notices", "--session", "operator", "--ack"]) == int(Exit.OK)
     assert server.ops() == ["notice.list", "notice.ack"]
     assert server.requests[0].args["resolved"] is False
-    assert server.requests[1].args == {"session_id": "operator", "notice_ids": [-7, 12]}
-    assert "acknowledged 2 notice(s) for operator" in capsys.readouterr().out
+    assert server.requests[1].args == {"session_id": "operator", "notice_ids": [-7, 12],
+                                       "fingerprints": [notice_fingerprint(row) for row in operator]}
+    captured = capsys.readouterr()
+    assert "acknowledged 1 notice(s) for operator" in captured.out      # what the daemon says it did
+    assert "1 no longer the notice listed" in captured.err
 
 
 def test_c15_8_notices_withdraw_sends_only_service_notices_and_names_the_rest(daemon, capsys):
@@ -460,7 +527,7 @@ def test_c15_8_notices_withdraw_sends_only_service_notices_and_names_the_rest(da
     assert cli.main(["notices", "--session", "operator", "--withdraw", "--reason", "superseded"]) == int(Exit.OK)
     assert server.requests[1].op == "notice.withdraw"
     assert server.requests[1].args == {"session_id": "operator", "notice_ids": [-7], "reason": "superseded",
-                                       "created_at": ["2026-09-19T14:50:51Z"]}
+                                       "fingerprints": [notice_fingerprint(operator[0])]}
     captured = capsys.readouterr()
     assert "withdrew 1 service notice(s) for operator" in captured.out
     assert "1 job notice(s) left" in captured.err and "--ack" in captured.err
@@ -468,7 +535,8 @@ def test_c15_8_notices_withdraw_sends_only_service_notices_and_names_the_rest(da
 
 @pytest.mark.parametrize("argv,needs", [(["notices", "--ack"], "--session"),
                                         (["notices", "--withdraw"], "--session"),
-                                        (["notices", "--session", "s", "--reason", "x"], "--withdraw")])
+                                        (["notices", "--session", "s", "--reason", "x"], "--withdraw"),
+                                        (["notices", "--reason", "", "--json"], "--withdraw")])
 def test_c15_8_notices_refuses_an_action_without_its_inbox(daemon, capsys, argv, needs):
     """C-15.8, C-17.3 an action names one session; `--reason` belongs to `--withdraw`; exit 2."""
     server = daemon({})
@@ -517,3 +585,56 @@ def test_c15_8_withdrawal_through_the_cli_against_a_real_store(core, root, monke
                 core.store.query("SELECT data_json FROM events WHERE kind='notice.withdrawn'")]
     assert event["subjects"] == {"codex: no dispatchable lanes": 1, "recovered: fleet:codex": 1}
     assert event["reason"] == "never delivered" and event["count"] == 2
+
+
+# --- `subfleet ping` defers to the daemon (C-15.8) -----------------------------
+
+def test_c15_8_ping_outside_a_session_lets_the_daemon_address_it(daemon, capsys):
+    """C-15.8 with no session named and none running, the CLI asks the daemon, which
+    addresses the configured operator session (or refuses)."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "t", "session_id": "ops-1",
+                                              "text": request.args["text"], "notice_id": -3}})
+    assert cli.main(["ping", "hello"]) == int(Exit.OK)
+    assert server.requests[0].args == {"text": "hello", "session_id": None}
+    assert "parked for ops-1" in capsys.readouterr().out
+
+
+def test_c15_8_ping_refused_by_the_daemon_exits_two(daemon, capsys):
+    """C-15.8, C-17.3 the daemon's refusal of text addressed to no one is exit 2, with its fix."""
+    server = daemon({"ping": lambda request: protocol.fail(request.id, Exit.INVALID_INPUT,
+                                                         "ping: no session named", fix="name the session")})
+    assert cli.main(["ping", "hello"]) == int(Exit.INVALID_INPUT)
+    assert "no session named" in capsys.readouterr().err and server.ops() == ["ping"]
+
+
+def test_c15_8_a_ping_with_no_text_is_answered_as_liveness(daemon, capsys, monkeypatch):
+    """C-15.8 no text is a liveness question: `pong`, never "parked"."""
+    import io
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"")))
+    daemon({"ping": lambda request: {"pong": True, "version": "9.9", "session_id": "s-1", "text": "",
+                                     "notice_id": None}})
+    assert cli.main(["ping", "--session", "s-1"]) == int(Exit.OK)
+    out = capsys.readouterr().out
+    assert "pong from subfleet 9.9" in out and "parked" not in out
+
+
+def test_c15_8_ping_args_default_to_a_liveness_question():
+    """C-16.2 the declared shape accepts `{}`, as the daemon does."""
+    assert protocol.coerce_args(protocol.PingArgs, {}) == protocol.PingArgs(text="", session_id=None)
+
+
+def test_c18_4_a_reset_credit_publication_keeps_the_alerts_in_force(tmp_path):
+    """C-18.4 every `status.json` publication carries the alerts in force, not only
+    the probe cycle's: an operator's reset-credit pass used to publish `alerts: []`."""
+    from subfleet.timers import Timers
+    policy = json.loads(Path("subfleet/default_policy.json").read_text())
+    policy["reset_credits"]["enabled"] = False
+    with Store(tmp_path / "state.sqlite3") as store:
+        timer = Timers(store, tmp_path, policy, now=lambda: NOW, deliver=lambda notice: True)
+        try:
+            timer.alerts.evaluate(fleet(lane(verdict="auth-dead")), now=NOW)
+            timer.reset_credits_cycle()
+            published = json.loads((tmp_path / "status.json").read_text())
+        finally:
+            timer.stop()
+    assert [row["key"] for row in published["alerts"]] == ["codex-revoked:/homes/one"]
