@@ -5,7 +5,7 @@ struct WorkspaceCheckArgs: Codable, Equatable {
     var workspace: String
     var provider: String
     var permission: String
-    var workspace_kind = "in-place"
+    var workspace_kind: String? = nil
     var allow_main: Bool? = nil
 }
 
@@ -21,9 +21,10 @@ extension Ops {
 }
 
 extension ConversationEngine {
-    func checkWorkspace(_ workspace: String, provider: String, permission: String) throws -> WorkspaceCheckResult {
+    func checkWorkspace(_ workspace: String, provider: String, permission: String,
+                        kind: String = "in-place", allowMain: Bool? = nil) throws -> WorkspaceCheckResult {
         try client.call(Ops.workspaceCheck, WorkspaceCheckArgs(workspace: workspace, provider: provider,
-                                                               permission: permission))
+                                                               permission: permission, workspace_kind: kind, allow_main: allowMain))
     }
 }
 
