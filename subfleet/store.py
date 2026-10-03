@@ -95,6 +95,10 @@ def _pin_notice_key(data_json: str | None) -> tuple | None:
     return data["service_notice_id"], data.get("session_id"), data.get("created_at")
 
 
+#: C-11.8: the expression `events_pin_notice` indexes, character for character.
+PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
+
+
 def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
                     rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
     """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
@@ -107,17 +111,24 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     found: dict[int, str] = {}
     ids = sorted({key[0] for key in wanted})
     # Exactly the events that name one of these notices, newest first, with no
-    # window: events naming no notice (a pin with no one to tell, C-15.8, and
-    # every event's empty audit row) once crowded a deliverable notice's event
-    # out of the newest 1,000 and left that notice unnamed.
+    # window (`events_pin_notice`): events naming no notice (a pin with no one to
+    # tell, C-15.8, and every event's empty audit row) once crowded a deliverable
+    # notice's event out of the newest 1,000 and left that notice unnamed. The
+    # CASE keeps json_extract off a payload json_valid refuses, since SQLite does
+    # not promise to test WHERE terms in written order. Such a row names no notice:
+    # a pin record holds strings, ints and lists of strings, never a float, so it
+    # is never a NaN or Infinity payload that json.loads would read and json_valid
+    # refuse. No ORDER BY: it would steer the planner to `events_kind`, which
+    # walks every pin event; the few matches are ordered here, newest first.
+    events = []
     for start in range(0, len(ids), 500):
         chunk = ids[start:start + 500]
-        for event in query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
-                           "AND json_valid(data_json) AND json_extract(data_json,'$.service_notice_id') "
-                           f"IN ({','.join('?' * len(chunk))}) ORDER BY event_id DESC", chunk):
-            key = _pin_notice_key(event["data_json"])
-            if key in wanted and event["job_id"]:
-                found.setdefault(wanted[key], event["job_id"])
+        events += query("SELECT event_id,job_id,data_json FROM events WHERE kind='job.pin_noticed' AND "
+                        f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+    for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
+        key = _pin_notice_key(event["data_json"])
+        if key in wanted and event["job_id"]:
+            found.setdefault(wanted[key], event["job_id"])
     return found
 
 
@@ -158,6 +169,8 @@ def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id
     about = pin_notice_jobs(query, service)
     rows += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
     rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    for row in rows:
+        row["fingerprint"] = notice_fingerprint(row)            # what `--ack`/`--withdraw` send back
     return rows
 
 

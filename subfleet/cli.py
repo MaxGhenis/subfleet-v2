@@ -2054,11 +2054,15 @@ def cmd_ping(args: argparse.Namespace) -> int:
     target = args.session or session_id()
     if args.text:
         text = " ".join(args.text)
+    elif sys.stdin is None or sys.stdin.isatty():
+        text = ""                                   # at a prompt: a liveness question, not a wait
     else:
         try:
             text = sys.stdin.buffer.read().decode("utf-8", "replace")
         except (OSError, ValueError) as exc:
             return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {exc}")
+    if not text.strip():
+        text = ""
     try:
         result = _client(args).call(
             "ping", _asdict(protocol.PingArgs(text=text, session_id=target)))

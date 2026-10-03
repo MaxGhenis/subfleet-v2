@@ -79,7 +79,7 @@ def fleet(*lanes):
 @settings(max_examples=40, deadline=None, suppress_health_check=FIXTURE_HEALTH)
 @given(session=st.sampled_from([None, "", "s-1", "operator"]),
        configured=st.sampled_from([None, "", "  ", "ops-1"]),
-       text=st.sampled_from([None, ""]))
+       text=st.sampled_from([None, "", " ", "\n\t"]))
 def test_c15_8_a_ping_without_text_writes_nothing(core, session, configured, text):
     """C-15.8, C-16.2 a liveness ping is read-only for every session it names or omits."""
     core.policy["alerts"]["operator_session"] = configured
@@ -94,6 +94,15 @@ def test_c15_8_a_ping_with_text_and_no_session_is_refused_without_an_operator(co
     with pytest.raises(protocol.ProtocolError) as refused:
         core.dispatch("ping", {"text": "hello"})
     assert refused.value.code == Exit.INVALID_INPUT and "operator_session" in str(refused.value)
+    assert service_rows(core.store) == []
+
+
+@pytest.mark.parametrize("named", ["  ", 7, ["s"]])
+def test_c15_8_a_blank_or_non_string_session_names_no_one(core, named):
+    """C-15.8 a blank or non-string session id is no session: with no operator
+    session set, text addressed to it is refused, and nothing is parked."""
+    with pytest.raises(protocol.ProtocolError):
+        core.dispatch("ping", {"text": "hello", "session_id": named})
     assert service_rows(core.store) == []
 
 
@@ -465,6 +474,39 @@ def test_c15_8_a_notice_a_hook_printed_is_not_withdrawn(core, monkeypatch, capsy
     assert [row["state"] for row in service_rows(core.store)] == ["surfaced"]
 
 
+def test_c15_8_every_listed_row_carries_its_fingerprint(core):
+    """C-15.8 `notice.list` (and so `notices --json`) gives each row the fingerprint
+    `--ack` and `--withdraw` send back, online and offline alike."""
+    seed(core.store, [("service", "a", "pending", "x"), ("job", "a", "offered", "y\nz")])
+    listed = core.dispatch("notice.list", {"session_id": "a"})["notices"]
+    assert [row["fingerprint"] for row in listed] == [notice_fingerprint(row) for row in listed]
+    assert Offline(core.root).notices("a") == listed
+
+
+def test_c15_8_an_id_named_twice_is_acted_on_once_with_its_first_fingerprint(core):
+    """C-15.8 a repeated id: acknowledged or withdrawn once, matched by its first fingerprint."""
+    seed(core.store, [("service", "a", "pending", "x"), ("service", "a", "pending", "y")])
+    first, second = core.dispatch("notice.list", {"session_id": "a"})["notices"]
+    reply = core.dispatch("notice.ack", {"session_id": "a",
+                                         "notice_ids": [first["notice_id"], first["notice_id"]],
+                                         "fingerprints": [first["fingerprint"], "stale"]})
+    assert (reply["acknowledged"], reply["kept"]) == ([first["notice_id"]], [])
+    reply = core.dispatch("notice.withdraw", {"session_id": "a",
+                                              "notice_ids": [second["notice_id"], second["notice_id"]],
+                                              "fingerprints": ["stale", second["fingerprint"]]})
+    assert (reply["withdrawn"], reply["kept"]) == ([], [second["notice_id"]])     # the first one named it
+
+
+def test_c15_8_an_empty_reason_is_the_reason_recorded(core):
+    """C-15.8 `--withdraw --reason ''` records the empty reason, not the default."""
+    seed(core.store, [("service", "a", "pending", "x")])
+    (listed,) = core.dispatch("notice.list", {"session_id": "a"})["notices"]
+    core.dispatch("notice.withdraw", {"session_id": "a", "notice_ids": [listed["notice_id"]], "reason": ""})
+    (event,) = [json.loads(row["data_json"]) for row in
+                core.store.query("SELECT data_json FROM events WHERE kind='notice.withdrawn'")]
+    assert event["reason"] == ""
+
+
 def test_c15_8_listing_marks_nothing(core):
     """C-15.8 listing an inbox is read-only: the session's own hooks still surface it."""
     seed(core.store, [("service", "a", "pending", "x"), ("job", "a", "offered", "y")])
@@ -618,6 +660,33 @@ def test_c15_8_a_ping_with_no_text_is_answered_as_liveness(daemon, capsys, monke
     assert "pong from subfleet 9.9" in out and "parked" not in out
 
 
+def test_c15_8_ping_at_a_prompt_with_nothing_piped_in_is_liveness(daemon, capsys, monkeypatch):
+    """C-15.8 `subfleet ping` at a terminal does not wait on stdin: it is a liveness question."""
+    class Terminal:
+        def isatty(self):
+            return True
+
+        @property
+        def buffer(self):
+            raise AssertionError("read stdin at a terminal")
+
+    monkeypatch.setattr("sys.stdin", Terminal())
+    server = daemon({"ping": lambda request: {"pong": True, "version": "9.9", "session_id": None,
+                                              "text": "", "notice_id": None}})
+    assert cli.main(["ping"]) == int(Exit.OK)
+    assert server.requests[0].args["text"] == "" and "pong from subfleet 9.9" in capsys.readouterr().out
+
+
+def test_c15_8_a_blank_piped_line_is_liveness_too(daemon, capsys, monkeypatch):
+    """C-15.8 `echo | subfleet ping` sends no text: whitespace is no text."""
+    import io
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"\n")))
+    server = daemon({"ping": lambda request: {"pong": True, "version": "9.9", "session_id": "s",
+                                              "text": "", "notice_id": None}})
+    assert cli.main(["ping", "--session", "s"]) == int(Exit.OK)
+    assert server.requests[0].args["text"] == "" and "pong" in capsys.readouterr().out
+
+
 def test_c15_8_ping_args_default_to_a_liveness_question():
     """C-16.2 the declared shape accepts `{}`, as the daemon does."""
     assert protocol.coerce_args(protocol.PingArgs, {}) == protocol.PingArgs(text="", session_id=None)
@@ -703,3 +772,27 @@ def test_c11_8_pins_with_no_one_to_tell_never_hide_a_deliverable_pin_notice(core
     (listed,) = core.dispatch("notice.list", {"session_id": "s-caller"})["notices"]
     assert pending["job_id"] == listed["job_id"] == "pin-caller"
     assert Offline(core.root).notices("s-caller")[0]["job_id"] == "pin-caller"
+
+
+def test_c11_8_naming_a_pin_notice_is_an_index_step(core):
+    """C-11.8 the lookup is a step on `events_pin_notice`, not a walk of every pin
+    event, with no statistics (nothing here runs ANALYZE)."""
+    from subfleet.store import PIN_NOTICE_ID
+    plan = " ".join(row["detail"] for row in core.store.query(
+        f"EXPLAIN QUERY PLAN SELECT event_id,job_id,data_json FROM events "
+        f"WHERE kind='job.pin_noticed' AND {PIN_NOTICE_ID} IN (1,2)"))
+    assert "events_pin_notice (kind=? AND <expr>=?)" in plan, plan      # the notice's id, not every pin
+
+
+@pytest.mark.parametrize("payload", ["not json at all", '{"service_notice_id": NaN}', ""])
+def test_c11_8_a_pin_event_that_is_not_json_breaks_no_listing(core, payload):
+    """C-11.8, C-5.7a a `job.pin_noticed` row json_valid refuses never reaches
+    json_extract, so `notice.pending` and `notice.list` (the hooks' reads) still answer."""
+    told = pin_job(core, "pin-caller", "s-caller")
+    core._pin_notice(told, STUCK, {}, "2026-10-03T12:00:00Z")
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES('2026-10-03T12:00:01Z',"
+                   "'job.pin_noticed','pin-bad',?)", (payload,))
+    (pending,) = core.dispatch("notice.pending", {"session_id": "s-caller"})["notices"]
+    (listed,) = core.dispatch("notice.list", {"session_id": "s-caller"})["notices"]
+    assert pending["job_id"] == listed["job_id"] == "pin-caller"

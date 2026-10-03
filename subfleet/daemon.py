@@ -2346,21 +2346,24 @@ class Daemon:
                     raise protocol.ProtocolError(
                         f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
                         "give one per id, or none")
+                unique: dict = {}                       # a repeated id: once, with its first fingerprint
+                for index, notice_id in enumerate(a.notice_ids):
+                    unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
                 stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for index, (table, row_id) in enumerate(targets):
-                        if a.fingerprints:
+                    for notice_id, fingerprint in unique.items():
+                        table, row_id = protocol.notice_row(notice_id)
+                        if fingerprint is not None:
                             row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
                                              (row_id, a.session_id)).fetchone()
-                            if row is None or notice_fingerprint(
-                                    {"text": row[0], "created_at": row[1]}) != a.fingerprints[index]:
+                            if row is None or notice_fingerprint({"text": row[0], "created_at": row[1]}) != fingerprint:
                                 continue
                         if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
                                       "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
                                       (stamp, row_id, a.session_id)).rowcount:
-                            acknowledged.append(a.notice_ids[index])
+                            acknowledged.append(notice_id)
                 answered = {"acknowledged": acknowledged,
-                            "kept": [notice_id for notice_id in a.notice_ids if notice_id not in acknowledged]}
+                            "kept": [notice_id for notice_id in unique if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
@@ -2387,12 +2390,15 @@ class Daemon:
             notices += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])} for row in service]
             return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text", "")
+            text = args.get("text") or ""
             # C-15.8: a notice goes to the session named, else to the configured
-            # operator session; there is no default inbox nobody reads.
-            session = args.get("session_id") or operator_session(self.policy)
+            # operator session; there is no default inbox nobody reads. A blank
+            # or non-string session names none, and whitespace is no text.
+            named = args.get("session_id")
+            named = named.strip() if isinstance(named, str) and named.strip() else None
+            session = named or operator_session(self.policy)
             notice_id = None
-            if text:
+            if isinstance(text, str) and text.strip():
                 if not session:
                     raise protocol.ProtocolError(
                         "ping: no session named, and alerts.operator_session is not set; "
@@ -2949,9 +2955,13 @@ class Daemon:
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
                 "give one per id, or none")
-        listed = dict(zip((-notice_id for notice_id in a.notice_ids), a.fingerprints)) if a.fingerprints else {}
+        listed: dict = {}
+        for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
+            if a.fingerprints:
+                listed.setdefault(-notice_id, a.fingerprints[index])
         wanted = sorted({-notice_id for notice_id in a.notice_ids})
-        record: dict = {"session_id": a.session_id, "reason": a.reason or "withdrawn by the operator",
+        record: dict = {"session_id": a.session_id,
+                        "reason": a.reason if a.reason is not None else "withdrawn by the operator",
                         "service_notice_ids": [], "count": 0, "first_created_at": None,
                         "last_created_at": None, "subjects": {}}
         with self.store.transaction("notice.withdrawn", data=record) as tx:
