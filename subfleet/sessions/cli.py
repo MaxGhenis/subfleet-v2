@@ -165,7 +165,7 @@ def _guard(handler):
         except DaemonError as exc:
             return cli._daemon_error(exc)
         except ProtocolError as exc:
-            return fail(exc.code, str(exc))
+            return cli._protocol_failure(exc)
         except handoff_module.HandoffError as exc:
             return fail(getattr(exc, "code", Exit.INVALID_INPUT),
                         f"handoff: {exc}", getattr(exc, "fix", None))

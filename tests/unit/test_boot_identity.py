@@ -35,7 +35,8 @@ def test_guardian_identity_handles_new_and_legacy_records(monkeypatch, recorded,
 def test_legacy_drift_does_not_block_socket_or_authorize_signal(monkeypatch, tmp_path):
     monkeypatch.setattr(client, "boot_id", lambda: SESSION)
     monkeypatch.setattr(client, "_boot_read", lambda argv: "{ sec = 1789915544 }")
-    monkeypatch.setattr(client, "proc_start", lambda pid: START)
+    # The identity check reads state and start from one `ps` (C-5.13), so that is the seam.
+    monkeypatch.setattr(client, "proc_status", lambda pid: ("S", START))
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, SESSION, START))
     monkeypatch.setattr(procs, "_read", lambda argv: "{ sec = 1789915544 }")
     monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("must not signal uncertain identity"))
@@ -50,8 +51,8 @@ def test_legacy_drift_does_not_block_socket_or_authorize_signal(monkeypatch, tmp
 def test_missing_and_reused_pid_still_prove_death_despite_legacy_drift(monkeypatch):
     monkeypatch.setattr(client, "boot_id", lambda: SESSION)
     monkeypatch.setattr(client, "_boot_read", lambda argv: "{ sec = 1789915544 }")
-    for current in ("", "Mon Sep 21 10:00:00 2026"):
-        monkeypatch.setattr(client, "proc_start", lambda pid: current)
+    for status in (("", ""), ("S", "Mon Sep 21 10:00:00 2026")):   # gone; the pid reused
+        monkeypatch.setattr(client, "proc_status", lambda pid, status=status: status)
         assert client.identity_report(5362, "1789915546", START)[0] is False
 
 
