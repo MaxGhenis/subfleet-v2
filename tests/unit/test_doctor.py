@@ -348,6 +348,17 @@ def test_live_pings_the_daemon(daemon, root):
     assert item["status"] == doctor.PASS and "2.0.0a0" in item["detail"]
 
 
+def test_c15_8_live_ping_carries_no_text_so_it_parks_no_notice(daemon, root):
+    """C-15.8, C-16.2 the liveness ping has no text and names no session: a ping
+    with text parks a notice, and every `doctor --live` used to park a "doctor"
+    notice for the literal session `operator`, which nothing reads."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "t"}})
+    assert doctor.check_live(root)["status"] == doctor.PASS
+    assert server.ops() == ["ping"]
+    assert not server.requests[0].args.get("text")
+    assert not server.requests[0].args.get("session_id")
+
+
 def test_live_fails_when_nothing_is_listening(root):
     """C-17.5 everything that needs the daemon exits 69 when it is not there,
     and `--live` is exactly the check that needs it."""
