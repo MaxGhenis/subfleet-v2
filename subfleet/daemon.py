@@ -586,10 +586,14 @@ class Daemon:
                                              "raced": 0, "last_pass_at": None, "last_push": None,
                                              "held": {}, "error": None}
         self._wait_reported: dict[str, float] = {}
+        # C-23.50: the jobs a `wait` timed out on, by when (epoch): its client
+        # polls again, and between polls the job has no registered waiter.
+        self._wait_lapsed: dict[str, float] = {}
         self._wait_reported_lock = threading.Lock()
         # What the last full pass planned from, and when (monotonic).
         self._push_seen: tuple | None = None
         self._push_planned_at = 0.0
+        self._push_next_change = math.inf
         self._seed_lanes()
         self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
@@ -2394,18 +2398,39 @@ class Daemon:
                 below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
                 movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
+                # C-15.7: a hook claims before it prints. With `keep_pushed_s` it
+                # does not take a notice the push wrote less than that long ago:
+                # the push's frame will deliver it, and the hook prints only what
+                # it took (`marked`), so the session is told once.
+                keep, keep_args = "", ()
+                if a.keep_pushed_s is not None:
+                    # A claim takes only what no one has taken: never a notice
+                    # already at the state asked for, so two hooks racing do not
+                    # both print it.
+                    movable = tuple(state for state in movable if state != a.state)
+                if a.keep_pushed_s is not None and a.keep_pushed_s > 0:
+                    keep = (" AND NOT (state='offered' AND transport=? AND offered_at IS NOT NULL "
+                            "AND offered_at>? AND offered_at<=?)")
+                    keep_args = (notify_push.TRANSPORT, after(-float(a.keep_pushed_s)), stamp)
+                marked = []
                 with self.store.transaction("notice." + a.state) as tx:
-                    for table, row_id in targets:
-                        tx.execute(
+                    for (table, row_id), wire_id in zip(targets, a.notice_ids):
+                        moved = tx.execute(
                             f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})",
-                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable))
+                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})"
+                            + keep,
+                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable,
+                             *keep_args)).rowcount
+                        if moved:
+                            marked.append(wire_id)
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             service = self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             about = self._pin_notice_jobs(service) if service else {}
             notices += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])} for row in service]
+            if op == "notice.mark":
+                answered = {**answered, "marked": marked}       # C-15.7: what this claim took
             return {"notices": notices, **answered}
         if op == "ping":
             text = args.get("text")
@@ -2758,8 +2783,18 @@ class Daemon:
                     return answer
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.stopping.is_set():
+                    self._note_lapsed(job_ids)
                     return {"timeout": True}
                 ready.wait(remaining)
+
+    def _note_lapsed(self, job_ids) -> None:
+        """C-23.50: this `wait` timed out; its client polls again, at once or
+        after a busy answer's pause, and until then its jobs have no registered
+        waiter. The push counts them as watched for `WAITER_GRACE_S`."""
+        now = time.time()
+        with self._wait_reported_lock:
+            for job_id in job_ids:
+                self._wait_lapsed[job_id] = now
 
     def _note_waited(self, job_ids) -> None:
         """C-23.50: these jobs' ends are on their way to a waiter, which tells its
@@ -2984,10 +3019,11 @@ class Daemon:
         if not settings.enabled:
             status["held"] = {}
             return
-        with self._wait_reported_lock:
-            self._wait_reported = {job: at for job, at in self._wait_reported.items()
-                                   if now - at < settings.after_wait_s}
-            waited = dict(self._wait_reported)
+        # C-23.50: the watched jobs first, then the reports. `wait` records a job's
+        # report before its waiter stops watching it, so read in this order a job
+        # handed from one to the other is seen in one or both (review of PR #114).
+        watched = self.wait_hub.watched_jobs()
+        waited, lapsed = self._waiter_reports(settings)
         cutoff = datetime.fromtimestamp(now - settings.max_age_s, timezone.utc).isoformat(
             timespec="seconds").replace("+00:00", "Z")
         pending = notify_push.pending_rows(self.store.query(
@@ -3001,14 +3037,16 @@ class Daemon:
             return
         # A pass whose inputs have not changed since a full pass that pushed
         # nothing would plan the same again; it reads no registry (a `ps`) and no
-        # attempts until something moves, or `PUSH_REPLAN_S` has passed for the
-        # rules that run on the clock (the delay, the gap, a retry, an expiry).
-        watched = self.wait_hub.watched_jobs()
+        # attempts until something moves, `PUSH_REPLAN_S` has passed, or the
+        # kept plan's own `next_change` (its next delay, gap, retry, waiter or
+        # age boundary) has come.
         looked_at = time.monotonic()
+        jobs = {item.job_id for item in pending}
         seen = (tuple(item.ident for item in pending), notify_push.registry_fingerprint(),
-                frozenset(watched & {item.job_id for item in pending}),
-                tuple(sorted(item for item in waited if item in {p.job_id for p in pending})))
-        if seen == self._push_seen and time.monotonic() - self._push_planned_at < PUSH_REPLAN_S:
+                frozenset(watched & jobs), tuple(sorted((job, at) for job, at in waited.items() if job in jobs)),
+                tuple(sorted((job, at) for job, at in lapsed.items() if job in jobs)))
+        if (seen == self._push_seen and time.monotonic() - self._push_planned_at < PUSH_REPLAN_S
+                and now < self._push_next_change):
             return
         read_at, reading = self._registry_read()
         found = reading["found"]
@@ -3020,11 +3058,12 @@ class Daemon:
             pending, rows, now=now, settings=settings,
             lane_ids=self._lane_session_ids() if reachable else (),
             conversation_ids=self._conversation_session_ids() if reachable else (),
-            watched=watched, waited=waited, history=self._push_history)
+            watched=watched, waited=waited, lapsed=lapsed, history=self._push_history)
         # A registry read reused from before these inputs were taken may not
         # show what changed them, so a plan made from it is not one to keep.
         self._push_seen = None if plan.pushes or read_at < looked_at else seen
         self._push_planned_at = time.monotonic()
+        self._push_next_change = plan.next_change
         # Replaced whole, never changed in place: `daemon.status` reads it from
         # another thread.
         held = dict(plan.held)
@@ -3049,6 +3088,17 @@ class Daemon:
                 self.log.warning("notice push to %s (pid %s) %s: %s", push.session_id,
                                  push.row.pid, outcome.result, outcome.reason)
 
+    def _waiter_reports(self, settings: "notify_push.PushSettings") -> tuple[dict, dict]:
+        """C-23.50: the jobs a `wait` reported ended, and the jobs a `wait` timed
+        out on (whose client will poll again), each by when (epoch), pruned."""
+        now = time.time()
+        with self._wait_reported_lock:
+            self._wait_reported = {job: at for job, at in self._wait_reported.items()
+                                   if now - at < settings.after_wait_s}
+            self._wait_lapsed = {job: at for job, at in self._wait_lapsed.items()
+                                 if now - at < notify_push.WAITER_GRACE_S}
+            return dict(self._wait_reported), dict(self._wait_lapsed)
+
     def _push_check(self, push: "notify_push.Push") -> str | None:
         """C-15.7: just before a push, its registry row read again
         (`notify_push.recheck`), and the daemon's own record asked again whether
@@ -3057,6 +3107,16 @@ class Daemon:
         reason = notify_push.recheck(push)
         if reason is not None:
             return reason
+        # C-23.50 once more: a waiter that registered, timed out or reported
+        # since the plan holds the push; the next pass plans per notice again.
+        settings = notify_push.PushSettings.from_policy(self.policy)
+        watched = self.wait_hub.watched_jobs()
+        waited, lapsed = self._waiter_reports(settings)
+        jobs = {item.job_id for item in push.notices}
+        if jobs & watched or jobs & set(lapsed):
+            return "waiter live"
+        if jobs & set(waited):
+            return "waiter reported"
         if self._conversation_binding(push.session_id):
             return "conversation session"
         from .conversations.store import native_any_case

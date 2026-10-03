@@ -36,7 +36,7 @@ import pytest
 from hypothesis import HealthCheck, event, given, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
-from subfleet import notify_push
+from subfleet import hooks, notify_push
 from subfleet.sessions import registry
 
 SESSIONS = ("s-alpha", "s-beta", "s-gamma", "lane-1", "conv-1", "headless-1")
@@ -65,6 +65,7 @@ class Notice:
     created_at: float
     state: str = "pending"
     transport: str | None = None
+    offered_at: float | None = None
 
 
 @dataclass
@@ -93,6 +94,8 @@ class World:
     transitions: list[tuple[int, str, str, str]] = field(default_factory=list)  # id, from, to, by
     history: notify_push.History = field(default_factory=notify_push.History)
     sockets: dict[str, tuple[int, str]] = field(default_factory=dict)   # path -> (pid, session)
+    snapshots: dict[str, list[int]] = field(default_factory=dict)       # a hook's `notice.pending` read
+    prints: list[tuple[int, float, bool]] = field(default_factory=list)  # notice, when, kept pushes
 
     def rows(self) -> list[registry.SessionRow]:
         return [registry.SessionRow(
@@ -161,11 +164,60 @@ class NoticePush(RuleBasedStateMachine):
         if pid in self.w.procs:
             self.w.procs[pid].status = status
 
-    @rule(session=st.sampled_from(SESSIONS), to=st.sampled_from(["surfaced", "acknowledged", "offered"]))
-    def a_hook_or_the_session_reaches_its_notices(self, session, to):
+    @rule(session=st.sampled_from(SESSIONS), to=st.sampled_from(["acknowledged", "offered"]))
+    def another_layer_reaches_the_sessions_notices(self, session, to):
+        """The session acknowledges (`runs show`, a `wait`'s answer), at any
+        time; or layer 2, the PostToolUse hook, offers. Layer 2 offers only
+        what is still `pending`: it arms on a running job, so its waiter is
+        registered before the job ends, and C-23.50 holds the push while that
+        waiter is live and after it reports, so a push never precedes it.
+        Surfacing by the session hooks is the read and claim rules below."""
         for n in self.w.notices.values():
-            if n.session_id.lower() == session and n.state in ("pending", "offered"):
-                self.move(n, to, transport=f"hook:{to}", by="hook")
+            if n.session_id.lower() != session:
+                continue
+            if to == "acknowledged" and n.state in ("pending", "offered", "surfaced"):
+                self.move(n, to, transport=n.transport, by="session")
+            elif to == "offered" and n.state == "pending":
+                self.move(n, to, transport="hook:PostToolUse", by="hook")
+
+    @rule(session=st.sampled_from(SESSIONS))
+    def a_session_hook_reads(self, session):
+        """A SessionStart or UserPromptSubmit hook's `notice.pending`: the read,
+        apart from its claim, so a push can come between them."""
+        self.w.snapshots[session] = [n.notice_id for n in self.w.notices.values()
+                                     if n.session_id.lower() == session and n.state in ("pending", "offered")]
+
+    @rule(session=st.sampled_from(SESSIONS), restart=st.booleans())
+    def a_session_hook_claims_and_prints(self, session, restart):
+        """The hook's claim (`notice.mark` with `keep_pushed_s`, as the daemon
+        runs it) and its print of exactly what the claim took. A restart's
+        SessionStart keeps no push; every other hook keeps a push younger
+        than `PUSH_OWNS_S`."""
+        keep = not restart
+        for notice_id in self.w.snapshots.pop(session, []):
+            n = self.w.notices[notice_id]
+            if n.state not in ("pending", "offered"):
+                continue
+            owned = (n.state == "offered" and n.transport == "socket" and n.offered_at is not None
+                     and 0 <= self.w.now - n.offered_at < hooks.PUSH_OWNS_S)
+            if keep and owned:
+                event("hook: left a fresh push to the push")
+                continue
+            if n.state == "offered" and n.transport == "socket":
+                event("hook: printed a notice the push wrote" + (" (restart)" if restart else ""))
+            self.move(n, "surfaced", transport="hook:claim", by="hook")
+            self.w.prints.append((notice_id, self.w.now, keep))
+
+    @rule(session=st.sampled_from(("s-alpha", "s-beta")), restart=st.booleans(),
+          then=st.sampled_from([0, 0, 30, 61]), send=st.sampled_from(["ok", "ok", "refused", "reset"]))
+    def a_hook_races_a_push(self, session, restart, then, send):
+        """A hook reads its session's notices, a push pass runs, time may pass,
+        and the hook claims what it read: the interleaving the claim exists for."""
+        self.a_job_ends(session, False, 8)
+        self.a_session_hook_reads(session)
+        self.one_pass(send, True, "none")
+        self.w.now += then
+        self.a_session_hook_claims_and_prints(session, restart)
 
     @rule(data=st.data())
     def a_waiter_registers(self, data):
@@ -210,9 +262,11 @@ class NoticePush(RuleBasedStateMachine):
                 assert item.job_id not in w.watched
                 assert not (item.job_id in w.waited and w.now - w.waited[item.job_id] < SETTINGS.after_wait_s)
             if race == "hook" and len(push.notices) > 1:
+                # A hook's claim lands between the plan and the reservation.
                 first = w.notices[push.notices[0].notice_id]
                 if first.state == "pending":
                     self.move(first, "surfaced", transport="hook:UserPromptSubmit", by="hook")
+                    w.prints.append((first.notice_id, w.now, True))
             if race == "pid-reuse":
                 # Between the plan and the write, the pid is given to another
                 # session, at the same socket path (the worst case).
@@ -255,7 +309,7 @@ class NoticePush(RuleBasedStateMachine):
             outcome = notify_push.deliver(push, reserve=self.reserve, release=self.release,
                                           record=lambda kind, data: None, check=check, send=write,
                                           token_of=lambda pid: "tok",
-                                          mode_of=lambda session: "bypass")
+                                          mode_of=lambda session, pid: "bypass")
             notify_push.settle(w.history, push, outcome, w.now)
             event(f"push: {outcome.result}" + (" (race: pid reused)" if race == "pid-reuse" else ""))
         for reason in sorted(set(plan.held.values())):
@@ -267,6 +321,7 @@ class NoticePush(RuleBasedStateMachine):
             n = self.w.notices[notice_id]
             if n.state == "pending":
                 self.move(n, "offered", transport="socket", by="push")
+                n.offered_at = self.w.now
                 reserved.append(notice_id)
         self.reserved = tuple(reserved)
         return reserved
@@ -282,6 +337,26 @@ class NoticePush(RuleBasedStateMachine):
         n.state, n.transport = to, transport
 
     # --- what must always hold ---------------------------------------------------
+
+    @invariant()
+    def a_hook_never_repeats_a_push_it_could_still_be_queued_behind(self):
+        """C-15.7 across layers: a notice a hook printed is never then written
+        by the push, and a hook that keeps pushes prints a notice the push
+        wrote only once the push no longer owns it."""
+        written = {}
+        for frame in self.w.frames:
+            for notice_id in frame.notice_ids:
+                written.setdefault(notice_id, frame.at)
+        for notice_id, at, kept in self.w.prints:
+            if notice_id in written:
+                assert written[notice_id] <= at, "the push wrote a notice a hook had printed"
+                if kept:
+                    assert at - written[notice_id] >= hooks.PUSH_OWNS_S, (notice_id, at, written[notice_id])
+
+    @invariant()
+    def a_hook_prints_a_notice_at_most_once(self):
+        printed = [notice_id for notice_id, _, _ in self.w.prints]
+        assert len(printed) == len(set(printed))
 
     @invariant()
     def each_notice_is_written_at_most_once(self):

@@ -42,10 +42,20 @@ def payload(event: str, **extra) -> dict:
             "transcript_path": "/dev/null", **extra}
 
 
+STAMP = "2026-10-03T12:00:00Z"
+
+
 def notice(notice_id: int, job_id: str = JOB, state: str = "pending",
            text: str = "run finished") -> dict:
     return {"notice_id": notice_id, "session_id": SESSION, "job_id": job_id,
-            "state": state, "text": text}
+            "state": state, "text": text, "created_at": STAMP}
+
+
+def claim(ids: list[int], event: str, *, keep: bool = True) -> dict:
+    """The `notice.mark` a session hook sends for the notices it claims (C-15.7):
+    with `keep_pushed_s` unless the process replaced the one a push wrote to."""
+    return {"session_id": SESSION, "notice_ids": ids, "state": "surfaced",
+            "transport": f"hook:{event}", "keep_pushed_s": hooks.PUSH_OWNS_S if keep else 0}
 
 
 # --- SessionStart hands the wake to the sessions kit (C-23.34) ----------------
@@ -193,8 +203,7 @@ def test_session_events_inside_a_launch_wake_nothing_and_surface_only_job_notice
     assert "1 detached run dispatched by this session" in context
     assert "20260924-120500-demo: ok; rc=0" in context
     assert "resume nudge" not in context and "continue where you left off" not in context
-    assert marked == [{"session_id": SESSION, "notice_ids": [1], "state": "surfaced",
-                       "transport": f"hook:{event}"}]
+    assert marked == [claim([1], event, keep=event == "UserPromptSubmit")]
     assert woken == [] and server.ops() == ["notice.pending", "notice.mark"]
 
 
@@ -362,8 +371,7 @@ def test_session_events_surface_pending_notices_and_mark_them(daemon, root, even
     context = emitted["hookSpecificOutput"]["additionalContext"]
     assert emitted["hookSpecificOutput"]["hookEventName"] == event
     assert "2 detached runs" in context and "run finished" in context
-    assert marked == [{"session_id": SESSION, "notice_ids": [1, 2],
-                       "state": "surfaced", "transport": f"hook:{event}"}]
+    assert marked == [claim([1, 2], event)]
     assert "notice.pending" in server.ops()
 
 
@@ -374,8 +382,8 @@ def pushed_prompt(*headers: str) -> str:
     """A turn the notice push started: its prompt is the envelope the push wrote
     (`notify_push.envelope(notify_push.render_body(...))`)."""
     from subfleet import notify_push
-    notices = [notify_push.Pending(i, header.split(":", 1)[0], SESSION, header + "\nattempt a1: ok", 0.0)
-               for i, header in enumerate(headers, 1)]
+    notices = [notify_push.Pending(i, header.split(":", 1)[0], SESSION, header + "\nattempt a1: ok", 0.0,
+                                   STAMP) for i, header in enumerate(headers, 1)]
     return notify_push.envelope(notify_push.render_body(notices), mode_class="bypass")
 
 
@@ -395,8 +403,10 @@ def test_a_pushed_turn_is_not_told_again_what_its_prompt_carries(daemon, root):
     assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
     context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
     assert "1 detached run " in context and OTHER in context and PUSHED_HEADER not in context
-    assert marked == [{"session_id": SESSION, "notice_ids": [1, 2],
-                       "state": "surfaced", "transport": "hook:UserPromptSubmit"}]
+    # What the prompt carries is marked as shown; the rest is claimed, keeping
+    # what the push has just written.
+    shown = {key: value for key, value in claim([1], "UserPromptSubmit").items() if key != "keep_pushed_s"}
+    assert marked == [shown, claim([2], "UserPromptSubmit")]
 
 
 def test_a_pushed_turn_whose_notices_are_all_in_its_prompt_prints_nothing(daemon, root):
@@ -432,7 +442,36 @@ def test_a_second_notice_for_the_pushed_job_is_still_printed(daemon, root):
     assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
     context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
     assert "salvage failed" in context and "attempt a1: ok" not in context
-    assert marked[0]["notice_ids"] == [1, 5]
+    assert [call["notice_ids"] for call in marked] == [[1], [5]]
+
+
+def test_a_reused_notice_id_is_not_taken_for_one_the_push_carried(daemon, root):
+    """Review of PR #114: the trailer names a notice by id and creation time.
+    Notice 1 here is a newer notice that took a pushed notice's rowid; the
+    prompt carried the old one, so the new one is printed."""
+    daemon({"notice.pending": lambda request: {"notices": [
+                {**notice(1, text=f"{OTHER}: failed; rc=1; deliverable=-; out=-"),
+                 "job_id": OTHER, "created_at": "2026-10-03T15:00:00Z"}]},
+            "notice.mark": lambda request: {"notices": []}})
+    stdout = io.StringIO()
+    event = payload("UserPromptSubmit", prompt=pushed_prompt(PUSHED_HEADER))
+    assert hooks.session_event("UserPromptSubmit", event, root, stdout=stdout) == 0
+    assert OTHER in json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+
+
+def test_the_hook_prints_only_what_its_claim_took(daemon, root):
+    """Review of PR #114: the hook read notices 1 and 2 as `pending`; before its
+    mark, the push reserved and wrote notice 2. The daemon's claim, keeping
+    what the push has just written, takes only notice 1 (`marked`), so only
+    notice 1 is printed and the push's frame alone tells notice 2."""
+    daemon({"notice.pending": lambda request: {"notices": [
+                notice(1), notice(2, OTHER, text=f"{OTHER}: failed; rc=1; deliverable=-; out=-")]},
+            "notice.mark": lambda request: {"notices": [], "marked": [1]}})
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit", prompt="hi"), root,
+                               stdout=stdout) == 0
+    context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "run finished" in context and OTHER not in context
 
 
 def offered_by_push(notice_id: int, seconds_ago: float) -> dict:
@@ -456,16 +495,50 @@ def test_a_typed_prompt_leaves_a_notice_the_push_just_wrote_to_the_push(daemon, 
     assert stdout.getvalue() == "" and marked == []
 
 
-@pytest.mark.parametrize("event,seconds_ago", [("UserPromptSubmit", 600), ("SessionStart", 5)])
-def test_a_pushed_notice_is_printed_once_the_push_no_longer_owns_it(daemon, root, event, seconds_ago):
+@pytest.mark.parametrize("event,source,seconds_ago", [
+    ("UserPromptSubmit", None, 600), ("SessionStart", "startup", 5), ("SessionStart", "resume", 5)])
+def test_a_pushed_notice_is_printed_once_the_push_no_longer_owns_it(daemon, root, event, source,
+                                                                     seconds_ago):
     """C-15.7: after `PUSH_OWNS_S` the frame may have been held by the inbox,
     so the next prompt prints the notice; a session that started again lost any
-    queued frame with its process, so SessionStart prints it at once."""
+    queued frame with its process, so SessionStart `startup` or `resume`
+    prints it at once, claiming it without keeping it for the push."""
+    marked: list[dict] = []
     daemon({"notice.pending": lambda request: {"notices": [offered_by_push(1, seconds_ago)]},
-            "notice.mark": lambda request: {"notices": []}})
+            "notice.mark": lambda request: marked.append(request.args) or {"notices": []}})
     stdout = io.StringIO()
-    assert hooks.session_event(event, payload(event, prompt="hello"), root, stdout=stdout) == 0
+    extra = {"prompt": "hello"} if source is None else {"source": source}
+    assert hooks.session_event(event, payload(event, **extra), root, stdout=stdout) == 0
     assert PUSHED_HEADER in json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert marked[0]["keep_pushed_s"] == (hooks.PUSH_OWNS_S if event == "UserPromptSubmit" else 0)
+
+
+@pytest.mark.parametrize("source", ["compact", "clear"])
+def test_session_start_in_the_same_process_leaves_a_fresh_push_alone(daemon, root, source):
+    """Review of PR #114: SessionStart also fires for `compact` and `clear`, in
+    the process the push wrote to; its queued frame is still there."""
+    marked: list[dict] = []
+    daemon({"notice.pending": lambda request: {"notices": [offered_by_push(1, 5)]},
+            "notice.mark": lambda request: marked.append(request.args) or {"notices": []}})
+    stdout = io.StringIO()
+    assert hooks.session_event("SessionStart", payload("SessionStart", source=source), root,
+                               stdout=stdout) == 0
+    assert stdout.getvalue() == "" and marked == []
+
+
+def test_a_push_time_ahead_of_the_clock_is_not_the_pushs():
+    """Review of PR #114: a clock stepped back (or a bad row) must not hold a
+    notice back past the window."""
+    ahead = {**offered_by_push(1, -3600)}
+    assert not hooks.pushed_moments_ago(ahead)
+    assert hooks.pushed_moments_ago(offered_by_push(1, 5))
+    assert not hooks.pushed_moments_ago(offered_by_push(1, 61))
+    assert not hooks.pushed_moments_ago({**offered_by_push(1, 5), "transport": "hook:PostToolUse"})
+
+
+def test_the_restart_sources_are_the_sessions_kits():
+    from subfleet.sessions import nudge
+    assert hooks.RESTART_SOURCES == nudge.RESTART_SOURCES
 
 
 @pytest.mark.parametrize("event,prompt", [

@@ -41,8 +41,8 @@ What the frame adds, from what the installed Claude Code's inbox does with it
   `next` is folded into the running turn between tool calls, and one that lands
   as a turn opens restarts that turn (`rapid_followup`). `later` waits until the
   running turn ends, and an idle session starts a turn for it at once. So a
-  push never interleaves with a turn, whatever the session is doing when the
-  bytes land.
+  push does not interleave with a turn, whatever the session is doing when the
+  bytes land, unless the inbox held it first (below).
 * `session_id`. The inbox drops a frame that names a session other than its
   own, so a socket path or pid that now belongs to another session cannot
   misdeliver a notice.
@@ -51,9 +51,12 @@ What the frame adds, from what the installed Claude Code's inbox does with it
   recipient's, and a bypass session holds one that declares none. It reads the
   declared class while its remote flag `tengu_harbor_kite_mode_emit` (default
   on) is on, and a `crossSessionInbound` setting overrides all of it (`hold`
-  holds, `refuse` drops). A held frame a person approves is queued without its
-  priority. None of this reaches the sender: an address-less sender gets no
-  receipt, so `delivered` here means the inbox took the bytes.
+  holds, `refuse` drops). A held frame released later, by a person's approval
+  or by the inbox when the setting or the session's mode changes, is queued
+  without its priority. None of this reaches the sender: an address-less
+  sender gets no receipt, so `delivered` here means the inbox took the bytes.
+  The class is `bypass` for `bypassPermissions`, and for `plan` while bypass is
+  available to the session (`mode_class_of`).
 
 The daemon's pass (C-15.7) is `plan` over the pending job notices and the
 registry as read, then `deliver` for each session it picked: reserve the rows
@@ -71,6 +74,7 @@ without a daemon (`tests/unit/test_notify_push.py`,
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
@@ -258,19 +262,64 @@ def _last_permission_mode(path: Path) -> str | None:
     return None
 
 
-def mode_class_of(permission_mode: str | None) -> str | None:
-    """Map a harness permission mode to the inbox's two attestation classes."""
+def mode_class_of(permission_mode: str | None, bypass_available: bool = False) -> str | None:
+    """Map a harness permission mode to the inbox's two attestation classes.
+
+    Claude Code 2.1.286 classes a session `bypass` when its mode is
+    `bypassPermissions`, or `plan` while bypass is available to it (its `J2`);
+    every other mode is `prompting`. Outside bypass mode, bypass is available
+    only when the process was started with the flag that allows it
+    (`bypassAvailableByFlag`; `bypass_flag_in`)."""
     if not permission_mode:
         return None
-    return "bypass" if permission_mode == "bypassPermissions" else "prompting"
+    if permission_mode == "bypassPermissions" or (permission_mode == "plan" and bypass_available):
+        return "bypass"
+    return "prompting"
 
 
-def session_mode_class(session_id: str) -> str | None:
+#: The launch flags under which Claude Code makes bypass available to a session.
+BYPASS_FLAGS = ("--dangerously-skip-permissions", "--allow-dangerously-skip-permissions")
+
+
+def bypass_flag_in(argv: Sequence[str]) -> bool:
+    """Whether a Claude Code command line makes bypass available: one of
+    `BYPASS_FLAGS`, or a start in bypass mode."""
+    args = list(argv)
+    for index, arg in enumerate(args):
+        if arg in BYPASS_FLAGS or arg == "--permission-mode=bypassPermissions":
+            return True
+        if arg == "--permission-mode" and index + 1 < len(args) and args[index + 1] == "bypassPermissions":
+            return True
+    return False
+
+
+def process_argv(pid: int | None) -> list[str]:
+    """A process's command line as `ps` prints it, split on spaces (the flags
+    sought here hold none), or [] when it cannot be read."""
+    if not isinstance(pid, int) or pid <= 0:
+        return []
+    import subprocess
+    try:
+        shown = subprocess.run(["/bin/ps", "-ww", "-o", "command=", "-p", str(pid)],
+                               capture_output=True, text=True, timeout=5,
+                               env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"})
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return shown.stdout.split() if shown.returncode == 0 else []
+
+
+def session_mode_class(session_id: str, pid: int | None = None) -> str | None:
     path = transcript_path(session_id)
-    return None if path is None else mode_class_of(_last_permission_mode(path))
+    if path is None:
+        return None
+    mode = _last_permission_mode(path)
+    # Only plan mode depends on the launch flags; nothing else asks `ps`.
+    available = mode == "plan" and bypass_flag_in(process_argv(pid))
+    return mode_class_of(mode, available)
 
 
-def resolve_mode_class(session_id: str, requested: str | None = None) -> str | None:
+def resolve_mode_class(session_id: str, requested: str | None = None,
+                       pid: int | None = None) -> str | None:
     """Which class to declare: explicit > `SUBFLEET_NOTIFY_MODE` > the recipient's.
 
     subfleet is not a session, so it has no mode of its own to attest. A
@@ -287,7 +336,7 @@ def resolve_mode_class(session_id: str, requested: str | None = None) -> str | N
         return override
     if override == "none":
         return None
-    return session_mode_class(session_id)
+    return session_mode_class(session_id, pid)
 
 
 # --- the wire -----------------------------------------------------------------
@@ -340,10 +389,14 @@ def send_to_socket(socket_path: str, token: str | None, content: str, *,
     lines.append(json.dumps(frame(content, priority=priority, session_id=session_id,
                                   message_uuid=message_uuid)))
     payload = ("\n".join(lines) + "\n").encode("utf-8")
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(timeout)
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    except (OSError, ValueError) as exc:
+        # No socket, so no connection and no byte (EMFILE when descriptors run out).
+        raise PushError(f"socket: {exc.__class__.__name__}: {exc}", written=False) from exc
     try:
         try:
+            client.settimeout(timeout)
             client.connect(socket_path)
         except (OSError, ValueError) as exc:
             raise PushError(f"connect: {exc.__class__.__name__}: {exc}", written=False) from exc
@@ -467,13 +520,16 @@ class Pending:
 
     notice_id: int
     job_id: str
-    session_id: str
+    session_id: str                     # exactly as the store holds it
     text: str
     created_at: float                   # epoch seconds
+    stamp: str = ""                     # the store's own `created_at` text
 
     @property
     def key(self) -> str:
-        return self.session_id.lower()
+        """The session as the registry is searched for it: case folded and
+        trimmed; `session_id` itself stays as stored, for the reservation."""
+        return self.session_id.strip().lower()
 
     @property
     def ident(self) -> tuple[int, float]:
@@ -507,7 +563,10 @@ def pending_rows(rows: Iterable[Mapping[str, Any]]) -> list[Pending]:
                 or not isinstance(session, str) or not session.strip()
                 or row.get("state", "pending") != "pending" or created is None):
             continue
-        found.append(Pending(notice_id, job_id, session.strip(), str(row.get("text") or ""), created))
+        # The session as stored, unstripped: the reservation compares it with the
+        # row again (review of PR #114), and the registry lookup folds case only.
+        found.append(Pending(notice_id, job_id, session, str(row.get("text") or ""), created,
+                             str(row.get("created_at"))))
     return found
 
 
@@ -562,6 +621,10 @@ class Plan:
 
     pushes: list[Push] = field(default_factory=list)
     held: dict[str, str] = field(default_factory=dict)       # session (lower case) -> reason
+    #: The first moment (epoch) after the plan at which a rule on the clock (a
+    #: delay, a gap, a retry, a waiter's report or grace, the max age, the
+    #: per-minute window) could change it; infinity when none could.
+    next_change: float = math.inf
 
 
 def target_row(rows: Iterable[registry.SessionRow], session_key: str) -> registry.SessionRow | None:
@@ -617,10 +680,17 @@ def registry_fingerprint() -> tuple:
     return tuple(sorted(found))
 
 
+#: C-23.50: a `wait` that timed out stops watching its jobs until its client
+#: polls again, which it does at once, or after a busy answer's pause (C-16.1).
+#: For this long after a timed-out `wait`, its jobs count as watched.
+WAITER_GRACE_S = 30.0
+
+
 def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None, *,
          now: float, settings: PushSettings, lane_ids: Iterable[str] = (),
          conversation_ids: Iterable[str] = (), watched: Iterable[str] = (),
          waited: Mapping[str, float] | None = None,
+         lapsed: Mapping[str, float] | None = None,
          history: History | None = None) -> Plan:
     """Which sessions get a push this pass (C-15.7, C-23.50). Pure: reads nothing.
 
@@ -628,54 +698,79 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
     nothing is pushed). `lane_ids` and `conversation_ids` are the daemon's own
     record of the sessions it ran as lanes and conversations. `watched` is the
     jobs a waiter is registered for now; `waited` maps a job to when a `wait`
-    last reported it ended. `history` is the pass's memory.
+    last reported it ended; `lapsed` maps a job to when a `wait` for it last
+    timed out. `history` is the pass's memory.
+
+    Each notice is filtered first (too old, waiting to retry, or its job's
+    waiter's to tell); sessions are then taken oldest remaining notice first,
+    so a notice left out never decides the order. `Plan.next_change` is the
+    first moment after `now` at which a rule on the clock could change the plan.
     """
     history = history or History()
     waited = waited or {}
+    lapsed = lapsed or {}
     out = Plan()
     if not settings.enabled:
         return out
     lanes = registry.folded(lane_ids)
     conversations = registry.folded(conversation_ids)
     watching = frozenset(watched)
+    rows = None if rows is None else list(rows)
+    changes: list[float] = []
+
+    def due(at: float) -> None:
+        if at > now:
+            changes.append(at)
+
     sessions: dict[str, list[Pending]] = {}
     for item in pending:
         sessions.setdefault(item.key, []).append(item)
-    recent = [at for at in history.recent if now - at < 60]
-    # The session whose oldest notice has waited longest goes first, so the
-    # per-minute cap delays the newest finishes, never the oldest.
-    order = sorted(sessions, key=lambda key: (min(item.created_at for item in sessions[key]), key))
-    for key in order:
-        items = sorted(sessions[key], key=lambda item: item.notice_id)
-        fresh = [item for item in items if now - item.created_at <= settings.max_age_s]
-        if not fresh:
-            out.held[key] = "too old"
-            continue
-        usable = []
-        waiting_retry = False
-        for item in fresh:
+    ready: dict[str, list[Pending]] = {}
+    for key, items in sessions.items():
+        usable, reasons = [], set()
+        for item in sorted(items, key=lambda notice: notice.notice_id):
+            if now - item.created_at > settings.max_age_s:
+                reasons.add("too old")
+                continue
+            due(item.created_at + settings.max_age_s)
             tries, last = history.failures.get(item.ident, (0, 0.0))
             if tries >= settings.max_tries:
+                reasons.add("gave up")
                 continue
             if tries and now - last < settings.retry_s:
-                waiting_retry = True
+                reasons.add("retry wait")
+                due(last + settings.retry_s)
+                continue
+            # C-23.50, per notice: a job with a live waiter, one whose `wait` has
+            # just timed out and will poll again, or one a `wait` has just
+            # reported, is that waiter's to tell. The session's other notices go
+            # on without it, so one long wait never holds them until they age out.
+            if item.job_id in watching:
+                reasons.add("waiter live")
+                continue
+            if item.job_id in lapsed and now - lapsed[item.job_id] < WAITER_GRACE_S:
+                reasons.add("waiter live")
+                due(lapsed[item.job_id] + WAITER_GRACE_S)
+                continue
+            if item.job_id in waited and now - waited[item.job_id] < settings.after_wait_s:
+                reasons.add("waiter reported")
+                due(waited[item.job_id] + settings.after_wait_s)
                 continue
             usable.append(item)
-        if not usable:
-            out.held[key] = "retry wait" if waiting_retry else "gave up"
-            continue
-        # C-23.50, per notice: a job with a live waiter, or one a `wait` has just
-        # reported, is that waiter's to tell. The session's other notices go
-        # on without it, so one long wait never holds them until they age out.
-        live = [item for item in usable if item.job_id in watching]
-        reported = [item for item in usable if item.job_id not in watching and item.job_id in waited
-                    and now - waited[item.job_id] < settings.after_wait_s]
-        usable = [item for item in usable if item not in live and item not in reported]
-        if not usable:
-            out.held[key] = "waiter live" if live else "waiter reported"
-            continue
-        if max(now - item.created_at for item in usable) < settings.delay_s:
+        if usable:
+            ready[key] = usable
+        else:
+            out.held[key] = next(reason for reason in ("waiter live", "waiter reported", "retry wait",
+                                                       "gave up", "too old") if reason in reasons)
+    recent = sorted(at for at in history.recent if now - at < 60)
+    # The session whose oldest pushable notice has waited longest goes first, so
+    # the per-minute cap delays the newest finishes, never the oldest.
+    for key in sorted(ready, key=lambda key: (min(item.created_at for item in ready[key]), key)):
+        usable = ready[key]
+        oldest = min(item.created_at for item in usable)
+        if now - oldest < settings.delay_s:
             out.held[key] = "settling"
+            due(oldest + settings.delay_s)
             continue
         if key in lanes:
             out.held[key] = "lane session"
@@ -694,12 +789,15 @@ def plan(pending: Iterable[Pending], rows: Iterable[registry.SessionRow] | None,
         last_push = history.last_push.get(key)
         if last_push is not None and now - last_push < settings.session_gap_s:
             out.held[key] = "session gap"
+            due(last_push + settings.session_gap_s)
             continue
         if len(recent) >= settings.per_minute:
             out.held[key] = "rate"
+            due(recent[0] + 60)
             continue
         recent.append(now)
         out.pushes.append(Push(session_id=row.session_id, row=row, notices=tuple(usable)))
+    out.next_change = min(changes) if changes else math.inf
     return out
 
 
@@ -717,7 +815,7 @@ def render_body(notices: Sequence[Pending]) -> str:
         blocks.append(f"... and {count - BODY_MAX_NOTICES} more: subfleet runs --mine")
     blocks.append("Read one with `subfleet runs show <id>`, which also marks its notice read; "
                   "list them with `subfleet runs --mine`.\n"
-                  + render.push_trailer(item.notice_id for item in notices))
+                  + render.push_trailer((item.notice_id, item.stamp) for item in notices))
     return "\n\n".join(blocks)
 
 
@@ -732,6 +830,8 @@ def recheck(push: Push) -> str | None:
         return "registry row changed"
     if not fresh.alive:
         return "not running"
+    if fresh.proc_start and push.row.proc_start and fresh.proc_start != push.row.proc_start:
+        return "registry row changed"
     if fresh.socket != push.row.socket:
         return "inbox moved"
     if fresh.status is not None and fresh.status not in IDLE_STATUSES:
@@ -766,7 +866,8 @@ def deliver(push: Push, *, reserve: Callable[[Push, dict[str, Any]], list[int]],
             check: Callable[[Push], str | None] = recheck,
             send: Callable[..., None] = send_to_socket,
             token_of: Callable[[int | None], str | None] = peer_token,
-            mode_of: Callable[[str], str | None] = resolve_mode_class,
+            mode_of: Callable[[str, int | None], str | None] = (
+                lambda session, pid: resolve_mode_class(session, pid=pid)),
             timeout: float = 2.0) -> Outcome:
     """Reserve, write and settle one push (C-15.7). Never raises.
 
@@ -787,7 +888,7 @@ def deliver(push: Push, *, reserve: Callable[[Push, dict[str, Any]], list[int]],
         if token is None:
             outcome.result, outcome.reason = "failed", "no peer token"
             return outcome
-        mode = mode_of(push.session_id)
+        mode = mode_of(push.session_id, push.row.pid)
         outcome.mode_class = mode
         data = {**base, "mode_class": mode}
         reserved = list(reserve(push, data))

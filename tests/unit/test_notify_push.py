@@ -14,6 +14,7 @@ import socket
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from dataclasses import replace
 from pathlib import Path
 
@@ -423,8 +424,9 @@ def row(session_id: str = SESSION, pid: int = 4100, *, status: str | None = "idl
 def notice(notice_id: int = 1, *, session_id: str = SESSION, job_id: str | None = None,
            age_s: float = 30.0, text: str | None = None) -> notify_push.Pending:
     job = job_id or f"20261002-120000-job-{notice_id}"
+    stamp = datetime.fromtimestamp(NOW - age_s, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     return notify_push.Pending(notice_id, job, session_id,
-                               text or f"{job}: succeeded; rc=0; deliverable=-; out=-", NOW - age_s)
+                               text or f"{job}: succeeded; rc=0; deliverable=-; out=-", NOW - age_s, stamp)
 
 
 def planned(pending, rows, **kwargs) -> notify_push.Plan:
@@ -657,7 +659,7 @@ def run(push, book, *, send=None, check=lambda push: None, token="tok", mode="by
 
     outcome = notify_push.deliver(push, reserve=book.reserve, release=book.release, record=book.record,
                                   check=check, send=send or default_send,
-                                  token_of=lambda pid: token, mode_of=lambda session: mode)
+                                  token_of=lambda pid: token, mode_of=lambda session, pid: mode)
     return outcome, sent
 
 
@@ -775,12 +777,14 @@ def test_the_body_is_the_notices_own_text_counted_and_bounded():
     one = notify_push.render_body([notice(1)])
     assert one.startswith("subfleet: 1 detached run this session dispatched has finished:")
     assert "job-1: succeeded; rc=0" in one and "subfleet runs show <id>" in one
-    assert one.endswith("(subfleet notices 1: pushed by the subfleet daemon to wake this idle session)")
-    assert render.pushed_notice_ids(notify_push.envelope(one)) == {1}
+    one_stamp = notice(1).stamp
+    assert one.endswith(f"(subfleet notices 1@{one_stamp}: pushed by the subfleet daemon to wake this idle session)")
+    assert render.pushed_notices(notify_push.envelope(one)) == {(1, one_stamp)}
     many = notify_push.render_body([notice(i) for i in range(1, 14)])
     assert many.startswith("subfleet: 13 detached runs this session dispatched have finished:")
     assert "job-10:" in many and "job-11:" not in many and "and 3 more" in many
-    assert render.pushed_notice_ids(many) == set(range(1, 14)), "the trailer names every notice"
+    assert render.pushed_notices(many) == {(i, notice(i).stamp) for i in range(1, 14)}, \
+        "the trailer names every notice"
     long = notify_push.render_body([notice(1, text="x" * 9000)])
     assert len(long) < 5000
 
@@ -831,3 +835,139 @@ def test_the_registry_fingerprint_moves_with_a_row_file(claude_home):
     path.write_text(json.dumps({"sessionId": SESSION, "status": "idle"}))
     os.utime(path, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
     assert notify_push.registry_fingerprint() != before
+
+
+# --- round 2 of the review of PR #114 -------------------------------------------
+
+@pytest.mark.parametrize("mode,available,expected", [
+    ("bypassPermissions", False, "bypass"), ("plan", True, "bypass"), ("plan", False, "prompting"),
+    ("default", True, "prompting"), ("acceptEdits", True, "prompting"), (None, True, None)])
+def test_plan_mode_is_bypass_only_while_bypass_is_available(mode, available, expected):
+    """Claude Code 2.1.286 classes `plan` as bypass when bypass is available to
+    the session (its `J2`); Subfleet declares the same, or the inbox holds the
+    push as `mode-mismatch`."""
+    assert notify_push.mode_class_of(mode, available) == expected
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["claude", "--allow-dangerously-skip-permissions"], True),
+    (["claude", "--dangerously-skip-permissions"], True),
+    (["claude", "--permission-mode", "bypassPermissions"], True),
+    (["claude", "--permission-mode=bypassPermissions"], True),
+    (["claude", "--permission-mode", "plan"], False),
+    (["claude"], False), ([], False)])
+def test_the_bypass_flag_is_read_from_the_command_line(argv, expected):
+    assert notify_push.bypass_flag_in(argv) is expected
+
+
+def test_a_session_in_plan_mode_is_classed_by_its_launch_flags(claude_home, monkeypatch):
+    projects = claude_home / "projects" / "repo"
+    projects.mkdir(parents=True)
+    (projects / f"{SESSION}.jsonl").write_text(json.dumps({"permissionMode": "plan"}) + "\n")
+    asked = []
+    monkeypatch.setattr(notify_push, "process_argv",
+                        lambda pid: asked.append(pid) or ["claude", "--allow-dangerously-skip-permissions"])
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "bypass"
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: ["claude"])
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
+    (projects / f"{SESSION}.jsonl").write_text(json.dumps({"permissionMode": "default"}) + "\n")
+    monkeypatch.setattr(notify_push, "process_argv", lambda pid: pytest.fail("not plan: no ps"))
+    assert notify_push.resolve_mode_class(SESSION, pid=4100) == "prompting"
+    assert asked == [4100]
+
+
+def test_process_argv_reads_a_live_process_and_nothing_else():
+    assert "python" in " ".join(notify_push.process_argv(os.getpid())).lower()
+    assert notify_push.process_argv(None) == [] and notify_push.process_argv(0) == []
+
+
+def test_a_socket_that_cannot_be_made_wrote_nothing(monkeypatch):
+    """Review of PR #114: descriptor exhaustion (EMFILE) at `socket()` means no
+    connection and no byte, so the notices are given back, not kept."""
+    import errno
+
+    def no_descriptors(*args, **kwargs):
+        raise OSError(errno.EMFILE, "Too many open files")
+    monkeypatch.setattr(notify_push.socket, "socket", no_descriptors)
+    with pytest.raises(notify_push.PushError) as caught:
+        notify_push.send_to_socket("/tmp/x.sock", "tok", "body")
+    assert caught.value.written is False
+    book = Book()
+    outcome, _ = run(a_push(), book, send=notify_push.send_to_socket)
+    assert outcome.result == "failed" and [call[0] for call in book.calls] == ["reserve", "release"]
+
+
+def test_sessions_are_ranked_by_their_oldest_notice_left_after_the_filter():
+    """Review of PR #114: notices held for their waiters do not order the
+    sessions. Ten sessions each hold an old watched notice and a young one; an
+    eleventh has an older pushable notice, which goes first."""
+    settings = notify_push.PushSettings(delay_s=0, per_minute=1, max_age_s=7200)
+    pending, rows, watched = [], [], set()
+    for index in range(10):
+        session = f"s{index}"
+        pending += [notice(100 + index, session_id=session, job_id=f"old-{index}", age_s=7195),
+                    notice(200 + index, session_id=session, job_id=f"new-{index}", age_s=20)]
+        watched.add(f"old-{index}")
+        rows.append(row(session_id=session, pid=5000 + index))
+    pending.append(notice(300, session_id="elder", age_s=7180))
+    rows.append(row(session_id="elder", pid=6000))
+    plan = planned(pending, rows, settings=settings, watched=watched)
+    assert [push.session_id for push in plan.pushes] == ["elder"]
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("settling", NOW - 3 + 10), ("gap", NOW - 30 + 60), ("retry", NOW - 10 + 60),
+    ("reported", NOW - 30 + 120), ("lapsed", NOW - 5 + notify_push.WAITER_GRACE_S),
+    ("rate", NOW - 50 + 60)])
+def test_the_plan_names_its_next_clock_boundary(case, expected):
+    """Review of PR #114: a kept plan is replanned no later than the first
+    moment a rule on the clock could change it, so the skip never carries a
+    notice past its last chance (a gap ending before the max age does)."""
+    item = notice(age_s=3 if case == "settling" else 30)
+    history = notify_push.History()
+    kwargs = {}
+    if case == "gap":
+        history.last_push[SESSION] = NOW - 30
+    if case == "retry":
+        history.failures[item.ident] = (1, NOW - 10)
+    if case == "reported":
+        kwargs["waited"] = {item.job_id: NOW - 30}
+    if case == "lapsed":
+        kwargs["lapsed"] = {item.job_id: NOW - 5}
+    if case == "rate":
+        history.recent = [NOW - 50] * SETTINGS.per_minute
+    plan = planned([item], [row()], history=history, **kwargs)
+    assert plan.pushes == []
+    assert plan.next_change == pytest.approx(min(expected, item.created_at + SETTINGS.max_age_s))
+
+
+def test_a_job_whose_wait_just_timed_out_counts_as_watched_for_the_grace():
+    """Review of PR #114: between two long polls of a `wait`, its jobs have no
+    registered waiter; for `WAITER_GRACE_S` after a timed-out poll they still
+    count as watched."""
+    item = notice(job_id="20261002-120000-polled")
+    assert planned([item], [row()], lapsed={item.job_id: NOW - 5}).held[SESSION] == "waiter live"
+    assert planned([item], [row()], lapsed={item.job_id: NOW - notify_push.WAITER_GRACE_S - 1}).pushes
+
+
+def test_a_session_id_with_spaces_is_found_and_kept_as_stored():
+    """Review of PR #114: the registry is searched trimmed and folded; the
+    notice keeps the stored spelling, which the reservation compares."""
+    item = notify_push.pending_rows([{"notice_id": 1, "job_id": "j", "session_id": f" {SESSION} ",
+                                      "text": "t", "created_at": "2026-10-02T22:10:05Z"}])[0]
+    assert item.session_id == f" {SESSION} " and item.key == SESSION
+    plan = notify_push.plan([item], [row()], now=item.created_at + 60, settings=SETTINGS)
+    assert plan.pushes and plan.pushes[0].session_id == SESSION
+
+
+def test_the_recheck_compares_the_process_start_when_both_are_known(claude_home):
+    pid = os.getpid()
+    path = claude_home / "sessions" / f"{pid}.json"
+    path.write_text(json.dumps({"sessionId": SESSION, "pid": pid, "status": "idle", "procStart": "B",
+                                "messagingSocketPath": "/tmp/cc-socks/4100.sock"}))
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path), proc_start="A"),
+                            (notice(),))
+    assert notify_push.recheck(push) == "registry row changed"
+    push = notify_push.Push(SESSION, replace(row(pid=pid), registry_path=str(path), proc_start="B"),
+                            (notice(),))
+    assert notify_push.recheck(push) is None

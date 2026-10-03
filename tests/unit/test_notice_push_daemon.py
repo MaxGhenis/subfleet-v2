@@ -439,3 +439,156 @@ def test_a_session_that_becomes_a_conversation_or_lane_before_the_write_is_held(
     assert claude["inbox"].frames == []
     assert notice(core, notice_id)["state"] == "pending"
     assert core._notice_push_status()["held"][SESSION] == f"{became} session"
+
+
+# --- round 2 of the review of PR #114, and #116's ladder --------------------------
+
+def test_a_hook_that_surfaced_a_pushed_notice_keeps_it_surfaced_when_the_push_is_released(
+        core, claude, monkeypatch):
+    """C-15.3 with C-15.7 (asked for by #116's release owner): the push reserved
+    the notice (`offered`/`socket`), a hook surfaced it before the push's write
+    failed, and the push gave back what it reserved. The notice stays
+    `surfaced`: `_push_release` moves only `offered` over `socket`, so it never
+    becomes `pending` again for the next hook to print a second time."""
+    notice_id = finish(core, "20261003-030000-released")
+    reserve = core._push_reserve
+
+    def reserve_then_hook_then_inbox_gone(push, data):
+        reserved = reserve(push, data)
+        core.dispatch("notice.mark", {"session_id": SESSION, "notice_ids": [notice_id],
+                                      "state": "surfaced", "transport": "hook:UserPromptSubmit"})
+        claude["inbox"].close()
+        Path(claude["inbox"].path).unlink()             # the connection will not be made
+        return reserved
+
+    core._push_reserve = reserve_then_hook_then_inbox_gone
+    core._push_notices()
+    row = notice(core, notice_id)
+    assert (row["state"], row["transport"]) == ("surfaced", "hook:UserPromptSubmit")
+    assert core._notice_push_status()["failed"] == 1
+    assert core.dispatch("notice.pending", {"session_id": SESSION})["notices"] == []
+
+
+def test_a_hooks_claim_leaves_a_fresh_push_alone(core, claude):
+    """C-15.7: `notice.mark` with `keep_pushed_s` takes no notice the push wrote
+    less than that long ago, and names what it took (`marked`); without it, or
+    once the window has passed, or for a time ahead of the clock, it takes it."""
+    notice_id = finish(core, "20261003-030000-claimed")
+
+    def offered(at: str) -> None:
+        with core.store.transaction("test.offered") as tx:
+            tx.execute("UPDATE notices SET state='offered',transport='socket',offered_at=? "
+                       "WHERE notice_id=?", (at, notice_id))
+
+    def claim(keep):
+        args = {"session_id": SESSION, "notice_ids": [notice_id], "state": "surfaced",
+                "transport": "hook:UserPromptSubmit"}
+        if keep is not None:
+            args["keep_pushed_s"] = keep
+        return core.dispatch("notice.mark", args)["marked"]
+
+    from subfleet.daemon import after, utcnow
+    offered(utcnow())
+    assert claim(60) == [] and notice(core, notice_id)["state"] == "offered"
+    assert claim(0) == [notice_id] and notice(core, notice_id)["state"] == "surfaced"
+    assert claim(0) == [], "a claim never takes what another has taken"
+    assert claim(None) == [notice_id], "the ladder's ordinary mark is idempotent, as #116 left it"
+    for stamp in (after(-120), after(3600)):
+        offered(stamp)
+        assert claim(60) == [notice_id], stamp
+
+
+def test_a_wait_that_timed_out_holds_its_jobs_for_the_grace(core, claude):
+    """Review of PR #114: between two long polls of `subfleet wait A B` (A
+    ended, B runs on), A has no registered waiter. The timed-out poll records
+    A and B, and the push leaves A to that waiter for `WAITER_GRACE_S`."""
+    from subfleet import notify_push
+    ended = "20261003-030000-ended"
+    finish(core, ended)
+    running = "20261003-030000-running"
+    core.store.add_job(job_id=running, request_id="r-" + running, payload_digest="d", kind="run",
+                       state="running", workdir=str(core.test_root),
+                       prompt_path=str(core.test_root / "p.md"), sandbox="read-only",
+                       caller_session=SESSION)
+    assert core.wait(protocol.WaitArgs(job_ids=[ended, running], deadline_s=0)) == {"timeout": True}
+    core._push_notices()
+    assert core._notice_push_status()["held"] == {SESSION: "waiter live"}
+    with core._wait_reported_lock:
+        core._wait_lapsed = {job: at - notify_push.WAITER_GRACE_S - 1
+                             for job, at in core._wait_lapsed.items()}
+    core._push_seen = None
+    core._push_notices()
+    assert len(claude["inbox"].wait_for(1)) == 1
+
+
+def test_a_waiter_that_appears_after_the_plan_holds_the_push(core, claude, monkeypatch):
+    """Review of PR #114: the check just before the push asks the wait hub
+    again; a waiter registered since the plan holds it."""
+    from subfleet import notify_push
+    job = "20261003-030000-late-waiter"
+    notice_id = finish(core, job)
+    recheck = notify_push.recheck
+    contexts = []
+
+    def register_then_recheck(push):
+        context = core.wait_hub.watching([job])
+        context.__enter__()
+        contexts.append(context)
+        return recheck(push)
+
+    monkeypatch.setattr(notify_push, "recheck", register_then_recheck)
+    try:
+        core._push_notices()
+    finally:
+        for context in contexts:
+            context.__exit__(None, None, None)
+    time.sleep(0.2)
+    assert claude["inbox"].frames == [] and notice(core, notice_id)["state"] == "pending"
+    assert core._notice_push_status()["held"][SESSION] == "waiter live"
+
+
+def test_a_waiter_handing_its_job_to_its_report_mid_pass_is_never_missed(core, claude, monkeypatch):
+    """Review of PR #114: `wait` records a job's report and then stops watching
+    it. Whichever of the pass's two reads comes first, the handoff happens
+    right after it; the job is seen as watched or as reported, never neither."""
+    job = "20261003-030000-handoff"
+    notice_id = finish(core, job)
+    handed = []
+    watched = core.wait_hub.watched_jobs
+    reports = core._waiter_reports
+
+    def handoff():
+        if not handed:
+            handed.append(True)
+            core._note_waited([job])
+
+    def read_watched():
+        value = watched() if handed else frozenset({job})
+        handoff()
+        return value
+
+    def read_reports(settings):
+        value = reports(settings)
+        handoff()
+        return value
+
+    monkeypatch.setattr(core.wait_hub, "watched_jobs", read_watched)
+    monkeypatch.setattr(core, "_waiter_reports", read_reports)
+    core._push_notices()
+    time.sleep(0.2)
+    assert claude["inbox"].frames == [] and notice(core, notice_id)["state"] == "pending"
+
+
+def test_a_kept_plan_is_replanned_at_its_next_boundary(core, claude, monkeypatch):
+    """Review of PR #114: a plan kept from a full pass is replanned at the
+    first moment a rule on the clock could change it (here the session gap's
+    end), not only after `PUSH_REPLAN_S`."""
+    finish(core, "20261003-030000-gap")
+    core._push_history.last_push[SESSION] = time.time() - 59
+    fresh_registry(core)
+    core._push_notices()
+    assert core._notice_push_status()["held"] == {SESSION: "session gap"}
+    assert core._push_seen is not None and core._push_next_change <= time.time() + 1.5
+    time.sleep(1.2)
+    core._push_notices()
+    assert len(claude["inbox"].wait_for(1)) == 1

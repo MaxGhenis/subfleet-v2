@@ -100,6 +100,10 @@ EVENTS = {
     "pre-bash": "PreToolUse",
 }
 SESSION_EVENTS = ("SessionStart", "UserPromptSubmit")
+#: The SessionStart sources that start a new process (C-23.33; the sessions
+#: kit's `nudge.RESTART_SOURCES`, kept equal by a test). `compact` and `clear`
+#: keep the process, and with it any frame queued in its inbox (C-15.7).
+RESTART_SOURCES = frozenset({"startup", "resume"})
 
 #: The C-5.1 markers that name a process Subfleet launched. Every launch path
 #: sets `SUBFLEET_ATTEMPT`: an attempt, turns included (`Daemon._launch`, with
@@ -386,12 +390,19 @@ def _pending(client: Client, session: str) -> list[dict[str, Any]]:
 
 
 def _mark(client: Client, session: str, notice_ids: Iterable[int], state: str,
-          transport: str | None = None) -> None:
+          transport: str | None = None, *, keep_pushed_s: float | None = None) -> dict[str, Any]:
+    """`notice.mark`; its answer, whose `marked` (a daemon with C-15.7) names
+    the notices it moved. `keep_pushed_s` leaves a notice the push has just
+    written to the push."""
     ids = [int(item) for item in notice_ids]
     if not ids:
-        return
-    client.call("notice.mark", {"session_id": session, "notice_ids": ids,
-                                "state": state, "transport": transport})
+        return {"marked": []}
+    args: dict[str, Any] = {"session_id": session, "notice_ids": ids,
+                            "state": state, "transport": transport}
+    if keep_pushed_s is not None:
+        args["keep_pushed_s"] = keep_pushed_s
+    result = client.call("notice.mark", args)
+    return result if isinstance(result, dict) else {}
 
 
 def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
@@ -474,27 +485,39 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = [row for row in rows if names_a_job(row)]
     if not rows:
         return int(Exit.OK)
-    shown: list[dict[str, Any]] = []
-    if event == "UserPromptSubmit":
-        # C-15.7: a turn the notice push started has its notices in its prompt
-        # already, and this hook fires for that turn too: they are marked as
-        # shown and not printed again. A notice the push wrote moments ago that
-        # this prompt does not carry is the push's still: its frame is queued
-        # behind this turn, so printing it now would tell the session twice.
-        shown = in_prompt(rows, payload)
-        rows = [row for row in rows if row in shown or not pushed_moments_ago(row)]
-    context = render_pending([row for row in rows if row not in shown])
+    # C-15.7: a turn the notice push started carries its notices in its prompt,
+    # and UserPromptSubmit fires for that turn too: those are shown already.
+    shown = in_prompt(rows, payload) if event == "UserPromptSubmit" else []
+    # A notice the push wrote moments ago is the push's while this process runs:
+    # its frame is queued behind the turn this hook starts. Only a process that
+    # replaced the one the push wrote to (SessionStart `startup` or `resume`)
+    # lost that frame; `compact` and `clear` keep the process and the queue.
+    keep = event == "UserPromptSubmit" or payload.get("source") not in RESTART_SOURCES
+    others = [row for row in rows if row not in shown and not (keep and pushed_moments_ago(row))]
+    printing = others
+    if marked:
+        # Claim, then print only what was claimed, so a push that reserves a
+        # notice between this hook's read and its mark is never repeated here
+        # (review of PR #114). A daemon older than C-15.7 answers no `marked`:
+        # then this prints and marks as before.
+        try:
+            _mark(client, session, ids_of(shown), "surfaced", f"hook:{event}")
+            claimed = _mark(client, session, ids_of(others), "surfaced", f"hook:{event}",
+                            keep_pushed_s=PUSH_OWNS_S if keep else 0).get("marked")
+            if isinstance(claimed, list):
+                taken = set(claimed)
+                printing = [row for row in others if row.get("notice_id") in taken]
+        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+            pass
+    context = render_pending(printing)
     if context:
         stdout.write(json.dumps({"hookSpecificOutput": {
             "hookEventName": event, "additionalContext": context}}) + "\n")
-    if marked and rows:
-        try:
-            _mark(client, session, [row["notice_id"] for row in rows
-                                    if row.get("notice_id") is not None],
-                  "surfaced", f"hook:{event}")
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-            pass
     return int(Exit.OK)
+
+
+def ids_of(rows: Iterable[dict[str, Any]]) -> list[int]:
+    return [row["notice_id"] for row in rows if isinstance(row.get("notice_id"), int)]
 
 
 def payload_prompt(payload: dict[str, Any]) -> str:
@@ -518,9 +541,9 @@ def in_prompt(rows: Sequence[dict[str, Any]], payload: dict[str, Any]) -> list[d
     it. Matching ids, not text, keeps a second notice for the same job (a
     quarantine release's, C-15.1) from passing for the first.
     """
-    ids = render.pushed_notice_ids(payload_prompt(payload))
+    carried = render.pushed_notices(payload_prompt(payload))
     return [row for row in rows if isinstance(row.get("notice_id"), int)
-            and row["notice_id"] in ids and names_a_job(row)]
+            and (row["notice_id"], row.get("created_at")) in carried and names_a_job(row)]
 
 
 #: C-15.7: how long a notice the push has written is the push's to deliver.
@@ -543,7 +566,9 @@ def pushed_moments_ago(row: dict[str, Any], *, now: float | None = None) -> bool
         return False
     if offered.tzinfo is None:
         offered = offered.replace(tzinfo=timezone.utc)
-    return (time.time() if now is None else now) - offered.timestamp() < PUSH_OWNS_S
+    # A time ahead of the clock (a clock stepped back, or a bad row) is not
+    # the push's: the hook would otherwise hold the notice back past the window.
+    return 0 <= (time.time() if now is None else now) - offered.timestamp() < PUSH_OWNS_S
 
 
 def wake_worker(session: str, payload: dict[str, Any], root: Path,

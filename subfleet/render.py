@@ -99,25 +99,31 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             f"deliverable={deliverable}; out={out}")
 
 
-#: C-15.7: the last line of a push names the notices it carries, so the
+#: C-15.7: the last line of a push names the notices it carries, each by its
+#: id and its creation time (`<id>@<created_at>`, the store's own text), so the
 #: UserPromptSubmit hook of the turn the push starts can tell exactly which
-#: notices that turn's prompt already holds. One format, written by
-#: `push_trailer` and read by `pushed_notice_ids`.
+#: notices that turn's prompt already holds. The time is part of the name
+#: because SQLite reuses a deleted rowid: an id alone could name a newer
+#: notice that no push carried. One format, written by `push_trailer` and read
+#: by `pushed_notices`.
 _PUSH_TRAILER = "(subfleet notices {ids}: pushed by the subfleet daemon to wake this idle session)"
 _PUSH_TRAILER_RE = re.compile(
-    r"\(subfleet notices ([0-9][0-9, ]*): pushed by the subfleet daemon to wake this idle session\)")
+    r"\(subfleet notices ([0-9]+@[0-9A-Za-z:.+-]+(?:, [0-9]+@[0-9A-Za-z:.+-]+)*): "
+    r"pushed by the subfleet daemon to wake this idle session\)")
 
 
-def push_trailer(notice_ids) -> str:
-    """C-15.7: the push's last line, naming its notices by id."""
-    return _PUSH_TRAILER.format(ids=", ".join(str(int(item)) for item in notice_ids))
+def push_trailer(notices) -> str:
+    """C-15.7: the push's last line, naming its notices as (id, created_at) pairs."""
+    return _PUSH_TRAILER.format(ids=", ".join(f"{int(notice_id)}@{stamp}" for notice_id, stamp in notices))
 
 
-def pushed_notice_ids(text: str) -> set[int]:
-    """C-15.7: the notice ids every push trailer in `text` names."""
-    found: set[int] = set()
+def pushed_notices(text: str) -> set[tuple[int, str]]:
+    """C-15.7: the (id, created_at) of every notice a push trailer in `text` names."""
+    found: set[tuple[int, str]] = set()
     for match in _PUSH_TRAILER_RE.finditer(text or ""):
-        found.update(int(item) for item in re.findall(r"[0-9]+", match.group(1)))
+        for item in match.group(1).split(", "):
+            notice_id, _, stamp = item.partition("@")
+            found.add((int(notice_id), stamp))
     return found
 
 
