@@ -61,7 +61,7 @@ retention hooks described below; the other 161 failures and all 47 errors
 were outside retention. The wrapper exceeded its 7,200-second threshold and
 safely awaited its child because `ps` inspection is denied. Pytest exited 1;
 the wrapper returned 124 to record the exceeded threshold after waiting
-12,977.88 seconds. No process was abandoned or signalled.
+12,977.88 seconds. The wrapper awaited completion and sent no signals.
 
 All 211 failed/error results were classified from their diagnostics:
 
@@ -110,4 +110,5 @@ The delivered bundle requires exactly `43f09ea4`; its branch head is printed by
 Final native process inspection found all **90 recorded wrapper, child,
 pytest and monitor PIDs absent** (`ESRCH`). The read-only descendant monitor
 observed **1,880 exact PID/start-time identities** and found **zero survivors**,
-then exited normally. All foreground sessions finished; no signals were sent.
+then exited normally. All foreground sessions finished; the agents sent no
+signals to terminate them.
