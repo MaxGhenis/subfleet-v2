@@ -84,6 +84,8 @@ def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id
     rows += [{**dict(row), "notice_id": -dict(row)["notice_id"], "job_id": None}
              for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
     rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    for row in rows:
+        row["fingerprint"] = notice_fingerprint(row)            # what `--ack`/`--withdraw` send back
     return rows
 
 
