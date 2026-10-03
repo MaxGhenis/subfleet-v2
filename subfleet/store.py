@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -46,6 +46,34 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+#: C-15.8: the columns `notices` lists, common to job and service notices.
+NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
+
+
+def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
+                *, resolved: bool = False) -> list[dict[str, Any]]:
+    """C-15.8: a session's notices (every session's when None), as `notices` lists them.
+
+    Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
+    `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
+    service notice carries its id negated and no job, as `notice.pending`
+    returns it, so one id names one row across both tables. Ordered by session
+    (a job notice with no caller session sorts first, as ""), then creation.
+    """
+    where, params = [], []
+    if session_id is not None:
+        where.append("session_id=?")
+        params.append(session_id)
+    if not resolved:
+        where.append("state IN ('pending','offered')")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS}, job_id FROM notices{clause}", params)]
+    rows += [{**dict(row), "notice_id": -dict(row)["notice_id"], "job_id": None}
+             for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
+    rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    return rows
 
 
 class SchemaVersionError(RuntimeError):

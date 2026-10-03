@@ -52,7 +52,7 @@ MAX_REQUEST_BYTES = 1024 * 1024
 #: observation in passing (the desktop identity). One whose client has hung up
 #: is not run.
 READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
-                           "daemon.status", "notice.pending"})
+                           "daemon.status", "notice.pending", "notice.list"})
 
 
 def open_file_limits() -> tuple[int, int]:

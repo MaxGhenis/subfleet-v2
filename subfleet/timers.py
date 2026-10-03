@@ -708,6 +708,7 @@ class Timers:
         snapshot['offline'] = offline
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
+        snapshot['alerts'] = self.alerts.active()          # C-18.4
         from .status_json import attach_batches, write_status
         attach_batches(self.store, snapshot)
         write_status(self.root, snapshot, now=self.now())

@@ -17,7 +17,7 @@ PROTOCOL_VERSION = 1
 
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
-    "notice.pending", "notice.ack", "notice.mark", "ping", "daemon.status",
+    "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations",
 )
@@ -255,6 +255,25 @@ class OperationsArgs:
     dry_run: bool = False
     target: str | None = None
     hours: float = 24
+
+
+@dataclass
+class NoticeListArgs:
+    """`notice.list` (C-15.8): what `notices` shows; read-only, marks nothing."""
+
+    session_id: str | None = None          # every session's when None
+    resolved: bool = False                 # also `surfaced` and `acknowledged`
+
+
+@dataclass
+class NoticeWithdrawArgs:
+    """`notice.withdraw` (C-15.8): delete a session's named, undelivered service
+    notices (negated ids, as `notice.pending` lists them), with one event
+    saying what went and why. A separate shape, as `NoticeMarkArgs` is."""
+
+    session_id: str
+    notice_ids: list[int] = field(default_factory=list)
+    reason: str | None = None
 
 
 @dataclass

@@ -37,6 +37,7 @@ from . import __version__
 from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
+from .alerts import operator_session
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
@@ -52,7 +53,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store, _json
+from .store import Store, _json, notice_rows
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -1585,6 +1586,11 @@ class Daemon:
                 return self._why_job(self._job(a.job_id))
             decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision)}
+        if op == "notice.list":
+            a = protocol.coerce_args(protocol.NoticeListArgs, args)
+            return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
+        if op == "notice.withdraw":
+            return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
                 protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
@@ -1626,9 +1632,16 @@ class Daemon:
             return {"notices": notices}
         if op == "ping":
             text = args.get("text", "")
-            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            # C-15.8: a notice goes to the session named, else to the configured
+            # operator session; there is no default inbox nobody reads.
+            session = args.get("session_id") or operator_session(self.policy)
             notice_id = None
             if text:
+                if not session:
+                    raise protocol.ProtocolError(
+                        "ping: no session named, and alerts.operator_session is not set; "
+                        "a notice addressed to no session is never read (C-15.8)",
+                        fix="name the session: subfleet ping --session <id> TEXT")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -1640,7 +1653,8 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
         raise protocol.ProtocolError(f"unknown op {op}")
 
@@ -2016,9 +2030,54 @@ class Daemon:
             self.stopping.wait(self.tick_s)
 
     def _timer_notice(self, notice: dict) -> bool:
-        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+        """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+        one is set. With none it is delivered by being shown: `status` and
+        `status.json` list every alert in force (C-18.4), and no inbox parks it."""
+        session = operator_session(self.policy)
+        if session is None:
+            return True
+        result = self.dispatch("ping", {"session_id": session,
                                        "text": notice["subject"] + "\n" + notice["body"]})
         return result.get("notice_id") is not None
+
+    def _withdraw_notices(self, a: protocol.NoticeWithdrawArgs) -> dict:
+        """C-15.8, C-23.26: an operator withdraws a session's undelivered service notices.
+
+        Only the rows named, only that session's, and only while still `pending`
+        or `offered`: a notice a hook printed or a session acknowledged is not
+        withdrawn, and a job's notice (a positive id) is its terminal record and
+        is refused. The rows are deleted in one transaction with one
+        `notice.withdrawn` event naming each id, the session, the reason, the
+        creation span and how many of each subject went, so the withdrawal
+        claims no delivery and loses no record of what was withdrawn."""
+        jobs = sorted(notice_id for notice_id in a.notice_ids if notice_id >= 0)
+        if jobs:
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
+                "terminal record and is acknowledged, never withdrawn (C-15.8)",
+                fix=f"subfleet notices --session {a.session_id} --ack")
+        wanted = sorted({-notice_id for notice_id in a.notice_ids})
+        record: dict = {"session_id": a.session_id, "reason": a.reason or "withdrawn by the operator",
+                        "service_notice_ids": [], "count": 0, "first_created_at": None,
+                        "last_created_at": None, "subjects": {}}
+        with self.store.transaction("notice.withdrawn", data=record) as tx:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
+                rows = tx.execute(f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                                  "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                tx.execute(f"DELETE FROM service_notices WHERE {where}", (a.session_id, *chunk))
+                for notice_id, text, created_at in rows:
+                    record["service_notice_ids"].append(notice_id)
+                    subject = str(text).split("\n", 1)[0]
+                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+            record["count"] = len(record["service_notice_ids"])
+        withdrawn = set(record["service_notice_ids"])
+        return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
+                "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
     def _retention(self):
         result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)

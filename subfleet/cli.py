@@ -14,6 +14,7 @@
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
   subfleet hook <event>         a Claude Code hook entry point (JSON on stdin)
   subfleet ping [--session ID] TEXT                              (alias: notify)
+  subfleet notices [--session ID] [--all] [--ack|--withdraw]   inboxes and where each stands
 
 The verb spellings are v1's and are permanent (plan amendment 1). Stdout carries
 the contract, stderr the prose, and `--json` emits JSON objects only (C-17.4).
@@ -297,9 +298,24 @@ def _percent(value: Any) -> str:
     return f"{number * 100:.0f}%" if number <= 1.0 else f"{number:.0f}%"
 
 
+def format_alerts(alerts: Any) -> list[str]:
+    """C-18.4: the alerts in force, most severe first, each with what to run."""
+    rows = rows_of(alerts)
+    if not rows:
+        return []
+    lines = [f"alerts: {len(rows)} in force"]
+    for row in rows:
+        since = f"  (since {row['since']})" if row.get("since") else ""
+        lines.append(f"  {str(row.get('severity') or 'alert'):<8} {row.get('subject') or row.get('key')}{since}")
+        if row.get("body"):
+            lines.append(f"  {'':<8} {row['body']}")
+    lines.append("")
+    return lines
+
+
 def format_status(data: dict[str, Any]) -> str:
-    """Lanes with their newest readings, live closures, and running jobs."""
-    lines: list[str] = []
+    """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
+    lines: list[str] = format_alerts(data.get("alerts"))
     lanes = rows_of(data.get("lanes"))
     readings = rows_of(data.get("readings"))
     closures = rows_of(data.get("closures"))
@@ -1945,6 +1961,102 @@ def cmd_ping(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+# --- notices (C-15.8; v1's spelling, C-17.1) ----------------------------------
+
+UNRESOLVED_NOTICE_STATES = ("pending", "offered")
+
+
+def format_notices(rows: list[dict[str, Any]], *, resolved: bool) -> str:
+    """Each session's notices under one heading; one line per notice, its first line."""
+    if not rows:
+        return f"{PROG} notices: " + ("none recorded" if resolved else "nothing unresolved")
+    lines: list[str] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(str(row.get("session_id") or ""), []).append(row)
+    for session, group in groups.items():
+        service = sum(1 for row in group if int(row.get("notice_id") or 0) < 0)
+        lines.append(f"{session or '(no session)'}: {len(group)} notice(s), "
+                     f"{len(group) - service} job, {service} service")
+        for row in group:
+            subject = str(row.get("text") or "").split("\n", 1)[0]
+            lines.append(f"  {row.get('notice_id'):>8} {str(row.get('state') or '-'):<12} "
+                         f"{str(row.get('created_at') or '-'):<20} {subject}")
+    return "\n".join(lines)
+
+
+def cmd_notices(args: argparse.Namespace) -> int:
+    """C-15.8: every inbox and where each notice stands; acknowledge or withdraw one.
+
+    Listing is read-only and marks nothing, so a session whose inbox is listed
+    is still shown its notices by its own hooks. `--ack` and `--withdraw` act on
+    exactly the unresolved notices the listing returned for one session.
+    """
+    action = "ack" if args.ack else "withdraw" if args.withdraw else None
+    if action and not args.session:
+        return fail(Exit.INVALID_INPUT, f"notices: --{action} acts on one inbox and needs --session ID",
+                    f"see every inbox first: {PROG} notices")
+    if args.reason and action != "withdraw":
+        return fail(Exit.INVALID_INPUT, "notices: --reason is the withdrawal's reason; it needs --withdraw")
+    listing = protocol.NoticeListArgs(session_id=args.session, resolved=bool(args.all) and not action)
+    try:
+        client = _client(args)
+        rows = rows_of(client.call("notice.list", _asdict(listing)).get("notices"))
+    except DaemonUnavailable as exc:
+        if action:
+            return _daemon_down(exc)
+        try:
+            rows = _offline(args).notices(listing.session_id, resolved=listing.resolved)
+        except OfflineUnavailable as missing:
+            return _daemon_down(missing)
+        note(f"{PROG} notices: offline — read from the store")
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if not action:
+        if args.json:
+            emit({"notices": rows})
+        else:
+            out(format_notices(rows, resolved=listing.resolved))
+        return int(Exit.OK)
+
+    open_rows = [row for row in rows if row.get("state") in UNRESOLVED_NOTICE_STATES
+                 and isinstance(row.get("notice_id"), int)]
+    try:
+        if action == "ack":
+            ids = [row["notice_id"] for row in open_rows]
+            if ids:
+                client.call("notice.ack", _asdict(protocol.NoticeArgs(session_id=args.session, notice_ids=ids)))
+            result = {"session_id": args.session, "acknowledged": ids}
+        else:
+            ids = [row["notice_id"] for row in open_rows if row["notice_id"] < 0]
+            jobs = [row["notice_id"] for row in open_rows if row["notice_id"] >= 0]
+            result = (client.call("notice.withdraw", _asdict(protocol.NoticeWithdrawArgs(
+                session_id=args.session, notice_ids=ids, reason=args.reason))) if ids
+                else {"session_id": args.session, "withdrawn": [], "kept": []})
+            result["job_notices_left"] = jobs
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if args.json:
+        emit(result)
+        return int(Exit.OK)
+    if action == "ack":
+        out(f"acknowledged {len(result['acknowledged'])} notice(s) for {args.session}")
+        return int(Exit.OK)
+    out(f"withdrew {len(result.get('withdrawn') or [])} service notice(s) for {args.session}")
+    if result.get("kept"):
+        note(f"  {len(result['kept'])} no longer unresolved when the withdrawal ran, and kept")
+    if result["job_notices_left"]:
+        note(f"  {len(result['job_notices_left'])} job notice(s) left: a job's notice is acknowledged, "
+             f"never withdrawn — {PROG} notices --session {args.session} --ack")
+    return int(Exit.OK)
+
+
 # --- daemon control (C-5.8) ---------------------------------------------------
 
 def _daemond_argv(root: Path) -> list[str]:
@@ -2686,6 +2798,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_ping.add_argument("text", nargs="*", help="the message (quoting optional)")
     _add_json(p_ping)
     p_ping.set_defaults(handler=cmd_ping)
+
+    # C-15.8: v1's `notices` spelling and flags (C-17.1), with v2's two actions.
+    p_notices = sub.add_parser(
+        "notices", help="notices and where each stands (unresolved by default)")
+    p_notices.add_argument("--session", metavar="ID", help="one session id (default: every session)")
+    p_notices.add_argument("--all", action="store_true",
+                           help="include surfaced and acknowledged notices retention still keeps")
+    acting = p_notices.add_mutually_exclusive_group()
+    acting.add_argument("--ack", action="store_true",
+                        help="acknowledge every unresolved notice listed for --session")
+    acting.add_argument("--withdraw", action="store_true",
+                        help="delete --session's unresolved service notices, recording what went")
+    p_notices.add_argument("--reason", metavar="TEXT", help="why, recorded with --withdraw")
+    _add_json(p_notices)
+    p_notices.set_defaults(handler=cmd_notices)
 
     # The sessions kit (C-17.1: `sessions` and `handoff` are permanent verbs and
     # dispatch to the `subfleet-sessions` entry point). The sub-verbs are
