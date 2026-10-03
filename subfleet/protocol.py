@@ -274,6 +274,10 @@ class NoticeWithdrawArgs:
     session_id: str
     notice_ids: list[int] = field(default_factory=list)
     reason: str | None = None
+    # One per id when given: the creation time the listing showed. A service
+    # notice's id is reused once the newest row is deleted (no AUTOINCREMENT),
+    # so a row is withdrawn only while it is still the one that was listed.
+    created_at: list[str] = field(default_factory=list)
 
 
 @dataclass

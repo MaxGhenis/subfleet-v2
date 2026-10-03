@@ -279,7 +279,7 @@ ROWS = st.lists(st.tuples(st.sampled_from(["job", "service"]), st.sampled_from([
 
 
 def seed(store, rows):
-    """Insert job and service notices; returns every (id as listed, table, session, state, text)."""
+    """Insert job and service notices; returns every (id as listed, table, session, state, text, created_at)."""
     if store.one("SELECT 1 FROM jobs WHERE job_id=?", (JOB,)) is None:
         store.add_job(job_id=JOB, request_id="r-1", payload_digest="d", kind="run", state="succeeded",
                       workdir="/w", prompt_path="/w/p.md", sandbox="read-only")
@@ -290,11 +290,11 @@ def seed(store, rows):
             if table == "job":
                 cursor = tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
                                     "VALUES(?,?,?,?,?)", (JOB, session, text, state, stamp))
-                made.append((cursor.lastrowid, "job", session, state, text))
+                made.append((cursor.lastrowid, "job", session, state, text, stamp))
             else:
                 cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                     "VALUES(?,?,?,?)", (session or "c", text, state, stamp))
-                made.append((-cursor.lastrowid, "service", session or "c", state, text))
+                made.append((-cursor.lastrowid, "service", session or "c", state, text, stamp))
     return made
 
 
@@ -311,7 +311,7 @@ def reset(store):
         tx.execute("DELETE FROM events WHERE kind='notice.withdrawn'")
 
 
-@settings(max_examples=80, deadline=None, suppress_health_check=FIXTURE_HEALTH)
+@settings(max_examples=300, deadline=None, suppress_health_check=FIXTURE_HEALTH)
 @given(rows=ROWS, data=st.data())
 def test_c15_8_a_withdrawal_deletes_exactly_the_named_undelivered_service_notices(core, rows, data):
     """C-15.8, C-23.26 only the named rows, only the session's, only unresolved;
@@ -320,16 +320,25 @@ def test_c15_8_a_withdrawal_deletes_exactly_the_named_undelivered_service_notice
     made = seed(core.store, rows)
     named = data.draw(st.lists(st.sampled_from([row[0] for row in made] or [-99]), unique=True))
     session = data.draw(st.sampled_from(["a", "b", "c"]))
+    # With creation times (as the CLI sends them), some deliberately not the row's:
+    # an id that was reused since the listing names a different row.
+    stamped = data.draw(st.booleans())
+    actual = {row[0]: row[5] for row in made}
+    stale = set(data.draw(st.lists(st.sampled_from(named), unique=True))) if stamped and named else set()
+    stamps = [("2026-10-03T13:59:59Z" if notice_id in stale else actual.get(notice_id, "2026-10-03T00:00:00Z"))
+              for notice_id in named] if stamped else []
     before = everything(core.store)
     if any(notice_id >= 0 for notice_id in named):
         with pytest.raises(protocol.ProtocolError) as refused:
-            core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named})
+            core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "created_at": stamps})
         assert refused.value.code == Exit.INVALID_INPUT and "--ack" in (refused.value.fix or "")
         assert everything(core.store) == before
         return
-    reply = core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "reason": "test"})
-    gone = {notice_id for notice_id, table, owner, state, _ in made
-            if table == "service" and notice_id in named and owner == session and state in ("pending", "offered")}
+    reply = core.dispatch("notice.withdraw", {"session_id": session, "notice_ids": named, "reason": "test",
+                                              "created_at": stamps})
+    gone = {notice_id for notice_id, table, owner, state, _, _ in made
+            if table == "service" and notice_id in named and owner == session and state in ("pending", "offered")
+            and notice_id not in stale}
     jobs_after, service_after = everything(core.store)
     assert jobs_after == before[0]
     assert service_after == {key: row for key, row in before[1].items() if key not in gone}
@@ -365,6 +374,31 @@ def test_c15_8_notice_list_agrees_with_notice_pending_and_with_the_offline_reade
                 "notice.list", {"session_id": session_id, "resolved": resolved})["notices"]
     everyone = core.dispatch("notice.list", {"resolved": True})["notices"]
     assert len(everyone) == len(rows)
+
+
+def test_c15_8_a_reused_id_is_not_withdrawn_for_the_row_that_was_listed(core):
+    """C-15.8 a service notice's id is reused once the newest row is deleted (no
+    AUTOINCREMENT): a withdrawal that names the listed row's creation time leaves a
+    later row that took the same id."""
+    seed(core.store, [("service", "a", "pending", "listed")])
+    (listed,) = core.dispatch("notice.list", {"session_id": "a"})["notices"]
+    with core.store.transaction() as tx:
+        tx.execute("DELETE FROM service_notices")                       # e.g. a pin notice withdrawn
+        tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES('a','newer','pending',"
+                   "'2026-10-03T13:00:00Z')")
+    assert core.store.one("SELECT notice_id FROM service_notices")["notice_id"] == -listed["notice_id"]
+    reply = core.dispatch("notice.withdraw", {"session_id": "a", "notice_ids": [listed["notice_id"]],
+                                              "created_at": [listed["created_at"]]})
+    assert reply == {"session_id": "a", "withdrawn": [], "kept": [listed["notice_id"]]}
+    assert [row["text"] for row in service_rows(core.store)] == ["newer"]
+
+
+def test_c15_8_withdrawal_creation_times_are_one_per_id(core):
+    """C-15.8 creation times, when given, are one per id; otherwise exit 2 and nothing changes."""
+    seed(core.store, [("service", "a", "pending", "x")])
+    with pytest.raises(protocol.ProtocolError):
+        core.dispatch("notice.withdraw", {"session_id": "a", "notice_ids": [-1], "created_at": ["a", "b"]})
+    assert len(service_rows(core.store)) == 1
 
 
 def test_c15_8_listing_marks_nothing(core):
@@ -425,7 +459,8 @@ def test_c15_8_notices_withdraw_sends_only_service_notices_and_names_the_rest(da
                      "notice.withdraw": lambda request: {"session_id": "operator", "withdrawn": [-7], "kept": []}})
     assert cli.main(["notices", "--session", "operator", "--withdraw", "--reason", "superseded"]) == int(Exit.OK)
     assert server.requests[1].op == "notice.withdraw"
-    assert server.requests[1].args == {"session_id": "operator", "notice_ids": [-7], "reason": "superseded"}
+    assert server.requests[1].args == {"session_id": "operator", "notice_ids": [-7], "reason": "superseded",
+                                       "created_at": ["2026-09-19T14:50:51Z"]}
     captured = capsys.readouterr()
     assert "withdrew 1 service notice(s) for operator" in captured.out
     assert "1 job notice(s) left" in captured.err and "--ack" in captured.err

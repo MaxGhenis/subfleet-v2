@@ -2056,6 +2056,11 @@ class Daemon:
                 f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
                 "terminal record and is acknowledged, never withdrawn (C-15.8)",
                 fix=f"subfleet notices --session {a.session_id} --ack")
+        if a.created_at and len(a.created_at) != len(a.notice_ids):
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(a.created_at)} creation times for {len(a.notice_ids)} ids; "
+                "give one per id, or none")
+        listed = dict(zip((-notice_id for notice_id in a.notice_ids), a.created_at)) if a.created_at else {}
         wanted = sorted({-notice_id for notice_id in a.notice_ids})
         record: dict = {"session_id": a.session_id, "reason": a.reason or "withdrawn by the operator",
                         "service_notice_ids": [], "count": 0, "first_created_at": None,
@@ -2065,9 +2070,13 @@ class Daemon:
                 chunk = wanted[start:start + 500]
                 marks = ",".join("?" * len(chunk))
                 where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
-                rows = tx.execute(f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
-                                  "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
-                tx.execute(f"DELETE FROM service_notices WHERE {where}", (a.session_id, *chunk))
+                rows = [row for row in tx.execute(
+                            f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                            "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                        if not listed or listed.get(row[0]) == row[2]]
+                if rows:                            # at most one chunk's worth
+                    tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
+                               [row[0] for row in rows])
                 for notice_id, text, created_at in rows:
                     record["service_notice_ids"].append(notice_id)
                     subject = str(text).split("\n", 1)[0]

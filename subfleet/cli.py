@@ -2030,10 +2030,12 @@ def cmd_notices(args: argparse.Namespace) -> int:
                 client.call("notice.ack", _asdict(protocol.NoticeArgs(session_id=args.session, notice_ids=ids)))
             result = {"session_id": args.session, "acknowledged": ids}
         else:
-            ids = [row["notice_id"] for row in open_rows if row["notice_id"] < 0]
+            service = [row for row in open_rows if row["notice_id"] < 0]
+            ids = [row["notice_id"] for row in service]
             jobs = [row["notice_id"] for row in open_rows if row["notice_id"] >= 0]
             result = (client.call("notice.withdraw", _asdict(protocol.NoticeWithdrawArgs(
-                session_id=args.session, notice_ids=ids, reason=args.reason))) if ids
+                session_id=args.session, notice_ids=ids, reason=args.reason,
+                created_at=[str(row.get("created_at")) for row in service]))) if ids
                 else {"session_id": args.session, "withdrawn": [], "kept": []})
             result["job_notices_left"] = jobs
     except DaemonUnavailable as exc:
