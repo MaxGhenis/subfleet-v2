@@ -165,7 +165,7 @@
     "pin_hold_far_s": 604800
   },
   "conversations": {
-    "approval_wait_s": 3600,
+    "approval_wait_s": null,
     "stop_sigint_after_s": 10,
     "stop_close_after_s": 20,
     "stop_contain_after_s": 30,

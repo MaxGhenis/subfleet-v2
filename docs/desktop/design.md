@@ -167,9 +167,13 @@ whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 (review F-03). Turns have their own capacity, counted apart from detached
 jobs (C-26.9, superseding review F-05's shared slots): by default no cap at
 all, or `conversations.max_active_turns` across the fleet and
-`conversations.turn_slots_per_lane` per lane when the policy sets them. A turn waiting on an approval holds its slot for at most
-`approval_wait_s` (policy, default 3600 s), after which its approvals are
-withdrawn and the turn is stopped (D-12) with reason `approval-timeout`.
+`conversations.turn_slots_per_lane` per lane when the policy sets them.
+Approvals wait without a time limit by default: `conversations.approval_wait_s`
+is null. The former one-hour bound protected turn capacity that is now uncapped
+by default (2026-09-28). Policy may still set a positive finite number of seconds;
+an unanswered tool approval then stops its turn (D-12) with reason
+`approval-timeout`, withdrawing its approvals. Questions (AskUserQuestion)
+always wait without a limit, even when policy limits tool approvals.
 
 ### Safety
 
@@ -899,6 +903,21 @@ includes every field that changes what is granted: Codex `grantRoot`,
 the exact request with token-shaped values masked in place, never truncated.
 `approval.respond` must carry the `request_sha256` the person saw.
 
+The conversation card shows the full masked request and offers Allow and Deny
+inline. Details remains available for revealing masked values, confirming their
+review, and adding a note. A card joins an approval by message and exact provider
+request id (`provider_request_id` on approval views), never by tool kind or display
+text alone. A notification offers Allow once only for one pending, unmasked tool
+request that offers `allow`; the action rechecks its identity and request hash.
+
+AskUserQuestion is an inline card with numbered option buttons (1–9 while its
+choices are focused), descriptions and optional previews. `multiSelect` toggles
+several choices; Other accepts free text and Skip omits that question. Several
+questions step forward and back through preserved drafts and submit once with
+one `answers` map keyed by question text; selected labels and Other text join
+with comma and space. Skipping every question sends `deny` with a skipped note,
+without stopping the turn. Composer messages leave the question pending.
+
 | Provider request | Options | Reply |
 |---|---|---|
 | Claude `can_use_tool` | allow, deny, cancel-turn | `{"behavior":"allow","updatedInput":<original>}`; deny `{"behavior":"deny","message":…}`; cancel-turn adds `"interrupt":true` |
@@ -911,7 +930,7 @@ the exact request with token-shaped values masked in place, never truncated.
 `allow` never adds `updatedPermissions`, execpolicy or network amendments.
 Pending approvals survive a daemon restart (re-derived by replay; a
 re-announced request is matched by id) and are withdrawn when the turn ends
-or `approval_wait_s` passes (D-7).
+or a configured `approval_wait_s` stops a turn waiting on a tool approval (D-7).
 
 ## 9. Attachments, drafts, retention
 
@@ -1062,6 +1081,26 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
+- ⌘K, and File > Search…, open a quick-switch palette over the window
+  (C-29.12; Max, 2026-09-27). It finds every conversation and session by
+  title, workspace and provider, and by the text of the conversations the
+  app has loaded and each session's first prompt; after a pause in typing it
+  asks `conversation.list` with `query` for sessions past the loaded page (no
+  daemon op searches transcripts, and none was added; former titles are not
+  kept, so a renamed conversation is found by its current title). Fuzzy titles
+  rank last, and a last item starts a new conversation. Matching and ranking
+  are Foundation-only (`SearchPalette.swift`), tested through the core probe:
+  text is folded off the main thread, once (unchanged messages keep their
+  folds between openings), and words are found in the folded bytes, since
+  `range(of:options:)` over megabytes of timeline takes seconds.
+- Conversation text is set in reading sizes at one scale (C-29.13; Max,
+  2026-09-27: "text is small"): body 16 pt at actual size, with View >
+  Bigger, Smaller and Actual size stepping as Claude Code's zoom does, and the
+  conversation column widening with the text. SwiftUI's text styles are fixed
+  points on macOS whatever `dynamicTypeSize` says, so views use
+  `.readingFont(_:)`, which reads the scale from the environment
+  (`TextScale.swift`, `UIReading.swift`). Code blocks have Copy and show more
+  lines 400 at a time.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 
