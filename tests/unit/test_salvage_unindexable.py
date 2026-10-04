@@ -990,3 +990,40 @@ def test_c13_4_retention_restores_the_paths_salvage_left_out(owned, tmp_path):
     assert rarch.check_archive(root, "job")["ok"]
     rarch.restore(root, "job", to=tmp_path / "restored")
     assert snapshot(tmp_path / "restored" / "worktree" / NESTED) == before
+
+
+def test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path(owned, monkeypatch):
+    """A cached archive must pass the same coverage check after a restart."""
+    import json
+    from subfleet import retention_archive as rarch
+    from tests.unit.retention_world import Clock, snapshot
+    _salvage_beside_a_skipped_repository(owned)
+    store, root, repository, worktree = owned
+    before = snapshot(worktree)
+
+    def interrupt(self):
+        raise rarch.Interrupted("restart before the final check")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rarch.Retirement, "final_check", interrupt)
+        first = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                      salvage_referenced_elsewhere=lambda artifact: True)
+    assert first["pruned"] == [] and first.get("interrupted")
+    retirement = rarch.Retirement(rarch.Context(root, store), "job")
+    assert retirement.state == "archived"
+    manifest = retirement.manifest()
+    entry = next(e for e in manifest["trees"]["worktree"]["entries"] if e["p"] == NESTED + "inside.txt")
+    (retirement.building / "files" / entry.pop("store")).unlink()
+    (retirement.building / "manifest.json").write_text(json.dumps(manifest))
+
+    def no_rebuild(*args, **kwargs):
+        pytest.fail("recovery of an archived journal does not run the builder")
+
+    monkeypatch.setattr(rarch.Retirement, "archive", no_rebuild)
+    outcome = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                    salvage_referenced_elsewhere=lambda artifact: True)
+    assert outcome["pruned"] == [] and outcome["protected"] == ["job"]
+    assert outcome["deferred"]["job"] == "unarchived path: worktree/" + NESTED + "inside.txt"
+    assert snapshot(worktree) == before and store.get_job("job") is not None
+    assert store.list_leases() == []
+    assert str(worktree) in git(repository, "worktree", "list", "--porcelain")

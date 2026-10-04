@@ -1,7 +1,8 @@
 # Job retention by archive
 
 Revision 7, 2026-10-04: explicitly reject a regular file with no archived
-bytes and no verified omission or regenerable proof. An accepted salvage
+bytes and no verified omission or regenerable proof, at readback and again
+before committing, including an archive resumed after a restart. An accepted salvage
 ref never proves preservation of paths its snapshot skipped. The regression
 merged from release/217 assumed plain `add -A` retention; this implementation
 archives nested repositories directly, including all 19 files of that test
@@ -936,6 +937,8 @@ file, both with and without salvage, and a replaced salvage ref in that source.
 Revision 7 tests: `test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out`
 models an omitted archive copy; `test_c13_4_retention_restores_the_paths_salvage_left_out`
 checks the normal byte archive, including the nested git directory.
+`test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path` resumes an
+archived journal without running the builder and refuses an uncovered file.
 `test_retention_salvage_properties.py` generates skipped or ignored paths,
 missing, corrupt or verified archive copies, and paths absent before retirement.
 A vouched salvage is present in every case. The oracle checks kept trees and
