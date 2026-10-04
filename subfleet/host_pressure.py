@@ -55,8 +55,9 @@ class Sampler:
     admission uses the last reading, and a reading too old holds nothing.
 
     Ages are on the monotonic clock, which does not run while a Mac sleeps: after
-    a wake a reading can be hours older than its age says, for at most one
-    `sample_s`, until the next read replaces it.
+    a wake a reading can be hours older than its age says, until the next read
+    replaces it, which begins once `sample_s` has passed since the last began and
+    can then take up to `procs._read`'s 10 s.
     """
 
     def __init__(self, read: Callable[[], int | None] = read_compressor_bytes,
@@ -91,7 +92,7 @@ class Sampler:
                 self._reading_now = False
 
     def reading(self, sample_s: float) -> dict[str, Any] | None:
-        """The last reading while it is evidence: read, and less than `STALE_AFTER` intervals old."""
+        """The last reading while it is evidence: read, and no older than `STALE_AFTER` intervals."""
         with self._lock:
             last, now = self._last, self._clock()
         if last is None or now - last[0] > STALE_AFTER * sample_s:

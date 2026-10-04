@@ -91,6 +91,29 @@ def test_a_child_starts_beside_the_parent_that_waits_for_it(fleet):  # noqa: F81
     assert states(service, stranger) == [] and service._holds[stranger]["reason"] == "host-pressure"
 
 
+def test_two_parents_waiting_on_held_children_do_not_deadlock(fleet):  # noqa: F811
+    """C-6.15 (review of 15cc9f7e): P1 and P2 run, each submits a child and waits.
+    Neither parent's attempt holds a child while that parent waits on a job that has
+    not started, so the first child starts. Then P1 waits on nothing pending, and the
+    second child is held behind P1 and its child; once those end, it starts."""
+    service, harness = fleet
+    service.policy["caps"].update(max_active_attempts=8, max_in_flight_per_lane=8)   # room: only pressure can hold
+    host = Host(service, 30)                              # below the threshold: both parents start
+    parents = [submit(service, harness, pinned_model="terra"), submit(service, harness, pinned_model="terra")]
+    host.admit()
+    assert [states(service, parent) for parent in parents] == [["reserved"], ["reserved"]]
+    host.gib, host.now = 200, host.now + 15               # then the host comes under pressure
+    children = [submit(service, harness, pinned_model="astra", parent_job_id=parent) for parent in parents]
+    host.admit()
+    assert states(service, children[0]) == ["reserved"]
+    assert states(service, children[1]) == [] and service._holds[children[1]]["reason"] == "host-pressure"
+    for done in (children[0], parents[0]):                # the first child ends, then the parent that waited on it
+        end_attempt(service, done)
+    service.store.update_job(children[1], next_check_at=after(3600))
+    host.admit()                                          # C-6.10: the freed leases bring it forward
+    assert states(service, children[1]) == ["reserved"]
+
+
 def test_the_hold_ends_when_the_reading_falls(fleet):  # noqa: F811
     """C-6.15: a later reading at or below the threshold places the job beside the running one."""
     service, harness = fleet
@@ -166,17 +189,24 @@ def test_the_host_is_read_once_an_interval_on_a_worker_of_its_own(fleet, monkeyp
     assert drive(service, monkeypatch, 3, each).count("host-pressure") == 1 and host.reads == 2
 
 
-def test_a_read_that_never_returns_delays_no_admission_pass(fleet, monkeypatch):  # noqa: F811
-    """C-6.15 (review of 5ef95154): admission does not read the host. With the read
-    stuck, a pass still runs, finds no reading, and places the job."""
+def test_admission_never_reads_the_host(fleet, monkeypatch):  # noqa: F811
+    """C-6.15 (reviews of 5ef95154 and 15cc9f7e): an admission pass starts no `vm_stat`
+    and waits for none, so a read that never returns delays no pass. Only the
+    control loop's own key reads; with that read stuck, it is not offered again."""
     service, harness = fleet
     host = Host(service, 200)
-    service._host_pressure._reading_now = True          # a `vm_stat` that has not come back
+    calls = []
+    real_refresh = service._host_pressure.refresh
+    monkeypatch.setattr(service._host_pressure, "refresh", lambda sample_s: calls.append(sample_s))
     first = submit(service, harness, pinned_model="terra")
     second = submit(service, harness, pinned_model="terra")
-    offered = drive(service, monkeypatch, 2)
-    assert "host-pressure" not in offered and host.reads == 0
+    service._admit()
+    service._admit()
+    assert calls == [] and host.reads == 0
     assert states(service, first) == states(service, second) == ["reserved"]
+    monkeypatch.setattr(service._host_pressure, "refresh", real_refresh)
+    service._host_pressure._reading_now = True          # a `vm_stat` that has not come back
+    assert "host-pressure" not in drive(service, monkeypatch, 2)
 
 
 def test_off_the_host_is_never_read_and_holds_nothing(fleet, monkeypatch):  # noqa: F811
@@ -212,11 +242,10 @@ def test_the_pick_op_is_not_held(fleet):  # noqa: F811
     def pick():
         answer = service.dispatch("pick", {"provider": "codex"})
         return {key: value for key, value in answer.items() if key != "generated_at"}
+    assert "host_pressure" not in service._capacity_view(None), "only `_pick`'s view carries the reading"
     under_the_hold = pick()
     service.policy["host_pressure"]["enabled"] = False
     assert under_the_hold == pick()
-    view = service._capacity_view(None)
-    assert "host_pressure" not in view, "only admission's evaluation and `why` carry the reading"
 
 
 def test_a_pressure_hold_is_ordinary_waiting_in_the_log_and_renders(fleet):  # noqa: F811

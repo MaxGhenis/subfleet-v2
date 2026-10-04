@@ -296,27 +296,41 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
     return reason.strip()
 
 
+#: C-6.15: a job in one of these states has not started, so an attempt of any of
+#: its ancestors may be waiting for it.
+PENDING_JOBS = frozenset({"queued", "waiting"})
+
+
 def in_flight_beside(view: Mapping[str, Any], job: Mapping[str, Any], in_flight: Mapping[str, int]) -> int:
     """C-6.15: the attempts in flight that a job held for host pressure would wait for.
 
-    Not those of the job's own ancestors: a parent that submits a child and waits
-    for it (`subfleet run --parent`, then `subfleet wait`) ends only when the child
-    has, so held behind its parent the child would wait until the parent's wall
-    limit killed it. A view that carries only per-lane counts cannot tell whose an
-    attempt is, and counts them all.
+    Not those of an ancestor of a job that has not started, this job or any other:
+    a parent that submits a child and waits for it (`subfleet run --parent`, then
+    `subfleet wait`) ends only when the child has. Held behind its own parent, the
+    child would wait until the parent's wall limit killed it; and two such parents
+    would hold each other's children (review of 15cc9f7e), which leaving out only
+    the job's own ancestors did not prevent. A parent that does not wait for its
+    child is left out too, which can only start more. A view that carries only
+    per-lane counts cannot tell whose an attempt is, and counts them all.
     """
     attempts = view.get("attempts")
     if attempts is None:
         return sum(in_flight.values())
-    above: set[str] = set()
-    parent = job.get("parent_job_id")
-    if parent:
-        parents = {row["job_id"]: row.get("parent_job_id") for row in map(_row, view.get("jobs", ()))}
-        while parent and parent not in above:
-            above.add(parent)
+    rows = [_row(item) for item in view.get("jobs", ())]
+    parents = {row["job_id"]: row.get("parent_job_id") for row in rows}
+
+    def ancestors(parent: Any, into: set[str]) -> None:
+        while parent and parent not in into:
+            into.add(parent)
             parent = parents.get(parent)
+
+    waited_on: set[str] = set()
+    ancestors(job.get("parent_job_id"), waited_on)
+    for row in rows:
+        if row.get("state") in PENDING_JOBS:
+            ancestors(row.get("parent_job_id"), waited_on)
     return sum(1 for attempt in map(_row, attempts)
-               if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("job_id") not in above)
+               if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("job_id") not in waited_on)
 
 
 def host_pressure_hold(policy: Mapping[str, Any], view: Mapping[str, Any], active: int) -> dict[str, Any] | None:
