@@ -497,7 +497,7 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(models: ModelsListResult, provider: String) {
         self.models[provider] = models.models.filter { $0.provider == provider }
-        if let defaults = models.default_models { modelDefaults.merge(defaults) { _, new in new } }
+        modelDefaults[provider] = models.default_models?[provider]
     }
 
     mutating func upsert(_ conversation: Conversation) {
@@ -953,8 +953,8 @@ final class ConversationEngine {
         let args = ConversationCreateArgs(request_id: requestID, provider: provider, workspace: workspace,
                                           workspace_kind: workspaceKind, allow_main: allowMain ? true : nil, title: title,
                                           settings: settings, confirm_widen: confirmWiden ? true : nil)
-        try outbox.enqueueCreate(args)
-        return Outbox.draftKey(requestID)
+        let entry = try outbox.enqueueCreate(args)
+        return entry.conversationID ?? Outbox.draftKey(requestID)
     }
 
     /// Journal a message (sending is `pump`). `conversation` is a daemon id or

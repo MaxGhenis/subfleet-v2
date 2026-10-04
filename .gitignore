@@ -13,3 +13,5 @@ build/
 .git-local/
 # Delivery bundle is a separate artifact, not repository history.
 docs/reports/2026-10-03-app-cutover.bundle
+docs/reports/2026-10-04-app-cutover-fixes.bundle
+docs/reports/2026-10-04-app-cutover-policy-revert.bundle

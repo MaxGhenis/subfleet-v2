@@ -38,6 +38,12 @@ final class UIModel: ObservableObject {
     }
     private var draftNeedsWorkspaceDefault = true
     private var draftWorkspaceChecks = 0
+    private var draftCheckInFlight = false
+    /// A retry edits its own persisted draft; the ordinary composer stays intact.
+    private var composerBeforeRetry: NewConversationDraft?
+    private var workspaceDefaultBeforeRetry = false
+    private var restoringComposer = false
+    private let refusedDraftNotice = "A conversation could not start. Review its saved draft."
     /// Sends that should open their conversation when the outbox receives it.
     private var draftDestinations: [String: Int] = [:]
     /// The Changes pane's subject while it is open (C-26.14).
@@ -107,8 +113,13 @@ final class UIModel: ObservableObject {
         do {
             let client = try client ?? DaemonClient.forCurrentEndpoint()
             engine = ConversationEngine(client: client, outbox: try Outbox(url: paths.outboxURL))
+            if let id = newDraft.messageID, engine?.outbox.entry(id) != nil {
+                // The journal write won the crash race. Do not offer the same
+                // words as a new message when the app relaunches.
+                newDraft.journaled()
+            }
             failedDrafts = engine?.outbox.failedDrafts ?? []
-            if !failedDrafts.isEmpty { problem = "A conversation could not start. Review its saved draft." }
+            if !failedDrafts.isEmpty { problem = refusedDraftNotice }
         } catch DaemonClientError.endpointRefused(let reason) {
             state.availability = .refused(reason)
         } catch {
@@ -228,6 +239,7 @@ final class UIModel: ObservableObject {
         let availability = await onOutbox { engine.checkAvailability() }
         guard check == availabilityChecks else { return nil }
         state.availability = availability
+        if newDraft.isPresented { validateNewDraftWorkspace() }
         return availability
     }
 
@@ -275,7 +287,7 @@ final class UIModel: ObservableObject {
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
         selectedFailedDraftID = nil
-        failedDraftKey = nil
+        endFailedDraftEditing()
         newDraft.leave()
         if !entry.continuable {
             // Opening one only fails (not-continuable): say what it is instead.
@@ -303,7 +315,7 @@ final class UIModel: ObservableObject {
 
     func focus(_ conversationID: String) {
         selectedFailedDraftID = nil
-        failedDraftKey = nil
+        endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
         guard state.focusedConversationID != conversationID else { return }
@@ -474,7 +486,7 @@ final class UIModel: ObservableObject {
 
     func openNewDraft() {
         selectedFailedDraftID = nil
-        failedDraftKey = nil
+        endFailedDraftEditing()
         navigation += 1
         lockedEntry = nil
         state.focus(nil)
@@ -497,6 +509,9 @@ final class UIModel: ObservableObject {
         newDraft.reconcile(models: state.models[provider] ?? [], capabilities: state.availability.capabilities,
                            defaultModel: state.modelDefaults[provider],
                            rememberedModel: defaults.string(forKey: "lastModel.\(provider)"))
+        if newDraft.isPresented, newDraft.workspaceCheckTransient == true, !draftCheckInFlight {
+            validateNewDraftWorkspace()
+        }
     }
 
     func selectNewDraftProvider(_ choice: String) {
@@ -524,12 +539,26 @@ final class UIModel: ObservableObject {
         let recovery = failedDrafts.first { $0.id == failedDraftKey }?.create
         let candidates = selectDefault && draftNeedsWorkspaceDefault ? recentWorkspaces() : []
         let selectingDefault = selectDefault && draftNeedsWorkspaceDefault
+        // C-25.1: older daemons decide admission at create. Do not call an op
+        // they have not advertised, either here or at Start.
+        guard state.availability.capabilities?.has("workspace.check.v1") == true else {
+            if selectingDefault { newDraft.workspace = candidates.first; draftNeedsWorkspaceDefault = false }
+            if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
+            if let selected = newDraft.resolvedWorkspace {
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: true), workspace: selected,
+                                             provider: provider, permission: permission)
+            }
+            draftCheckInFlight = false
+            return
+        }
+        draftCheckInFlight = true
         Task {
+            defer { if generation == draftWorkspaceChecks { draftCheckInFlight = false } }
             do {
                 if selectingDefault {
                     var accepted: (String, WorkspaceCheckResult)?
                     for path in candidates {
-                        let result = try await onOutbox { try engine.checkWorkspace(path, provider: provider, permission: permission) }
+                        let result = try await onReads { try engine.checkWorkspace(path, provider: provider, permission: permission) }
                         guard generation == draftWorkspaceChecks else { return }
                         if result.ok { accepted = (path, result); break }
                     }
@@ -550,7 +579,7 @@ final class UIModel: ObservableObject {
                 // existing parent applies the daemon's folder policy now; Start
                 // checks the new directory itself before journaling anything.
                 let checkPath = newDraft.workspace ?? paths.support.path
-                let result = try await onOutbox {
+                let result = try await onReads {
                     try engine.checkWorkspace(checkPath, provider: provider, permission: permission,
                                               kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
                 }
@@ -563,40 +592,53 @@ final class UIModel: ObservableObject {
                 guard generation == draftWorkspaceChecks, let selected = newDraft.resolvedWorkspace else { return }
                 newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(error)",
                                                                    fix: "Try again when the daemon is available."),
-                                             workspace: selected, provider: provider, permission: permission)
+                                             workspace: selected, provider: provider, permission: permission, transient: true)
             }
         }
     }
 
     private func saveNewDraft() {
+        guard !restoringComposer else { return }
         var saved = newDraft
-        if saved.workspaceCheck?.ok == false {
+        if saved.workspaceCheck?.ok == false && saved.workspaceCheckTransient != true {
             saved.workspace = nil
             saved.scratchWorkspace = nil
             saved.invalidateWorkspaceCheck()
         }
         guard let data = try? JSONEncoder().encode(saved) else { return }
-        try? atomicWrite(data, to: paths.support.appendingPathComponent("new-conversation-draft.json"))
+        let url = failedDraftKey.map(retryDraftURL) ?? paths.support.appendingPathComponent("new-conversation-draft.json")
+        try? atomicWrite(data, to: url)
     }
 
     func sendNewDraft(stayHere: Bool) {
         guard let engine, newDraft.canStart, let workspace = newDraft.resolvedWorkspace else { return }
-        let draft = newDraft
         let recovering = failedDraftKey
+        if recovering == nil {
+            if newDraft.requestID == nil { newDraft.requestID = "app-" + UUID().uuidString.lowercased() }
+            if newDraft.messageID == nil { newDraft.messageID = Outbox.newMessageID() }
+        }
+        let draft = newDraft
         let recovery = failedDrafts.first { $0.id == recovering }?.create
+        guard recovering == nil || recovery != nil else { return }
         let token = navigation
-        let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key ?? Outbox.newMessageID()
+        let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key
+            ?? draft.messageID ?? Outbox.newMessageID()
+        let checkSupported = state.availability.capabilities?.has("workspace.check.v1") == true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
         Task {
             do {
-                try await onOutbox {
+                try await onReads {
                     if draft.workspace == nil { try ensurePrivateDirectory(URL(fileURLWithPath: workspace, isDirectory: true)) }
-                    let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission,
+                    if checkSupported {
+                        let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission,
                                                          kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
-                    guard check.ok else {
-                        throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
+                        guard check.ok else {
+                            throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
+                        }
                     }
+                }
+                try await onOutbox {
                     if let recovering, var args = recovery {
                         args.provider = draft.provider
                         args.workspace = workspace
@@ -605,21 +647,28 @@ final class UIModel: ObservableObject {
                         try engine.outbox.retryFailedCreate(recovering, args: args, text: draft.text, staged: draft.attachments)
                     } else {
                         let key = try engine.createConversation(provider: draft.provider, workspace: workspace,
-                                                                settings: draft.settings, confirmWiden: draft.confirmWiden)
+                                                                settings: draft.settings, confirmWiden: draft.confirmWiden,
+                                                                requestID: draft.requestID!)
                         _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
                                             settings: draft.settings, messageID: messageID)
                     }
                 }
-                newDraft.journaled()
-                failedDraftKey = nil
+                if let recovering {
+                    try? FileManager.default.removeItem(at: retryDraftURL(recovering))
+                    if failedDraftKey == recovering { endFailedDraftEditing() }
+                } else if newDraft.messageID == messageID {
+                    newDraft.journaled()
+                } else if composerBeforeRetry?.messageID == messageID {
+                    composerBeforeRetry?.journaled()
+                }
                 defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
-                if draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
+                if recovering == nil && draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
                 pump()
             } catch {
                 draftDestinations.removeValue(forKey: messageID)
-                newDraft.isSubmitting = false
+                if failedDraftKey == recovering { newDraft.isSubmitting = false }
                 report(error)
                 validateNewDraftWorkspace()
             }
@@ -734,6 +783,7 @@ final class UIModel: ObservableObject {
                 return (report, texts, engine.outbox.failedDrafts)
             }
             failedDrafts = refusedDrafts
+            if refusedDrafts.isEmpty && problem == refusedDraftNotice { problem = nil }
             guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty
                     || !report.steers.isEmpty else { return }
             for receipt in report.receipts {
@@ -754,7 +804,7 @@ final class UIModel: ObservableObject {
             }
             if !report.failed.isEmpty {
                 problem = refusedDrafts.isEmpty ? "\(report.failed.count) message(s) could not be sent; see the conversation"
-                    : "A conversation could not start. Review its saved draft."
+                    : refusedDraftNotice
             }
         }
     }
@@ -768,6 +818,7 @@ final class UIModel: ObservableObject {
     func selectFailedDraft(_ id: String? = nil) {
         guard let draft = failedDrafts.first(where: { id == nil || $0.id == id }) else { return }
         navigation += 1
+        endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
         state.focus(nil)
@@ -776,9 +827,19 @@ final class UIModel: ObservableObject {
     }
 
     func changeFailedDraftFolder(_ draft: FailedConversationDraft) {
-        openNewDraft()
+        guard failedDrafts.contains(where: { $0.id == draft.id }) else { return }
+        endFailedDraftEditing()
+        let savedRetry = try? Data(contentsOf: retryDraftURL(draft.id))
+        composerBeforeRetry = newDraft
+        workspaceDefaultBeforeRetry = draftNeedsWorkspaceDefault
         failedDraftKey = draft.id
+        navigation += 1
+        lockedEntry = nil
+        state.focus(nil)
+        eventsGeneration += 1
+        draftNeedsWorkspaceDefault = false
         selectedFailedDraftID = nil
+        newDraft = NewConversationDraft()
         newDraft.provider = draft.create.provider
         newDraft.providerChoice = draft.create.provider
         newDraft.workspace = draft.create.workspace
@@ -787,7 +848,35 @@ final class UIModel: ObservableObject {
         newDraft.settings = draft.create.settings
         newDraft.confirmWiden = draft.create.confirm_widen ?? false
         newDraft.workspaceCheck = nil
+        if let data = savedRetry,
+           var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
+            saved.restore()
+            newDraft = saved
+        }
+        newDraft.open()
+        reconcileNewDraft()
         validateNewDraftWorkspace()
+    }
+
+    private func retryDraftURL(_ key: String) -> URL {
+        paths.support.appendingPathComponent("retry-\(sha256Hex(Data(key.utf8))).json")
+    }
+
+    private func endFailedDraftEditing() {
+        guard failedDraftKey != nil else { return }
+        draftWorkspaceChecks += 1
+        draftCheckInFlight = false
+        // Keep the retry key until restoring, so didSet cannot save retry text
+        // over the ordinary composer, even during navigation.
+        if var saved = composerBeforeRetry {
+            saved.restore()
+            restoringComposer = true
+            newDraft = saved
+            restoringComposer = false
+        }
+        composerBeforeRetry = nil
+        draftNeedsWorkspaceDefault = workspaceDefaultBeforeRetry
+        failedDraftKey = nil
     }
 
     func copyFailedDraft(_ draft: FailedConversationDraft) {
@@ -804,8 +893,9 @@ final class UIModel: ObservableObject {
                     return engine.outbox.failedDrafts
                 }
                 if selectedFailedDraftID == id { selectedFailedDraftID = nil }
-                if failedDraftKey == id { failedDraftKey = nil; newDraft.leave() }
-                if failedDrafts.isEmpty { problem = nil }
+                try? FileManager.default.removeItem(at: retryDraftURL(id))
+                if failedDraftKey == id { endFailedDraftEditing(); newDraft.leave() }
+                if failedDrafts.isEmpty && problem == refusedDraftNotice { problem = nil }
             } catch { report(error) }
         }
     }

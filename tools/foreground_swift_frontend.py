@@ -23,6 +23,7 @@ OUTPUT_FLAGS = {'-o', '-emit-module-path', '-emit-module-doc-path', '-emit-modul
 
 
 def record(value):
+    RECORDS.parent.mkdir(parents=True, exist_ok=True)
     with RECORDS.open('a') as stream:
         stream.write(json.dumps(value) + '\n')
 

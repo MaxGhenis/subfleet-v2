@@ -16,6 +16,11 @@ struct NewConversationDraft: Codable, Equatable {
     var checkedWorkspace: String?
     var checkedPermission: String?
     var checkedProvider: String?
+    /// A transport failure is provisional; keep the folder and allow a recheck.
+    var workspaceCheckTransient: Bool?
+    /// Stable across a crash between journal writes and clearing the composer.
+    var requestID: String?
+    var messageID: String?
     var confirmWiden = false
     var isPresented = false
     var focusRevision = 0
@@ -52,26 +57,33 @@ struct NewConversationDraft: Codable, Equatable {
         checkedWorkspace = nil
         checkedPermission = nil
         checkedProvider = nil
+        workspaceCheckTransient = nil
     }
 
-    mutating func applyWorkspaceCheck(_ result: WorkspaceCheckResult, workspace: String, provider: String, permission: String) {
+    mutating func applyWorkspaceCheck(_ result: WorkspaceCheckResult, workspace: String, provider: String, permission: String,
+                                      transient: Bool = false) {
         guard workspace == resolvedWorkspace, provider == self.provider, permission == settings.permission else { return }
         workspaceCheck = result
         checkedWorkspace = workspace
         checkedPermission = permission
         checkedProvider = provider
+        workspaceCheckTransient = transient
     }
 
     /// Refresh choices as catalogs arrive or the provider/model changes.
     mutating func reconcile(models: [ModelEntry], capabilities: Capabilities?, defaultModel: String? = nil,
                             rememberedModel: String? = nil) {
-        let options = makeComposerOptions(provider: provider, settings: settings, models: models, capabilities: capabilities)
+        let active = models.filter { $0.retired != true }
+        let options = makeComposerOptions(provider: provider, settings: settings, models: active, capabilities: capabilities)
         if !options.models.contains(where: { $0.value == settings.model }) {
-            let preferred = [rememberedModel, defaultModel].compactMap { $0 }
+            // Codex starts with the daemon's live hard-tier choice. An existing
+            // draft's explicit model pick above remains selected while offered.
+            let picks = provider == "codex" ? [defaultModel] : [rememberedModel, defaultModel]
+            let preferred = picks.compactMap { $0 }
                 .compactMap { pick in options.models.first { $0.value == pick || $0.model.id == pick }?.value }.first
-            settings.model = preferred ?? options.models.first?.value ?? settings.model
+            settings.model = preferred ?? options.models.first?.value ?? ""
         }
-        let selected = makeComposerOptions(provider: provider, settings: settings, models: models, capabilities: capabilities)
+        let selected = makeComposerOptions(provider: provider, settings: settings, models: active, capabilities: capabilities)
         if let effort = settings.effort, selected.effortsObserved, !selected.efforts.contains(effort) {
             settings.effort = nil
         }
@@ -84,6 +96,8 @@ struct NewConversationDraft: Codable, Equatable {
     mutating func journaled() {
         text = ""
         attachments = []
+        requestID = nil
+        messageID = nil
         isSubmitting = false
         focusRevision += 1
     }

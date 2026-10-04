@@ -29,12 +29,31 @@ def input_for(tmp_path, world, **extra):
         "root": str(root), "list": {"conversations": []},
         "models": {p: world.call("models.list", provider=p) for p in ("claude", "codex")},
         "checks": {}, "fallback_check": world.call("workspace.check", workspace=str(world.workspace)),
-        "steps": [], **extra,
+        "steps": [], "availability": world.call("capabilities"), **extra,
     }
 
 
 def show(probe, tmp_path, data):
     return run_probe(probe, write_json(tmp_path / "input.json", data))
+
+
+def route_codex_hard(world, short="sol61", model_id="gpt-6.1-sol"):
+    """A loaded-policy stand-in; keep Astra available for explicit pins."""
+    policy = world.daemon.policy
+    policy["models"][short] = {"provider": "codex", "id": model_id}
+    hard = policy["tiers"].index("hard")
+    for chain in policy["chains"].values():
+        if policy["models"][chain[hard]]["provider"] == "codex":
+            chain[hard] = short
+
+
+@pytest.mark.parametrize("short,model_id", [("sol61", "gpt-6.1-sol"), ("other-hard", "custom-codex-hard")])
+def test_codex_draft_uses_the_loaded_policy_default(cutover_model_probe, tmp_path, world, short, model_id):
+    route_codex_hard(world, short, model_id)
+    data = input_for(tmp_path, world, steps=[{"action": "provider", "provider": "codex"}, {"action": "open"}])
+    hard_model = next(m for m in data["models"]["codex"]["models"] if m["short"] == short)
+    hard_model.update(value="observed-hard-value", values=["observed-hard-value"])
+    assert show(cutover_model_probe, tmp_path, data)["snapshots"][-1]["draft"]["settings"]["model"] == "observed-hard-value"
 
 
 def refused_journal(path, settings=None):
@@ -145,7 +164,8 @@ def test_migration_exposes_both_failed_creates_and_footer_selects_the_saved_mess
     assert initial["footer"] and selected["selected"] == "app-second"
     assert restored["draft"]["text"] == MESSAGE
     assert restored["draft"]["workspace"] == "/refused/home"
-    assert restored["draft"]["settings"] == original["entries"][1]["create"]["settings"]
+    assert restored["draft"]["settings"]["model"] == "gpt-6-astra"
+    assert restored["draft"]["settings"]["permission"] == "read-only"
     migrated = json.loads((tmp_path / "app/support/outbox.json").read_text())
     assert migrated["draftRecoveryVersion"] == 1 and migrated["entries"] == original["entries"]
     assert out["visible_windows"] == 0
