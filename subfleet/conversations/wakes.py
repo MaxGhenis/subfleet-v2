@@ -216,9 +216,8 @@ class WakeEngine:
             before = json.loads(r["observed_json"] or "{}")
             watched = json.loads(r["payload_json"])["targets"]
             changed = [p for p in watched if p in snapshots and (
-                pr_changed(before.get(p), snapshots[p]) or (p not in before and any(
-                    datetime.fromisoformat(stamp.replace("Z", "+00:00")) >= datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
-                    for stamp in snapshots[p].get("review_times", {}).values())))]
+                snapshots[p].get("error") or pr_changed(before.get(p), snapshots[p]) or
+                (p not in before and pr_event_since(snapshots[p], r["created_at"])))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
                 tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
@@ -263,7 +262,16 @@ class WakeEngine:
                 elif not r["ready_json"]:
                     continue
                 else:
-                    notes.append("PR state changed: " + ", ".join(json.loads(r["ready_json"])))
+                    observed = json.loads(r["observed_json"] or "{}")
+                    changed = []
+                    for target in json.loads(r["ready_json"]):
+                        error = observed.get(target, {}).get("error")
+                        if error:
+                            notes.append(f"PR watch refused: {target} ({error}). Correct the reference and re-arm.")
+                        else:
+                            changed.append(target)
+                    if changed:
+                        notes.append("PR state changed: " + ", ".join(changed))
                 ready.append((kind, r["request_id"]))
                 if payload["note"]:
                     notes.append(payload["note"])
@@ -302,10 +310,8 @@ class WakeEngine:
 
 
 def pr_changed(before: dict | None, after: dict) -> bool:
-    if before is None:
-        checks = after.get("checks", [])
-        return after.get("state") in ("MERGED", "CLOSED") or bool(
-            checks and all(c[0] in ("COMPLETED", "SUCCESS", "FAILURE", "ERROR") for c in checks))
+    if before is None or before.get("error"):
+        return False  # first observation establishes a baseline, never an event
     if before.get("state") != after.get("state") and after.get("state") in ("MERGED", "CLOSED"):
         return True
     reviews = after.get("reviews", [])
@@ -315,8 +321,28 @@ def pr_changed(before: dict | None, after: dict) -> bool:
     return bool(checks and checks != before.get("checks") and all(c[0] in ("COMPLETED", "SUCCESS", "FAILURE", "ERROR") for c in checks))
 
 
+def pr_event_since(snapshot: dict, created_at: str) -> bool:
+    """Events between registration and the first poll also count, if dated."""
+    threshold = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    stamps = list(snapshot.get("review_times", {}).values())
+    checks = snapshot.get("checks", [])
+    if checks and all(c[0] in ("COMPLETED", "SUCCESS", "FAILURE", "ERROR") for c in checks):
+        stamps.extend(c[3] for c in checks if len(c) > 3)
+    if snapshot.get("state") == "MERGED":
+        stamps.append(snapshot.get("merged_at"))
+    elif snapshot.get("state") == "CLOSED":
+        stamps.append(snapshot.get("closed_at"))
+    for stamp in stamps:
+        try:
+            if stamp and datetime.fromisoformat(stamp.replace("Z", "+00:00")) > threshold:
+                return True
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return False
+
+
 def query_prs(targets: list[str]) -> dict:
-    fields = """state headRefOid commits(last:1) { nodes { commit { statusCheckRollup { contexts(first:100) { nodes {
+    fields = """state mergedAt closedAt headRefOid commits(last:1) { nodes { commit { statusCheckRollup { contexts(first:100) { nodes {
         __typename ... on CheckRun { name status conclusion completedAt }
         ... on StatusContext { context state createdAt }
     } pageInfo { hasNextPage } } } } } }
@@ -328,15 +354,20 @@ def query_prs(targets: list[str]) -> dict:
                      f'{{ pullRequest(number:{number}) {{ {fields} }} }}')
     done = subprocess.run(["gh", "api", "graphql", "--input", "-"],
                           input=json.dumps({"query": "query { " + " ".join(parts) + " }"}),
-                          capture_output=True, text=True, timeout=20, check=True)
+                          capture_output=True, text=True, timeout=20, check=False)
     body = json.loads(done.stdout)
-    if body.get("errors"):
-        raise ValueError("GraphQL query returned errors")
+    if not isinstance(body.get("data"), dict):
+        raise ValueError("GraphQL query returned no data")
+    errors = body.get("errors") or []
+    if any(not e.get("path") for e in errors):
+        raise ValueError("GraphQL query failed without target-specific errors")
     result = {}
     for index, target in enumerate(targets):
         repo = body.get("data", {}).get(f"p{index}") or {}
         pr = repo.get("pullRequest")
-        if not pr:
+        target_errors = [e.get("message", "GraphQL error") for e in errors if e.get("path", [None])[0] == f"p{index}"]
+        if not pr or target_errors:
+            result[target] = {"error": "; ".join(target_errors) or "PR is missing or inaccessible"}
             continue
         commits = (pr.get("commits") or {}).get("nodes") or []
         commit = commits[-1].get("commit", {}) if commits else {}
@@ -347,7 +378,7 @@ def query_prs(targets: list[str]) -> dict:
         # A partial check set cannot prove all checks finished.
         if contexts.get("pageInfo", {}).get("hasNextPage"):
             checks.append(("PENDING", "more checks", None, None, pr.get("headRefOid")))
-        result[target] = {"state": pr["state"], "checks": [list(c) for c in sorted(checks, key=str)],
+        result[target] = {"state": pr["state"], "merged_at": pr.get("mergedAt"), "closed_at": pr.get("closedAt"), "checks": [list(c) for c in sorted(checks, key=str)],
                           "reviews": sorted(r["id"] for r in pr.get("reviews", {}).get("nodes", []) if r.get("submittedAt")),
                           "review_times": {r["id"]: r["submittedAt"] for r in pr.get("reviews", {}).get("nodes", []) if r.get("submittedAt")}}
     return result

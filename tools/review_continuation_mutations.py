@@ -18,6 +18,15 @@ MUTATIONS = [
      'if path is None and conversation["provider"] == "claude" and conversation.get("workspace"):',
      'if False and path is None and conversation["provider"] == "claude" and conversation.get("workspace"):',
      "tests/unit/test_review_pr127_fixes.py::test_history_before_first_catalog_pass"),
+    ("pr-first-poll-loop", "subfleet/conversations/wakes.py",
+     'return False  # first observation establishes a baseline, never an event',
+     'return True  # mutation: old completed snapshots are events',
+     "tests/unit/test_review_pr127_pr_wakes.py::test_property_unchanged_watched_pr_never_wakes"),
+    ("pr-batch-poison", "subfleet/conversations/wakes.py",
+     'errors = body.get("errors") or []',
+     'errors = body.get("errors") or []\n    if errors: raise ValueError("batch rejected")',
+     "tests/unit/test_review_pr127_pr_wakes.py::test_partial_graphql_error_does_not_silence_other_conversations"),
+
 ]
 
 

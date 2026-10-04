@@ -123,3 +123,16 @@ probe itself requires process inspection unavailable in this lane.
 The first fixed CI slice was 13 passed on Python 3.14. Mutation details are
 in `2026-10-04-continuation-review-mutations.json`. Final line references,
 base classifications, suite counts, app build and bundle head follow below.
+
+The two account-burning P1s are fixed in `wakes.py`: first observation only
+establishes a baseline; first-poll checks, reviews, merges and closes count
+only with timestamps strictly after registration. Partial GraphQL errors
+(including exit 1 with useful `data`) affect only their alias. A missing or
+inaccessible watch produces one explicit refusal message in its conversation,
+consumes that request, and cannot suppress another conversation's wake.
+`test_property_unchanged_watched_pr_never_wakes` fails on 7504f3b8 (old completed
+checks, minimal case) and passes with the fix. Both partial-error exit-code
+cases fail on the head and pass fixed. The focused PR/CLI slice is 9 passed;
+mutations restoring first-poll events and whole-batch rejection were killed
+(1 and 2 failing tests respectively). The property resets the persisted poll
+clock for each generated case so shrinking cannot be hidden by previous cases.
