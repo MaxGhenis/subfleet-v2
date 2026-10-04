@@ -2402,3 +2402,68 @@ def test_an_approval_view_names_the_providers_request_under_both_names(svc):
     for view in views:
         assert view["approval_id"] == approval["approval_id"]
         assert view["request_id"] == view["provider_request_id"] == "perm-7"
+
+
+def test_c11_10_a_turn_off_its_warm_lane_records_its_route_once(svc, tmp_path):
+    """C-11.10, C-26.6: a Claude turn placed off its affinity lane gets its route from
+    the attempt's admission decision and the previous turn's measured usage
+    (C-18.5), recorded once in `route.json`, so a replay tells the same story and a
+    turn already handed over that never recorded one makes none up."""
+    store = svc.daemon.store
+    store.put_lane(Lane("claude-2", "claude", "claude:two", Credential("claude", "TOKEN2", "env"),
+                        None, LaneOwner.V2, False))
+    usage = {"provider": "claude", "normalized": {"cache_ttl": "1h"},
+             "last_request": {"input": 2, "cache_read": 430000, "cache_write": 547}}
+    for job_id, lane_id, extra in (("job-prev", "claude-1", {"finished_at": "2026-10-10T11:58:00Z",
+                                                              "evidence_json": json.dumps({"usage": usage})}),
+                                   ("job-now", "claude-2", {})):
+        store.add_job(job_id=job_id, request_id=f"turn:{job_id}:1", payload_digest="d", kind="turn", workdir="/w",
+                      prompt_path="/p", sandbox="read-only", state="running", name="turn-cv-route")
+        store.add_attempt(attempt_id=f"{job_id}/a1", job_id=job_id, seq=1, lane_id=lane_id,
+                          model_requested="claude-opus-5-5", state="running", **extra)
+    until = "2026-10-10T12:18:00Z"
+    decision = {"chain": ["opus"], "chosen_lane": "claude-2", "chosen_model": "opus", "policy_hash": "p", "evaluations": [{
+        "model": "opus", "model_id": "claude-opus-5-5", "evaluated_at": "2026-10-10T12:00:00Z",
+        "candidates": ["claude-2"], "capacity_readings": [],
+        "rejections": [{"lane_id": "claude-1", "reason": f"closed:account:{until}", "reasons": [f"closed:account:{until}"]}],
+        "closures": [{"lane_id": "claude-1", "scope": "account", "until_at": until, "reason": "provider-limit",
+                      "clock_source": "reported"}]}]}
+    store.add_decision("job-now", decision, attempt_id="job-now/a1")
+    adir = tmp_path / "job-now-a1"
+    adir.mkdir()
+    turn = {"provider": "claude", "conversation_id": "cv-route", "affinity_lane": "claude-1"}
+    attempt = dict(store.get_attempt("job-now/a1"))
+    expected = {"from": "claude-1", "to": "claude-2", "reasons": [f"closed:account:{until}"], "reopens_at": until,
+                "cache_until": "2026-10-10T12:58:00Z", "context_tokens": 430549, "cold": True,
+                "decided_at": "2026-10-10T12:00:00Z"}
+    assert svc._route_check(turn, attempt, adir) == expected
+    assert json.loads((adir / "route.json").read_text())["route"] == expected
+    store.add_decision("job-now", {**decision, "chosen_lane": "claude-1"}, attempt_id="job-now/a1")
+    assert svc._route_check(turn, attempt, adir) == expected              # recorded once, replayed as recorded
+    handed = tmp_path / "handed-a1"
+    handed.mkdir()
+    (handed / "stdin.jsonl").write_text("")
+    assert svc._route_check(turn, attempt, handed) is None and not (handed / "route.json").exists()
+    assert svc._route_check({**turn, "provider": "codex"}, attempt, tmp_path / "nowhere") is None
+    assert svc._route_check({**turn, "affinity_lane": None}, attempt, tmp_path / "nowhere") is None
+
+
+def test_c11_10_the_route_notice_is_stored_beside_the_start(svc):
+    """C-11.10, C-26.6: the start step's two events, mapped as the runner maps command
+    events (source, position, ordinal 0), are both kept: a route sharing the start's
+    position would have been dropped as its duplicate."""
+    from subfleet.conversations.claude_turn import ClaudeTurn
+    from subfleet.conversations.turn import TurnSpec
+    route = {"from": "claude-1", "to": "claude-2", "reasons": ["below-floor"], "reopens_at": None,
+             "cache_until": None, "context_tokens": None, "cold": None, "decided_at": None}
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    attempt = turn_attempt(svc, mid, state="running", n=0)
+    step = ClaudeTurn(TurnSpec(provider="claude", message_id=mid, text="hi", model_id="opus",
+                               permission="ask", native_session_id=None, route_json=json.dumps(route)),
+                      read_bytes=lambda p: b"").start()
+    svc.store.append_events(conversation_id=cid, message_id=mid, attempt_id=attempt, stdout_offset=0, stdin_seq=0,
+                            events=[("command", event.source, 0, event.kind, event.data) for event in step.events])
+    assert kinds(svc, cid) == ["status", "route"]
+    stored = [e for e in svc.store.events_after(cid, 0)["events"] if e["kind"] == "route"]
+    assert stored[0]["data"] == route
