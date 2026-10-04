@@ -565,7 +565,10 @@ class Timers:
             # Reuse the existing completion-based probe cadence. Retry-After
             # may lengthen it; no invented provider reading or auth latch.
             delay = max(self.intervals['probe'], int(probe.get('retry_after_s') or 0))
-            data = {'next_read_at': iso(self.now() + timedelta(seconds=delay)),
+            # Policy intervals may be fractional. Whole-second truncation
+            # would let a requested repeat beat both cadence and Retry-After.
+            until = (self.now() + timedelta(seconds=delay)).astimezone(timezone.utc)
+            data = {'next_read_at': until.isoformat().replace('+00:00', 'Z'),
                     'status': probe.get('status', 'unknown')}
             self.store.add_event('timer.usage-backoff', lane_id=lane.lane_id, data=data)
             self._usage_backoff[lane.lane_id] = data

@@ -1227,3 +1227,22 @@ def test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart(ri
     rig.clock.advance(1)
     rig.timer.probe_cycle()
     assert len(rig.wham.calls) == calls + 1
+
+
+@pytest.mark.parametrize('retry_after', [None, 3600])
+def test_claude_missing_sensor_respects_fractional_backoff_and_retry_after(rig, retry_after):
+    lane = rig.enroll('claude-1', provider='claude')
+    rig.occupy(lane)
+    rig.clock.advance(.4)
+    rig.timer.intervals['probe'] = .5
+    rig.wham.responses[lane.lane_id] = [{'status': 'rate-limited' if retry_after else 'no-scope',
+                                       'readings': (), 'retry_after_s': retry_after}]
+    rig.timer.probe_cycle()
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id]
+    rig.clock.advance((retry_after or .5) - .01)
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id]
+    rig.clock.advance(.01)
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id] * 2
