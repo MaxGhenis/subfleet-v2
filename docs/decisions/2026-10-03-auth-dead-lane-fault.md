@@ -285,3 +285,10 @@ under heavy load) makes each moved-on job probe the same lane in turn, one per
 60 s (finding 1). The fix is one probe per lane per `prove_wait_s`. And
 telling "stream empty or missing" from "stream unreadable", so a writable job
 that failed before writing any event can move on (nit 6).
+
+Round 4 (Subfleet run `20261004-003122-pr121-review-r4`, the delta to
+`52ae0c7d`) approved. Its wording finding is applied in C-4.5 (a job's
+attempts disable at most one lane; a probe disables only a lane whose own
+credential it found refused). Left as a follow-up: the pinned examples catch
+their mutations only while the scheduler picks lanes in id order, which nothing
+asserts.

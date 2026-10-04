@@ -502,6 +502,8 @@ def check_fleet(lanes, dead_lanes, enabled, found, probed, prove):
 
 @settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(**FLEETS)
+# Each `random.Random(0)` is built once and shared by the property and its mutation tests;
+# no example draws from it (one job, or no op that picks). One that does needs its own.
 # The shapes each mutation below must meet, run on every run, not left to the search:
 # the incident (one dead lane, then a live one), two dead lanes with the hold off (a job
 # moves on once, then ends), and two dead lanes with the hold on (the second is probed).
