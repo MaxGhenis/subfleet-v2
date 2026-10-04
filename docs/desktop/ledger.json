@@ -584,7 +584,7 @@
       ],
       "status": "implemented",
       "evidence": [
-        "tests/unit/test_conversation_history.py; tests/frontend/test_timeline.py"
+        "tests/unit/test_conversation_history.py; tests/frontend/test_core_timeline.py"
       ],
       "notes": "Exact known transcript paths bridge the first catalog pass without scanning trees."
     }

@@ -490,6 +490,10 @@ struct Timeline: Equatable {
                                                content: .notice(words + "; the model now works from a summary of it"),
                                                ts: event.ts))
             }
+            if data["phase"]?.string == "wake-refused", let detail = data["detail"]?.string {
+                turn.items.append(TimelineItem(id: "wake-refused:\(event.seq)", messageID: id,
+                                               content: .notice(detail), ts: event.ts))
+            }
         case "accepted":
             turn.accepted = true
             if turn.phases.last?.phase != "accepted" { turn.phases.append(PhaseStamp(phase: "accepted", ts: event.ts)) }

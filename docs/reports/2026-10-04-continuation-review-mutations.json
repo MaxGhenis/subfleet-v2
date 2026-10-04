@@ -33,5 +33,159 @@
     "killed": true,
     "result": "2 failed in 17.41s",
     "output": "FF                                                                       [100%]\n=================================== FAILURES ===================================\n______ test_partial_graphql_error_does_not_silence_other_conversations[0] ______\ntests/unit/test_review_pr127_pr_wakes.py:70: in test_partial_graphql_error_does_not_silence_other_conversations\n    assert len(rows(svc, good)) == 1\nE   AssertionError: assert 0 == 1\nE    +  where 0 = len([])\nE    +    where [] = rows(<subfleet.conversations.service.ConversationService object at 0x1076236e0>, 'cv-1791139195760-4eb07213c279')\n------------------------------ Captured log call -------------------------------\nWARNING  test-conversations:wakes.py:213 batched PR wake poll failed: batch rejected\n______ test_partial_graphql_error_does_not_silence_other_conversations[1] ______\ntests/unit/test_review_pr127_pr_wakes.py:70: in test_partial_graphql_error_does_not_silence_other_conversations\n    assert len(rows(svc, good)) == 1\nE   AssertionError: assert 0 == 1\nE    +  where 0 = len([])\nE    +    where [] = rows(<subfleet.conversations.service.ConversationService object at 0x107809430>, 'cv-1791139196506-b5b7c2bd5c22')\n------------------------------ Captured log call -------------------------------\nWARNING  test-conversations:wakes.py:213 batched PR wake poll failed: batch rejected\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_pr_wakes.py::test_partial_graphql_error_does_not_silence_other_conversations[0]\nFAILED tests/unit/test_review_pr127_pr_wakes.py::test_partial_graphql_error_does_not_silence_other_conversations[1]\n2 failed in 17.41s\n"
+  },
+  {
+    "mutation": "empty-run-wake",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_already_announced_run_request_is_satisfied_without_a_wake",
+    "killed": true,
+    "result": "1 failed in 7.40s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n________ test_already_announced_run_request_is_satisfied_without_a_wake ________\ntests/unit/test_review_pr127_fixes.py:39: in test_already_announced_run_request_is_satisfied_without_a_wake\n    assert len(rows(svc, cid)) == 1\nE   AssertionError: assert 2 == 1\nE    +  where 2 = len([{'message_id': '13b752a2-cc05-48fb-8fa1-869249e5e25b', 'conversation_id': 'cv-1791139962370-89c617f686c2', 'seq': 1, ...-4fe9-ae6d-ef532e0e2691', 'conversation_id': 'cv-1791139962370-89c617f686c2', 'seq': 2, 'after_message_id': None, ...}])\nE    +    where [{'message_id': '13b752a2-cc05-48fb-8fa1-869249e5e25b', 'conversation_id': 'cv-1791139962370-89c617f686c2', 'seq': 1, ...-4fe9-ae6d-ef532e0e2691', 'conversation_id': 'cv-1791139962370-89c617f686c2', 'seq': 2, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x107afd070>, 'cv-1791139962370-89c617f686c2')\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_already_announced_run_request_is_satisfied_without_a_wake\n1 failed in 7.40s\n"
+  },
+  {
+    "mutation": "fanout-per-run",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_all_of_fanout_has_one_wake_and_one_throttle_charge",
+    "killed": true,
+    "result": "1 failed in 8.79s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___________ test_all_of_fanout_has_one_wake_and_one_throttle_charge ____________\ntests/unit/test_review_pr127_fixes.py:57: in test_all_of_fanout_has_one_wake_and_one_throttle_charge\n    assert rows(svc, cid) == []\nE   AssertionError: assert [{'message_id...': None, ...}] == []\nE     \nE     Left contains one more item: {'message_id': 'f70ff105-bfad-4d0d-bf5f-f57e9e140e1a', 'conversation_id': 'cv-1791139974353-846c3b987cf3', 'seq': 1, 'after_message_id': None, ...}\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_all_of_fanout_has_one_wake_and_one_throttle_charge\n1 failed in 8.79s\n"
+  },
+  {
+    "mutation": "historical-notice-repair",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_notice_repair_does_no_writes_for_already_delivered_history",
+    "killed": true,
+    "result": "1 failed in 2.10s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_______ test_notice_repair_does_no_writes_for_already_delivered_history ________\ntests/unit/test_review_pr127_fixes.py:76: in test_notice_repair_does_no_writes_for_already_delivered_history\n    assert transaction.call_count == 0\nE   AssertionError: assert 10 == 0\nE    +  where 10 = <Mock id='4448502320'>.call_count\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_notice_repair_does_no_writes_for_already_delivered_history\n1 failed in 2.10s\n"
+  },
+  {
+    "mutation": "unindexed-notices",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_notice_job_lookup_uses_an_index",
+    "killed": true,
+    "result": "1 failed in 5.55s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_____________________ test_notice_job_lookup_uses_an_index _____________________\ntests/unit/test_review_pr127_fixes.py:81: in test_notice_job_lookup_uses_an_index\n    assert any(\"INDEX notices_job\" in r[\"detail\"] for r in plan), plan\nE   AssertionError: [{'id': 2, 'parent': 0, 'notused': 216, 'detail': 'SCAN notices'}]\nE   assert False\nE    +  where False = any(<generator object test_notice_job_lookup_uses_an_index.<locals>.<genexpr> at 0x109a03920>)\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_notice_job_lookup_uses_an_index\n1 failed in 5.55s\n"
+  },
+  {
+    "mutation": "unpaced-completions",
+    "test": "tests/unit/test_review_pr127_service.py::test_control_loop_paces_completion_scans",
+    "killed": true,
+    "result": "1 failed in 39.64s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_control_loop_paces_completion_scans ___________________\ntests/unit/test_review_pr127_service.py:139: in test_control_loop_paces_completion_scans\n    assert completions.call_count == 1\nE   AssertionError: assert 100 == 1\nE    +  where 100 = <Mock id='4414586416'>.call_count\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_control_loop_paces_completion_scans\n1 failed in 39.64s\n"
+  },
+  {
+    "mutation": "old-upgrade-completions",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions",
+    "killed": true,
+    "result": "1 failed, 1 passed in 11.57s",
+    "output": "F.                                                                       [100%]\n=================================== FAILURES ===================================\n_____ test_upgrade_does_not_automatically_announce_old_completions[False] ______\ntests/unit/test_review_pr127_fixes.py:94: in test_upgrade_does_not_automatically_announce_old_completions\n    assert len(rows(svc, cid)) == int(explicit)\nE   AssertionError: assert 1 == 0\nE    +  where 1 = len([{'message_id': '26d2012c-db0e-4945-99f8-80f545868422', 'conversation_id': 'cv-1791140069014-781ed72e3c29', 'seq': 1, 'after_message_id': None, ...}])\nE    +    where [{'message_id': '26d2012c-db0e-4945-99f8-80f545868422', 'conversation_id': 'cv-1791140069014-781ed72e3c29', 'seq': 1, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x1097b1f70>, 'cv-1791140069014-781ed72e3c29')\nE    +  and   0 = int(False)\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions[False]\n1 failed, 1 passed in 11.57s\n"
+  },
+  {
+    "mutation": "blocking-pr-poll",
+    "test": "tests/unit/test_review_pr127_service.py::test_pr_poll_does_not_hold_person_dispatch",
+    "killed": true,
+    "result": "1 failed in 26.49s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__________________ test_pr_poll_does_not_hold_person_dispatch __________________\ntests/unit/test_review_pr127_service.py:35: in test_pr_poll_does_not_hold_person_dispatch\n    assert dispatched.wait(1), \"a slow PR query held person dispatch\"\nE   AssertionError: a slow PR query held person dispatch\nE   assert False\nE    +  where False = wait(1)\nE    +    where wait = <threading.Event at 0x10bfa6840: unset>.wait\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_pr_poll_does_not_hold_person_dispatch\n1 failed in 26.49s\n"
+  },
+  {
+    "mutation": "open-behind-file-ops",
+    "test": "tests/unit/test_review_pr127_service.py::test_open_is_not_queued_behind_worktree_and_diff",
+    "killed": true,
+    "result": "1 failed in 5.79s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_______________ test_open_is_not_queued_behind_worktree_and_diff _______________\ntests/unit/test_review_pr127_service.py:52: in test_open_is_not_queued_behind_worktree_and_diff\n    assert future.result(timeout=1)[\"conversation\"][\"conversation_id\"] == cid\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/concurrent/futures/_base.py:458: in result\n    raise TimeoutError()\nE   TimeoutError\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_open_is_not_queued_behind_worktree_and_diff\n1 failed in 5.79s\n"
+  },
+  {
+    "mutation": "unpaced-moot-block",
+    "test": "tests/unit/test_review_pr127_service.py::test_moot_block_writer_and_catalog_checks_are_paced",
+    "killed": true,
+    "result": "1 failed in 37.81s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_____________ test_moot_block_writer_and_catalog_checks_are_paced ______________\ntests/unit/test_review_pr127_service.py:70: in test_moot_block_writer_and_catalog_checks_are_paced\n    assert writers.call_count == record.call_count == 1\nE   AssertionError: assert 100 == 1\nE    +  where 100 = <Mock id='4420118592'>.call_count\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_moot_block_writer_and_catalog_checks_are_paced\n1 failed in 37.81s\n"
+  },
+  {
+    "mutation": "codex-session-lost",
+    "test": "tests/unit/test_review_pr127_service.py::test_resumed_codex_launch_preserves_its_own_session_marker",
+    "killed": true,
+    "result": "1 failed in 8.72s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__________ test_resumed_codex_launch_preserves_its_own_session_marker __________\ntests/unit/test_review_pr127_service.py:88: in test_resumed_codex_launch_preserves_its_own_session_marker\n    assert env[\"SUBFLEET_SESSION_ID\"] == \"thread-id\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: 'SUBFLEET_SESSION_ID'\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_resumed_codex_launch_preserves_its_own_session_marker\n1 failed in 8.72s\n"
+  },
+  {
+    "mutation": "wait-does-not-ack",
+    "test": "tests/unit/test_review_pr127_service.py::test_wait_receipt_ack_prevents_a_second_conversation_wake",
+    "killed": true,
+    "result": "1 failed in 1.46s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__________ test_wait_receipt_ack_prevents_a_second_conversation_wake ___________\ntests/unit/test_review_pr127_service.py:126: in test_wait_receipt_ack_prevents_a_second_conversation_wake\n    assert svc.daemon.store.list_notices()[0][\"state\"] == \"acknowledged\"\nE   AssertionError: assert 'pending' == 'acknowledged'\nE     \nE     - acknowledged\nE     + pending\n----------------------------- Captured stdout call -----------------------------\n{\"accepted_attempt_id\": null, \"allow_desktop\": 0, \"attempt\": null, \"caller_pid\": null, \"caller_session\": \"e6f32091-47d1-4ab4-b61f-d1dc1c0a38cd\", \"cancel_requested_at\": null, \"created_at\": \"2026-10-04T18:58:55Z\", \"exclusions\": \"[]\", \"export_error\": null, \"finished_at\": null, \"in_place\": 0, \"independent\": 0, \"isolated_review\": 0, \"job_id\": \"run-one\", \"kind\": \"dispatch\", \"max_attempts\": 3, \"max_tokens_observed\": null, \"max_wall_s\": 21600, \"mcp_servers\": \"[]\", \"name\": null, \"next_check_at\": null, \"notices\": [{\"acknowledged_at\": null, \"created_at\": \"2026-10-04T18:58:55Z\", \"job_id\": \"run-one\", \"notice_id\": 1, \"offered_at\": null, \"session_id\": \"e6f32091-47d1-4ab4-b61f-d1dc1c0a38cd\", \"state\": \"pending\", \"text\": \"finished\", \"transport\": null}], \"out_path\": \"/work/run-one.md\", \"parent_job_id\": null, \"payload_digest\": \"fixture\", \"pinned_lane\": null, \"pinned_model\": null, \"policy_hash\": null, \"prompt_path\": \"fixture.md\", \"rc\": null, \"request_id\": \"run-one\", \"review_root\": null, \"round_lease\": null, \"sandbox\": \"read-only\", \"started_at\": null, \"state\": \"succeeded\", \"task\": null, \"tier\": null, \"unmeasured_reserve_reason\": null, \"wait_reason\": null, \"workdir\": \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-8894/test_wait_receipt_ack_prevents0/work\", \"workdir_head\": null, \"worktree\": null}\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_wait_receipt_ack_prevents_a_second_conversation_wake\n1 failed in 1.46s\n"
+  },
+  {
+    "mutation": "wait-omits-notices",
+    "test": "tests/unit/test_review_pr127_service.py::test_wait_receipt_ack_prevents_a_second_conversation_wake",
+    "killed": true,
+    "result": "1 failed in 1.02s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__________ test_wait_receipt_ack_prevents_a_second_conversation_wake ___________\ntests/unit/test_review_pr127_service.py:126: in test_wait_receipt_ack_prevents_a_second_conversation_wake\n    assert svc.daemon.store.list_notices()[0][\"state\"] == \"acknowledged\"\nE   AssertionError: assert 'pending' == 'acknowledged'\nE     \nE     - acknowledged\nE     + pending\n----------------------------- Captured stdout call -----------------------------\n{\"accepted_attempt_id\": null, \"allow_desktop\": 0, \"attempt\": null, \"caller_pid\": null, \"caller_session\": \"600a3646-28ea-45dd-9172-a7929a5dec87\", \"cancel_requested_at\": null, \"created_at\": \"2026-10-04T18:58:56Z\", \"exclusions\": \"[]\", \"export_error\": null, \"finished_at\": null, \"in_place\": 0, \"independent\": 0, \"isolated_review\": 0, \"job_id\": \"run-one\", \"kind\": \"dispatch\", \"max_attempts\": 3, \"max_tokens_observed\": null, \"max_wall_s\": 21600, \"mcp_servers\": \"[]\", \"name\": null, \"next_check_at\": null, \"out_path\": \"/work/run-one.md\", \"parent_job_id\": null, \"payload_digest\": \"fixture\", \"pinned_lane\": null, \"pinned_model\": null, \"policy_hash\": null, \"prompt_path\": \"fixture.md\", \"rc\": null, \"request_id\": \"run-one\", \"review_root\": null, \"round_lease\": null, \"sandbox\": \"read-only\", \"started_at\": null, \"state\": \"succeeded\", \"task\": null, \"tier\": null, \"unmeasured_reserve_reason\": null, \"wait_reason\": null, \"workdir\": \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-8896/test_wait_receipt_ack_prevents0/work\", \"workdir_head\": null, \"worktree\": null}\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_wait_receipt_ack_prevents_a_second_conversation_wake\n1 failed in 1.02s\n"
+  },
+  {
+    "mutation": "empty-field-drops-pr",
+    "test": "tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted",
+    "killed": true,
+    "result": "1 failed, 6 passed in 40.23s",
+    "output": "F......                                                                  [100%]\n=================================== FAILURES ===================================\n______ test_final_request_forms_are_accepted[WAKE-ME: runs= prs=o/r#121] _______\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n------------------------------ Captured log call -------------------------------\nWARNING  test-conversations:wakes.py:247 wake request in final text of final refused: invalid WAKE-ME field\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[WAKE-ME: runs= prs=o/r#121]\n1 failed, 6 passed in 40.23s\n"
+  },
+  {
+    "mutation": "closeout-drops-request",
+    "test": "tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted",
+    "killed": true,
+    "result": "3 failed, 4 passed in 18.53s",
+    "output": "....FFF                                                                  [100%]\n=================================== FAILURES ===================================\n______ test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nDONE] _______\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n_ test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nWAITING ON MAX (d001)] _\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n__ test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nHANDED TO hub] __\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nDONE]\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nWAITING ON MAX (d001)]\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nHANDED TO hub]\n3 failed, 4 passed in 18.53s\n"
+  },
+  {
+    "mutation": "bad-line-drops-valid",
+    "test": "tests/unit/test_review_pr127_requests.py::test_bad_final_line_does_not_discard_the_valid_line",
+    "killed": true,
+    "result": "1 failed in 1.99s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_____________ test_bad_final_line_does_not_discard_the_valid_line ______________\ntests/unit/test_review_pr127_requests.py:28: in test_bad_final_line_does_not_discard_the_valid_line\n    assert svc.store.one(\"SELECT kind FROM wake_requests\")[\"kind\"] == \"pr\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   TypeError: 'NoneType' object is not subscriptable\n------------------------------ Captured log call -------------------------------\nWARNING  test-conversations:wakes.py:247 wake request in final text of 1d7f5936-61f7-4876-90c3-a9feb6d2d747 refused: invalid WAKE-ME field\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_bad_final_line_does_not_discard_the_valid_line\n1 failed in 1.99s\n"
+  },
+  {
+    "mutation": "timer-settlement-floor",
+    "test": "tests/unit/test_review_pr127_requests.py::test_timer_floor_is_checked_at_turn_start",
+    "killed": true,
+    "result": "1 failed in 1.64s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__________________ test_timer_floor_is_checked_at_turn_start ___________________\ntests/unit/test_review_pr127_requests.py:39: in test_timer_floor_is_checked_at_turn_start\n    assert svc.store.one(\"SELECT kind FROM wake_requests\")[\"kind\"] == \"time\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   TypeError: 'NoneType' object is not subscriptable\n------------------------------ Captured log call -------------------------------\nWARNING  test-conversations:wakes.py:247 wake request in final text of a571a88e-2667-4351-b974-9194ffb6109c refused: at needs an ISO timestamp with a timezone, at least 5 minutes away\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_timer_floor_is_checked_at_turn_start\n1 failed in 1.64s\n"
+  },
+  {
+    "mutation": "synthetic-prompt-boundary",
+    "test": "tests/unit/test_review_pr127_history.py::test_synthetic_user_row_preserves_owned_turn",
+    "killed": true,
+    "result": "3 failed in 49.13s",
+    "output": "FFF                                                                      [100%]\n=================================== FAILURES ===================================\n_ test_synthetic_user_row_preserves_owned_turn[extra0-[Request interrupted by user]] _\ntests/unit/test_review_pr127_history.py:32: in test_synthetic_user_row_preserves_owned_turn\n    assert {i[\"source\"] for i in items if i[\"id\"] in {\"first\", \"synthetic\", \"second\"}} == {\"subfleet\"}\nE   AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\nE     \nE     Extra items in the left set:\nE     'other-app'\nE     Use -v to get more diff\n_ test_synthetic_user_row_preserves_owned_turn[extra1-This session is being continued from a previous conversation that ran out of context.] _\ntests/unit/test_review_pr127_history.py:32: in test_synthetic_user_row_preserves_owned_turn\n    assert {i[\"source\"] for i in items if i[\"id\"] in {\"first\", \"synthetic\", \"second\"}} == {\"subfleet\"}\nE   AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\nE     \nE     Extra items in the left set:\nE     'other-app'\nE     Use -v to get more diff\n_ test_synthetic_user_row_preserves_owned_turn[extra2-<task-notification><task-id>child</task-id></task-notification>] _\ntests/unit/test_review_pr127_history.py:32: in test_synthetic_user_row_preserves_owned_turn\n    assert {i[\"source\"] for i in items if i[\"id\"] in {\"first\", \"synthetic\", \"second\"}} == {\"subfleet\"}\nE   AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\nE     \nE     Extra items in the left set:\nE     'other-app'\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_history.py::test_synthetic_user_row_preserves_owned_turn[extra0-[Request interrupted by user]]\nFAILED tests/unit/test_review_pr127_history.py::test_synthetic_user_row_preserves_owned_turn[extra1-This session is being continued from a previous conversation that ran out of context.]\nFAILED tests/unit/test_review_pr127_history.py::test_synthetic_user_row_preserves_owned_turn[extra2-<task-notification><task-id>child</task-id></task-notification>]\n3 failed in 49.13s\n"
+  },
+  {
+    "mutation": "bulleted-final-line",
+    "test": "tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted",
+    "killed": true,
+    "result": "1 failed, 6 passed in 54.61s",
+    "output": ".F.....                                                                  [100%]\n=================================== FAILURES ===================================\n________ test_final_request_forms_are_accepted[- WAKE-ME: prs=o/r#121] _________\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[- WAKE-ME: prs=o/r#121]\n1 failed, 6 passed in 54.61s\n"
+  },
+  {
+    "mutation": "bold-final-line",
+    "test": "tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted",
+    "killed": true,
+    "result": "2 failed, 5 passed in 90.76s (0:01:30)",
+    "output": "..FF...                                                                  [100%]\n=================================== FAILURES ===================================\n_______ test_final_request_forms_are_accepted[**WAKE-ME:** prs=o/r#121] ________\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n_______ test_final_request_forms_are_accepted[**WAKE-ME: prs=o/r#121**] ________\ntests/unit/test_review_pr127_requests.py:21: in test_final_request_forms_are_accepted\n    assert len(pending) == 1 and pending[0][\"kind\"] == \"pr\"\nE   assert (0 == 1)\nE    +  where 0 = len([])\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[**WAKE-ME:** prs=o/r#121]\nFAILED tests/unit/test_review_pr127_requests.py::test_final_request_forms_are_accepted[**WAKE-ME: prs=o/r#121**]\n2 failed, 5 passed in 90.76s (0:01:30)\n"
+  },
+  {
+    "mutation": "fenced-request-injection",
+    "test": "tests/unit/test_review_pr127_requests.py::test_only_top_level_final_requests_are_accepted",
+    "killed": true,
+    "result": "1 failed, 6 passed in 28.87s",
+    "output": "..F....                                                                  [100%]\n=================================== FAILURES ===================================\n___ test_only_top_level_final_requests_are_accepted[```\\nWAKE-ME: prs=o/r#1] ___\ntests/unit/test_review_pr127_requests.py:50: in test_only_top_level_final_requests_are_accepted\n    assert svc.store.query(\"SELECT * FROM wake_requests\") == []\nE   assert [{'conversati...r#1\"]}', ...}] == []\nE     \nE     Left contains one more item: {'conversation_id': 'cv-1791141792753-b4acdd102960', 'request_id': 'final:final:0', 'kind': 'pr', 'payload_json': '{\"note\": \"\", \"targets\": [\"o/r#1\"]}', ...}\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_only_top_level_final_requests_are_accepted[```\\nWAKE-ME: prs=o/r#1]\n1 failed, 6 passed in 28.87s\n"
+  },
+  {
+    "mutation": "hidden-wake-refusal",
+    "test": "tests/frontend/test_review_pr127_timeline.py::test_invalid_wake_request_is_visible_in_the_timeline",
+    "killed": true,
+    "result": "1 failed in 40.06s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_____________ test_invalid_wake_request_is_visible_in_the_timeline _____________\ntests/frontend/test_review_pr127_timeline.py:33: in test_invalid_wake_request_is_visible_in_the_timeline\n    assert any(i.get(\"text\") == \"Wake request refused: bad field\" for i in result[\"items\"])\nE   assert False\nE    +  where False = any(<generator object test_invalid_wake_request_is_visible_in_the_timeline.<locals>.<genexpr> at 0x1075c58a0>)\n=========================== short test summary info ============================\nFAILED tests/frontend/test_review_pr127_timeline.py::test_invalid_wake_request_is_visible_in_the_timeline\n1 failed in 40.06s\n"
+  },
+  {
+    "mutation": "moot-block-report-overclaim",
+    "test": "tests/unit/test_review_pr127_report.py::test_moot_block_report_uses_the_implemented_mtime_criterion",
+    "killed": true,
+    "result": "1 failed in 10.01s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_moot_block_report_uses_the_implemented_mtime_criterion __________\ntests/unit/test_review_pr127_report.py:7: in test_moot_block_report_uses_the_implemented_mtime_criterion\n    assert \"catalog transcript mtime\" in report and \"strictly after blocked_at\" in report\nE   AssertionError: assert ('catalog transcript mtime' in '# Durable conversation continuation and review fixes\\n\\nConversation turns record their job as the parent of dispatch...ion evidence. The app is built locally without installation or launch.\\nNothing is pushed from this review worktree.\\n')\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_report.py::test_moot_block_report_uses_the_implemented_mtime_criterion\n1 failed in 10.01s\n"
   }
 ]
