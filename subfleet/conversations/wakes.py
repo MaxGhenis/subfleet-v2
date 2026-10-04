@@ -142,6 +142,12 @@ class WakeEngine:
                     canonical_native(job["caller_session"]) == canonical_native(conversation["native_session_id"]))):
                 raise ConversationError("bad-wake", f"run {job_id} is not this conversation's")
         with self.store.transaction() as tx:
+            existing = {r["kind"]: json.loads(r["payload_json"]) for r in tx.execute(
+                "SELECT kind,payload_json FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id))}
+            if existing:
+                if existing != spec:
+                    raise ConversationError("wake-id-conflict", "request id already has another payload")
+                return {"request_id": request_id, "kinds": list(spec)}
             for kind, payload in spec.items():
                 encoded = json.dumps(payload, sort_keys=True)
                 previous = tx.execute("SELECT payload_json FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind=?",
@@ -173,7 +179,7 @@ class WakeEngine:
         result = {}
         # The job's caller is the same session resolved by runs --mine and notices.
         for job in self.service.daemon.store.query(
-                "SELECT j.job_id,j.caller_session,j.state,j.out_path,j.created_at,p.name parent_name "
+                "SELECT j.job_id,j.caller_session,j.state,j.out_path,j.accepted_attempt_id,j.created_at,p.name parent_name "
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
                 "AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
@@ -195,10 +201,10 @@ class WakeEngine:
         if not requests:
             return
         now = self.now()
-        last = self.store.one("SELECT value FROM wake_meta WHERE key='pr-polled'")
-        if last and now - last["value"] < PR_INTERVAL_S:
-            return
         with self.store.transaction() as tx:
+            last = tx.execute("SELECT value FROM wake_meta WHERE key='pr-polled'").fetchone()
+            if last and now - last["value"] < PR_INTERVAL_S:
+                return
             tx.execute("INSERT OR REPLACE INTO wake_meta VALUES('pr-polled',?)", (now,))
         targets = sorted({p for r in requests for p in json.loads(r["payload_json"])["targets"]})
         try:
@@ -209,7 +215,10 @@ class WakeEngine:
         for r in requests:
             before = json.loads(r["observed_json"] or "{}")
             watched = json.loads(r["payload_json"])["targets"]
-            changed = [p for p in watched if p in snapshots and pr_changed(before.get(p), snapshots[p])]
+            changed = [p for p in watched if p in snapshots and (
+                pr_changed(before.get(p), snapshots[p]) or (p not in before and any(
+                    datetime.fromisoformat(stamp.replace("Z", "+00:00")) >= datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+                    for stamp in snapshots[p].get("review_times", {}).values())))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
                 tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
@@ -260,8 +269,13 @@ class WakeEngine:
                     notes.append(payload["note"])
             if not runs and not ready:
                 continue
-            text = "[Subfleet]\n" + "\n".join(
-                [f"{j['job_id']} finished: {j['state']}; deliverable {j['out_path'] or '(none)'}" for j in runs.values()] + notes)
+            lines = []
+            for job in runs.values():
+                accepted = job.get("accepted_attempt_id") if job["state"] == "succeeded" else None
+                deliverable = (str(self.service.root / "jobs" / accepted / "deliverable.md") if accepted else
+                               job.get("out_path") if job["state"] == "succeeded" else None)
+                lines.append(f"{job['job_id']} finished: {job['state']}; deliverable {deliverable or '(none)'}")
+            text = "[Subfleet]\n" + "\n".join(lines + notes)
             try:
                 c = self.store.conversation(cid)
                 self.store.submit_message(conversation_id=cid, message_id=str(uuid.uuid4()), after_message_id=None,
@@ -278,12 +292,13 @@ class WakeEngine:
         """A durable wake carries the notice, so hooks don't repeat its body.
         Separate stores: a crash before this update is repaired on the next tick.
         """
-        ids = [r["job_id"] for r in self.store.query("SELECT DISTINCT job_id FROM wake_runs")]
-        for start in range(0, len(ids), 500):
-            chunk = ids[start:start + 500]
+        rows = self.store.query("SELECT w.job_id,m.created_at FROM wake_runs w JOIN messages m USING(message_id)")
+        for start in range(0, len(rows), 500):
+            chunk = rows[start:start + 500]
             with self.service.daemon.store.transaction("conversation.wake-notices") as tx:
-                tx.execute(f"UPDATE notices SET state='surfaced',transport='conversation',offered_at=? "
-                           f"WHERE job_id IN ({','.join('?' for _ in chunk)}) AND state='pending'", (utcnow(), *chunk))
+                tx.executemany("UPDATE notices SET state='surfaced',transport='conversation',offered_at=? "
+                               "WHERE job_id=? AND state='pending' AND julianday(created_at)<=julianday(?)",
+                               [(utcnow(), r["job_id"], r["created_at"]) for r in chunk])
 
 
 def pr_changed(before: dict | None, after: dict) -> bool:
@@ -333,5 +348,6 @@ def query_prs(targets: list[str]) -> dict:
         if contexts.get("pageInfo", {}).get("hasNextPage"):
             checks.append(("PENDING", "more checks", None, None, pr.get("headRefOid")))
         result[target] = {"state": pr["state"], "checks": [list(c) for c in sorted(checks, key=str)],
-                          "reviews": sorted(r["id"] for r in pr.get("reviews", {}).get("nodes", []) if r.get("submittedAt"))}
+                          "reviews": sorted(r["id"] for r in pr.get("reviews", {}).get("nodes", []) if r.get("submittedAt")),
+                          "review_times": {r["id"]: r["submittedAt"] for r in pr.get("reviews", {}).get("nodes", []) if r.get("submittedAt")}}
     return result

@@ -53,6 +53,19 @@ def test_completion_batches_once_and_restarts(svc):
     assert len(rows(svc, cid)) == 1
 
 
+def test_completion_names_accepted_deliverable_and_never_failed_export(svc):
+    cid = bound(svc)
+    finish(svc, cid, ("accepted", "failed"))
+    svc.daemon.store.update_job("accepted", accepted_attempt_id="accepted/a1", out_path=None)
+    svc.daemon.store.update_job("failed", state="failed", out_path="/never-exported.md")
+    svc.wakes.tick()
+    message = svc.store.message(rows(svc, cid)[0]["message_id"])
+    text = svc.store.message_text(message)
+    assert f"deliverable {svc.root / 'jobs/accepted/a1/deliverable.md'}" in text
+    assert "failed finished: failed; deliverable (none)" in text
+    assert "/never-exported.md" not in text
+
+
 def test_final_grammar_and_completion_are_one_message(svc):
     cid = bound(svc)
     finish(svc, cid)
@@ -182,6 +195,20 @@ def test_throttle_eight_and_cooldown(svc):
     svc.wakes.now = lambda: 1000 + wakes.COOLDOWN_S
     svc.wakes.tick()
     assert len(rows(svc, cid)) == 1
+
+
+def test_id_retry_cannot_extend_a_fired_request_and_timer_retries_after_due(svc):
+    cid = bound(svc)
+    svc.wakes.now = lambda: 1000
+    request_id = str(uuid.uuid4())
+    spec = wakes.normalize(at=datetime.fromtimestamp(1300, UTC).isoformat(), now=1000)
+    svc.wakes.register(cid, request_id, spec)
+    svc.wakes.now = lambda: 1400
+    svc.wakes.tick()
+    assert svc.op_conversation_wake({"session_id": svc.store.conversation(cid)["native_session_id"],
+        "request_id": request_id, "at": datetime.fromtimestamp(1300, UTC).isoformat()}, None)["request_id"] == request_id
+    with pytest.raises(ConversationError, match="another payload"):
+        svc.wakes.register(cid, request_id, {**spec, "pr": {"targets": ["o/r#1"], "note": ""}})
 
 
 @settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])

@@ -329,9 +329,11 @@ def _codex_items(path: Path, before: int | None, limit: int, *, owned: set[str] 
             payload = row.get("payload") or {}
             if owned is not None and row.get("type") == "turn_context":
                 turn_id = payload.get("turn_id") or payload.get("id")
-                source = "subfleet" if turn_id in (owned_turns or set()) or payload.get("client_id") in owned else "other-app"
-                for item in items[group_start:]:
-                    item["source"] = source
+                client_id = payload.get("client_id")
+                if turn_id or client_id:
+                    source = "subfleet" if turn_id in (owned_turns or set()) or client_id in owned else "other-app"
+                    for item in items[group_start:]:
+                        item["source"] = source
                 group_start = len(items)
                 if len(items) >= limit:
                     return items, _earlier(path, index)

@@ -2947,6 +2947,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_wake.add_argument("--at")
     p_wake.add_argument("--note", default="")
     p_wake.add_argument("--request-id")
+    _add_json(p_wake, nested=True)
     p_wake.set_defaults(handler=cmd_wake)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")

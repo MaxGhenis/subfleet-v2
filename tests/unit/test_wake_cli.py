@@ -21,6 +21,7 @@ def test_wake_cli_uses_calling_session_and_turn_and_permanent_front_door(monkeyp
         "session_id": "conversation-session", "calling_job": "turn-job", "request_id": request_id,
         "runs": ["run1", "run2"], "prs": ["o/r#1"], "at": None, "note": "Deliver it"})
     assert "Wake recorded" in capsys.readouterr().out
+    assert cli.build_parser().parse_args(["wake", "--pr", "o/r#1", "--json"]).json is True
 
 
 def test_batched_gh_query_reads_all_targets_once_and_does_not_treat_partial_checks_as_finished(monkeypatch):
