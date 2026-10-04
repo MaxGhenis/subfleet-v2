@@ -237,6 +237,10 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-6.15: the host-pressure hold is off as shipped. Switched on, it holds at
+#: the occupancy where the 2026-10-01 study saw decompressions rise a
+#: thousandfold on a 128 GiB host, on a reading at most `sample_s` old.
+HOST_PRESSURE_DEFAULTS: dict[str, Any] = {"enabled": False, "compressor_max_gib": 40, "sample_s": 15}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300
