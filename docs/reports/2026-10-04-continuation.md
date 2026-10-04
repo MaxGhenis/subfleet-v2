@@ -102,69 +102,149 @@ has the requested Claude Opus 5.5 co-author trailer. Nothing was pushed.
 
 ## REQUEST CHANGES follow-up (PR 127 at 7504f3b8)
 
-Work is confined to the assigned review worktree. No live state, daemon,
-installed application, Application Support files, routing aliases or default
-policy are changed. Shared Git metadata refused a branch write, so the fixes
-use `.git-local`, branch `subfleet/pr127-review-fixes`; the final bundle requires
-7504f3b8. No pushes or history rewrites are made.
+This section supersedes the earlier validation and review claims. Work stays
+in the assigned worktree. No live Subfleet state, running daemon, installed app,
+Application Support, default policy or routing aliases are changed. Shared Git
+metadata denied writes, so commits use `.git-local`, on
+`subfleet/pr127-review-fixes`, without pushes or history rewrites.
 
-CI was addressed first. The eight parametrized MCP scope tests reproduced
-with their exact old environment assertions; the ledger check reproduced its
-three orphan clauses. A service-level reproduction of CoreProbeLive's tenth
-failure returned no native history before catalog discovery. The native live
-probe itself requires process inspection unavailable in this lane.
+CI was fixed first. On pristine 7504f3b8, Python 3.12.14 and standard Python
+3.14.7 each reproduced 10 failures and 3 passing controls. Eight failures are
+exact MCP environment pins, one is the ledger, and the tenth is a service-level
+reproduction of CoreProbeLive's empty-history assertion before catalog discovery.
+The actual live probe needs macOS process inspection unavailable in this lane;
+it is skipped, not claimed as passing. Base f832e6b8 passes all 13 corresponding
+checks. The base history proxy omits the source tag assertion absent in that
+version; its history-content assertion is identical.
 
-| Finding | Fix and regression | Head result | Fixed result | Mutation |
+For compact test names below, `fixes`, `requests`, `service`, `history`,
+`pr_wakes` and `report` mean `tests/unit/test_review_pr127_<name>.py`.
+All listed regressions pass fixed. The Hypothesis no-change property runs 25
+generated examples across open/merged/closed states, old checks/reviews and
+1–10 re-arm cycles; each example resets the durable poll clock. Positive
+controls prove newly dated checks/reviews/merges/closes still wake.
+
+| Finding | Fix (file:line) | Regression test | Result on 7504f3b8 / base | Killed mutations |
 | --- | --- | --- | --- | --- |
-| P1 CI environment (8 cases) | `tests/unit/test_claude_conversation_mcp_scope.py`: retain exact flags and expect the two intentional turn markers | 8 failed | 8 passed | reverting marker expectations: 8 failures |
-| P1 CI ledger | `docs/desktop/ledger.json`: R-11–13 cite C-24.10–12 with implementation evidence | 1 failed | 4 ledger tests passed | removing C-24.10: 1 failure |
-| P1 CI empty native history | `history.page` and `op_conversation_history`: prefer catalog paths, then recorded attempt paths or the exact Claude workspace path; no tree scan | `test_history_before_first_catalog_pass`: failed | passed | disabling the exact path fallback: 1 failure |
+| P1 CI: eight environment pins | tests/unit/test_claude_conversation_mcp_scope.py:66; exact argv pins remain, expected environment includes the two turn markers | test_d714_keeps_every_conversation_permission_mode_argv_unchanged (8 cases) | 8 failed on each Python; base 8 passed | ci-environment-pins |
+| P1 CI: orphan clauses | docs/desktop/ledger.json:557,570,583; R-11–13 cite C-24.10–12 and evidence | tests/unit/test_desktop_ledger.py::test_milestone_9_clauses_are_all_cited | 1 failed on each Python; base passed | ci-ledger |
+| P1 CI: history before catalog | subfleet/conversations/history.py:199; subfleet/conversations/service.py:597; use catalog, persisted attempt or exact Claude workspace path without discovery scans | fixes::test_history_before_first_catalog_pass | 1 failed on each Python; base passed (base has no source tag) | ci-history |
+| P1 unchanged PR wakes loop | subfleet/conversations/wakes.py:443,455; first snapshot is a baseline; new first-poll events require timestamps after registration | pr_wakes::test_property_unchanged_watched_pr_never_wakes; four positive event controls | property failed; 4 controls passed | pr-first-poll-loop |
+| P1 one bad PR poisons every watch | subfleet/conversations/wakes.py:307,475; preserve partial GraphQL data even on exit 1; consume and report only the bad watch | pr_wakes::test_partial_graphql_error_does_not_silence_other_conversations (exit 0 and 1) | 2 failed; healthy watch was suppressed | pr-batch-poison |
+| P2 dropped final-text requests | subfleet/conversations/wakes.py:75,87,244; accept empty targets, bullets, bold and standard close-outs; isolate bad lines, validate timers at turn creation; app/Sources/Timeline.swift:493 displays refusals | requests::test_final_request_forms_are_accepted (7); test_bad_final_line_does_not_discard_the_valid_line; test_timer_floor_is_checked_at_turn_start; test_only_top_level_final_requests_are_accepted; frontend timeline refusal test | 10 failed, 6 security controls passed; Swift refusal failed | empty-field-drops-pr; closeout-drops-request; bad-line-drops-valid; timer-settlement-floor; bulleted-final-line; bold-final-line; fenced-request-injection; hidden-wake-refusal |
+| P2 empty wake for announced runs | subfleet/conversations/wakes.py:335; silently satisfy delivered all-of requests and their alternatives without a message or throttle charge | fixes::test_already_announced_run_request_is_satisfied_without_a_wake | failed: 2 messages instead of 1 | empty-run-wake |
+| P2 fan-out spends throttle | subfleet/conversations/wakes.py:342; pending all-of targets suppress individual automatic wakes and emit one message when all finish | fixes::test_all_of_fanout_has_one_wake_and_one_throttle_charge | failed after first completion | fanout-per-run |
+| P2 PR poll blocks dispatch | subfleet/conversations/wakes.py:193; subfleet/conversations/service.py:1536; one worker polls with a 20-second subprocess timeout while dispatch continues; close joins it | service::test_pr_poll_does_not_hold_person_dispatch | failed while stubbed gh was held | blocking-pr-poll |
+| P2 growing per-tick write work / scans | subfleet/conversations/wakes.py:39,428; durable repair queue, 500 entries per invocation, crash-safe deletion; subfleet/store_schema.sql:174 indexes notices; wakes.py:185 paces completion scans to once/second | fixes::test_notice_repair_does_no_writes_for_already_delivered_history; test_notice_job_lookup_uses_an_index; service::test_control_loop_paces_completion_scans; repair crash/batch controls | 3 failed: 10 historical writes, table scan, 100 completion scans | historical-notice-repair; unindexed-notices; unpaced-completions |
+| P2 mid-turn marker relabels / duplicates | subfleet/conversations/history.py:126,188; synthetic user rows retain native ownership; a known prompt UUID still wins | history::test_synthetic_user_row_preserves_owned_turn (3); tests/frontend/test_review_pr127_timeline.py::test_mid_turn_markers_do_not_duplicate_or_relabel_the_answer (3) | all 6 failed; three known-UUID positive controls pass fixed | synthetic-prompt-boundary |
+| P2 upgrade announces old runs | subfleet/conversations/wakes.py:166,277; persist activation and snapshot pre-existing completions once; normalize timestamps and retain new same-second results, including earlier-started runs; explicit old requests remain valid | fixes::test_upgrade_does_not_automatically_announce_old_completions; test_upgrade_keeps_runs_that_complete_after_activation; test_existing_completion_and_new_completion_in_one_second | automatic case failed; explicit case passed; in-flight boundary failed on head and the initial creation-time cutoff | old-upgrade-completions; upgrade-drops-inflight-result; upgrade-same-second-history |
+| P3 Codex session marker lost | subfleet/conversations/launch.py:81; keep the resumed session marker after inherited-provider cleanup | service::test_resumed_codex_launch_preserves_its_own_session_marker | corrected fixture failed with missing session key | codex-session-lost |
+| P3 open queues behind file work | subfleet/conversations/service.py:128,205; separate bounded history/read pool; shutdown joins it | service::test_open_is_not_queued_behind_worktree_and_diff | failed under saturated file pool | open-behind-file-ops |
+| P3 moot-block check unpaced | subfleet/conversations/service.py:1556; pace the same block at 5 seconds, bypass delay for a new blocked_at; retain writer/lease/turn guards | service::test_moot_block_writer_and_catalog_checks_are_paced | failed: 100 checks instead of 1 | unpaced-moot-block |
+| P3 wait causes duplicate wake | subfleet/daemon.py:2756; subfleet/cli.py:1269; terminal receipts contain notices, CLI acknowledges newly returned own-session results including failures | service::test_wait_acknowledges_only_finished_results_it_returns (2); test_wait_receipt_ack_prevents_a_second_conversation_wake | all 3 failed | wait-does-not-ack; wait-omits-notices |
+| P3 PR body overclaims gained turns | docs/reports/2026-10-04-continuation-pr-body.md:17; docs/acceptance-contract.md and docs/desktop/design.md state transcript mtime strictly after blocked_at plus fresh guards | report::test_moot_block_report_uses_the_implemented_mtime_criterion | failed on head: corrected artifact absent | moot-block-report-overclaim |
+| Upgrade replay regression found while fixing grammar | subfleet/conversations/wakes.py:244; preserve legacy literal-tail IDs; use content/occurrence IDs for newly recognised forms | requests::test_expanded_grammar_replay_preserves_legacy_timer_identity | failed on head (bullet lost); index-based expansion also repeats fired timer | expanded-grammar-replays-timer |
 
-The first fixed CI slice was 13 passed on Python 3.14. Mutation details are
-in `2026-10-04-continuation-review-mutations.json`. Final line references,
-base classifications, suite counts, app build and bundle head follow below.
+The suggested escalating cooldown is a policy recommendation. The specified
+eight-wake/30-minute rule remains; no-progress PR and empty-run loops are removed.
+Completion discovery is paced and indexed; the bounded queue removes historical
+write amplification. Durable receipt history remains for replay guarantees.
 
-The two account-burning P1s are fixed in `wakes.py`: first observation only
-establishes a baseline; first-poll checks, reviews, merges and closes count
-only with timestamps strictly after registration. Partial GraphQL errors
-(including exit 1 with useful `data`) affect only their alias. A missing or
-inaccessible watch produces one explicit refusal message in its conversation,
-consumes that request, and cannot suppress another conversation's wake.
-`test_property_unchanged_watched_pr_never_wakes` fails on 7504f3b8 (old completed
-checks, minimal case) and passes with the fix. Both partial-error exit-code
-cases fail on the head and pass fixed. The focused PR/CLI slice is 9 passed;
-mutations restoring first-poll events and whole-batch rejection were killed
-(1 and 2 failing tests respectively). The property resets the persisted poll
-clock for each generated case so shrinking cannot be hidden by previous cases.
+The mutation runner restores every edit in `finally`, reaps its own child process,
+and counts only assertion failures as kills (not collection/setup/compile errors).
+[Machine-readable mutation evidence](2026-10-04-continuation-review-mutations.json)
+records **30 killed, 0 survivors**, the precise test nodes and their output.
+Extra controls cover cross-store repair crashes, 501 queued repairs, satisfied
+alternative triggers, real wait receipts and known prompt UUIDs.
 
-Additional review fixes (final source line references are listed below):
+Validation uses Python 3.12.14 for the named suites and standard Python 3.14.7
+for the final cross-version regression run. Slices are supervised in the foreground
+with a 540-second ceiling; app building has a 900-second ceiling. Counts below
+use each distinct test's final completed result, replacing rechecks, and are not
+summed across overlapping suites.
 
-| Finding | Behavior after the fix | Regression on 7504f3b8 |
-| --- | --- | --- |
-| P2 dropped WAKE-ME requests | Accept empty target placeholders, bullets, bold markup and the standard close-out; validate each line separately; timers use turn creation; refusals become visible status notices; fenced/quoted/indented text stays excluded | requests suite: 10 failed, 6 security controls passed |
-| P2 empty run wake | A request for already-announced/acknowledged runs becomes `satisfied`, with no message or throttle charge; alternative kinds are consumed too | `test_already_announced_run_request_is_satisfied_without_a_wake`: failed, 2 messages instead of 1 |
-| P2 fan-out spends throttle | Pending all-of requests gather covered completions, then send one message and charge once | `test_all_of_fanout_has_one_wake_and_one_throttle_charge`: failed after the first completion |
-| P2 PR poll blocks dispatch | One bounded PR worker handles the network call; dispatch continues, polling state remains durable, shutdown joins the worker | `test_pr_poll_does_not_hold_person_dispatch`: failed while fake gh was held |
-| P2 tick cost grows | Repair queue is consumed in batches of 500; no historical write work on quiet ticks; index `notices_job(job_id,state)`; automatic completion scans at most once per second | quiet repair: 10 writes instead of 0; lookup plan: table scan; control loop: 100 scans instead of 1; all failed |
-| P2 native mid-turn markers | Only real Claude prompts end ownership groups; interrupts, summaries, task notifications and tool results keep their turn's source | 3 Python cases and 3 real Swift folding cases failed; answer shown twice on head |
-| P2 upgrade announces old runs | Persist activation timestamp once; automatic discovery excludes older jobs while explicit requests can still name them | old automatic case failed; explicit-old-run control passed |
-| P3 Codex session lost | A resumed Codex launch retains its own session marker while removing unrelated inherited provider markers | corrected launch regression failed with missing session key |
-| P3 conversation open queues | Opening/history use a separate bounded read pool, independent of diffs/worktrees; close joins it | saturated two-thread file-pool regression timed out |
-| P3 unpaced moot-block check | Catalog/live-writer reads are paced at five seconds per unchanged block; a new block timestamp bypasses the previous delay | 100 writer/catalog calls instead of 1; failed |
-| P3 wait repeats results | Terminal wait receipts include notices; CLI acknowledges only its own returned results, including failed jobs; automatic wakes then exclude them | two CLI cases and real-store wait-to-wake case failed |
-| P3 moot-block wording | The criterion is catalog transcript mtime strictly after `blocked_at`, plus fresh writer/lease/turn guards. It does not establish a count of gained turns. This report and the corrected local PR description state that criterion. | Documentation correction; existing differential test remains the behavioral check |
+| Suite | Passed | Failed | Errors | Skipped |
+| --- | ---: | ---: | ---: | ---: |
+| Named unit | 998 | 2 | 0 | 0 |
+| Fake-provider | 82 | 0 | 0 | 0 |
+| End-to-end | 2 | 0 | 0 | 83 |
+| Frontend | 300 | 1 | 0 | 1 |
+| Additional CLI / wait | 202 | 3 | 16 | 0 |
+| Additional store migration / readers | 34 | 2 | 0 | 0 |
+| Final Python 3.12 regressions | 84 | 0 | 0 | 0 |
+| Final Python 3.14 regressions | 84 | 0 | 0 | 0 |
 
-The review's suggested increasing cooldown is a policy recommendation, not
-an identified correctness failure. The specified eight-wake/30-minute bound is
-retained; no-progress PR and empty-run loops are removed. No live policy or
-routing aliases are edited.
+All **8,424 tests collect without errors** (7,134 unit, 836 fake, 85 end-to-end,
+302 frontend, 62 process and 5 live). This is collection, not a claim that the full
+suite passed. [Validation evidence](2026-10-04-continuation-review-validation.json)
+lists the selected files, every slice, head failures and base comparison nodes.
 
-Review regression checkpoints: the final focused Python 3.12 run passed 59
-tests in 195.92 seconds. The review mutation matrix has 27 killed mutants and
-no survivors, including the grammar forms, first-poll/no-change property,
-partial GraphQL errors, batching, repair cost, activation cutoff, latency,
-Codex marker, wait acknowledgement, native grouping and report wording.
-`app/build.sh` completed successfully within its 900-second foreground bound,
-validated the plist and signed the local bundle under `build/review/app`.
-The local corrected PR description is `2026-10-04-continuation-pr-body.md`;
-no GitHub body was changed or pushed.
+Every remaining failure is classified against f832e6b8:
+
+- Named unit: catalog lifecycle's final `/bin/ps` census and service-close's
+  macOS boot-identity setup both fail identically on base. The other 998 pass.
+- Frontend: `test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says`
+  fails with the same nested steer counterexample on base: deliver message 2 into
+  1, receive queued message 0, then deliver 1 into 0; message 2 precedes its host.
+  This existing invariant failure is outside the review changes. The live core
+  probe skips before daemon creation because boot/process inspection is unavailable.
+- Additional CLI/wait: both CLI lock/identity assertions, the stopping-daemon
+  assertion and all 16 wait-hub fixture errors reproduce on base. The daemon
+  failures come from denied boot inspection; the CLI assertions have the same
+  captured output on both versions.
+- Additional store readers: the two daemon-backed checks fail boot inspection
+  on base too. The initial two-second timing assertion took 2.54 seconds; its
+  isolated base and fixed rechecks pass. All ten migration tests pass.
+- All 83 end-to-end skips cite the C-5.3 `ps/sysctl` boot-inspection guard. No
+  guard is bypassed, and no installed/live daemon is used.
+
+Resolved harness/environment failures are not counted as product regressions:
+missing basetemp parents caused setup errors; temporary fixtures inside this Git
+worktree inherited its enclosing repository, and the `FIX` search also matched
+this worktree's path. The repository tests pass with a Git discovery ceiling;
+the sidebar test fails identically on base in this path and passes with neutral,
+task-owned temporary state in the permitted system temp directory. Early compiler
+cache aliasing caused duplicate Clang modules; canonical cache paths passed on
+recheck. An initial misplaced Swift notice edit failed compilation and was
+corrected before the successful app build and frontend checks. Exploratory
+540-second timeouts and the missing optional `test_store.py` command executed no
+completed suites and are excluded from totals.
+
+The shared volume also reached nearly full capacity during fake-provider testing.
+Its `SQLITE_IOERR_SHMSIZE`/disk-I/O failure occurred in unchanged store setup,
+also reproduced using the base schema and a base pool fixture. Only disposable
+files created by this task were removed. The admission property's completed
+example fleets were then deleted between draws by
+[review_bounded_temp.py](../../tools/review_bounded_temp.py), with assertions and
+Hypothesis settings unchanged. The admission property, both pool tests and fake
+wakes pass on recheck. The final helper/fake run is recorded separately. The
+upgrade precision counterexample first failed on the creation/completion-time
+fix as well as 7504f3b8; the snapshot and normalized floor now pass on both Pythons.
+
+Reproduction commands use `.venv312/bin/python -m pytest -q` with the files
+listed in the validation JSON, splitting as recorded to keep the ceiling. Run
+all review regressions, the original wake suite, MCP scope pins and ledger on
+both Python environments. For bounded admission temporary state, use
+`PYTHONPATH="$PWD/tools" python -m pytest -p review_bounded_temp
+ tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass
+ --basetemp=build/review/pytest/admission` (one shell line). Run mutations with
+`python tools/review_continuation_mutations.py`; each child has a 180-second
+ceiling, and cases can be split with `--only`.
+
+`app/build.sh` **passes**, validates its plist and signs the local app at
+`build/review/app/Subfleet.app`. It used canonical writable compiler caches and
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` for Swift's optional inner plugin sandbox;
+the mandatory managed sandbox remained active. Existing Sendable/unused-await
+warnings remain. The app was neither installed nor launched. Final changes
+after that build affect Python and documentation; Swift source is identical.
+
+Implementation commits: `7f7503c4`, `f79288cd`, `7c8da642`, `d25a7631`,
+`27761ee7`, `ca1c93cb`, and `4c9785cc`. The final report/verification commit
+is the head saved in the verified
+[delivery bundle](2026-10-04-continuation-review-fixes.bundle), requiring exactly
+7504f3b8. [The head manifest](2026-10-04-continuation-review-fixes.bundle-head.txt)
+names the full commit and ref; the following delivery commit stores those
+artifacts without changing implementation. Every commit has the requested
+Claude Opus 5.5 co-author trailer. Nothing is pushed or history-rewritten.
+All foreground sessions are reaped; the final native process census finds no
+task-owned test, daemon, guardian, compiler or probe left running.
