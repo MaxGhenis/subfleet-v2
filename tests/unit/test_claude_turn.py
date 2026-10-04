@@ -934,3 +934,15 @@ def test_a_folded_steer_the_result_does_not_list_does_not_hold_the_turn():
     end = steer_result(turn, [MID], offset=30)
     assert end.outcome.state == "complete" and end.outcome.ended_by == "provider"
     assert end.outcome.steers[STEER]["fate"] == "delivered"
+
+
+def test_c11_10_a_turn_that_left_its_warm_lane_says_so_at_start():
+    """C-11.10: the route recorded for the attempt is the turn's first notice, with
+    its start; a turn with no route adds none. Replay builds the same events."""
+    route = {"from": "claude-1", "to": "claude-2", "reasons": ["below-floor"], "reopens_at": None,
+             "cache_until": None, "context_tokens": None, "cold": None, "decided_at": None}
+    moved = ClaudeTurn(spec(route_json=json.dumps(route, sort_keys=True)), read_bytes=lambda p: b"").start()
+    assert [(event.kind, event.data, event.source) for event in moved.events] == [
+        ("status", {"phase": "starting-provider"}, "cmd:start"), ("route", route, "cmd:route")]
+    stayed = ClaudeTurn(spec(), read_bytes=lambda p: b"").start()
+    assert [event.kind for event in stayed.events] == ["status"]

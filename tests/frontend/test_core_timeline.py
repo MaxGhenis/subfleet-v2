@@ -623,3 +623,36 @@ def test_c24_4_a_title_that_names_a_reason_s_kind_is_read_as_a_title(core_probe,
         "Waiting to be sent again (provider-init-failed)",
     ]
     assert not any(w.startswith("Waiting for capacity") for w in words)
+
+
+def test_c11_10_a_turn_that_left_its_warm_account_says_so_and_why(core_probe, tmp_path):
+    """C-11.10: a `route` event reads as a notice: where the turn went, the warm
+    account's reopen time as reported, and whether the move was cold (its cache
+    still alive) or cost nothing extra (expired). An unknown lifetime says neither;
+    an event without both lanes shows nothing."""
+    cid = "cv-1"
+    cold, expired, unknown, broken = (str(uuid.uuid4()) for _ in range(4))
+    route = lambda seq, mid, **data: {"seq": seq, "message_id": mid, "kind": "route",  # noqa: E731
+                                      "ts": "2026-10-10T12:00:00.000Z", "data": data}
+    receipts = [{"message_id": mid, "conversation_id": cid, "seq": n, "origin": "person", "state": "running"}
+                for n, mid in enumerate((cold, expired, unknown, broken), start=1)]
+    result = fold(core_probe, tmp_path, cid, [{"receipts": receipts}, {"page": {"events": [
+        route(1, cold, **{"from": "claude-3", "to": "claude-7", "reasons": ["closed:account:2026-10-10T12:18:00Z"],
+                          "reopens_at": "2026-10-10T12:18:00Z", "decided_at": "2026-10-10T12:00:00Z",
+                          "cache_until": "2026-10-10T12:58:00Z", "context_tokens": 430549, "cold": True}),
+        route(2, expired, **{"from": "claude-3", "to": "claude-7", "reasons": ["below-floor"], "reopens_at": None,
+                             "decided_at": "2026-10-10T12:00:00Z", "cold": False}),
+        route(3, unknown, **{"from": "claude-1", "to": "claude-2", "reasons": ["excluded", "closed:account:x"],
+                             "reopens_at": None, "cold": None}),
+        route(4, broken, **{"to": "claude-2"}),
+    ], "next": 4, "reset": False}}])
+    notices = {mid: [i["text"] for i in items_of(result, mid, "notice")] for mid in (cold, expired, unknown, broken)}
+    assert notices[cold] == [
+        "Moved to claude-7 from claude-3, which is at its usage limit until 2026-10-10T12:18:00Z "
+        "(18 min after this turn was placed). claude-3's cache of this conversation was still warm, so this "
+        "turn reads it again in full (about 431k tokens); Subfleet does not wait for an account while you wait."]
+    assert notices[expired] == [
+        "Moved to claude-7 from claude-3 (claude-3: below-floor). claude-3's cache had already expired, "
+        "so moving cost nothing extra."]
+    assert notices[unknown] == ["Moved to claude-2 from claude-1, which hit its limit on the turn this one continues."]
+    assert notices[broken] == []

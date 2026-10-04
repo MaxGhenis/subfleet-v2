@@ -11,7 +11,8 @@
 //   Codex `thinking` for item B replaces its per-summary blocks `B:<n>` too.
 // - `tool.started`/`tool.completed` make one activity row per tool call.
 // - `status` phases and `accepted` feed the turn's status strip; `served` merges
-//   into the turn's served facts; `limits`, `diff` are kept per turn.
+//   into the turn's served facts; `limits`, `diff` are kept per turn; `route`
+//   (C-11.10) adds a notice that the turn moved off its warm account.
 // - `approval.requested` adds a card (it carries the daemon's approval id once
 //   `attach` has seen that approval, also when a reset makes the card again);
 //   `approval.resolved` answers or withdraws it;
@@ -660,6 +661,12 @@ struct Timeline: Equatable {
                 turn.items.append(TimelineItem(id: "limits:\(event.seq)", messageID: id, content: .notice(words),
                                                ts: event.ts))
             }
+        case "route":
+            // C-11.10: the turn left the account holding its prompt cache; it did not wait.
+            if let words = routeWords(data) {
+                turn.items.append(TimelineItem(id: "route:\(event.seq)", messageID: id, content: .notice(words),
+                                               ts: event.ts))
+            }
         case "diff":
             turn.diff = data["diff"]?.string
         case "steer.delivered":
@@ -1264,6 +1271,40 @@ struct ApprovalFollower: Equatable {
         }
         return target
     }
+}
+
+/// C-11.10: what a `route` event tells the person: the turn moved off the account
+/// that served the conversation's last turn, why, when that account reopens (as
+/// the provider reported it), and whether the move cost the cache: "cold" only
+/// when that account's cache was still alive, so staying would have read it.
+/// Nil for an event without both lanes. Nothing here estimates: an unknown
+/// reopen or lifetime is left unsaid.
+func routeWords(_ data: JSONValue) -> String? {
+    guard let from = data["from"]?.string, let to = data["to"]?.string else { return nil }
+    var words = "Moved to \(to) from \(from)"
+    let reasons = (data["reasons"]?.array ?? []).compactMap { $0.string }
+    if let reopens = data["reopens_at"]?.string {
+        words += ", which is at its usage limit until \(reopens)"
+        if let at = parseTimestamp(reopens), let decided = data["decided_at"]?.string.flatMap(parseTimestamp) {
+            let minutes = Int((at.timeIntervalSince(decided) / 60).rounded(.up))
+            if minutes > 0 { words += " (\(minutes) min after this turn was placed)" }
+        }
+    } else if reasons.contains("excluded") {
+        words += ", which hit its limit on the turn this one continues"
+    } else if let first = reasons.first {
+        words += " (\(from): \(first))"
+    }
+    switch data["cold"]?.bool {
+    case true?:
+        words += ". \(from)'s cache of this conversation was still warm, so this turn reads it again in full"
+        if let tokens = data["context_tokens"]?.double { words += " (about \(tokenWords(tokens)) tokens)" }
+        words += "; Subfleet does not wait for an account while you wait"
+    case false?:
+        words += ". \(from)'s cache had already expired, so moving cost nothing extra"
+    case nil:
+        break
+    }
+    return words + "."
 }
 
 /// "950", "18k", "972k", "1.2M".
