@@ -27,3 +27,14 @@ Branch `feat/cache-usage-warm-lane` from `origin/release/217` f832e6b8. The PR t
 Step 1 build: `subfleet run --task build --tier hard`, on its own worktree and branch `feat/cache-usage-step1` (based on origin/release/217). Its prompt is `docs/reports/2026-10-04-cache-usage-step1-prompt.md`. The job commits locally, does not push, and opens no PR. Review its commits on resume before merging them into this branch.
 
 Dispatched 2026-10-04 02:26Z as job `20261003-222603-cache-usage-step1` (workdir `.claude/worktrees/cache-usage-step1`, output to `docs/reports/.step1-out.md`, untracked). Check it with `subfleet runs show 20261003-222603-cache-usage-step1`.
+
+## Replay of the live record (2026-10-04 02:50Z; `tools/warm_lane_replay.py`, summary in `2026-10-04-warm-lane-replay.json`)
+
+Claude attempts since 2026-09-19: 2,237, of which 2,218 have a retained stream with usage.
+- **TTL.** 2,004 attempts wrote only 1-hour cache entries, 112 wrote none, and none wrote 5-minute entries. The cache lifetime Subfleet runs under is 1 hour, measured.
+- **Cache-hit share** (read / prompt, from `result.usage`): dispatch 0.978 (1,933 attempts), turns 0.972 (121), resumes 0.989 (11), gate reviews 0.897 (51).
+- **Turns that stayed on their lane** (47). With a gap of 1 hour or less (26), the first request read a median 437k tokens and wrote 1.8k. With a gap over 1 hour (21), it read a median 0 and wrote 523k: cold on the same account. So the TTL, not the lane, decides warmth.
+- **Turns that moved lane** (37). In 21 of them the previous turn ended within the hour, so staying would have read warm; they wrote 8.92M tokens cold in total. 19 of the 21 were C-26.7 failover continuations (`excluded` plus the limit closure) and 2 were `below-floor`. Their warm lane's reopen times: 18, 18, 63, 78, 79, 88, 90, 91, 91, 92, 138, 144, 178, 186, 191, 191, 228 minutes, plus two weekly closures (4.6 and 4.8 days). Only the two 18-minute cases reopened while the cache was still alive. They wrote 0.83M of the 8.92M.
+- **Resumes** with the pinned lane closed at submit waited 726 to 9,004 s and then loaded cold anyway (for example `20260929-142213-triple-lock-paper`: 10k read, 274k written), because the wait outlived the TTL.
+
+**Rule this supports.** Waiting helps only when the warm lane reopens before last use + TTL. The default `admission.warm_wait_s = 3600` equals the measured TTL. The effective bound per job is min(start of the warm wait + `warm_wait_s`, last use + measured TTL). A move after the TTL costs nothing extra, so the status should say "moved cold" only when the cache was still alive.
