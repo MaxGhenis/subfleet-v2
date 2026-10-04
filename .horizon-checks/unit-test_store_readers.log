@@ -1,0 +1,26 @@
+..........F...........F...                                               [100%]
+=================================== FAILURES ===================================
+__________ test_the_daemon_answers_reads_while_a_transaction_is_open ___________
+tests/unit/test_store_readers.py:181: in test_the_daemon_answers_reads_while_a_transaction_is_open
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_capacity_views_hold_no_read_connection_while_they_build _________
+tests/unit/test_store_readers.py:476: in test_capacity_views_hold_no_read_connection_while_they_build
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_readers.py::test_the_daemon_answers_reads_while_a_transaction_is_open
+FAILED tests/unit/test_store_readers.py::test_capacity_views_hold_no_read_connection_while_they_build
+2 failed, 24 passed in 9.06s

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.880" timestamp="2026-10-03T18:26:39.020691-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_sessions_end_to_end" name="test_a_revive_that_loses_the_lease_race_is_skipped_not_queued" time="0.711"><properties><property name="nodeid" value="tests/fake/test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued" /></properties><failure message="AssertionError: assert ('waiting', None) == ('failed', 7)&#10;  &#10;  At index 0 diff: 'waiting' != 'failed'&#10;  Use -v to get more diff">tests/fake/test_sessions_end_to_end.py:565: in test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+    assert (job["state"], job["rc"]) == ("failed", 7)
+E   AssertionError: assert ('waiting', None) == ('failed', 7)
+E     
+E     At index 0 diff: 'waiting' != 'failed'
+E     Use -v to get more diff</failure></testcase></testsuite></testsuites>

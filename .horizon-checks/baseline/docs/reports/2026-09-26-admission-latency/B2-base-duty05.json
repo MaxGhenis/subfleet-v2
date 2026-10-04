@@ -1,0 +1,214 @@
+{
+  "code": "/private/tmp/sfr-base-e053b2c",
+  "root": "/private/tmp/sfr-runs/root-B2-base-duty05",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.053,
+  "admission": {
+    "holds_s": {
+      "n": 44,
+      "p50": 0.0009,
+      "p90": 0.2573,
+      "p99": 0.4732,
+      "max": 0.4732,
+      "mean": 0.0416
+    },
+    "reserve_holds_s": {
+      "n": 34,
+      "p50": 0.0009,
+      "p90": 0.2677,
+      "p99": 0.4732,
+      "max": 0.4732,
+      "mean": 0.0538
+    },
+    "store_waits_s": {
+      "n": 168,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 1.3286,
+      "max": 1.5289,
+      "mean": 0.042
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0152,
+    "turn_queued_to_reserved_s": {
+      "n": 10,
+      "p50": 4.8084,
+      "p90": 15.6067,
+      "p99": 15.6067,
+      "max": 15.6067,
+      "mean": 6.3829
+    },
+    "turns_submitted": 10,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 31,
+    "again": 15,
+    "moved": 15,
+    "old": 0,
+    "failed": 0
+  },
+  "args": {
+    "code": "/tmp/sfr-base-e053b2c",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-B2-base-duty05",
+    "lanes": 10,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 0.05,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 120.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/B2-base-duty05.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207501,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 120.2,
+  "ops": {
+    "gate.poll": {
+      "n": 67,
+      "p50": 0.5762,
+      "p90": 4.0754,
+      "p99": 8.9608,
+      "max": 8.9608,
+      "mean": 1.3847,
+      "outcomes": {
+        "ok": 67
+      },
+      "rate_per_s": 0.56
+    },
+    "list(hook)": {
+      "n": 538,
+      "p50": 1.4888,
+      "p90": 4.0741,
+      "p99": 7.0042,
+      "max": 9.5685,
+      "mean": 1.7874,
+      "outcomes": {
+        "ok": 538
+      },
+      "rate_per_s": 4.48
+    },
+    "notice.pending(prompt)": {
+      "n": 173,
+      "p50": 0.0055,
+      "p90": 3.5083,
+      "p99": 5.9261,
+      "max": 6.1086,
+      "mean": 0.9675,
+      "outcomes": {
+        "ok": 173
+      },
+      "rate_per_s": 1.44
+    },
+    "probe:list": {
+      "n": 36,
+      "p50": 1.3741,
+      "p90": 5.0789,
+      "p99": 9.5606,
+      "max": 9.5606,
+      "mean": 2.1191,
+      "outcomes": {
+        "ok": 36
+      },
+      "rate_per_s": 0.3
+    },
+    "probe:ping": {
+      "n": 63,
+      "p50": 0.2298,
+      "p90": 1.9941,
+      "p99": 5.0477,
+      "max": 5.0477,
+      "mean": 0.7123,
+      "outcomes": {
+        "ok": 63
+      },
+      "rate_per_s": 0.52
+    },
+    "probe:show": {
+      "n": 37,
+      "p50": 1.2505,
+      "p90": 5.8998,
+      "p99": 9.3708,
+      "max": 9.3708,
+      "mean": 2.1,
+      "outcomes": {
+        "ok": 37
+      },
+      "rate_per_s": 0.31
+    },
+    "probe:status": {
+      "n": 34,
+      "p50": 2.0632,
+      "p90": 6.0747,
+      "p99": 8.0108,
+      "max": 8.0108,
+      "mean": 2.4352,
+      "outcomes": {
+        "ok": 34
+      },
+      "rate_per_s": 0.28
+    },
+    "submit": {
+      "n": 11,
+      "p50": 1.6253,
+      "p90": 4.7646,
+      "p99": 6.2282,
+      "max": 6.2282,
+      "mean": 2.4286,
+      "outcomes": {
+        "ok": 11
+      },
+      "rate_per_s": 0.09
+    },
+    "wait": {
+      "n": 18,
+      "p50": 61.2644,
+      "p90": 66.3619,
+      "p99": 66.4901,
+      "max": 66.4901,
+      "mean": 62.1648,
+      "outcomes": {
+        "ok": 18
+      },
+      "rate_per_s": 0.15
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {
+    "hold": 1
+  },
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

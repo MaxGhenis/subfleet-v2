@@ -1,0 +1,202 @@
+...EEEEEEEEEEEEEEEEEE.                                                   [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_running_attempt_inspection_shares_one_table_and_never_dumps_environments _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_pid_taken_by_a_new_group_member_is_recorded_afresh __
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+______ ERROR at setup of test_a_failing_inspection_is_retried_not_skipped ______
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_retry_that_finds_another_read_running_keeps_its_backoff _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+___ ERROR at setup of test_an_inspection_that_runs_to_its_end_ends_the_retry ___
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_retry_that_cannot_inspect_keeps_its_backoff[table] __
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_retry_that_cannot_inspect_keeps_its_backoff[boot identity] _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian] _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table] _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__ ERROR at setup of test_paced_inspection_still_reads_the_receipt_every_tick __
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_retry_state_is_dropped_once_an_attempt_is_no_longer_live _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____ ERROR at setup of test_a_running_probe_is_inspected_on_the_same_budget ____
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_the_export_sweep_is_one_statement_however_much_history_is_kept _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+______ ERROR at setup of test_wait_rereads_the_store_only_after_a_commit _______
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____ ERROR at setup of test_wait_rechecks_on_its_own_clock_without_a_commit ____
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_____ ERROR at setup of test_a_worker_that_commits_nothing_wakes_no_waiter _____
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+ERROR tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_pid_taken_by_a_new_group_member_is_recorded_afresh
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_failing_inspection_is_retried_not_skipped
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_finds_another_read_running_keeps_its_backoff
+ERROR tests/unit/test_daemon_inspection_load.py::test_an_inspection_that_runs_to_its_end_ends_the_retry
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[table]
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[boot identity]
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian]
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table]
+ERROR tests/unit/test_daemon_inspection_load.py::test_paced_inspection_still_reads_the_receipt_every_tick
+ERROR tests/unit/test_daemon_inspection_load.py::test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live
+ERROR tests/unit/test_daemon_inspection_load.py::test_retry_state_is_dropped_once_an_attempt_is_no_longer_live
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget
+ERROR tests/unit/test_daemon_inspection_load.py::test_the_export_sweep_is_one_statement_however_much_history_is_kept
+ERROR tests/unit/test_daemon_inspection_load.py::test_wait_rereads_the_store_only_after_a_commit
+ERROR tests/unit/test_daemon_inspection_load.py::test_wait_rechecks_on_its_own_clock_without_a_commit
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_worker_that_commits_nothing_wakes_no_waiter
+4 passed, 18 errors in 4.21s

@@ -1,0 +1,34 @@
+{
+  "case": "org-block",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "The org-block sentence is verbatim from the Claude Code 2.1.260 string table and matches the message v1 recorded on max@policybench.org 2026-08-23. The frames around it are assembled; `error` is the oauth_org_not_allowed member of the CLI's own error enum.",
+  "requested_model": "claude-opus-5",
+  "session_id": "55555555-5555-4555-8555-555555555555",
+  "class": "auth-dead",
+  "detail_contains": "organization has disabled",
+  "evidence": {
+    "auth": "organisation block",
+    "admission": "not reached",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [
+      "claude-opus-5"
+    ],
+    "rate_limit_events": 0,
+    "result_subtype": "error_during_execution",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

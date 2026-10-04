@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="20.953" timestamp="2026-10-03T18:27:01.432851-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_sessions_end_to_end" name="test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one" time="20.573"><properties><property name="nodeid" value="tests/fake/test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one" /></properties><failure message="AssertionError: condition timed out after 20s">tests/fake/test_sessions_end_to_end.py:630: in test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+    attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 20s</failure></testcase></testsuite></testsuites>

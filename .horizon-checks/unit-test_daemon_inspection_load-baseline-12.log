@@ -1,0 +1,15 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table] _
+tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+ERROR tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table]
+1 error in 0.41s

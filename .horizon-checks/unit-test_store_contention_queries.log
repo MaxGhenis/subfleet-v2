@@ -1,0 +1,985 @@
+..........................................FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF [ 33%]
+FFFFFFFFFFFFFFF.........................................F............... [ 67%]
+.........................FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF     [100%]
+=================================== FAILURES ===================================
+____________ test_the_probe_record_is_the_newest_for_its_holder[0] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[1] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[2] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[3] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[4] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[5] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[6] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[7] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[8] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[9] _____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[10] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[11] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[12] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[13] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[14] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[15] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[16] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[17] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[18] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[19] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[20] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[21] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[22] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[23] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[24] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[25] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[26] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[27] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[28] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[29] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[30] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[31] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[32] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[33] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[34] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[35] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[36] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[37] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[38] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ test_the_probe_record_is_the_newest_for_its_holder[39] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+______________ test_a_probe_record_with_a_nan_is_still_the_newest ______________
+tests/unit/test_store_contention_queries.py:147: in test_a_probe_record_with_a_nan_is_still_the_newest
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_____________ test_a_probe_payload_that_is_not_json_is_passed_over _____________
+tests/unit/test_store_contention_queries.py:161: in test_a_probe_payload_that_is_not_json_is_passed_over
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+______ test_a_probe_payload_with_a_repeated_key_is_never_another_holders _______
+tests/unit/test_store_contention_queries.py:183: in test_a_probe_payload_with_a_repeated_key_is_never_another_holders
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+________________ test_the_probe_record_lookup_uses_its_indexes _________________
+tests/unit/test_store_contention_queries.py:209: in test_the_probe_record_lookup_uses_its_indexes
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+___________ test_the_probe_record_lookup_does_not_grow_with_history ____________
+tests/unit/test_store_contention_queries.py:222: in test_the_probe_record_lookup_does_not_grow_with_history
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_______________ test_batches_and_submissions_are_found_by_job_id _______________
+tests/unit/test_store_contention_queries.py:303: in test_batches_and_submissions_are_found_by_job_id
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[0] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[1] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[2] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[3] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[4] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[5] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[6] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[7] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[8] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_session_events_are_the_newest_per_kind_and_session[9] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[10] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[11] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[12] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[13] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[14] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[15] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[16] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[17] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[18] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[19] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[20] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[21] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[22] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[23] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[24] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[25] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[26] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[27] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[28] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[29] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[30] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[31] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[32] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[33] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[34] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[35] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[36] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[37] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[38] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________ test_session_events_are_the_newest_per_kind_and_session[39] __________
+tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_____________ test_a_session_event_with_a_nan_is_still_the_newest ______________
+tests/unit/test_store_contention_queries.py:445: in test_a_session_event_with_a_nan_is_still_the_newest
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_____ test_a_session_payload_with_a_repeated_key_is_never_another_sessions _____
+tests/unit/test_store_contention_queries.py:459: in test_a_session_payload_with_a_repeated_key_is_never_another_sessions
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ test_the_session_events_read_their_unparsed_rows_by_index ___________
+tests/unit/test_store_contention_queries.py:476: in test_the_session_events_read_their_unparsed_rows_by_index
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[0]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[1]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[2]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[3]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[4]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[5]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[6]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[7]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[8]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[9]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[10]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[11]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[12]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[13]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[14]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[15]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[16]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[17]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[18]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[19]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[20]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[21]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[22]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[23]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[24]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[25]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[26]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[27]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[28]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[29]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[30]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[31]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[32]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[33]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[34]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[35]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[36]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[37]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[38]
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[39]
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_record_with_a_nan_is_still_the_newest
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_payload_that_is_not_json_is_passed_over
+FAILED tests/unit/test_store_contention_queries.py::test_a_probe_payload_with_a_repeated_key_is_never_another_holders
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_uses_its_indexes
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_does_not_grow_with_history
+FAILED tests/unit/test_store_contention_queries.py::test_batches_and_submissions_are_found_by_job_id
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[0]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[1]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[2]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[3]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[4]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[5]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[6]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[7]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[8]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[9]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[10]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[11]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[12]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[13]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[14]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[15]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[16]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[17]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[18]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[19]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[20]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[21]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[22]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[23]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[24]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[25]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[26]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[27]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[28]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[29]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[30]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[31]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[32]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[33]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[34]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[35]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[36]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[37]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[38]
+FAILED tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[39]
+FAILED tests/unit/test_store_contention_queries.py::test_a_session_event_with_a_nan_is_still_the_newest
+FAILED tests/unit/test_store_contention_queries.py::test_a_session_payload_with_a_repeated_key_is_never_another_sessions
+FAILED tests/unit/test_store_contention_queries.py::test_the_session_events_read_their_unparsed_rows_by_index
+89 failed, 123 passed in 18.07s

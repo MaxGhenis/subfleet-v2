@@ -1,0 +1,95 @@
+#!/bin/bash
+# Native Subfleet PATH shim. Interactive Codex stays unchanged; raw unattended
+# calls need an explicit subscription home or a successful advisory v2 pick.
+set -uo pipefail
+
+REAL=""
+while IFS= read -r candidate; do
+  if [ -f "$candidate" ] && [ -x "$candidate" ] && ! [ "$candidate" -ef "${BASH_SOURCE[0]}" ]; then
+    REAL="$candidate"
+    break
+  fi
+done < <(printf '%s\n' "$HOME/.bun/bin/codex" "$HOME/.bun/install/global/node_modules/.bin/codex"; type -ap codex 2>/dev/null)
+if [ -z "$REAL" ]; then
+  echo "codex-shim: real Codex binary not found" >&2
+  exit 127
+fi
+
+# Recognize the command and model without consuming or rewriting provider argv.
+# Skip values so a title, path, image, or config string is never a model flag.
+command=""
+model=""
+pending=""
+continuation=0
+help_only=0
+for arg in "$@"; do
+  if [ -n "$pending" ]; then
+    [ "$pending" != model ] || model="$arg"
+    pending=""
+    continue
+  fi
+  case "$arg" in
+    --) break ;;
+    -m|--model) pending=model ;;
+    --model=*) model="${arg#*=}" ;;
+    -m?*) model="${arg#-m}"; model="${model#=}" ;;
+    -c|--config|--enable|--disable|--remote|--remote-auth-token-env|-i|--image|--local-provider|-p|--profile|-s|--sandbox|-C|--cd|--add-dir|-a|--ask-for-approval|--thread-source|--output-schema|--color|-o|--output-last-message|--base|--commit|--title)
+      pending=value ;;
+    -h|--help|-V|--version) help_only=1 ;;
+    -*) ;;
+    *)
+      if [ -z "$command" ]; then
+        command="$arg"
+      elif [ "$command" = exec ] || [ "$command" = e ]; then
+        case "$arg" in resume|fork) continuation=1 ;; esac
+        # This is the subcommand or the prompt. Later flags still belong to
+        # Codex, but a prompt argument is not interpreted as another command.
+        command="${command}-args"
+      fi ;;
+  esac
+done
+
+case "$command" in
+  exec|e|exec-args|e-args|review)
+    if [ "$help_only" = 0 ]; then
+      # Match the daemon adapter: subscription work never inherits API keys.
+      unset CODEX_API_KEY OPENAI_API_KEY
+      native="$HOME/.local/share/subfleet/current/venv/bin"
+      if [ ! -x "$native/python" ] || [ ! -f "$native/subfleet" ]; then
+        echo "codex-shim: native Subfleet is unavailable; install v2 before noninteractive Codex" >&2
+        exit 69
+      fi
+      if [ -z "${CODEX_HOME:-}" ]; then
+        if [ "$continuation" = 1 ]; then
+          echo "codex-shim: exec resume/fork requires the original CODEX_HOME; use subfleet resume for managed jobs" >&2
+          exit 7
+        fi
+        if [ -n "${SUBFLEET_NO_AUTOPICK:-}" ]; then
+          echo "codex-shim: SUBFLEET_NO_AUTOPICK requires an explicit CODEX_HOME for noninteractive work" >&2
+          exit 7
+        fi
+        pick_args=(pick codex)
+        [ -z "$model" ] || pick_args+=(--model "$model")
+        pick="$("$native/python" -E -P "$native/subfleet" "${pick_args[@]}")"
+        code=$?
+        if [ "$code" != 0 ]; then
+          echo "codex-shim: native lane pick failed (exit $code); Codex was not started" >&2
+          exit "$code"
+        fi
+        case "$pick" in
+          /*) ;;
+          *) echo "codex-shim: native pick returned no absolute home; Codex was not started" >&2; exit 7 ;;
+        esac
+        if [[ "$pick" == *$'\n'* || "$pick" == *$'\r'* ]] || [ ! -d "$pick" ]; then
+          echo "codex-shim: native pick returned an invalid home; Codex was not started" >&2
+          exit 7
+        fi
+        export CODEX_HOME="$pick"
+        echo "codex-shim: CODEX_HOME unset -> $pick (native v2 recommendation)" >&2
+      fi
+      # Always check, including explicit homes and the retired v1 override.
+      "$native/python" -E -P "$native/subfleet" _api-lane-check "$CODEX_HOME" || exit 7
+    fi ;;
+esac
+
+exec "$REAL" "$@"

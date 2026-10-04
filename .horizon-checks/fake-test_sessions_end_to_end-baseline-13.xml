@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="5.200" timestamp="2026-10-03T18:26:26.809859-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_sessions_end_to_end" name="test_revive_probes_lane_before_launch" time="1.781"><properties><property name="nodeid" value="tests/fake/test_sessions_end_to_end.py::test_revive_probes_lane_before_launch" /></properties><failure message="IndexError: list index out of range">tests/fake/test_sessions_end_to_end.py:500: in test_revive_probes_lane_before_launch
+    attempt = service.store.list_attempts(result.job_id)[0]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   IndexError: list index out of range</failure></testcase></testsuite></testsuites>

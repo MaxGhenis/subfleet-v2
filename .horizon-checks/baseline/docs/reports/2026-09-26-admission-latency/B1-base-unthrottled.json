@@ -1,0 +1,212 @@
+{
+  "code": "/private/tmp/sfr-base-e053b2c",
+  "root": "/private/tmp/sfr-runs/root-B1-base-unthrottled",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.107,
+  "admission": {
+    "holds_s": {
+      "n": 60,
+      "p50": 0.0009,
+      "p90": 0.1465,
+      "p99": 0.2627,
+      "max": 0.2627,
+      "mean": 0.0304
+    },
+    "reserve_holds_s": {
+      "n": 49,
+      "p50": 0.0011,
+      "p90": 0.1653,
+      "p99": 0.2627,
+      "max": 0.2627,
+      "mean": 0.0371
+    },
+    "store_waits_s": {
+      "n": 207,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.1019,
+      "max": 0.1614,
+      "mean": 0.0046
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0152,
+    "turn_queued_to_reserved_s": {
+      "n": 11,
+      "p50": 0.6066,
+      "p90": 1.3241,
+      "p99": 1.8303,
+      "max": 1.8303,
+      "mean": 0.7373
+    },
+    "turns_submitted": 11,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 45,
+    "again": 21,
+    "moved": 21,
+    "old": 0,
+    "failed": 0
+  },
+  "args": {
+    "code": "/tmp/sfr-base-e053b2c",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-B1-base-unthrottled",
+    "lanes": 10,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 1.0,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 120.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/B1-base-unthrottled.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207501,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 120.1,
+  "ops": {
+    "gate.poll": {
+      "n": 218,
+      "p50": 0.0081,
+      "p90": 0.332,
+      "p99": 0.7657,
+      "max": 0.9884,
+      "mean": 0.0918,
+      "outcomes": {
+        "ok": 218
+      },
+      "rate_per_s": 1.81
+    },
+    "list(hook)": {
+      "n": 893,
+      "p50": 0.0008,
+      "p90": 0.3204,
+      "p99": 0.8035,
+      "max": 1.5151,
+      "mean": 0.0933,
+      "outcomes": {
+        "ok": 893
+      },
+      "rate_per_s": 7.43
+    },
+    "notice.pending(prompt)": {
+      "n": 283,
+      "p50": 0.0004,
+      "p90": 0.0842,
+      "p99": 0.6693,
+      "max": 1.3114,
+      "mean": 0.0286,
+      "outcomes": {
+        "ok": 283
+      },
+      "rate_per_s": 2.36
+    },
+    "probe:list": {
+      "n": 91,
+      "p50": 0.0014,
+      "p90": 0.3213,
+      "p99": 0.991,
+      "max": 0.991,
+      "mean": 0.1068,
+      "outcomes": {
+        "ok": 91
+      },
+      "rate_per_s": 0.76
+    },
+    "probe:ping": {
+      "n": 99,
+      "p50": 0.0004,
+      "p90": 0.0012,
+      "p99": 0.732,
+      "max": 0.732,
+      "mean": 0.0139,
+      "outcomes": {
+        "ok": 99
+      },
+      "rate_per_s": 0.82
+    },
+    "probe:show": {
+      "n": 89,
+      "p50": 0.0033,
+      "p90": 0.4343,
+      "p99": 1.1706,
+      "max": 1.1706,
+      "mean": 0.1207,
+      "outcomes": {
+        "ok": 89
+      },
+      "rate_per_s": 0.74
+    },
+    "probe:status": {
+      "n": 86,
+      "p50": 0.0646,
+      "p90": 0.5357,
+      "p99": 1.005,
+      "max": 1.005,
+      "mean": 0.2076,
+      "outcomes": {
+        "ok": 86
+      },
+      "rate_per_s": 0.72
+    },
+    "submit": {
+      "n": 14,
+      "p50": 0.1615,
+      "p90": 0.6117,
+      "p99": 0.8422,
+      "max": 0.8422,
+      "mean": 0.2284,
+      "outcomes": {
+        "ok": 14
+      },
+      "rate_per_s": 0.12
+    },
+    "wait": {
+      "n": 23,
+      "p50": 60.2412,
+      "p90": 60.6243,
+      "p99": 60.7314,
+      "max": 60.7314,
+      "mean": 60.3349,
+      "outcomes": {
+        "ok": 23
+      },
+      "rate_per_s": 0.19
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {},
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

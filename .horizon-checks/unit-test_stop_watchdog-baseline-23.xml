@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="3.065" timestamp="2026-10-03T18:02:33.721573-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_stop_watchdog" name="test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything" time="0.103"><properties><property name="nodeid" value="tests/unit/test_stop_watchdog.py::test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_stop_watchdog.py:503: in test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything
+    daemon = Daemon(tmp_path / "root", desktop_prober=lambda: None)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase></testsuite></testsuites>

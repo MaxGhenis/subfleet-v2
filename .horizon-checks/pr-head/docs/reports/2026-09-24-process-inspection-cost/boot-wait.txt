@@ -1,0 +1,11 @@
+# test_probe_boot_wait_daemon.py (final review of PR #37, 2026-09-26): four attempts ask one table whose boot-identity read takes 2 s; per-attempt pass durations
+## r217-base
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle-c/a1': 2.15, '20260905-100000-settle-b/a1': 2.15, '20260905-100000-settle/a1': 2.15, '20260905-100000-settle-d/a1': 2.15}
+[slow sysctl] workers held for the whole boot read: 4 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle/a1': 2.11, '20260905-100000-settle-b/a1': 2.11}; states: ['running', 'running']
+2 passed in 9.98s
+## r217-head
+[slow sysctl 2.0s] ps reads=1 boot reads=1 per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle-c/a1': 0.0, '20260905-100000-settle-d/a1': 0.0, '20260905-100000-settle/a1': 2.13}
+[slow sysctl] workers held for the whole boot read: 1 of 4
+[hung sysctl 2.0s] per-attempt tick durations: {'20260905-100000-settle-b/a1': 0.0, '20260905-100000-settle/a1': 2.14}; states: ['running', 'running']
+2 passed in 4.39s

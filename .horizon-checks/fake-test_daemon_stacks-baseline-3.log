@@ -1,0 +1,20 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives _________
+tests/fake/test_daemon_stacks.py:125: in test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives
+    child = spawn(NEW_DAEMON, root)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_daemon_stacks.py:74: in spawn
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+E   AssertionError: Traceback (most recent call last):
+E       File "<string>", line 7, in <module>
+E       File "/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/.horizon-checks/baseline/subfleet/procs.py", line 93, in boot_id
+E         raise InspectionError("macOS boot identity is unavailable")
+E     subfleet.procs.InspectionError: macOS boot identity is unavailable
+E     
+E   assert '' == 'ready'
+E     
+E     - ready
+=========================== short test summary info ============================
+FAILED tests/fake/test_daemon_stacks.py::test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives
+1 failed in 0.24s

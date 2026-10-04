@@ -1,0 +1,53 @@
+FF..F...........FF..                                                     [100%]
+=================================== FAILURES ===================================
+_________ test_daemon_start_waits_for_the_socket_then_status_and_stop __________
+tests/unit/test_daemon_verbs.py:116: in test_daemon_start_waits_for_the_socket_then_status_and_stop
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10b528180>(['daemon', 'stop'])
+E    +    where <function main at 0x10b528180> = cli.main
+----------------------------- Captured stderr call -----------------------------
+subfleet: daemon stop: cannot verify that pid 57489 is the recorded daemon (C-5.3); refusing to signal it
+__________________ test_daemon_start_runs_in_its_own_session ___________________
+tests/unit/test_daemon_verbs.py:133: in test_daemon_start_runs_in_its_own_session
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10b528180>(['daemon', 'stop'])
+E    +    where <function main at 0x10b528180> = cli.main
+----------------------------- Captured stderr call -----------------------------
+subfleet: daemon stop: cannot verify that pid 57502 is the recorded daemon (C-5.3); refusing to signal it
+_________________ test_daemon_stop_on_a_stale_lock_is_a_no_op __________________
+tests/unit/test_daemon_verbs.py:160: in test_daemon_stop_on_a_stale_lock_is_a_no_op
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10b528180>(['daemon', 'stop'])
+E    +    where <function main at 0x10b528180> = cli.main
+----------------------------- Captured stderr call -----------------------------
+subfleet: daemon stop: cannot verify that pid 999999 is the recorded daemon (C-5.3); refusing to signal it
+___ test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself ___
+tests/unit/test_daemon_verbs.py:354: in test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself
+    with _stopping_stub(root, tmp_path, "late") as proc:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/unit/test_daemon_verbs.py:341: in _stopping_stub
+    raise AssertionError("stub never wrote its lock")
+E   AssertionError: stub never wrote its lock
+_______ test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed _______
+tests/unit/test_daemon_verbs.py:370: in test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed
+    with _stopping_stub(root, tmp_path, "deaf") as proc:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/unit/test_daemon_verbs.py:341: in _stopping_stub
+    raise AssertionError("stub never wrote its lock")
+E   AssertionError: stub never wrote its lock
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_start_waits_for_the_socket_then_status_and_stop
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_start_runs_in_its_own_session
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_on_a_stale_lock_is_a_no_op
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed
+5 failed, 15 passed in 64.03s (0:01:04)

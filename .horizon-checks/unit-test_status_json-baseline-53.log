@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_c18_1_the_daemon_hands_the_timer_its_probe_records ____________
+tests/unit/test_status_json.py:739: in test_c18_1_the_daemon_hands_the_timer_its_probe_records
+    daemon = Daemon(tmp_path / "root")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records
+1 failed in 0.79s

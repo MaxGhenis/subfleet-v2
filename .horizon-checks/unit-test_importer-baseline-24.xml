@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.708" timestamp="2026-10-03T17:52:48.789228-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_importer" name="test_states_map_from_rc" time="0.142"><properties><property name="nodeid" value="tests/unit/test_importer.py::test_states_map_from_rc" /></properties><failure message="AssertionError: assert 'running' == 'lost'&#10;  &#10;  - lost&#10;  + running">tests/unit/test_importer.py:583: in test_states_map_from_rc
+    assert states["20260905-100300-lost"] == "lost"
+E   AssertionError: assert 'running' == 'lost'
+E     
+E     - lost
+E     + running</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,5 @@
+fix(capacity): keep ranking judgement stable until its horizon
+
+Keep renewable weekly and five-hour resets in lane horizons while treating a window expired at observation as already unusable. Store the ranking observation timestamp and derive explanation ages outside lane judgement. Extend generated-fleet clocks and assert the complete ranking key stays constant before every lane horizon.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

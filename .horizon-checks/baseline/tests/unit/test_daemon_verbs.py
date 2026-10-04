@@ -1,0 +1,428 @@
+"""`daemon start|stop|status|logs|install` against a stub `subfleetd` (C-17.1).
+
+Every test names the clause it proves (C-20.5).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import plistlib
+import signal
+import sys
+from pathlib import Path
+
+import pytest
+
+from subfleet import cli
+from subfleet.client import Client
+
+REPO = str(Path(__file__).resolve().parents[2])
+
+# The five `doctor` tests that lived here moved to tests/unit/test_doctor.py
+# with the table itself (cutover-compat, milestone 4). `cli.doctor_checks` is
+# now a call into `subfleet/doctor.py`, whose rows are pass/fail/unknown with a
+# fix line rather than ok/warn/fail, and `doctor --live` pings the daemon
+# (C-16.2) instead of reporting that it is not implemented.
+
+STUB = '''#!{python}
+"""A stand-in subfleetd: binds the socket, writes the lock, answers daemon.status."""
+import json, os, signal, socket, sys
+sys.path.insert(0, {repo!r})
+from pathlib import Path
+from subfleet import protocol
+from subfleet.client import boot_id, proc_start
+
+root = Path(sys.argv[sys.argv.index("--state-root") + 1])
+sock_path, lock_path = root / "daemon.sock", root / "daemon.lock"
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(str(sock_path))
+server.listen(8)
+server.settimeout(0.2)
+lock_path.write_text(json.dumps({{"pid": os.getpid(), "boot_id": boot_id(),
+                                 "proc_start": proc_start(os.getpid()),
+                                 "version": "stub"}}))
+print("stub subfleetd listening", flush=True)
+
+
+def stop(*_):
+    sock_path.unlink(missing_ok=True)
+    lock_path.unlink(missing_ok=True)
+    os._exit(0)
+
+
+signal.signal(signal.SIGTERM, stop)
+while True:
+    try:
+        conn, _ = server.accept()
+    except TimeoutError:
+        continue
+    with conn, conn.makefile("rb") as stream:
+        line = stream.readline()
+        if not line.strip():
+            continue
+        request = protocol.decode_request(line)
+        conn.sendall(protocol.encode(protocol.ok(
+            request.id, {{"version": "stub", "lanes": [], "readings": [],
+                         "closures": [], "running": []}})))
+'''
+
+DEAD_STUB = '''#!{python}
+import sys
+print("stub refused to start: no credentials", file=sys.stderr, flush=True)
+sys.exit(3)
+'''
+
+
+def _write_stub(path: Path, body: str) -> Path:
+    path.write_text(body.format(python=sys.executable, repo=REPO))
+    path.chmod(0o755)
+    return path
+
+
+@pytest.fixture
+def stub(root, monkeypatch, tmp_path):
+    """A `subfleetd` that really listens, torn down however the test ends."""
+    path = _write_stub(tmp_path / "stub-subfleetd", STUB)
+    monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(path))
+    yield path
+    info = Client(root).lock_info() or {}
+    pid = info.get("pid")
+    if isinstance(pid, int):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def test_daemon_start_waits_for_the_socket_then_status_and_stop(stub, root, capsys):
+    """C-17.1, C-5.8 start launches subfleetd detached and waits for the socket."""
+    assert cli.main(["daemon", "start"]) == 0
+    captured = capsys.readouterr()
+    assert (root / "daemon.sock").exists()
+    lock = json.loads((root / "daemon.lock").read_text())
+    assert captured.out.strip() == str(lock["pid"])
+    assert "started" in captured.err
+
+    assert cli.main(["daemon", "status"]) == 0
+    captured = capsys.readouterr()
+    assert "ping        ok" in captured.out
+    assert str(lock["pid"]) in captured.out
+
+    assert cli.main(["daemon", "start"]) == 0            # idempotent
+    assert "already running" in capsys.readouterr().err
+
+    assert cli.main(["daemon", "stop"]) == 0
+    assert "stopped" in capsys.readouterr().err
+    assert not (root / "daemon.sock").exists()
+
+
+def test_daemon_start_runs_in_its_own_session(stub, root, capsys):
+    """C-17.1 `daemon start` launches subfleetd detached in its own session.
+
+    Leading its own session is what makes the daemon outlive the shell that
+    started it, so the check is `getsid(pid) == pid`, not merely a different
+    process group.
+    """
+    assert cli.main(["daemon", "start"]) == 0
+    capsys.readouterr()
+    pid = json.loads((root / "daemon.lock").read_text())["pid"]
+    assert os.getsid(pid) == pid
+    assert os.getsid(pid) != os.getsid(0)
+    assert cli.main(["daemon", "stop"]) == 0
+    capsys.readouterr()
+
+
+def test_daemon_start_exits_69_with_the_log_tail(root, monkeypatch, tmp_path, capsys):
+    """C-17.3 a daemon that never opens the socket is exit 69 with the log tail."""
+    monkeypatch.setenv("SUBFLEET_DAEMON_BIN",
+                       str(_write_stub(tmp_path / "dead-subfleetd", DEAD_STUB)))
+    assert cli.main(["daemon", "start"]) == 69
+    captured = capsys.readouterr()
+    assert "did not appear within 10s" in captured.err
+    assert "stub refused to start" in captured.err
+    assert (root / "daemon.log").exists()
+
+
+def test_daemon_status_without_a_daemon_is_69(root, capsys):
+    """C-17.3, C-5.8 `daemon status` reports an absent socket and lock and exits 69."""
+    assert cli.main(["daemon", "status"]) == 69
+    captured = capsys.readouterr()
+    assert "socket" in captured.out and "absent" in captured.out
+    assert "lock        absent" in captured.out
+
+
+def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys):
+    """C-5.8 a lock whose recorded identity is dead is not a daemon to stop."""
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    assert cli.main(["daemon", "stop"]) == 0
+    assert "stale lock" in capsys.readouterr().err
+
+
+def test_daemon_stop_refuses_an_identity_it_cannot_verify(root, capsys):
+    """C-5.3 the CLI never signals a pid whose identity it could not confirm."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
+    assert cli.main(["daemon", "stop"]) == 1
+    captured = capsys.readouterr()
+    assert "cannot verify" in captured.err and "C-5.3" in captured.err
+
+
+def test_daemon_stop_without_a_lock_is_a_no_op(root, capsys):
+    """C-5.8 no lock file means no daemon."""
+    assert cli.main(["daemon", "stop"]) == 0
+    assert "not running" in capsys.readouterr().err
+
+
+def test_daemon_logs_tails_the_log(root, capsys):
+    """C-17.1 `daemon logs` prints the tail of daemon.log."""
+    (root / "daemon.log").write_text("\n".join(f"line {n}" for n in range(100)) + "\n")
+    assert cli.main(["daemon", "logs", "-n", "3"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["line 97", "line 98", "line 99"]
+    (root / "daemon.log").unlink()
+    assert cli.main(["daemon", "logs"]) == 1
+    assert f"daemon logs: no {root / 'daemon.log'}" in capsys.readouterr().err
+
+
+def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, capsys):
+    """C-17.1 `daemon install --dry-run` prints the plist and writes nothing."""
+    monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(tmp_path / "subfleetd"))
+    target = tmp_path / "com.subfleet.daemon.plist"
+    monkeypatch.setattr(cli, "PLIST_PATH", str(target))
+    assert cli.main(["daemon", "install", "--dry-run"]) == 0
+    captured = capsys.readouterr()
+    plist = plistlib.loads(captured.out.encode())
+    assert plist["Label"] == "com.subfleet.daemon"
+    assert plist["KeepAlive"] is True and plist["RunAtLoad"] is True
+    # C-5.1: the daemon at the default QoS; the guardian clamps each provider to `utility`.
+    assert plist["ProcessType"] == "Interactive"
+    assert plist["ProgramArguments"] == [str(tmp_path / "subfleetd"),
+                                         "--state-root", str(root)]
+    assert plist["EnvironmentVariables"]["SUBFLEET_HOME"] == str(root)
+    assert plist["StandardOutPath"] == str(root / "daemon.log")
+    # C-5.8a: launchd waits past the daemon's own stop bound before SIGKILL.
+    from subfleet.contracts import STOP_BACKSTOP_S, STOP_GRACE_S
+    assert plist["ExitTimeOut"] == STOP_GRACE_S + STOP_BACKSTOP_S
+    assert "would write" in captured.err
+    assert not target.exists()          # --dry-run writes nothing and loads nothing
+
+
+def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
+    """C-2.1 the state root is $SUBFLEET_HOME, default ~/.subfleet/."""
+    from subfleet.client import state_root
+    assert state_root() == root
+    monkeypatch.delenv("SUBFLEET_HOME")
+    assert state_root() == Path("~/.subfleet").expanduser()
+
+
+def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
+                                                             tmp_path, capsys):
+    """C-17.1 a subfleetd that double-forks exits 0; that is not a failure."""
+    forking = tmp_path / "forking-subfleetd"
+    forking.write_text(STUB.format(python=sys.executable, repo=REPO).replace(
+        'root = Path(sys.argv[sys.argv.index("--state-root") + 1])',
+        'if os.fork():\n    os._exit(0)\n'
+        'os.setsid()\n'
+        'root = Path(sys.argv[sys.argv.index("--state-root") + 1])'))
+    forking.chmod(0o755)
+    monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(forking))
+    try:
+        assert cli.main(["daemon", "start"]) == 0
+        assert (root / "daemon.sock").exists()
+    finally:
+        capsys.readouterr()
+        info = Client(root).lock_info() or {}
+        if isinstance(info.get("pid"), int):
+            with contextlib.suppress(OSError):
+                os.kill(info["pid"], signal.SIGKILL)
+
+
+def test_the_daemon_does_not_inherit_api_keys_or_a_session(root, monkeypatch):
+    """C-14.4 the daemon outlives the shell, so it starts from a scrubbed env."""
+    leaked = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
+              "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
+              # C-13.1: a repository a git hook named (a `daemon start` run from one),
+              # and a way to read pathspecs that undid salvage's exclusion (P3-3).
+              "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+              "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
+    for name in leaked:
+        monkeypatch.setenv(name, "leaked")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    env = cli.daemon_env(root)
+    assert not {name for name in env if name in cli.STRIPPED_ENV or name in leaked}
+    assert env["SUBFLEET_HOME"] == str(root)
+    assert env["PATH"] == "/usr/bin:/bin"
+
+
+def test_daemon_stop_verifies_and_signals_one_snapshot(root, monkeypatch, capsys):
+    """C-5.4 the lock is read once, so a new daemon's identity cannot vouch for
+    an old daemon's pid."""
+    seen: list[int] = []
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 4242, "boot_id": "b", "proc_start": "recorded"}))
+    monkeypatch.setattr("subfleet.cli.same_process",
+                        lambda pid, boot, start: seen.append(pid) or (
+                            True if len(seen) == 1 else False))
+    monkeypatch.setattr(os, "kill", lambda pid, sig: seen.append(-pid))
+    assert cli.main(["daemon", "stop"]) == 0
+    assert seen[0] == 4242 and -4242 in seen
+    assert "stopped" in capsys.readouterr().err
+
+
+def test_daemon_stop_refuses_a_lock_with_no_usable_pid(root, capsys):
+    """C-5.8 a lock the CLI cannot read a pid out of is not something to signal."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": "not a number"}))
+    assert cli.main(["daemon", "stop"]) == 1
+    assert "no usable pid" in capsys.readouterr().err
+
+
+def test_daemon_logs_line_counts(root, capsys):
+    """C-17.3 `-n 0` prints nothing and a negative count is invalid input."""
+    (root / "daemon.log").write_text("a\nb\nc\n")
+    assert cli.main(["daemon", "logs", "-n", "0"]) == 0
+    assert capsys.readouterr().out == ""
+    assert cli.main(["daemon", "logs", "-n", "-1"]) == 2
+    assert "non-negative" in capsys.readouterr().err
+
+
+
+
+def test_daemon_argv_runs_the_interpreter_with_an_isolated_environment(monkeypatch, tmp_path):
+    """Decision 2026-09-05 §3: without an override the daemon starts under python -E -P."""
+    from subfleet import cli as cli_module
+    monkeypatch.delenv("SUBFLEET_DAEMON_BIN", raising=False)
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli_module.sys, "executable", str(tmp_path / "python"))
+    argv = cli_module._daemond_argv(tmp_path / "root")
+    assert argv[:3] == [str(tmp_path / "python"), "-E", "-P"]
+    assert argv[3:5] == ["-m", "subfleet.daemon"]
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/opt/bin/subfleetd")
+    assert cli_module._daemond_argv(tmp_path / "root")[:4] == [str(tmp_path / "python"), "-E", "-P", "/opt/bin/subfleetd"]
+
+
+# C-5.8a: stand-ins for a daemon that ends itself late (its stop bound firing)
+# and for one whose bound never armed (a thread kept the GIL through SIGTERM,
+# so its handler never ran): here, one that ignores SIGTERM outright.
+STOPPING_STUB = '''#!{python}
+import json, os, signal, sys, time
+sys.path.insert(0, {repo!r})
+from pathlib import Path
+from subfleet.client import boot_id, proc_start
+
+root = Path(sys.argv[sys.argv.index("--state-root") + 1])
+mode = sys.argv[sys.argv.index("--mode") + 1]
+if mode == "late":
+    signal.signal(signal.SIGTERM, lambda *_: (time.sleep(1.5), os._exit(1)))
+else:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(root / "daemon.lock").write_text(json.dumps({{
+    "pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid()),
+    "version": "stub"}}))
+while True:
+    time.sleep(0.05)
+'''
+
+
+@contextlib.contextmanager
+def _stopping_stub(root: Path, tmp_path: Path, mode: str):
+    import subprocess
+    import time as _time
+    path = _write_stub(tmp_path / f"stub-{mode}", STOPPING_STUB)
+    proc = subprocess.Popen([str(path), "--state-root", str(root), "--mode", mode])
+    try:
+        deadline = _time.monotonic() + 30          # a loaded machine imports slowly
+        while _time.monotonic() < deadline:
+            info = Client(root).lock_info() or {}
+            if info.get("pid") == proc.pid and info.get("proc_start"):
+                break
+            _time.sleep(0.05)
+        else:
+            raise AssertionError("stub never wrote its lock")
+        yield proc
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
+
+
+def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(root, tmp_path,
+                                                                             monkeypatch, capsys):
+    """C-5.8a a daemon ending itself at its bound is reported stopped, not failed,
+    and is never sent SIGKILL."""
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 8.0)
+    with _stopping_stub(root, tmp_path, "late") as proc:
+        assert cli.main(["daemon", "stop"]) == 0
+        assert proc.wait(timeout=5) == 1               # its own exit, not -SIGKILL
+    err = capsys.readouterr().err
+    assert "stopped" in err and "SIGKILL" not in err
+
+
+def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_path,
+                                                                    monkeypatch, capsys):
+    """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
+    launchd's ExitTimeOut would, and the stop succeeds."""
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)
+    waits: list[float] = []
+    real_wait = cli._wait_for_exit
+    monkeypatch.setattr(cli, "_wait_for_exit",
+                        lambda pid, info, seconds: waits.append(seconds) or real_wait(pid, info, seconds))
+    with _stopping_stub(root, tmp_path, "deaf") as proc:
+        assert cli.main(["daemon", "stop"]) == 0
+        assert proc.wait(timeout=5) == -signal.SIGKILL
+    assert waits == [cli.DAEMON_STOP_WAIT_S, cli.DAEMON_KILL_WAIT_S]
+    err = capsys.readouterr().err
+    assert "its own stop bound (C-5.8a) did not end it" in err and "sent SIGKILL" in err
+    assert "stopped" in err
+
+
+def test_daemon_stop_uses_configured_waits_before_and_after_escalation(root, monkeypatch, capsys):
+    """C-5.8a, C-5.4: the stop flow uses both configured waits and verifies
+    the recorded identity again before escalation, without host inspection."""
+    info = {"pid": 4242, "boot_id": "test-boot", "proc_start": "test-start"}
+    (root / "daemon.lock").write_text(json.dumps(info))
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 3.25)
+    monkeypatch.setattr(cli, "DAEMON_KILL_WAIT_S", 0.625)
+    events = []
+    exits = iter([False, True])
+
+    def verified(pid, boot_id, proc_start):
+        events.append(("verify", pid, boot_id, proc_start))
+        return True
+
+    def wait_for_exit(pid, recorded, seconds):
+        assert recorded == info
+        events.append(("wait", pid, seconds))
+        return next(exits)
+
+    monkeypatch.setattr(cli, "same_process", verified)
+    # No OS signal or process inspection is performed by this test.
+    monkeypatch.setattr(os, "kill", lambda pid, sig: events.append(("signal", pid, sig)))
+    monkeypatch.setattr(cli, "_wait_for_exit", wait_for_exit)
+
+    assert cli.main(["daemon", "stop"]) == 0
+    assert events == [
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGTERM),
+        ("wait", 4242, cli.DAEMON_STOP_WAIT_S),
+        ("verify", 4242, "test-boot", "test-start"),
+        ("signal", 4242, signal.SIGKILL),
+        ("wait", 4242, cli.DAEMON_KILL_WAIT_S),
+    ]
+    err = capsys.readouterr().err
+    assert "its own stop bound (C-5.8a) did not end it" in err
+    assert "sent SIGKILL" in err and "stopped" in err
+
+
+def test_daemon_stop_never_kills_an_identity_it_can_no_longer_verify(root, monkeypatch, capsys):
+    """C-5.4 the escalation re-checks the identity; unknown means no SIGKILL."""
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 4242, "boot_id": "b", "proc_start": "recorded"}))
+    answers = iter([True])                               # verified once, then unknown
+    monkeypatch.setattr("subfleet.cli.same_process", lambda *_: next(answers, None))
+    sent: list[int] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append(sig))
+    monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 0.3)
+    assert cli.main(["daemon", "stop"]) == 1
+    assert sent == [signal.SIGTERM]
+    assert "can no longer be verified" in capsys.readouterr().err

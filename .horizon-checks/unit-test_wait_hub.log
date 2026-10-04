@@ -1,0 +1,192 @@
+EEEEEEEEEEFEEEEEE...........................                             [100%]
+==================================== ERRORS ====================================
+_____________ ERROR at setup of test_a_poked_wait_returns_at_once ______________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+________ ERROR at setup of test_an_unpoked_wait_returns_within_the_poll ________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_waiting_costs_one_hub_read_per_commit_whatever_the_number_of_waiters _
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_______ ERROR at setup of test_a_wait_on_several_jobs_waits_for_the_last _______
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+___ ERROR at setup of test_a_succeeded_job_is_returned_only_after_its_export ___
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_____ ERROR at setup of test_a_failed_job_with_an_output_lease_is_returned _____
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ ERROR at setup of test_an_unknown_job_is_an_error_at_once ___________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+___ ERROR at setup of test_a_job_that_disappears_while_waited_on_is_an_error ___
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+__________ ERROR at setup of test_nothing_to_wait_for_returns_at_once __________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____________ ERROR at setup of test_the_deadline_still_ends_a_wait _____________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[0] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[1] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[2] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[3] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[4] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_________________ ERROR at setup of test_no_wake_up_is_lost[5] _________________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=================================== FAILURES ===================================
+_________________ test_a_stopping_daemon_answers_every_waiter __________________
+tests/unit/test_wait_hub.py:213: in test_a_stopping_daemon_answers_every_waiter
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_wait_hub.py::test_a_stopping_daemon_answers_every_waiter
+ERROR tests/unit/test_wait_hub.py::test_a_poked_wait_returns_at_once - subfle...
+ERROR tests/unit/test_wait_hub.py::test_an_unpoked_wait_returns_within_the_poll
+ERROR tests/unit/test_wait_hub.py::test_waiting_costs_one_hub_read_per_commit_whatever_the_number_of_waiters
+ERROR tests/unit/test_wait_hub.py::test_a_wait_on_several_jobs_waits_for_the_last
+ERROR tests/unit/test_wait_hub.py::test_a_succeeded_job_is_returned_only_after_its_export
+ERROR tests/unit/test_wait_hub.py::test_a_failed_job_with_an_output_lease_is_returned
+ERROR tests/unit/test_wait_hub.py::test_an_unknown_job_is_an_error_at_once - ...
+ERROR tests/unit/test_wait_hub.py::test_a_job_that_disappears_while_waited_on_is_an_error
+ERROR tests/unit/test_wait_hub.py::test_nothing_to_wait_for_returns_at_once
+ERROR tests/unit/test_wait_hub.py::test_the_deadline_still_ends_a_wait - subf...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[0] - subfleet.proc...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[1] - subfleet.proc...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[2] - subfleet.proc...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[3] - subfleet.proc...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[4] - subfleet.proc...
+ERROR tests/unit/test_wait_hub.py::test_no_wake_up_is_lost[5] - subfleet.proc...
+1 failed, 27 passed, 16 errors in 50.18s

@@ -1,0 +1,110 @@
+{
+  "api_error_status": null,
+  "duration_api_ms": 261902,
+  "duration_ms": 300064,
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "fast_mode_state": "off",
+  "first_content_frame_ms": 2463,
+  "is_error": false,
+  "modelUsage": {
+    "claude-fable-5-1": {
+      "cacheCreationInputTokens": 105808,
+      "cacheReadInputTokens": 252258,
+      "canonicalModel": "claude-fable-5-1",
+      "contextWindow": 1000000,
+      "costBasis": "list",
+      "costUSD": 3.1883445000000004,
+      "inputTokens": 162,
+      "maxOutputTokens": 64000,
+      "outputTokens": 20150,
+      "provider": "firstParty",
+      "thinkingTokens": 13200,
+      "webSearchRequests": 0
+    },
+    "claude-haiku-4-5-20251001": {
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "contextWindow": 200000,
+      "costBasis": "list",
+      "costUSD": 0.004866,
+      "inputTokens": 4781,
+      "maxOutputTokens": 32000,
+      "outputTokens": 17,
+      "provider": "firstParty",
+      "thinkingTokens": 0,
+      "webSearchRequests": 0
+    }
+  },
+  "num_turns": 31,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "---SUBFLEET-VERDICT-BEGIN---\n{\n  \"artifact_revision\": {\n    \"bytes\": 27462,\n    \"kind\": \"plan\",\n    \"sha256\": \"87344c52906560076f45e066f048145276035eb6a39b1c50e7d2d7bd9dd3767b\"\n  },\n  \"findings\": [\n    {\n      \"description\": \"The unresolved-gate rule makes most of the Public Interface view dateless in every scenario, and the plan neither states that expected outcome nor tests it. Fifteen of the 39 non-Axiom family items transitively depend on an unresolved ax-* gate (mc-20 -> mc-50 -> mc-every -> pe-utility -> pe-default; pe-instances -> th-calibration -> th-observatory; th-uplift; bf-safety -> bf-finbot -> bf-85; co-form -> co-products -> co-commons; see public-interface.yaml predecessors), so 32 of 56 family items will export as blocked on a source gap. That is the honest result, but the plan must (a) state this expected blocked set explicitly, (b) define how the 'explicitly labeled source-plan comparison' (line 62) treats edges into unresolved gates, e.g. an assumed-at-source-target mode that is clearly labeled and never shown as feasible, and (c) add an acceptance case that pins the blocked set so a degenerate family view is not silently accepted and the family stress scenarios (no-program-leads, axiom-slips-six) still have observable effect.\",\n      \"location\": \"artifact.snapshot:58,62,111 (Migration mapping paragraph; source-plan comparison; Revision 2 gate claims)\",\n      \"severity\": \"medium\"\n    },\n    {\n      \"description\": \"The merged priority order between Axiom and family work is unspecified. The existing engine orders items by plan.circles index, then priority, earliest, id (plangraph/src/schedule.ts:142-149); the Axiom plan uses circles finbot/us-tax-benefit/org/elsewhere (plan-data.ts:448) while the family uses spine/family/steward/corollary (public-interface.yaml:29-33). After composition these items compete for the same ceo, president, dop, MTS and pe-team resources, and whichever ordering the adapter picks decides which program's work is starved. Line 42 says 'sorted by explicit priority' but no section states how the two circle schemes and the existing per-item PRIORITY overrides (plan-data.ts:286) map to one explicit priority. Specify the merged order with a reason and add a cross-program contention fixture to the acceptance cases; the current 'priority among ready siblings' case tests only engine mechanics.\",\n      \"location\": \"artifact.snapshot:42,56-58,85 (Scheduling heuristic; Compose before scheduling; priority acceptance case)\",\n      \"severity\": \"medium\"\n    },\n    {\n      \"description\": \"Dependent ongoing work (mode 5) does not say whether its demands must fit atomically from start to horizon, as duration work does ('shifted as a unit until all execution demands fit'), or are reserved month by month with shortfall findings. Twelve Axiom standing items (c5, n5, g4, cp3, f3, x3, x11, hh2, en1, gv4, ai3, z3; roadmap-phases end 2033.0) share the 17 MTS instances with finite work; under atomic fit any later over-subscribed month pushes their start indefinitely, under month-by-month reservation they can starve later finite items in serial order. State the rule, how partial monthly shortfall on ongoing work is reported, and add it to the standing-work acceptance fixture.\",\n      \"location\": \"artifact.snapshot:32,128 (Duration mode; Revision 2 fifth mode)\",\n      \"severity\": \"medium\"\n    },\n    {\n      \"description\": \"The dashboard cannot import `plangraph/portfolio` under its current source aliases. vite.config.ts:5,12 aliases the bare key `plangraph` to node_modules/plangraph/src/index.ts and tsconfig.json:10 maps only `plangraph` to that file, so a subpath import resolves to `.../src/index.ts/portfolio` in Vite and to the dist `exports` map in tsc, which the packed tarball only satisfies after a build. The consumption section must specify the alias/paths change (explicit `plangraph/portfolio` entries pointing at src during development, or dropping the src aliases in favor of the packed dist exports) and include it in the typecheck/build and packed-package checks.\",\n      \"location\": \"artifact.snapshot:154 (Checkout and package consumption)\",\n      \"severity\": \"low\"\n    },\n    {\n      \"description\": \"Half-up rounding is specified on values that are not exactly representable in binary floating point. Loaded annual rates carry up to four decimal places (Medicare 0.0145 in roster-state.ts:37) and economics-fixtures.md forbids rounding the annual rate before dividing by twelve, so exact half-cent ties can misround in IEEE arithmetic. Require exact integer or rational arithmetic for the cents boundary (e.g. carry annual amounts in integer 1/10,000-dollar units and compute monthly cents as floor((units + 600) / 1200)) and for the fixed-total formula halfUp(T*(k+1)/N), so the fingerprint is stable and the fixture vectors are provably reproduced rather than incidentally.\",\n      \"location\": \"artifact.snapshot:148 (Funding migration and exact cents, rounding sentence)\",\n      \"severity\": \"low\"\n    },\n    {\n      \"description\": \"The resource mapping row for `axiom-lead (2)` conflicts with its source. public-interface.yaml:49 describes the two seats as 'president; rules lead', while the plan maps them to the President and the Director of Product. The DoP already owns x1, x2, rp1, rp2 and contributes on roughly ten other detailed Axiom items (staffing-map.ts:688-725), and ascending-ID first-fit selects `dop` before `president`, so family axiom-lead demands land on the most loaded principal. Record the source label conflict and the chosen interpretation (and the alternative of mapping the second seat to the encoding lead `enc`) in the mapping artifact with a reason.\",\n      \"location\": \"artifact.snapshot:118 (Resource mapping table, axiom-lead row)\",\n      \"severity\": \"low\"\n    },\n    {\n      \"description\": \"The Revision 2 additions introduce scenario-level behaviors without acceptance coverage: the 0.5 FTE per-executive stress reservation, stale-planned-hire findings with availability clamped to as-of while the original date is retained, and the proposed-versus-committed coverage status split. Add one fixture each so these are verified outputs rather than described intentions.\",\n      \"location\": \"artifact.snapshot:107,124,146,156 (executive envelope; stale planned hires; coverage status; additional required tests)\",\n      \"severity\": \"low\"\n    }\n  ],\n  \"notes\": [\n    \"All eleven round-1 findings are addressed in Revision 2 with concrete rules; none remains open at high severity. Verified against source: 56 family items in public-interface.yaml (17 ax-* plus 39 others); 17 pooled MTS instances from staffing-map.ts starts; pe-migrate note cites rp1; z0 is the only CEO/President-owned detailed item; PLAN_FUNDING comprises PRE_AWARD, CASH_PROPOSALS lines, partner-funded/parent-shared seat lines, reference lines and PLAN_STREAMS, all of which the funding classification covers.\",\n    \"Recomputed economics-fixtures.md independently from roster-state.ts, pay.ts and ops-model.ts constants: the $300k loaded rates (3,207,075 and 3,333,888 cents), Fixture A/B totals, founders' pay-in-place vectors, the 162,500/179,167-cent overhead months, and the 18-month cumulative-rounding marketing vector all check out.\",\n    \"Both prepared worktrees (_worktrees/plangraph-portfolio and _worktrees/roadmap-portfolio) exist with installed dependencies; commit hashes and branch state could not be verified without git access. corpus-release-manifest-inspection.json exists and matches the 20-country cut-plan description.\",\n    \"prior-research.md, oss-scheduling.md, grantkit-boundary.md and ../plangraph-20260905/review.md were not re-read this round; the reuse and GrantKit sections are unchanged from the revision the previous peer assessed, and no finding here depends on them.\"\n  ],\n  \"schema_version\": 1,\n  \"summary\": \"Revision 2 resolves the round-1 blockers: the executive envelope, all-56-item work audit, resource mapping, dependent ongoing mode, deterministic assignment, as-of/actuals rules, funding classification, exact-cents rounding and the vendored-package path are now specified and largely verified against source. Remaining gaps are narrower but still change results or buildability: the plan does not state that 32 of 56 family items will be blocked on unresolved gates or how the labeled source-plan comparison handles them, the merged Axiom/family priority order for shared people is unspecified, ongoing-work fit semantics are ambiguous, the dashboard's src aliases will not resolve plangraph/portfolio, rounding needs exact arithmetic, the axiom-lead mapping conflicts with its source label, and three new behaviors lack acceptance fixtures. Changes requested; all are specification edits, no runtime rework.\",\n  \"verdict\": \"changes_requested\"\n}\n---SUBFLEET-VERDICT-END---",
+  "session_id": "2a9c1c5f-9e88-413c-a64e-fdb4cbb1ddf2",
+  "stop_reason": "end_turn",
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "time_to_request_ms": 105,
+  "total_cost_usd": 3.1932105,
+  "ttft_ms": 3963,
+  "ttft_stream_ms": 1554,
+  "type": "result",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 105808,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 105808,
+    "cache_read_input_tokens": 252258,
+    "inference_geo": "not_available",
+    "input_tokens": 162,
+    "iterations": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6820,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 6820,
+        "cache_read_input_tokens": 101788,
+        "input_tokens": 32,
+        "output_tokens": 5275,
+        "type": "message"
+      }
+    ],
+    "output_tokens": 20150,
+    "output_tokens_details": {
+      "thinking_tokens": 13200
+    },
+    "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  },
+  "uuid": "d8617838-9a79-4859-b979-8a76544ebd56"
+}

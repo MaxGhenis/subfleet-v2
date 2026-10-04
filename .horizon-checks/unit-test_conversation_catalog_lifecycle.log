@@ -1,0 +1,36 @@
+...................F.                                                    [100%]
+=================================== FAILURES ===================================
+_ test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone _
+tests/unit/test_conversation_catalog_lifecycle.py:368: in test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+    stray = catalog_pids(root)
+            ^^^^^^^^^^^^^^^^^^
+tests/unit/test_conversation_catalog_lifecycle.py:57: in catalog_pids
+    out = subprocess.run(["/bin/ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_conversation_catalog_lifecycle.py:384: in test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+    for pid in catalog_pids(root):
+               ^^^^^^^^^^^^^^^^^^
+tests/unit/test_conversation_catalog_lifecycle.py:57: in catalog_pids
+    out = subprocess.run(["/bin/ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+=========================== short test summary info ============================
+FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone
+1 failed, 20 passed in 33.92s

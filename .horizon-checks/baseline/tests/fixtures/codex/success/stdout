@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a07226-b8da-7cf3-b65d-8147d5af4a44"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Fixed locally in `b842f41` (R1) and `a2228e4` (R2). Tests passed: 378 focused, 1,466 offline, 108 harness; zero skips.\n\n[Final report](<<redacted-path>>)\n\nPush failed because sandbox DNS could not resolve GitHub. The PR update was blocked because the connector requires approval while session policy is `never`; the prepared body is saved."}}
+{"type":"turn.completed"}

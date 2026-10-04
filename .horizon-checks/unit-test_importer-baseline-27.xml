@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.670" timestamp="2026-10-03T17:52:50.005534-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_importer" name="test_the_daemon_never_adopts_an_external_run" time="0.198"><properties><property name="nodeid" value="tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run" /></properties><failure message="AssertionError: assert ['20260905-10...0400-live/a1'] == ['20260905-100400-live/a1']&#10;  &#10;  At index 0 diff: '20260905-100300-lost/a1' != '20260905-100400-live/a1'&#10;  Left contains one more item: '20260905-100400-live/a1'&#10;  Use -v to get more diff">tests/unit/test_importer.py:635: in test_the_daemon_never_adopts_an_external_run
+    assert skipped == [live]                                 # and recovery skips it
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert ['20260905-10...0400-live/a1'] == ['20260905-100400-live/a1']
+E     
+E     At index 0 diff: '20260905-100300-lost/a1' != '20260905-100400-live/a1'
+E     Left contains one more item: '20260905-100400-live/a1'
+E     Use -v to get more diff</failure></testcase></testsuite></testsuites>

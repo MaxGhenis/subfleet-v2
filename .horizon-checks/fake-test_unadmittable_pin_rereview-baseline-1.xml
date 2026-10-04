@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.076" timestamp="2026-10-03T18:29:00.649629-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_unadmittable_pin_rereview" name="test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end" time="0.349"><properties><property name="nodeid" value="tests/fake/test_unadmittable_pin_rereview.py::test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end" /></properties><failure message="AssertionError: running&#10;assert 'running' == 'succeeded'&#10;  &#10;  - succeeded&#10;  + running">tests/fake/test_unadmittable_pin_rereview.py:86: in test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end
+    assert job["state"] == "succeeded", job["state"]
+E   AssertionError: running
+E   assert 'running' == 'succeeded'
+E     
+E     - succeeded
+E     + running</failure></testcase></testsuite></testsuites>

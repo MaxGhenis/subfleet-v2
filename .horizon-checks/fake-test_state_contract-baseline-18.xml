@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.073" timestamp="2026-10-03T18:27:34.085614-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_state_contract" name="test_c4_4_state_missing_exit_receipt_never_accepts_success" time="0.322"><properties><property name="nodeid" value="tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success" /></properties><failure message="AssertionError: assert ('running' == 'lost'&#10;  &#10;  - lost&#10;  + running)">tests/fake/test_state_contract.py:327: in test_c4_4_state_missing_exit_receipt_never_accepts_success
+    assert job["state"] == "lost" and job["accepted_attempt_id"] is None
+E   AssertionError: assert ('running' == 'lost'
+E     
+E     - lost
+E     + running)</failure></testcase></testsuite></testsuites>

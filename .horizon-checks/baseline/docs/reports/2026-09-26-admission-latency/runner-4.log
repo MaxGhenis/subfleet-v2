@@ -1,0 +1,8 @@
+start B7-base-duty05 14:39:25 load { 27.74 43.99 42.16 }
+end B7-base-duty05 14:42:21 exit 0 load { 39.92 41.95 41.58 }
+start A7-fix-duty05 14:42:21 load { 39.92 41.95 41.58 }
+end A7-fix-duty05 14:45:17 exit 0 load { 37.14 39.69 40.66 }
+start B8-base-duty05 14:45:17 load { 37.14 39.69 40.66 }
+end B8-base-duty05 14:49:13 exit 0 load { 73.56 45.58 41.97 }
+start A8-fix-duty05 14:49:13 load { 73.56 45.58 41.97 }
+end A8-fix-duty05 14:52:11 exit 0 load { 39.51 41.88 41.08 }

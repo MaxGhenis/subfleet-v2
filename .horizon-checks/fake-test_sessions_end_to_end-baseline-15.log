@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_a_revive_that_loses_the_lease_race_is_skipped_not_queued _________
+tests/fake/test_sessions_end_to_end.py:565: in test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+    assert (job["state"], job["rc"]) == ("failed", 7)
+E   AssertionError: assert ('waiting', None) == ('failed', 7)
+E     
+E     At index 0 diff: 'waiting' != 'failed'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+1 failed in 1.01s

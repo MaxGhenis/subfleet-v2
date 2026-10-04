@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="31.607" timestamp="2026-10-03T17:49:39.737417-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_verbs" name="test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed" time="30.307"><properties><property name="nodeid" value="tests/unit/test_daemon_verbs.py::test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed" /></properties><failure message="AssertionError: stub never wrote its lock">tests/unit/test_daemon_verbs.py:370: in test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed
+    with _stopping_stub(root, tmp_path, "deaf") as proc:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/unit/test_daemon_verbs.py:341: in _stopping_stub
+    raise AssertionError("stub never wrote its lock")
+E   AssertionError: stub never wrote its lock</failure></testcase></testsuite></testsuites>

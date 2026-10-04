@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_the_daemon_never_adopts_an_external_run _________________
+tests/unit/test_importer.py:635: in test_the_daemon_never_adopts_an_external_run
+    assert skipped == [live]                                 # and recovery skips it
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert ['20260905-10...0400-live/a1'] == ['20260905-100400-live/a1']
+E     
+E     At index 0 diff: '20260905-100300-lost/a1' != '20260905-100400-live/a1'
+E     Left contains one more item: '20260905-100400-live/a1'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run
+1 failed in 0.86s

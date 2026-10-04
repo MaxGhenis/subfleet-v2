@@ -1,0 +1,46 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_writable_opt_in_exposes_only_named_entries[False] ____________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-1874/test_writable_opt_in_exposes_o0')
+resume = False
+
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_writable_opt_in_exposes_only_named_entries(tmp_path, resume):
+        servers = {"gitnexus": {"command": "npx", "args": ["gitnexus", "mcp"]},
+                   "messages": {"command": "send"},
+                   "notes": {"type": "http", "url": "https://example.test/mcp"}}
+        launch = launch_job(tmp_path, names=("gitnexus", "notes"), servers=servers, resume=resume)
+>       assert visible_servers(launch) == {name: servers[name] for name in ("gitnexus", "notes")}
+E       AssertionError: assert {'gitnexus': ...le.test/mcp'}} == {'gitnexus': ...le.test/mcp'}}
+E
+E         Omitting 2 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'messages': {'command': 'send'}}
+E         Use -v to get more diff
+
+tests/unit/test_claude_mcp_launch.py:62: AssertionError
+____________ test_writable_opt_in_exposes_only_named_entries[True] _____________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-1874/test_writable_opt_in_exposes_o1')
+resume = True
+
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_writable_opt_in_exposes_only_named_entries(tmp_path, resume):
+        servers = {"gitnexus": {"command": "npx", "args": ["gitnexus", "mcp"]},
+                   "messages": {"command": "send"},
+                   "notes": {"type": "http", "url": "https://example.test/mcp"}}
+        launch = launch_job(tmp_path, names=("gitnexus", "notes"), servers=servers, resume=resume)
+>       assert visible_servers(launch) == {name: servers[name] for name in ("gitnexus", "notes")}
+E       AssertionError: assert {'gitnexus': ...le.test/mcp'}} == {'gitnexus': ...le.test/mcp'}}
+E
+E         Omitting 2 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'messages': {'command': 'send'}}
+E         Use -v to get more diff
+
+tests/unit/test_claude_mcp_launch.py:62: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_claude_mcp_launch.py::test_writable_opt_in_exposes_only_named_entries[False]
+FAILED tests/unit/test_claude_mcp_launch.py::test_writable_opt_in_exposes_only_named_entries[True]
+2 failed in 0.67s

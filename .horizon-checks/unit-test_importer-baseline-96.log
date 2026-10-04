@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True] _
+tests/unit/test_importer.py:1646: in test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing
+    assert dispositions(report)[LEGACY[3]] == "history"
+E   AssertionError: assert 'session-held-by-legacy-owner' == 'history'
+E     
+E     - history
+E     + session-held-by-legacy-owner
+=========================== short test summary info ============================
+FAILED tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]
+1 failed in 4.34s

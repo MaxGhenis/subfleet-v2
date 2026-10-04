@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.252" timestamp="2026-10-03T17:47:49.094368-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_integration" name="test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared" time="0.041"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_daemon_integration.py:132: in test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared
+    daemon = Daemon(tmp_path)
+             ^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.927" timestamp="2026-10-03T17:50:34.395648-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_doctor" name="test_daemon_lock_row_passes_against_a_live_daemon" time="0.332"><properties><property name="nodeid" value="tests/unit/test_doctor.py::test_daemon_lock_row_passes_against_a_live_daemon" /></properties><failure message="AssertionError: assert 'unknown' == 'pass'&#10;  &#10;  - pass&#10;  + unknown">tests/unit/test_doctor.py:339: in test_daemon_lock_row_passes_against_a_live_daemon
+    assert doctor.check_daemon_lock(root)["status"] == doctor.PASS
+E   AssertionError: assert 'unknown' == 'pass'
+E     
+E     - pass
+E     + unknown</failure></testcase></testsuite></testsuites>

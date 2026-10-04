@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_c15_8_a_notice_a_hook_printed_is_not_withdrawn ______________
+tests/unit/test_operator_notices.py:504: in test_c15_8_a_notice_a_hook_printed_is_not_withdrawn
+    assert "no dispatchable lanes" in capsys.readouterr().out
+E   AssertionError: assert 'no dispatchable lanes' in ''
+E    +  where '' = CaptureResult(out='', err='').out
+E    +    where CaptureResult(out='', err='') = readouterr()
+E    +      where readouterr = <_pytest.capture.CaptureFixture object at 0x10bdf21b0>.readouterr
+=========================== short test summary info ============================
+FAILED tests/unit/test_operator_notices.py::test_c15_8_a_notice_a_hook_printed_is_not_withdrawn
+1 failed in 0.63s

@@ -1,0 +1,468 @@
+// Foundation-only probe of the app's non-UI core (app/Sources, SUBFLEET_MODEL_TEST).
+// Each subcommand reads JSON the tests wrote and prints JSON the tests assert on.
+// `live` drives a real development daemon through the same engine the app uses.
+import Foundation
+
+// MARK: - Output helpers
+
+let sortedEncoder: JSONEncoder = {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    return encoder
+}()
+
+func emit(_ value: Any) {
+    let data = try! JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed])
+    print(String(data: data, encoding: .utf8)!)
+}
+
+func jsonObject<T: Encodable>(_ value: T) -> Any {
+    let data = try! sortedEncoder.encode(value)
+    return try! JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+}
+
+func readFile(_ path: String) -> Data {
+    guard let data = FileManager.default.contents(atPath: path) else {
+        FileHandle.standardError.write("cannot read \(path)\n".data(using: .utf8)!)
+        exit(2)
+    }
+    return data
+}
+
+func describe(_ error: Error) -> [String: Any] {
+    switch error {
+    case let error as DaemonClientError:
+        switch error {
+        case .daemon(let refusal):
+            return ["kind": "daemon", "code": refusal.code, "message": refusal.message,
+                    "reason": refusal.reason as Any? ?? NSNull(), "detail": refusal.detail, "fix": refusal.fix as Any? ?? NSNull()]
+        case .timedOut(let op, let seconds): return ["kind": "timedOut", "op": op, "seconds": seconds]
+        case .unavailable(let reason): return ["kind": "unavailable", "message": reason]
+        case .transport(let reason): return ["kind": "transport", "message": reason]
+        case .malformed(let reason): return ["kind": "malformed", "message": reason]
+        case .requestTooLarge(let bytes): return ["kind": "requestTooLarge", "bytes": bytes]
+        case .endpointRefused(let reason): return ["kind": "endpointRefused", "message": reason]
+        }
+    case let error as OutboxError: return ["kind": "outbox", "message": "\(error)"]
+    case let error as ConversationEngineError: return ["kind": "engine", "message": "\(error)"]
+    default: return ["kind": "other", "message": "\(error)"]
+    }
+}
+
+// MARK: - Op codecs
+
+struct OpCodec {
+    let name: String
+    let requestLine: (Data, String) throws -> Data
+    let roundTrip: (Data) throws -> Data
+    let timeout: (Data) throws -> TimeInterval
+    let decodeResponse: (Data, String) throws -> Data
+    let call: (DaemonCalling, Data) throws -> Data
+}
+
+func codec<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec {
+    OpCodec(
+        name: op.name,
+        requestLine: { args, id in try DaemonClient.requestLine(op: op.name, id: id, args: JSONDecoder().decode(A.self, from: args)) },
+        roundTrip: { data in try sortedEncoder.encode(JSONDecoder().decode(R.self, from: data)) },
+        timeout: { args in op.timeout(for: try JSONDecoder().decode(A.self, from: args)) },
+        decodeResponse: { line, id in
+            let result: R = try DaemonClient.decodeResponse(line, id: id, op: op.name)
+            return try sortedEncoder.encode(result)
+        },
+        call: { client, args in try sortedEncoder.encode(client.call(op, JSONDecoder().decode(A.self, from: args))) })
+}
+
+let codecs: [String: OpCodec] = {
+    let all = [
+        codec(Ops.capabilities), codec(Ops.conversationList), codec(Ops.conversationOpen), codec(Ops.conversationCreate),
+        codec(Ops.conversationSettings), codec(Ops.conversationRename), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
+        codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
+        codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
+        codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
+        codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
+        codec(Ops.conversationHandoff),
+    ]
+    return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
+}()
+
+func opCodec(_ name: String) -> OpCodec {
+    guard let codec = codecs[name] else {
+        FileHandle.standardError.write("no codec for \(name)\n".data(using: .utf8)!)
+        exit(2)
+    }
+    return codec
+}
+
+// MARK: - Timeline and Markdown projections
+
+func project(_ inlines: [MarkdownInline]) -> [Any] {
+    inlines.map { inline -> Any in
+        switch inline {
+        case .text(let text): return ["text": text]
+        case .code(let text): return ["code": text]
+        case .emphasis(let inner): return ["emphasis": project(inner)]
+        case .strong(let inner): return ["strong": project(inner)]
+        case .strikethrough(let inner): return ["strike": project(inner)]
+        case .link(let label, let destination): return ["link": destination, "label": project(label)]
+        case .image(let alt, let source): return ["image": source, "alt": alt]
+        case .softBreak: return ["break": "soft"]
+        case .hardBreak: return ["break": "hard"]
+        }
+    }
+}
+
+func project(_ blocks: [MarkdownBlock]) -> [Any] {
+    blocks.map { block -> Any in
+        switch block {
+        case .heading(let level, let content): return ["type": "heading", "level": level, "content": project(content)]
+        case .paragraph(let content): return ["type": "paragraph", "content": project(content)]
+        case .list(let ordered, let start, let tight, let items):
+            return ["type": "list", "ordered": ordered, "start": start, "tight": tight,
+                    "items": items.map { ["blocks": project($0.blocks), "checked": $0.checked as Any? ?? NSNull()] as [String: Any] }]
+        case .code(let language, let text, let closed):
+            return ["type": "code", "language": language as Any? ?? NSNull(), "text": text, "closed": closed]
+        case .quote(let inner): return ["type": "quote", "blocks": project(inner)]
+        case .table(let header, let alignments, let rows):
+            return ["type": "table", "header": header.map(project), "alignments": alignments.map(\.rawValue),
+                    "rows": rows.map { $0.map(project) }]
+        case .rule: return ["type": "rule"]
+        }
+    }
+}
+
+func project(_ card: ApprovalCard) -> [String: Any] {
+    let state: String
+    switch card.state {
+    case .pending: state = "pending"
+    case .answered(let decision): state = "answered:" + (decision ?? "")
+    case .withdrawn: state = "withdrawn"
+    }
+    return ["request_id": card.requestID as Any? ?? NSNull(), "approval_id": card.approvalID as Any? ?? NSNull(),
+            "kind": card.kind, "options": card.options, "state": state, "actionable": card.isActionable,
+            "display": jsonObject(card.display),
+            "shown": card.display.shownFields.map { [$0.key, $0.value] },
+            "questions": card.questions.map { $0.question }]
+}
+
+func project(_ item: TimelineItem) -> [String: Any] {
+    var out: [String: Any] = ["id": item.id, "message_id": item.messageID as Any? ?? NSNull(),
+                              "ts": item.ts as Any? ?? NSNull()]
+    switch item.content {
+    case .history(let role, let text, let tool):
+        out["type"] = "history"; out["role"] = role; out["text"] = text; out["tool"] = tool as Any? ?? NSNull()
+    case .person(let text, let attachments, let state):
+        out["type"] = "person"; out["text"] = text as Any? ?? NSNull(); out["attachments"] = attachments; out["state"] = state
+    case .text(let text, let final):
+        out["type"] = "text"; out["text"] = text; out["final"] = final
+    case .thinking(let text, let final):
+        out["type"] = "thinking"; out["text"] = text; out["final"] = final
+    case .tool(let tool):
+        out["type"] = "tool"; out["name"] = tool.name; out["summary"] = tool.summary; out["hidden"] = tool.hidden
+        out["state"] = tool.state.rawValue; out["preview"] = tool.preview as Any? ?? NSNull()
+    case .approval(let card):
+        out["type"] = "approval"; out["card"] = project(card)
+    case .error(let message, let kind, let willRetry):
+        out["type"] = "error"; out["message"] = message; out["kind"] = kind as Any? ?? NSNull(); out["will_retry"] = willRetry
+    case .notice(let text):
+        out["type"] = "notice"; out["text"] = text
+    case .steered(let messageID):
+        out["type"] = "steered"; out["steered"] = messageID
+    }
+    return out
+}
+
+func project(_ turn: TurnTimeline) -> [String: Any] {
+    [
+        "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
+        "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
+        "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
+        "person_text": turn.personText as Any? ?? NSNull(), "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
+        "served": jsonObject(turn.served), "outcome": turn.outcome.map { ["state": $0.state, "reason": $0.reason as Any? ?? NSNull(),
+                                                                           "served_model": $0.servedModel as Any? ?? NSNull()] } as Any? ?? NSNull(),
+        "limits": turn.limits.map(jsonObject) as Any? ?? NSNull(), "diff": turn.diff as Any? ?? NSNull(),
+        "status_text": turn.statusText, "streaming": turn.isStreaming, "pending_approvals": turn.pendingApprovals.count,
+        "steered_into": turn.steeredInto as Any? ?? NSNull(), "steer_delivered_in": turn.steerDeliveredIn as Any? ?? NSNull(),
+        "steer_requested": turn.steerRequested, "steer_refusal": turn.steerRefusal?.reason as Any? ?? NSNull(),
+        "placed_steer": turn.isPlacedSteer, "unread_steer": turn.isUnreadSteer, "read_steer": turn.isReadSteer,
+    ]
+}
+
+func project(_ timeline: Timeline) -> [String: Any] {
+    [
+        "cursor": timeline.cursor, "resets": timeline.resets, "order": timeline.order,
+        "items": timeline.items.map(project), "turns": Dictionary(uniqueKeysWithValues: timeline.order.compactMap { id in
+            timeline.turn(id).map { turn in
+                var out = project(turn)
+                // What the status line shows: a steered message's words follow the turn it joins.
+                out["status_text"] = timeline.statusText(of: id) ?? turn.statusText
+                return (id, out)
+            } }),
+        "history_before": timeline.historyBefore as Any? ?? NSNull(), "history_complete": timeline.historyComplete,
+        "history_added": timeline.historyAddedByLastPage,
+        "unknown_kinds": timeline.unknownKinds, "pending_cards": timeline.pendingApprovalCards.map(project),
+        "live_message": timeline.liveMessageID as Any? ?? NSNull(),
+        "placed_steers": timeline.placedSteers.sorted(), "recallable_steers": timeline.recallableSteers,
+        // What the conversation view pins and follows (design §12).
+        "display_order": timeline.displayOrder, "pending_items": timeline.pendingApprovalItems.map(\.id),
+        "pinned_turn": timeline.pinnedTurn?.messageID as Any? ?? NSNull(),
+        "review_label": reviewButtonLabel(pending: timeline.pendingApprovalItems.count) as Any? ?? NSNull(),
+        "review_opens_sheet": timeline.pendingApprovalItems.first?.pendingCard.map(reviewOpensRequestSheet) as Any?
+            ?? NSNull(),
+        "followed_item": timeline.followedItem?.id as Any? ?? NSNull(), "caught_up": timeline.caughtUp,
+        "history_pages": timeline.historyPagesLoaded,
+    ]
+}
+
+func pageResult(_ result: Timeline.PageResult) -> String {
+    switch result {
+    case .applied(let count): return "applied:\(count)"
+    case .reset: return "reset"
+    case .superseded: return "superseded"
+    }
+}
+
+/// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"pending"}|{"history"}|{"local"}|
+/// {"steer_request"}|{"escape"}|{"esc"}|{"too_late"}|{"steer_answer"}|{"reopen"}|{"elsewhere"}]}`.
+/// `approvals` attaches views; `pending` is the daemon's whole pending set,
+/// attached and reconciled as the store does; `reopen` begins a new read, as focusing does. After each
+/// step the conversation view's `ApprovalFollower` is asked where to scroll, as the view asks it:
+/// `"reveal": true` on a step is the person asking, which stands until a row answers it;
+/// `{"elsewhere": true}` shows another conversation in between.
+func runFold(_ data: Data) throws -> [String: Any] {
+    let input = try JSONValue.parse(data)
+    var timeline = Timeline(conversationID: input["conversation_id"]?.string ?? "cv")
+    var tooLate = TooLateSteers()        // what `UIModel.escape` keeps between presses
+    var results: [String] = []
+    var snapshots: [[String: Any]] = []
+    var follower = ApprovalFollower()
+    var scrolls: [Any] = []
+    var reveal = false
+    for step in input["steps"]?.array ?? [] {
+        if let page = step["page"] {
+            results.append(pageResult(timeline.apply(page: try page.decode(EventsPage.self))))
+        } else if let receipts = step["receipts"] {
+            timeline.apply(receipts: try receipts.decode([Receipt].self))
+            results.append("receipts")
+        } else if let approvals = step["approvals"] {
+            timeline.attach(approvals: try approvals.decode([ApprovalView].self))
+            results.append("approvals")
+        } else if let pending = step["pending"] {
+            let views = try pending.decode([ApprovalView].self)
+            timeline.attach(approvals: views)
+            timeline.reconcile(pending: views)
+            results.append("pending")
+        } else if step["reopen"]?.bool == true {
+            timeline.startReading()
+            results.append("reopen")
+        } else if let history = step["history"] {
+            let asked = timeline.historyBefore
+            timeline.apply(history: try history.decode(HistoryPage.self))
+            results.append(timeline.shouldFollowHistory(askedBefore: asked) ? "history:follow" : "history")
+        } else if let local = step["local"] {
+            timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "",
+                              steer: local["steer"]?.bool ?? false)
+            results.append("local")
+        } else if let steered = step["steer_request"]?.string {
+            timeline.requestSteer(messageID: steered)
+            results.append("steer_request")
+        } else if let passed = step["escape"] {
+            // Esc, passing over the steers the daemon answered too-late for just now: a
+            // list of ids, each recorded as `UIModel.escape` records such an answer.
+            var answered = TooLateSteers()
+            for id in passed.array?.compactMap(\.string) ?? [] {
+                _ = answered.tooLate(id, in: timeline, assistant: "Claude")
+            }
+            switch answered.escape(timeline) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
+        } else if step["esc"]?.bool == true {
+            // Esc as `UIModel.escape` does it, with what earlier `too_late` steps left.
+            switch tooLate.escape(timeline) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
+        } else if let late = step["too_late"]?.string {
+            // The daemon answered `message.cancel` of this steer `too-late`.
+            results.append("too-late:" + tooLate.tooLate(late, in: timeline, assistant: step["assistant"]?.string ?? "Claude"))
+        } else if let answer = step["steer_answer"] {
+            // The outbox's answer to a steer: `refusal` null when the daemon took it.
+            let refusal = answer["refusal"].flatMap { $0.isNull ? nil : $0 }.map {
+                OutboxFailure(code: $0["code"]?.int, reason: $0["reason"]?.string, message: $0["message"]?.string ?? "",
+                              retryable: false)
+            }
+            timeline.noteSteer(messageID: answer["message_id"]?.string ?? "", refusal: refusal)
+            results.append("steer_answer")
+        }
+        if step["reveal"]?.bool == true { reveal = true }
+        if step["elsewhere"]?.bool == true {
+            var elsewhere = false
+            scrolls.append(follower.target(in: Timeline(conversationID: timeline.conversationID + "-other"),
+                                           reveal: &elsewhere) as Any? ?? NSNull())
+        } else {
+            scrolls.append(follower.target(in: timeline, reveal: &reveal) as Any? ?? NSNull())
+        }
+        if step["snapshot"]?.bool == true { snapshots.append(project(timeline)) }
+    }
+    var out = project(timeline)
+    out["results"] = results
+    out["snapshots"] = snapshots
+    out["scrolls"] = scrolls
+    return out
+}
+
+// MARK: - Main
+
+/// Exercise the exact state used by the inline card without importing SwiftUI.
+func runQuestions(_ data: Data) throws -> [String: Any] {
+    let input = try JSONValue.parse(data)
+    let questions = try input["questions"]?.decode([ApprovalQuestion].self) ?? []
+    var state = QuestionCardState(questions: questions)
+
+    func snapshot() -> [String: Any] {
+        ["current_index": state.currentIndex,
+         "current_question": state.currentQuestion?.question as Any? ?? NSNull(),
+         "selected": state.currentAnswer?.selectedOptionIndices.sorted() ?? [],
+         "uses_other": state.currentAnswer?.usesOther ?? false,
+         "other_text": state.currentAnswer?.otherText ?? "",
+         "skipped": state.currentAnswer?.skipped ?? false,
+         "answered_count": state.answeredCount,
+         "can_continue": state.canContinue, "can_submit": state.canSubmit,
+         "has_previous": state.hasPrevious, "is_last": state.isLastQuestion,
+         "answers": state.answers, "decision": state.submissionDecision]
+    }
+
+    var snapshots = [snapshot()]
+    var results: [Bool] = []
+    for step in input["steps"]?.array ?? [] {
+        switch step["do"]?.string {
+        case "select": results.append(state.selectOption(Int(step["index"]?.int ?? -1)))
+        case "number": results.append(state.selectNumber(Int(step["number"]?.int ?? 0)))
+        case "other": state.selectOther(); results.append(true)
+        case "text": state.setOtherText(step["text"]?.string ?? ""); results.append(true)
+        case "skip": state.skipCurrent(); results.append(true)
+        case "next": results.append(state.advance())
+        case "back": results.append(state.goBack())
+        default: results.append(false)
+        }
+        snapshots.append(snapshot())
+    }
+    return ["questions": questions.map(jsonObject), "snapshots": snapshots, "results": results]
+}
+
+@main
+struct CoreProbe {
+    static func main() throws {
+        let arguments = CommandLine.arguments
+        guard arguments.count >= 2 else { exit(2) }
+        switch arguments[1] {
+        case "ops":
+            emit(Ops.names)
+        case "request":
+            // request <op> <args.json> [id]
+            let line = try opCodec(arguments[2]).requestLine(readFile(arguments[3]), arguments.count > 4 ? arguments[4] : "probe-1")
+            FileHandle.standardOutput.write(line)
+        case "diff-parse":
+            // diff-parse <diff.txt>: the Changes pane's sections and rows
+            let text = String(decoding: try readFile(arguments[2]), as: UTF8.self)
+            emit(UnifiedDiff.parse(text).map { section -> [String: Any] in
+                ["path": section.path, "header": section.header, "binary": section.binary,
+                 "lines": section.lines.map { [$0.kind.rawValue, $0.text, $0.old as Any? ?? NSNull(), $0.new as Any? ?? NSNull()] }]
+            })
+        case "diff-notes":
+            // diff-notes <result.json>: what the Changes pane says a diff result cut or hid
+            emit(diffNotes(try JSONDecoder().decode(DiffResult.self, from: readFile(arguments[2]))))
+        case "roundtrip":
+            // roundtrip <op> <result.json>: decode the result as the op's model, encode it again
+            FileHandle.standardOutput.write(try opCodec(arguments[2]).roundTrip(readFile(arguments[3])))
+        case "timeout":
+            emit(try opCodec(arguments[2]).timeout(readFile(arguments[3])))
+        case "response":
+            // response <op> <line> <id>
+            do {
+                let data = try opCodec(arguments[2]).decodeResponse(readFile(arguments[3]), arguments[4])
+                emit(["ok": try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])])
+            } catch {
+                emit(["error": describe(error)])
+            }
+        case "call":
+            // call <socket> <op> <args.json>
+            let client = DaemonClient(transport: UnixSocketTransport(path: arguments[2]))
+            let started = Date()
+            do {
+                let data = try opCodec(arguments[3]).call(client, readFile(arguments[4]))
+                emit(["ok": try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+                      "elapsed": Date().timeIntervalSince(started)])
+            } catch {
+                emit(["error": describe(error), "elapsed": Date().timeIntervalSince(started)])
+            }
+        case "endpoint":
+            // endpoint <home> <release|development> [SUBFLEET_HOME]
+            let environment = arguments.count > 4 ? ["SUBFLEET_HOME": arguments[4]] : [:]
+            let flavor = BuildFlavor(rawValue: arguments[3]) ?? .release
+            switch resolveDaemonEndpoint(environment: environment, home: URL(fileURLWithPath: arguments[2]), flavor: flavor) {
+            case .ready(let endpoint):
+                emit(["ready": endpoint.root.path, "socket": endpoint.socketURL.path, "status": endpoint.statusURL.path])
+            case .refused(let root, let reason):
+                emit(["refused": reason, "root": root.path])
+            }
+        case "availability":
+            // availability <capabilities.json>: how the app judges a daemon
+            let capabilities = try JSONDecoder().decode(Capabilities.self, from: readFile(arguments[2]))
+            switch DaemonAvailability.judge(capabilities) {
+            case .ready: emit(["ready": true])
+            case .incompatible(let reason): emit(["incompatible": reason])
+            default: emit(["other": true])
+            }
+        case "markdown":
+            emit(project(Markdown.parse(String(decoding: readFile(arguments[2]), as: UTF8.self))))
+        case "attributed":
+            let text = String(decoding: readFile(arguments[2]), as: UTF8.self)
+            let attributed = Markdown.attributed(Markdown.parseInlines(text))
+            var runs: [[String: Any]] = []
+            for run in attributed.runs {
+                var intents: [String] = []
+                if let intent = run.inlinePresentationIntent {
+                    if intent.contains(.emphasized) { intents.append("emphasized") }
+                    if intent.contains(.stronglyEmphasized) { intents.append("strong") }
+                    if intent.contains(.code) { intents.append("code") }
+                    if intent.contains(.strikethrough) { intents.append("strikethrough") }
+                }
+                runs.append(["text": String(attributed[run.range].characters), "intents": intents,
+                             "link": run.link?.absoluteString as Any? ?? NSNull()])
+            }
+            emit(runs)
+        case "bounds":
+            let text = String(decoding: readFile(arguments[2]), as: UTF8.self)
+            let code = MarkdownBounds.code(text, maxLines: Int(arguments[3]) ?? 40)
+            emit(["shown_lines": code.shown.split(separator: "\n", omittingEmptySubsequences: false).count,
+                  "hidden_lines": code.hiddenLines])
+        case "fold":
+            emit(try runFold(readFile(arguments[2])))
+        case "questions":
+            emit(try runQuestions(readFile(arguments[2])))
+        case "approval-notification":
+            let input = try JSONValue.parse(readFile(arguments[2]))
+            let detail = try input["detail"]!.decode(ApprovalDetail.self)
+            let target = ApprovalNotificationTarget(detail: detail)
+            let checks = try input["checks"]?.decode([ApprovalDetail].self) ?? []
+            let candidates = try input["candidates"]?.decode([ApprovalView].self) ?? []
+            emit(["target": target.map(jsonObject) as Any? ?? NSNull(),
+                  "roundtrip": target.map { ApprovalNotificationTarget(userInfo: $0.userInfo) == $0 } ?? false,
+                  "can_allow": checks.map { target?.canAllow($0) ?? false },
+                  "candidate": ApprovalNotificationTarget.candidate(from: candidates,
+                    conversationID: detail.approval.conversation_id,
+                    messageID: detail.approval.message_id)?.approval_id as Any? ?? NSNull()])
+        default:
+            if let handled = try extraCommand(arguments) {
+                emit(handled)
+            } else {
+                FileHandle.standardError.write("unknown command \(arguments[1])\n".data(using: .utf8)!)
+                exit(2)
+            }
+        }
+    }
+}

@@ -1,0 +1,20 @@
+{
+  "class": "ok",
+  "scope": null,
+  "clock_source": null,
+  "closure": false,
+  "native_session_id": "01a07226-b8da-7cf3-b65d-8147d5af4a44",
+  "synthetic": false,
+  "provenance": {
+    "source": "v1",
+    "run": "20260905-111854-fix-06-lane-g-r2",
+    "provider_field": "family",
+    "files": [
+      "meta.json",
+      "err.log",
+      "out.md"
+    ],
+    "rollout": "rollout-2026-09-05T11-18-55-01a07226-b8da-7cf3-b65d-8147d5af4a44.jsonl",
+    "normalization": "The v1 launcher did not emit --json. The real thread id and final assistant output are wrapped in Codex exec JSONL event envelopes. stderr is the real provider header; prompt, tool transcript, and absolute paths are removed. last.md is the redacted out.md."
+  }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.351" timestamp="2026-10-03T17:53:19.947956-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_legacy_hold" name="test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-False]" time="0.070"><properties><property name="nodeid" value="tests/unit/test_legacy_hold.py::test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-False]" /></properties><failure message="PermissionError: [Errno 1] Operation not permitted: '/bin/ps'">tests/unit/test_legacy_hold.py:909: in test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait
+    process = _registered(world, subfleet=subfleet, session=registered)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_legacy_hold.py:801: in _registered
+    started = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "lstart="], capture_output=True, text=True,
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'</failure></testcase></testsuite></testsuites>

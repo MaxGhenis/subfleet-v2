@@ -1,0 +1,77 @@
+# Sessions review progress
+
+## State
+
+- Working on `lane/sessions-review` from `38a7a9a`, offline; commits only, no push.
+- Salvage applied cleanly; all eight reported failures reproduced and explained.
+- Review implementation complete and committed; fully green validation is blocked
+  by the same sandbox restrictions that affect the unmodified baseline.
+- Final report: `docs/lanes/reports/sessions-review-OUTPUT.md`.
+
+## Done
+
+- Confirmed the worktree and clean starting branch.
+- Read the original lane brief, report, and relevant contract clauses.
+- Identified all twelve files in the salvaged review pass.
+- Reproduced the original failures: 8 failed, 231 passed, 1 error in 34.09s.
+- Removed the JSON-format-dependent event filter; retained event-id ordering
+  so the last retire/unretire action wins even within one second (C-23.35).
+- Focused event tests: 4 passed, 13 deselected in 0.24s.
+- Kept revive attempts out of the daemon-created lane-session census (C-23.31).
+  A desktop session remains eligible for listing/continuation after revival;
+  ordinary dispatch attempts still mark headless sessions. Both cases pass.
+- Kept C-23.39 model-substitution history and added the real-daemon transport
+  and audit regression. Refused submissions create no history.
+- Dropped Claude-only revive routing: the six original revive failures explicitly
+  requested `astra`; model resolution was unchanged. C-23.39/C-23.54 do not
+  authorize this new refusal, and C-6.5 requires refusals to be indexed.
+- Dropped repeat-revive dedupe: C-23.33 dedupes nudges; C-23.55 limits concurrent
+  revives through leases, not later retries at an unchanged interruption.
+- Revive unit + fake suite: 38 passed, 5 failed in 31.63s. Remaining failures
+  reach admission but probes quarantine when process enumeration is unavailable.
+- Restored v1 tickle targeting: bare tickle (even `--force`) surveys; a single
+  named manual tickle acts immediately. Hook wakes keep their delay, and muster
+  and multi-session sweeps keep their quiet window (C-17.1, C-23.34).
+- CLI and nudge unit verification: 86 passed in 0.54s.
+- Kept explicit `--max 0` as zero cold recoveries for both revive and handoff,
+  instead of replacing zero with the policy default (C-17.1).
+- Kept JSON revive refusals at exit 7, matching text output (C-17.3/C-17.4).
+- Kept v1's 64 MB handoff workdir lookup so long tool-result/sidechain tails do
+  not lose the recorded cwd. Handoff unit verification: 60 passed in 2.48s.
+- Kept hard handoff truncation bounds and corrected separator/fallback accounting
+  for tiny valid section caps (C-23.36); credential scrubbing remains covered.
+- Kept mirror lock acquisition before sidecar writes: a contending pass preserves
+  both running and stalled health (C-23.28). Mirror tests: 33 passed in 1.70s.
+- Kept read-only v1 mirror configuration defaults. Replaced salvage's filtering
+  of explicit empty flags and its replacement of saved exclusions: v1 honors
+  empty archive/dead-home overrides and combines configured/CLI exclusions.
+- Closed the remaining tiny-cap handoff cases: zero original-task cap no longer
+  masquerades as a missing task, and non-Git fallback text is bounded. Handoff
+  tests: 62 passed in 3.85s.
+- First full suite: 3260 passed, 131 failed, 66 skipped, 1 error in 74.14s.
+- Unmodified `38a7a9a` reproduces probe no-attempt and socket-bind failures:
+  1 failed, 1 error in 0.69s.
+- Final requested sessions run: 256 passed, 5 failed, 1 error in 35.40s.
+- Final full suite: 3262 passed, 131 failed, 66 skipped, 1 error in 73.66s.
+- Full unmodified baseline: 3232 passed, 131 failed, 66 skipped, 1 error in
+  75.20s. All 132 failure/error node IDs match exactly; this lane adds 30 passing
+  tests and no failures. Existing environment-dependent tests remain intact.
+- Final report written to `docs/lanes/reports/sessions-review-OUTPUT.md`.
+
+## Validation environment
+
+- Copied the existing main worktree's uv cache locally. Offline dependency sync
+  succeeded with `--no-install-project`; project build lookup could not resolve
+  cached hatchling. Tests use `UV_OFFLINE=1 UV_NO_SYNC=1` with the local venv.
+- The initial registry socket test failed with `PermissionError: Operation not
+  permitted` at Unix socket bind. This sandbox restriction is not bypassed.
+- Probe records confirm `group enumeration unavailable`, `descendant enumeration
+  unavailable`, and `marker enumeration unavailable`; containment therefore keeps
+  the job waiting. No process guards or test expectations are bypassed.
+
+## Next
+
+- Integrator: rerun both required suites with permitted socket/process inspection
+  and confirm a fully green result before merging/pushing.
+- Integrator: consider the separate submission/audit RPC limitation documented
+  in the final report. No contract edit was needed for this review.

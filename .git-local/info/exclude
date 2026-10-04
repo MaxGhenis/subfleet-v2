@@ -1,0 +1,5 @@
+.git-local/
+.horizon-checks/
+.venv-312/
+.hypothesis/
+docs/reports/2026-10-03-rank-horizon-fix.bundle

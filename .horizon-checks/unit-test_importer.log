@@ -1,0 +1,31 @@
+........................F..F............................................ [ 53%]
+........................F......................................          [100%]
+=================================== FAILURES ===================================
+___________________________ test_states_map_from_rc ____________________________
+tests/unit/test_importer.py:583: in test_states_map_from_rc
+    assert states["20260905-100300-lost"] == "lost"
+E   AssertionError: assert 'running' == 'lost'
+E     
+E     - lost
+E     + running
+_________________ test_the_daemon_never_adopts_an_external_run _________________
+tests/unit/test_importer.py:635: in test_the_daemon_never_adopts_an_external_run
+    assert skipped == [live]                                 # and recovery skips it
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert ['20260905-10...0400-live/a1'] == ['20260905-100400-live/a1']
+E     
+E     At index 0 diff: '20260905-100300-lost/a1' != '20260905-100400-live/a1'
+E     Left contains one more item: '20260905-100400-live/a1'
+E     Use -v to get more diff
+_ test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True] _
+tests/unit/test_importer.py:1646: in test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing
+    assert dispositions(report)[LEGACY[3]] == "history"
+E   AssertionError: assert 'session-held-by-legacy-owner' == 'history'
+E     
+E     - history
+E     + session-held-by-legacy-owner
+=========================== short test summary info ============================
+FAILED tests/unit/test_importer.py::test_states_map_from_rc - AssertionError:...
+FAILED tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run
+FAILED tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]
+3 failed, 132 passed in 39.56s

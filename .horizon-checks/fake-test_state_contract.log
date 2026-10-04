@@ -1,0 +1,12 @@
+..................F.................                                     [100%]
+=================================== FAILURES ===================================
+__________ test_c4_4_state_missing_exit_receipt_never_accepts_success __________
+tests/fake/test_state_contract.py:327: in test_c4_4_state_missing_exit_receipt_never_accepts_success
+    assert job["state"] == "lost" and job["accepted_attempt_id"] is None
+E   AssertionError: assert ('running' == 'lost'
+E     
+E     - lost
+E     + running)
+=========================== short test summary info ============================
+FAILED tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success
+1 failed, 35 passed in 9.23s

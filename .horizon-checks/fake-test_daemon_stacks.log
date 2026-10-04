@@ -1,0 +1,63 @@
+s.FFFF                                                                   [100%]
+=================================== FAILURES ===================================
+______________ test_a_daemon_without_the_flag_is_never_signalled _______________
+tests/fake/test_daemon_stacks.py:106: in test_a_daemon_without_the_flag_is_never_signalled
+    control = spawn(OLD_DAEMON, root)                     # the fixture is what it claims to be
+              ^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_daemon_stacks.py:74: in spawn
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+E   AssertionError: Traceback (most recent call last):
+E       File "<string>", line 6, in <module>
+E       File "/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/subfleet/procs.py", line 93, in boot_id
+E         raise InspectionError("macOS boot identity is unavailable")
+E     subfleet.procs.InspectionError: macOS boot identity is unavailable
+E     
+E   assert '' == 'ready'
+E     
+E     - ready
+________ test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives _________
+tests/fake/test_daemon_stacks.py:125: in test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives
+    child = spawn(NEW_DAEMON, root)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_daemon_stacks.py:74: in spawn
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+E   AssertionError: Traceback (most recent call last):
+E       File "<string>", line 7, in <module>
+E       File "/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/subfleet/procs.py", line 93, in boot_id
+E         raise InspectionError("macOS boot identity is unavailable")
+E     subfleet.procs.InspectionError: macOS boot identity is unavailable
+E     
+E   assert '' == 'ready'
+E     
+E     - ready
+_______ test_a_lock_that_changes_between_the_two_reads_is_not_signalled ________
+tests/fake/test_daemon_stacks.py:144: in test_a_lock_that_changes_between_the_two_reads_is_not_signalled
+    stopping = spawn(OLD_DAEMON, root)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_daemon_stacks.py:74: in spawn
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+E   AssertionError: Traceback (most recent call last):
+E       File "<string>", line 6, in <module>
+E       File "/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/subfleet/procs.py", line 93, in boot_id
+E         raise InspectionError("macOS boot identity is unavailable")
+E     subfleet.procs.InspectionError: macOS boot identity is unavailable
+E     
+E   assert '' == 'ready'
+E     
+E     - ready
+_____ test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before ______
+tests/fake/test_daemon_stacks.py:175: in test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before
+    core = daemon_module.Daemon(root)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/fake/test_daemon_stacks.py::test_a_daemon_without_the_flag_is_never_signalled
+FAILED tests/fake/test_daemon_stacks.py::test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives
+FAILED tests/fake/test_daemon_stacks.py::test_a_lock_that_changes_between_the_two_reads_is_not_signalled
+FAILED tests/fake/test_daemon_stacks.py::test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before
+4 failed, 1 passed, 1 skipped in 0.62s

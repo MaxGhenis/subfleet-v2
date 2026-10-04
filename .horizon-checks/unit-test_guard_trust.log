@@ -1,0 +1,29 @@
+...............................................................FF....... [ 80%]
+.................                                                        [100%]
+=================================== FAILURES ===================================
+________ test_reap_failure_never_hides_the_probe_diagnostics[slow-reap] ________
+tests/unit/test_guard_trust.py:573: in test_reap_failure_never_hides_the_probe_diagnostics
+    report = json.loads(report_path.read_text())
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7353/test_reap_failure_never_hides_0/report.json'
+_______ test_reap_failure_never_hides_the_probe_diagnostics[reap-error] ________
+tests/unit/test_guard_trust.py:573: in test_reap_failure_never_hides_the_probe_diagnostics
+    report = json.loads(report_path.read_text())
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7353/test_reap_failure_never_hides_1/report.json'
+=========================== short test summary info ============================
+FAILED tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[slow-reap]
+FAILED tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[reap-error]
+2 failed, 87 passed in 30.64s

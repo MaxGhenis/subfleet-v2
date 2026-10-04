@@ -1,0 +1,11 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one ____
+tests/fake/test_sessions_end_to_end.py:630: in test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+    attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 20s
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+1 failed in 21.13s

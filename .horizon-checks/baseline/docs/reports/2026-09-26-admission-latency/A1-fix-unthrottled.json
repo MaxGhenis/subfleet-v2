@@ -1,0 +1,214 @@
+{
+  "code": "/Users/maxghenis/.subfleet/worktrees/20260926-112150-admission-latency-opus",
+  "root": "/private/tmp/sfr-runs/root-A1-fix-unthrottled",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.102,
+  "admission": {
+    "holds_s": {
+      "n": 69,
+      "p50": 0.0013,
+      "p90": 0.0025,
+      "p99": 0.0269,
+      "max": 0.0269,
+      "mean": 0.0021
+    },
+    "reserve_holds_s": {
+      "n": 58,
+      "p50": 0.0014,
+      "p90": 0.0027,
+      "p99": 0.0269,
+      "max": 0.0269,
+      "mean": 0.0025
+    },
+    "store_waits_s": {
+      "n": 216,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.062,
+      "max": 0.1018,
+      "mean": 0.0018
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0012,
+    "turn_queued_to_reserved_s": {
+      "n": 11,
+      "p50": 0.2865,
+      "p90": 0.6273,
+      "p99": 0.845,
+      "max": 0.845,
+      "mean": 0.3615
+    },
+    "turns_submitted": 11,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 74,
+    "rechosen": 0,
+    "again": 1,
+    "moved": 1,
+    "old": 0,
+    "deferred": 0,
+    "rejudged": 0
+  },
+  "args": {
+    "code": "/Users/maxghenis/.subfleet/worktrees/20260926-112150-admission-latency-opus",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-A1-fix-unthrottled",
+    "lanes": 10,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 1.0,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 120.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/A1-fix-unthrottled.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207501,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 120.0,
+  "ops": {
+    "gate.poll": {
+      "n": 229,
+      "p50": 0.0074,
+      "p90": 0.2297,
+      "p99": 0.7595,
+      "max": 1.0172,
+      "mean": 0.0665,
+      "outcomes": {
+        "ok": 229
+      },
+      "rate_per_s": 1.91
+    },
+    "list(hook)": {
+      "n": 898,
+      "p50": 0.0006,
+      "p90": 0.2557,
+      "p99": 1.2784,
+      "max": 1.9037,
+      "mean": 0.0819,
+      "outcomes": {
+        "ok": 898
+      },
+      "rate_per_s": 7.48
+    },
+    "notice.pending(prompt)": {
+      "n": 286,
+      "p50": 0.0003,
+      "p90": 0.0019,
+      "p99": 0.6733,
+      "max": 1.9803,
+      "mean": 0.0204,
+      "outcomes": {
+        "ok": 286
+      },
+      "rate_per_s": 2.38
+    },
+    "probe:list": {
+      "n": 93,
+      "p50": 0.0008,
+      "p90": 0.2785,
+      "p99": 1.5943,
+      "max": 1.5943,
+      "mean": 0.0724,
+      "outcomes": {
+        "ok": 93
+      },
+      "rate_per_s": 0.77
+    },
+    "probe:ping": {
+      "n": 97,
+      "p50": 0.0003,
+      "p90": 0.0013,
+      "p99": 0.8017,
+      "max": 0.8017,
+      "mean": 0.0148,
+      "outcomes": {
+        "ok": 97
+      },
+      "rate_per_s": 0.81
+    },
+    "probe:show": {
+      "n": 92,
+      "p50": 0.0031,
+      "p90": 0.3257,
+      "p99": 1.1448,
+      "max": 1.1448,
+      "mean": 0.0951,
+      "outcomes": {
+        "ok": 92
+      },
+      "rate_per_s": 0.77
+    },
+    "probe:status": {
+      "n": 90,
+      "p50": 0.0429,
+      "p90": 0.396,
+      "p99": 2.1064,
+      "max": 2.1064,
+      "mean": 0.1278,
+      "outcomes": {
+        "ok": 90
+      },
+      "rate_per_s": 0.75
+    },
+    "submit": {
+      "n": 14,
+      "p50": 0.0276,
+      "p90": 0.4889,
+      "p99": 1.1784,
+      "max": 1.1784,
+      "mean": 0.1957,
+      "outcomes": {
+        "ok": 14
+      },
+      "rate_per_s": 0.12
+    },
+    "wait": {
+      "n": 23,
+      "p50": 60.2763,
+      "p90": 60.4404,
+      "p99": 60.4577,
+      "max": 60.4577,
+      "mean": 60.2821,
+      "outcomes": {
+        "ok": 23
+      },
+      "rate_per_s": 0.19
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {},
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

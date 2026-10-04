@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="20.515" timestamp="2026-10-03T18:26:40.300856-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_sessions_end_to_end" name="test_the_lease_is_session_scoped_and_released_with_the_job" time="20.285"><properties><property name="nodeid" value="tests/fake/test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job" /></properties><failure message="AssertionError: condition timed out after 20s: {'state': 'waiting', 'rc': None, 'holder': None}, attempts []">tests/fake/test_sessions_end_to_end.py:615: in test_the_lease_is_session_scoped_and_released_with_the_job
+    assert until(lambda: seen()["holder"], timeout=stage_s(service),
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 20s: {'state': 'waiting', 'rc': None, 'holder': None}, attempts []</failure></testcase></testsuite></testsuites>

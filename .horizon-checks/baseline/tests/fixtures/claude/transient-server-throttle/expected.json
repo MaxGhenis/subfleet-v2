@@ -1,0 +1,32 @@
+{
+  "case": "transient-server-throttle",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "The sentence is verbatim from the Claude Code 2.1.260 string table and contains the substring 'usage limit' while explicitly denying one: the regression guard against a text classifier cooling a healthy lane. Frames assembled.",
+  "requested_model": "claude-opus-5",
+  "session_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "class": "transient",
+  "detail_contains": "temporarily limiting",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "no rate_limit_event",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": "error_during_execution",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

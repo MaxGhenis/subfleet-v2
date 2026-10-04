@@ -1,0 +1,7 @@
+Both findings addressed at 1500543afc858b8e4edc105e6189eac86b57b62a.
+
+1. Both checkout steps set persist-credentials:false. Checkout, setup-node and upload-artifact are SHA-pinned, verified from their official GitHub refs immediately before editing (checkout v6 d23441a48e516b6c34aea4fa41551a30e30af803; setup-node v6 249970729cb0ef3589644e2896645e5dc5ba9c38; upload-artifact v4 ea165f8d65b6e75b540449e92b4886f43607fa02). Bundle generation moved into a separate step with no GitHub token. Only the subsequent Git archive step receives GH_PUSH_TOKEN; private pull and push use command-scoped credential helpers, with no token-bearing URL or persisted git configuration. A real Git credential-fill probe with an inert fixture token verified authentication output and byte-identical repository config. The existing dependency-free issue reporter retains its own GH_TOKEN only in its reporting step; no npm-executing step receives a GitHub token.
+
+2. Reporter receives explicit step outcomes and comparisonFailureStage chooses only literal failure outcomes. Tests cover npm installation failure with skipped key issuance, other setup stages, and fallback text. Separate preparation failures remain in the archive category.
+
+Validation: 14 focused tests, TypeScript build, and full npm run check passed (550 tests, coverage thresholds met), git diff --check passed. Tests require immutable action SHAs, both checkout persistence flags, untokened preparation, and private authenticated archive pull/push. No production workflow dispatch or branch protection changes.

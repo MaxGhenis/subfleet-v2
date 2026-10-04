@@ -1,0 +1,24 @@
+..........F...F..................                                        [100%]
+=================================== FAILURES ===================================
+_________ test_offline_kill_reports_a_gone_guardian_without_signalling _________
+tests/unit/test_offline.py:214: in test_offline_kill_reports_a_gone_guardian_without_signalling
+    assert cli.main(["kill", JOB]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10981b420>(['kill', '20260905-120000-demo'])
+E    +    where <function main at 0x10981b420> = cli.main
+----------------------------- Captured stdout call -----------------------------
+20260905-120000-demo refused
+----------------------------- Captured stderr call -----------------------------
+  offline: cannot verify that pid 999999 is still the recorded guardian (C-5.3); refusing to signal a pid that may have been recycled
+___________________ test_offline_kill_json_emits_one_object ____________________
+tests/unit/test_offline.py:248: in test_offline_kill_json_emits_one_object
+    assert cli.main(["kill", JOB, "--json"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10981b420>(['kill', '20260905-120000-demo', '--json'])
+E    +    where <function main at 0x10981b420> = cli.main
+----------------------------- Captured stdout call -----------------------------
+{"action": "refused", "attempt_id": "20260905-120000-demo/a1", "job_id": "20260905-120000-demo", "pgid": 999999, "pid": 999999, "reason": "cannot verify that pid 999999 is still the recorded guardian (C-5.3); refusing to signal a pid that may have been recycled", "state": "running"}
+=========================== short test summary info ============================
+FAILED tests/unit/test_offline.py::test_offline_kill_reports_a_gone_guardian_without_signalling
+FAILED tests/unit/test_offline.py::test_offline_kill_json_emits_one_object - ...
+2 failed, 31 passed in 5.18s

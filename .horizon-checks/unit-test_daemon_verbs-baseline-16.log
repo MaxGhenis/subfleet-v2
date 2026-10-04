@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself ___
+tests/unit/test_daemon_verbs.py:354: in test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself
+    with _stopping_stub(root, tmp_path, "late") as proc:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/unit/test_daemon_verbs.py:341: in _stopping_stub
+    raise AssertionError("stub never wrote its lock")
+E   AssertionError: stub never wrote its lock
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself
+1 failed in 30.85s

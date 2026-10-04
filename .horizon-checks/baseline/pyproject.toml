@@ -1,0 +1,43 @@
+[project]
+name = "subfleet"
+version = "2.0.0a0"
+description = "Dispatch delegated agent work across several Claude and Codex subscriptions from one supervised daemon."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+# The front door is the compatibility layer, not the parser: every v1
+# invocation is mapped to native code or explicitly refused by `subfleet/compat.py`
+# before `cli.main` sees a v2 argv (C-17.1, plan.md amendment 1). Obsolete private
+# v1 workers are retired; no command delegates back to v1.
+subfleet = "subfleet.compat:dispatch"
+subfleet-gate = "subfleet.gate.cli:main"
+subfleetd = "subfleet.daemon:main"
+subfleet-guardian = "subfleet.guardian:main"
+# The sessions kit is a second entry point in the same repo (plan B decision 3):
+# `subfleet sessions` and `subfleet handoff` dispatch to it, and it can also be
+# run directly by a launchd job or a hook without going through the verb table.
+subfleet-sessions = "subfleet.sessions.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["subfleet"]
+
+# The repository remains private. Prepared distributions contain the portable
+# core only, never the operator's guard rules, provenance, or test fixtures.
+[tool.hatch.build.targets.sdist]
+include = ["/subfleet", "/README.md", "/pyproject.toml", "/uv.lock"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.100",
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published ____
+tests/unit/test_status_json.py:774: in test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published
+    daemon = Daemon(tmp_path / "root")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published
+1 failed in 0.82s

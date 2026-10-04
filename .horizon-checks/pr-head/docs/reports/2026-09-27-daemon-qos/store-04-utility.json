@@ -1,0 +1,281 @@
+{
+  "code": "/Users/maxghenis/subfleet-v2-lanes/daemon-qos-measure",
+  "root": "/private/tmp/sfr-0jw9uy70",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.057,
+  "admission": {
+    "store_holds_s": {
+      "n": 110,
+      "p50": 0.0359,
+      "p90": 0.44,
+      "p99": 1.0754,
+      "max": 1.1503,
+      "mean": 0.1435
+    },
+    "store_hold_cpu_s": {
+      "n": 110,
+      "p50": 0.0006,
+      "p90": 0.0019,
+      "p99": 0.0034,
+      "max": 0.0043,
+      "mean": 0.0008
+    },
+    "holds_s": {
+      "n": 31,
+      "p50": 0.081,
+      "p90": 0.4774,
+      "p99": 1.0754,
+      "max": 1.0754,
+      "mean": 0.1981
+    },
+    "reserve_holds_s": {
+      "n": 24,
+      "p50": 0.2031,
+      "p90": 0.6513,
+      "p99": 1.0754,
+      "max": 1.0754,
+      "mean": 0.2427
+    },
+    "hold_cpu_s": {
+      "n": 31,
+      "p50": 0.0013,
+      "p90": 0.0021,
+      "p99": 0.0043,
+      "max": 0.0043,
+      "mean": 0.0014
+    },
+    "reserve_hold_cpu_s": {
+      "n": 24,
+      "p50": 0.0014,
+      "p90": 0.0027,
+      "p99": 0.0043,
+      "max": 0.0043,
+      "mean": 0.0017
+    },
+    "hold_cpu_s_per_s": 0.00049,
+    "store_waits_s": {
+      "n": 110,
+      "p50": 0.0,
+      "p90": 0.3811,
+      "p99": 0.9373,
+      "max": 1.1968,
+      "mean": 0.0874
+    },
+    "holds_over_1s": 1,
+    "held_s_per_s": 0.0682,
+    "turn_queued_to_reserved_s": {
+      "n": 7,
+      "p50": 6.0923,
+      "p90": 10.1206,
+      "p99": 10.1206,
+      "max": 10.1206,
+      "mean": 4.8966
+    },
+    "turns_submitted": 7,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "loadavg": {
+    "start": [
+      136.9,
+      138.0,
+      122.8
+    ],
+    "end": [
+      134.4,
+      137.1,
+      124.0
+    ]
+  },
+  "daemon_thread_priorities": {
+    "20": 76,
+    "46": 1
+  },
+  "route_evaluations": {
+    "reused": 55,
+    "rechosen": 1,
+    "again": 0,
+    "moved": 0,
+    "old": 0,
+    "error": 0,
+    "deferred": 0,
+    "rejudged": 14
+  },
+  "args": {
+    "code": "../daemon-qos-measure",
+    "python": null,
+    "root": null,
+    "lanes": 10,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 1.0,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "backlog_tier": null,
+    "prepare_s": 0,
+    "turns_every": 10.0,
+    "spinners": 0,
+    "daemon_qos": "utility",
+    "spinner_qos": "inherit",
+    "nice": 0,
+    "warmup": 20.0,
+    "duration": 90.0,
+    "dumps": false,
+    "sample": false,
+    "hold_s": null,
+    "report": "/private/tmp/claude-501/-Users-maxghenis-Library-Application-Support-Claude-scratch-workspaces-ee3763f4-e7ea-4177-bcaf-1362266768c1-4457aa9d-2dc0-4bcf-a128-e50adae6be25-scratch-2026-09-24-189d1f/dfb6f698-f879-4ab9-8e55-7c687d24e211/scratchpad/qos/run-natural/store-04-utility.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207501,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 90.0,
+  "ops": {
+    "gate.poll": {
+      "n": 112,
+      "p50": 0.2955,
+      "p90": 1.1045,
+      "p99": 2.4243,
+      "max": 10.1825,
+      "mean": 0.5438,
+      "outcomes": {
+        "ok": 112
+      },
+      "rate_per_s": 1.24
+    },
+    "list(hook)": {
+      "n": 565,
+      "p50": 0.2564,
+      "p90": 1.4761,
+      "p99": 9.8289,
+      "max": 10.9803,
+      "mean": 0.7034,
+      "outcomes": {
+        "ok": 565
+      },
+      "rate_per_s": 6.28
+    },
+    "notice.pending(prompt)": {
+      "n": 186,
+      "p50": 0.0789,
+      "p90": 0.8759,
+      "p99": 7.4277,
+      "max": 10.1857,
+      "mean": 0.4284,
+      "outcomes": {
+        "ok": 186
+      },
+      "rate_per_s": 2.07
+    },
+    "probe:list": {
+      "n": 54,
+      "p50": 0.2561,
+      "p90": 1.5529,
+      "p99": 9.1545,
+      "max": 9.1545,
+      "mean": 0.6518,
+      "outcomes": {
+        "ok": 54
+      },
+      "rate_per_s": 0.6
+    },
+    "probe:ping": {
+      "n": 66,
+      "p50": 0.1158,
+      "p90": 0.8317,
+      "p99": 6.6598,
+      "max": 6.6598,
+      "mean": 0.3461,
+      "outcomes": {
+        "ok": 66
+      },
+      "rate_per_s": 0.73
+    },
+    "probe:show": {
+      "n": 47,
+      "p50": 0.4784,
+      "p90": 2.1727,
+      "p99": 10.7981,
+      "max": 10.7981,
+      "mean": 0.8857,
+      "outcomes": {
+        "ok": 47
+      },
+      "rate_per_s": 0.52
+    },
+    "probe:status": {
+      "n": 33,
+      "p50": 1.2357,
+      "p90": 3.8958,
+      "p99": 9.1563,
+      "max": 9.1563,
+      "mean": 1.727,
+      "outcomes": {
+        "ok": 33
+      },
+      "rate_per_s": 0.37
+    },
+    "submit": {
+      "n": 8,
+      "p50": 2.6681,
+      "p90": 7.2155,
+      "p99": 7.2155,
+      "max": 7.2155,
+      "mean": 2.7992,
+      "outcomes": {
+        "ok": 8
+      },
+      "rate_per_s": 0.09
+    },
+    "wait": {
+      "n": 17,
+      "p50": 60.2478,
+      "p90": 61.148,
+      "p99": 61.9417,
+      "max": 61.9417,
+      "mean": 60.4333,
+      "outcomes": {
+        "ok": 17
+      },
+      "rate_per_s": 0.19
+    }
+  },
+  "wake_after_terminal_s": {},
+  "wakes_unmatched": 0,
+  "client_errors": {
+    "list(hook):ConnectionError": 18,
+    "notice.pending(prompt):ConnectionError": 1,
+    "notice.pending(prompt):ConnectionRefusedError": 7,
+    "probe:show:ConnectionError": 1,
+    "wait:ConnectionError": 1,
+    "probe:ping:ConnectionError": 1,
+    "submit:ConnectionError": 1,
+    "probe:list:ConnectionError": 1,
+    "gate.poll:ConnectionError": 1
+  },
+  "lockwatch_lines": {
+    "released": 1,
+    "hold": 3
+  },
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 1,
+    "max": 2.1,
+    "sum": 2.1
+  },
+  "stack_dumps": 0,
+  "samples": null
+}

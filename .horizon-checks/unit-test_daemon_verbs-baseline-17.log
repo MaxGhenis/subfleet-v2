@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed _______
+tests/unit/test_daemon_verbs.py:370: in test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed
+    with _stopping_stub(root, tmp_path, "deaf") as proc:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/unit/test_daemon_verbs.py:341: in _stopping_stub
+    raise AssertionError("stub never wrote its lock")
+E   AssertionError: stub never wrote its lock
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed
+1 failed in 33.64s

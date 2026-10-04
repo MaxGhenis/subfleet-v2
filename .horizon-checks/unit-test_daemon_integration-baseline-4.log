@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane _____
+tests/unit/test_daemon_integration.py:100: in test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane
+    daemon = Daemon(tmp_path, desktop_prober=lambda: ProfileResult(
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_integration.py::test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane
+1 failed in 0.85s

@@ -1,0 +1,7 @@
+#!/bin/sh
+# subfleet v2 front door for the shadow week (docs/decisions/2026-09-05-cutover-prerequisites.md §3).
+# -E ignores PYTHON* variables: v1's bin/subfleet exports PYTHONPATH=<v1 checkout> to every
+# lane, hook, and session it launches, which would otherwise shadow this package.
+# -P keeps the script directory off sys.path. The interpreter is this checkout's venv.
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+exec "$ROOT/.venv/bin/python" -E -P -m subfleet.compat "$@"

@@ -1,0 +1,89 @@
+[
+  {
+    "label": "unit-test_codex_shim-followup",
+    "nodes": [
+      "tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-exec]",
+      "tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-review]",
+      "tests/unit/test_codex_shim.py::test_interactive_and_help_passthrough_need_no_subfleet[args4]",
+      "tests/unit/test_codex_shim.py::test_explicit_home_skips_pick_but_keeps_guard"
+    ],
+    "exit": 1,
+    "seconds": 227.88,
+    "counts": {
+      "passed": 1,
+      "failure": 3,
+      "error": 0,
+      "skipped": 0
+    },
+    "cases": [
+      {
+        "nodeid": "tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-exec]",
+        "status": "failure",
+        "detail": "tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment\n    result = run(command, \"-\", CODEX_API_KEY=\"fake-codex-env-key\", OPENAI_API_KEY=\"fake-openai-env-key\",\ntests/unit/test_codex_shim.py:50: in run\n    return subprocess.run([\"/bin/bash\", str(SHIM), *args], env={**env, **values},\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run\n    stdout, stderr = process.communicate(input, timeout=timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate\n    stdout, stderr = self._communicate(input, endtime, timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate\n    self._check_timeout(endtime, orig_timeout, stdout, stderr)\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout\n    raise TimeoutExpired(\nE   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-']' timed out after 5 seconds"
+      },
+      {
+        "nodeid": "tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-review]",
+        "status": "failure",
+        "detail": "tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment\n    result = run(command, \"-\", CODEX_API_KEY=\"fake-codex-env-key\", OPENAI_API_KEY=\"fake-openai-env-key\",\ntests/unit/test_codex_shim.py:50: in run\n    return subprocess.run([\"/bin/bash\", str(SHIM), *args], env={**env, **values},\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run\n    stdout, stderr = process.communicate(input, timeout=timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate\n    stdout, stderr = self._communicate(input, endtime, timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate\n    self._check_timeout(endtime, orig_timeout, stdout, stderr)\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout\n    raise TimeoutExpired(\nE   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'review', '-']' timed out after 5 seconds"
+      },
+      {
+        "nodeid": "tests/unit/test_codex_shim.py::test_interactive_and_help_passthrough_need_no_subfleet[args4]",
+        "status": "passed",
+        "detail": null
+      },
+      {
+        "nodeid": "tests/unit/test_codex_shim.py::test_explicit_home_skips_pick_but_keeps_guard",
+        "status": "failure",
+        "detail": "tests/unit/test_codex_shim.py:131: in test_explicit_home_skips_pick_but_keeps_guard\n    result = run(\"exec\", \"resume\", \"session\", CODEX_HOME=str(picked), SUBFLEET_NO_AUTOPICK=\"1\")\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_codex_shim.py:50: in run\n    return subprocess.run([\"/bin/bash\", str(SHIM), *args], env={**env, **values},\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run\n    stdout, stderr = process.communicate(input, timeout=timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate\n    stdout, stderr = self._communicate(input, endtime, timeout)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate\n    self._check_timeout(endtime, orig_timeout, stdout, stderr)\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout\n    raise TimeoutExpired(\nE   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', 'resume', 'session']' timed out after 5 seconds"
+      }
+    ]
+  },
+  {
+    "label": "unit-test_guard_trust-followup",
+    "nodes": [
+      "tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[slow-reap]",
+      "tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[reap-error]"
+    ],
+    "exit": 1,
+    "seconds": 2.91,
+    "counts": {
+      "passed": 0,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    "cases": [
+      {
+        "nodeid": "tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[slow-reap]",
+        "status": "failure",
+        "detail": "tests/unit/test_guard_trust.py:573: in test_reap_failure_never_hides_the_probe_diagnostics\n    report = json.loads(report_path.read_text())\n                        ^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7670/test_reap_failure_never_hides_0/report.json'"
+      },
+      {
+        "nodeid": "tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[reap-error]",
+        "status": "failure",
+        "detail": "tests/unit/test_guard_trust.py:571: in test_reap_failure_never_hides_the_probe_diagnostics\n    assert result.kind == guard.TIMEOUT and \"deadline\" in result.message\nE   AssertionError: assert ('environment' == 'timeout'\nE     \nE     - timeout\nE     + environment)"
+      }
+    ]
+  },
+  {
+    "label": "fake-test_unadmittable_pin_admission-followup",
+    "nodes": [
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]"
+    ],
+    "exit": 0,
+    "seconds": 0.71,
+    "counts": {
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    "cases": [
+      {
+        "nodeid": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]",
+        "status": "passed",
+        "detail": null
+      }
+    ]
+  }
+]

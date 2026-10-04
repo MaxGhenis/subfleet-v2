@@ -1,0 +1,11 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_world_shutdown_reaps_a_provider_still_writing_receipts __________
+tests/fake/test_sessions_end_to_end.py:249: in test_world_shutdown_reaps_a_provider_still_writing_receipts
+    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 10s
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts
+1 failed in 14.26s

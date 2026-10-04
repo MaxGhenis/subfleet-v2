@@ -1,0 +1,28 @@
+start B1-base-unthrottled 03:23:12 load {  32.19 40.71 47.47  }
+end B1-base-unthrottled 03:25:39 exit 0 load {  71.98 55.84 52.68  }
+start F1-fix-unthrottled 03:25:43 load {  70.22 55.75 52.66  }
+end F1-fix-unthrottled 03:28:13 exit 0 load {  71.21 60.99 55.23  }
+start B2-base-duty05 03:28:41 load {  61.82 59.67 54.95  }
+end B2-base-duty05 03:31:44 exit 0 load {  69.67 63.43 57.36  }
+start F2-fix-duty05 03:31:46 load {  68.34 63.25 57.33  }
+end F2-fix-duty05 03:34:48 exit 0 load {  78.60 69.12 60.87  }
+start B3-base-prepare2 03:34:54 load {  76.87 68.92 60.85  }
+end B3-base-prepare2 03:38:02 exit 0 load {  74.91 74.43 65.05  }
+start F3-fix-prepare2 03:38:03 load {  74.91 74.43 65.05  }
+end F3-fix-prepare2 03:41:11 exit 0 load {  60.81 67.20 63.74  }
+start B4-base-prepare2-duty05 03:41:17 load {  55.09 65.76 63.27  }
+end B4-base-prepare2-duty05 03:44:15 exit 0 load {  74.89 66.04 63.56  }
+start F4-fix-prepare2-duty05 03:44:16 load {  74.89 66.04 63.56  }
+end F4-fix-prepare2-duty05 03:47:11 exit 0 load {  62.60 63.80 63.02  }
+start B5-base-trivial-backlog 03:47:16 load {  59.51 63.14 62.79  }
+end B5-base-trivial-backlog 03:50:12 exit 0 load {  68.90 65.27 63.64  }
+start F5-fix-trivial-backlog 03:50:28 load {  62.22 63.98 63.21  }
+end F5-fix-trivial-backlog 03:53:37 exit 0 load {  93.17 75.34 67.85  }
+start D2-d04b8b3-duty05 03:53:46 load {  89.39 74.85 67.72  }
+end D2-d04b8b3-duty05 03:56:49 exit 0 load {  71.11 71.85 67.75  }
+start F6-fix-duty05 03:56:50 load {  71.11 71.85 67.75  }
+end F6-fix-duty05 03:59:52 exit 0 load {  69.33 70.17 67.76  }
+start D5-d04b8b3-trivial-backlog 03:59:58 load {  65.18 69.24 67.46  }
+end D5-d04b8b3-trivial-backlog 04:02:57 exit 0 load {  73.71 71.06 68.51  }
+start F7-fix-trivial-backlog 04:03:08 load {  65.54 69.38 67.96  }
+end F7-fix-trivial-backlog 04:06:04 exit 0 load {  67.41 68.13 67.65  }

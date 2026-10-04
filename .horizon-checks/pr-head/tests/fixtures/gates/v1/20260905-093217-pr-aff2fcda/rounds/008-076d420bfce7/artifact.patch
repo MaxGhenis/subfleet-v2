@@ -1,0 +1,815 @@
+diff --git a/.github/workflows/pe-household-comparison.yml b/.github/workflows/pe-household-comparison.yml
+index 222b849..e7608bd 100644
+--- a/.github/workflows/pe-household-comparison.yml
++++ b/.github/workflows/pe-household-comparison.yml
+@@ -22,18 +22,34 @@ permissions:
+   contents: read
+   issues: write
+ 
++# Serialize scheduled and manual runs so archive pushes and monitor issue
++# updates cannot race each other. Never cancel an in-flight measurement.
++concurrency:
++  group: pe-household-comparison
++  cancel-in-progress: false
++
+ jobs:
+   compare:
+     runs-on: ubuntu-latest
++    # The bundled snapshot is an intentional, already-public dashboard
++    # fallback. This job commits only that file after a successful comparison.
++    permissions:
++      contents: write
++      issues: write
+     steps:
+-      - uses: actions/checkout@v6
++      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
++        id: checkout
++        with:
++          persist-credentials: false
+ 
+-      - uses: actions/setup-node@v6
++      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
++        id: node_setup
+         with:
+           node-version: "24"
+           cache: "npm"
+ 
+       - run: npm ci
++        id: dependencies
+ 
+       - name: Check comparison configuration
+         id: config
+@@ -95,16 +111,32 @@ jobs:
+       # Freeze the run into the repo so the dashboard can serve it from
+       # the deployment bundle when the shared store is unreachable (quota
+       # exhaustion, outage) — stale beats blank. No-op when unchanged.
++      - name: Prepare bundled run
++        id: archive_prepare
++        if: steps.compare.outcome == 'success' && github.ref == 'refs/heads/main'
++        run: npx tsx scripts/bundle-validation-run.ts pe-comparison-report.json
++
++      # No npm-executing step receives or persists the write credential.
++      # Private-repository fetch and push authenticate for these commands
++      # only; neither the token nor a credential URL is written to git config.
+       - name: Commit bundled run
+-        if: steps.config.outputs.configured == 'true'
++        id: archive
++        if: steps.archive_prepare.outcome == 'success' && github.ref == 'refs/heads/main'
++        env:
++          GH_PUSH_TOKEN: ${{ github.token }}
++          GIT_TERMINAL_PROMPT: "0"
+         run: |
+-          npx tsx scripts/bundle-validation-run.ts pe-comparison-report.json
+           if ! git diff --quiet -- data/validation-runs/latest.json; then
+             git config user.name "github-actions[bot]"
+             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+             git add data/validation-runs/latest.json
+-            git commit -m "Bundle latest PE comparison run for store-free dashboard fallback"
+-            git pull --rebase origin main && git push origin HEAD:main
++            git commit --only data/validation-runs/latest.json -m "Bundle latest PE comparison run for store-free dashboard fallback"
++            git -c credential.helper= \
++              -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$GH_PUSH_TOKEN"; }; f' \
++              pull --rebase "https://github.com/${GITHUB_REPOSITORY}.git" main
++            git -c credential.helper= \
++              -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$GH_PUSH_TOKEN"; }; f' \
++              push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+           fi
+ 
+       # `outcome == success` also covers the 503 skip, where no key exists to
+@@ -129,7 +161,7 @@ jobs:
+       - name: Check out pinned RuleSpec composition source
+         id: rulespec_source
+         if: always() && steps.config.outputs.configured == 'true' && steps.rulespec.outcome == 'success'
+-        uses: actions/checkout@v6
++        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+         with:
+           repository: TheAxiomFoundation/rulespec-us
+           ref: ${{ steps.rulespec.outputs.revision }}
+@@ -171,7 +203,7 @@ jobs:
+ 
+       - name: Upload reports
+         if: always() && steps.config.outputs.configured == 'true'
+-        uses: actions/upload-artifact@v4
++        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+         with:
+           name: pe-comparison-report
+           path: |
+@@ -208,45 +240,97 @@ jobs:
+ 
+       - name: Report drift failure
+         if: failure()
++        shell: bash
+         env:
+           GH_TOKEN: ${{ github.token }}
++          GH_REPO: ${{ github.repository }}
+           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+           COMPARED: ${{ steps.compare.outcome }}
+-          FAILED_STEP: ${{ steps.compatkey.outcome != 'success' && 'issuing the ephemeral compat key' || steps.compare.outcome != 'success' && 'comparing against production' || 'a later step' }}
++          ARCHIVE_PREPARED: ${{ steps.archive_prepare.outcome }}
++          ARCHIVED: ${{ steps.archive.outcome }}
++          CHECKOUT: ${{ steps.checkout.outcome }}
++          NODE_SETUP: ${{ steps.node_setup.outcome }}
++          DEPENDENCIES: ${{ steps.dependencies.outcome }}
++          CONFIGURATION: ${{ steps.config.outcome }}
++          COMPAT_KEY: ${{ steps.compatkey.outcome }}
++        # The inline fallback needs neither a checkout nor a Node runtime.
++        # It also keeps reporter errors audible without opening duplicate issues.
+         run: |
+-          # Say what failed. A run that never reached the comparison knows
+-          # nothing about drift, and an alarm that claims otherwise sends
+-          # whoever reads it looking for a bug in the model.
+-          case "${COMPARED}" in
+-            failure)
+-              # The compare step exits non-zero for drift *and* for transport
+-              # errors mid-run. Only the report can tell them apart: a drifted
+-              # row is one whose pinned expectation did not hold.
+-              drifted=0
+-              if [ -f pe-comparison-report.json ]; then
+-                drifted="$(jq '[.rows[]? | select(.drift == "diff")] | length' pe-comparison-report.json 2>/dev/null || echo 0)"
+-              fi
+-              if [ "${drifted}" -gt 0 ]; then
+-                title="PE household comparison failed: Axiom outputs drifted"
+-                body="The comparison ran and ${drifted} pinned expectation(s) did not hold.
+-
+-          Run: ${RUN_URL}"
+-              else
+-                title="PE household comparison: the run errored before it could conclude"
+-                body="The compare step failed with no drifted rows in the report — a transport or harness error, not a pinned expectation that stopped holding.
++          reporter_output=""
++          reporter_succeeded=false
++          if [ -f scripts/report-pe-comparison-failure.ts ] && reporter_output="$(node scripts/report-pe-comparison-failure.ts 2>&1)"; then
++            reporter_succeeded=true
++          fi
++          if [ -n "$reporter_output" ]; then
++            # Preserve diagnostics in the run log without interpreting any
++            # embedded Actions commands. The token is new for each invocation.
++            log_token="axiom-reporter-${RANDOM}-${RANDOM}-${RANDOM}-${RANDOM}"
++            printf '::stop-commands::%s\n' "$log_token"
++            printf '%s\n' "$reporter_output"
++            printf '::%s::\n' "$log_token"
++          fi
++          if [ "$reporter_succeeded" = true ]; then
++            exit 0
++          fi
++          # Publish only this known diagnostic, never arbitrary reporter output.
++          diagnostic="The primary failure reporter was unavailable or failed."
++          if [[ "$reporter_output" =~ Monitor\ issue\ \#([0-9]{1,10})\ has\ an\ incomplete\ owned\ section ]]; then
++            diagnostic="The primary reporter could not update monitor issue #${BASH_REMATCH[1]} because its owned section is incomplete. Repair its marker boundary; investigation notes were preserved."
++          fi
++          failed_stage="the primary failure reporter"
++          for result in \
++            "checking out the repository:$CHECKOUT" \
++            "setting up Node.js:$NODE_SETUP" \
++            "installing dependencies:$DEPENDENCIES" \
++            "checking comparison configuration:$CONFIGURATION" \
++            "issuing the ephemeral compat key:$COMPAT_KEY" \
++            "comparing against production:$COMPARED" \
++            "preparing the bundled snapshot:$ARCHIVE_PREPARED" \
++            "committing the bundled snapshot:$ARCHIVED"
++          do
++            if [ "${result##*:}" = "failure" ]; then
++              failed_stage="${result%:*}"
++              break
++            fi
++          done
++          category="comparison-error"
++          title="PE household comparison: comparison could not conclude"
++          evidence="Drift-row count unavailable: the comparison report is missing or malformed."
++          if count="$(jq -er 'if type == "object" and (.rows | type == "array") then [.rows[] | objects | select(.drift == "diff")] | length else error("invalid report") end' pe-comparison-report.json 2>/dev/null)" && [[ "$count" =~ ^[0-9]+$ ]]; then
++            evidence="Recorded drifted rows: ${count}."
++            if [ "$COMPARED" = "failure" ] && [ "$count" -gt 0 ]; then
++              category="drift"
++              title="PE household comparison: pinned Axiom outputs drifted"
++              evidence="The comparison recorded ${count} drifted pinned expectation(s)."
++            fi
++          fi
++          marker="<!-- axiom-pe-comparison-monitor:v1:${category} -->"
++          run_marker="<!-- axiom-pe-comparison-fallback:${RUN_URL} -->"
++          body="${run_marker}
++          Fallback alert after failure at: ${failed_stage}. ${diagnostic}
++          Comparison step outcome: ${COMPARED:-not recorded}. ${evidence}
++          Reporter failure alone does not establish calculation drift.
+ 
+           Run: ${RUN_URL}"
+-              fi ;;
+-            success)
+-              title="PE household comparison: failed after comparing"
+-              body="The comparison itself matched; a later step failed. Outputs are not implicated.
+-
+-          Run: ${RUN_URL}" ;;
+-            *)
+-              title="PE household comparison could not run: ${FAILED_STEP}"
+-              body="The harness failed before comparing, at: ${FAILED_STEP}. No comparison was made, so this says nothing about drift either way.
+-
+-          Run: ${RUN_URL}" ;;
+-          esac
+-          gh label create monitoring --description "Automated monitoring failures" --color D73A4A || true
+-          gh issue create --title "$title" --body "$body" --label monitoring
++          existing="$(gh api --paginate --slurp "repos/${GH_REPO}/issues?state=open&labels=monitoring&per_page=100" |
++            jq -c --arg marker "$marker" '[.[][] | select(.pull_request == null and ((.body // "") | contains($marker)))][0] // empty')"
++          if [ -n "$existing" ]; then
++            number="$(jq -r '.number' <<<"$existing")"
++            # Preserve the canonical issue's body, even if its owned section
++            # was damaged, and emit at most one fallback comment per run.
++            if jq -e --arg marker "$run_marker" '(.body // "") | contains($marker)' <<<"$existing" >/dev/null; then
++              exit 0
++            fi
++            comments="$(gh api --paginate --slurp "repos/${GH_REPO}/issues/${number}/comments?per_page=100")"
++            if jq -e --arg marker "$run_marker" 'any(.[][]; (.body // "") | contains($marker))' <<<"$comments" >/dev/null; then
++              exit 0
++            fi
++            jq -n --arg body "$body" '{body: $body}' |
++              gh api --method POST "repos/${GH_REPO}/issues/${number}/comments" --input -
++          else
++            jq -n --arg title "$title" --arg body "${marker}
++          ${body}
++          <!-- /axiom-pe-comparison-monitor -->" \
++              '{title: $title, body: $body, labels: ["monitoring"]}' |
++              gh api --method POST "repos/${GH_REPO}/issues" --input -
++          fi
+diff --git a/README.md b/README.md
+index 513e260..ddd0e15 100644
+--- a/README.md
++++ b/README.md
+@@ -81,6 +81,11 @@ Safety measures on by default:
+ 
+ ## Local Development
+ 
++The shell-based monitoring tests require `jq` on `PATH`. Install it with
++`brew install jq` on macOS or `sudo apt-get install jq` on Ubuntu before running
++`npm test` or `npm run check`. GitHub's Ubuntu runner already includes it;
++these integration tests run unconditionally in CI.
++
+ ```bash
+ npm install
+ npm run check
+diff --git a/docs/observability.md b/docs/observability.md
+index 5445c26..4c62daf 100644
+--- a/docs/observability.md
++++ b/docs/observability.md
+@@ -23,6 +23,30 @@ opaque ids and their demand volumes; it was made public by explicit decision.
+ A viewer key (pasted in the dashboard header, or `AXIOM_DASHBOARD_VIEW_KEY`)
+ switches the page to live runs, analytics and API health.
+ 
++The daily PE household comparison commits this snapshot only after a successful
++comparison on `main`. Its job has explicit `contents: write` permission for that
++existing fallback; repository branch protections still apply. The workflow
++uses SHA-pinned actions and both checkouts disable credential
++persistence. Bundle generation has no write token; the subsequent Git
++archive step uses a temporary command-level credential helper
++for the private-repository fetch and push. Scheduled and
++manual comparison runs are serialized to avoid competing snapshot pushes or
++duplicate alerts. Failures update one open monitoring issue per category
++(measured drift, incomplete comparison, archive, downstream reporting, or
++setup), preserving investigation notes outside the generated section. Archive
++failures describe the snapshot problem without claiming calculation drift. Run
++artifacts remain available even if the snapshot commit fails. Closing a monitor
++issue allows a later recurrence to create a new issue.
++
++If checkout, Node setup, or the primary reporter fails, an inline shell
++fallback records the actual failed stage and comparison step outcome. When a
++failed comparison has recorded drifted rows, it uses the drift issue and includes
++the count; otherwise it uses the comparison-error issue. A damaged-section
++failure names the affected issue using a known error signature. Arbitrary
++reporter output is never copied into an issue. The fallback preserves the issue
++body and adds at most one comment per run, so investigation notes remain visible
++without creating another issue for every retry.
++
+ Reads that enumerate — the global analytics merge and monthly usage — go
+ through an index (`SMEMBERS` plus one `GET` per live member), never a keyspace
+ scan. `SCAN` costs commands proportional to *every* key in the store, so an
+diff --git a/scripts/report-pe-comparison-failure.ts b/scripts/report-pe-comparison-failure.ts
+new file mode 100644
+index 0000000..a2b5123
+--- /dev/null
++++ b/scripts/report-pe-comparison-failure.ts
+@@ -0,0 +1,136 @@
++// One open monitor issue per failure category. Keep the latest run in an
++// owned body section, preserving any investigation notes outside that section.
++import { execFileSync } from "node:child_process";
++import { readFileSync } from "node:fs";
++import { pathToFileURL } from "node:url";
++
++type FailureContext = {
++  compared: string;
++  archived: string;
++  archivePrepared?: string;
++  failedStep: string;
++  runUrl: string;
++  report?: unknown;
++};
++
++export type FailureNotice = {
++  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
++  title: string;
++  explanation: string;
++  runUrl: string;
++};
++
++export function comparisonFailureStage(outcomes: Record<string, string | undefined>): string {
++  const stages: Array<[string, string]> = [
++    ["CHECKOUT", "checking out the repository"],
++    ["NODE_SETUP", "setting up Node.js"],
++    ["DEPENDENCIES", "installing dependencies"],
++    ["CONFIGURATION", "checking comparison configuration"],
++    ["COMPAT_KEY", "issuing the ephemeral compat key"],
++    ["COMPARED", "comparing against production"],
++    ["ARCHIVE_PREPARED", "preparing the bundled snapshot"],
++    ["ARCHIVED", "committing the bundled snapshot"]
++  ];
++  return stages.find(([key]) => outcomes[key] === "failure")?.[1]
++    ?? "checkout or dependency installation";
++}
++
++export function comparisonFailure(context: FailureContext): FailureNotice {
++  const report = context.report as { rows?: Array<{ drift?: string }> } | undefined;
++  const drifted = Array.isArray(report?.rows)
++    ? report.rows.filter((row) => row?.drift === "diff").length
++    : 0;
++  const base = { runUrl: context.runUrl };
++  if (context.compared === "failure") {
++    return drifted > 0
++      ? {
++          ...base,
++          category: "drift",
++          title: "PE household comparison: pinned Axiom outputs drifted",
++          explanation: `The comparison ran and ${drifted} pinned expectation(s) did not hold.`
++        }
++      : {
++          ...base,
++          category: "comparison-error",
++          title: "PE household comparison: comparison could not conclude",
++          explanation: "The compare step failed without recorded drifted rows. This is a transport or harness failure; it does not establish whether the pinned expectations still hold."
++        };
++  }
++  if (context.compared === "success") {
++    return context.archivePrepared === "failure" || context.archived === "failure"
++      ? {
++          ...base,
++          category: "archive",
++          title: "PE household comparison: bundled snapshot archive failed",
++          explanation: "The comparison passed its pinned Axiom expectations, but preparing or committing the bundled dashboard snapshot failed. The archive failure does not indicate calculation drift; inspect the run's archive steps."
++        }
++      : {
++          ...base,
++          category: "downstream",
++          title: "PE household comparison: downstream reporting failed",
++          explanation: "The comparison passed its pinned Axiom expectations, but a subsequent report or cleanup step failed. Inspect the failed steps in the run; calculation drift is not implicated."
++        };
++  }
++  return {
++    ...base,
++    category: "setup",
++    title: "PE household comparison: measurement could not start",
++    explanation: `The comparison did not run. Failure stage: ${context.failedStep}. Nothing is known about drift from this run.`
++  };
++}
++
++type Gh = (args: string[], input?: string) => string;
++const END_MARKER = "<!-- /axiom-pe-comparison-monitor -->";
++
++export function upsertComparisonFailure(notice: FailureNotice, repository: string, gh: Gh): number {
++  const marker = `<!-- axiom-pe-comparison-monitor:v1:${notice.category} -->`;
++  const section = `${marker}\n${notice.explanation}\n\nLatest run: ${notice.runUrl}\n${END_MARKER}`;
++  const pages = JSON.parse(gh([
++    "api", "--paginate", "--slurp",
++    `repos/${repository}/issues?state=open&labels=monitoring&per_page=100`
++  ])) as Array<Array<{ number: number; body: string | null; pull_request?: unknown }>>;
++  const existing = pages.flat().find((issue) => !issue.pull_request && issue.body?.includes(marker));
++  if (existing) {
++    const body = existing.body!;
++    const start = body.indexOf(marker);
++    const end = body.indexOf(END_MARKER, start);
++    // Refuse to overwrite an edited or damaged marker instead of swallowing
++    // investigation notes whose ownership is now ambiguous.
++    if (end < 0) throw new Error(`Monitor issue #${existing.number} has an incomplete owned section`);
++    const updated = body.slice(0, start) + section + body.slice(end + END_MARKER.length);
++    if (updated !== body) {
++      gh(["api", "--method", "PATCH", `repos/${repository}/issues/${existing.number}`, "--input", "-"],
++        JSON.stringify({ body: updated }));
++    }
++    return existing.number;
++  }
++  const created = JSON.parse(gh([
++    "api", "--method", "POST", `repos/${repository}/issues`, "--input", "-"
++  ], JSON.stringify({ title: notice.title, body: section, labels: ["monitoring"] }))) as { number: number };
++  return created.number;
++}
++
++function main(): void {
++  const repository = process.env.GH_REPO;
++  const runUrl = process.env.RUN_URL;
++  if (!repository || !runUrl) throw new Error("GH_REPO and RUN_URL are required");
++  let report: unknown;
++  try {
++    report = JSON.parse(readFileSync("pe-comparison-report.json", "utf8"));
++  } catch {
++    // Missing or malformed reports cannot support a claim of measured drift.
++  }
++  const notice = comparisonFailure({
++    compared: process.env.COMPARED ?? "",
++    archived: process.env.ARCHIVED ?? "",
++    archivePrepared: process.env.ARCHIVE_PREPARED ?? "",
++    failedStep: comparisonFailureStage(process.env),
++    runUrl,
++    report
++  });
++  const number = upsertComparisonFailure(notice, repository, (args, input) =>
++    execFileSync("gh", args, { encoding: "utf8", ...(input === undefined ? {} : { input }) }));
++  console.log(`Monitor issue #${number}: ${notice.category}`);
++}
++
++if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+diff --git a/tests/pe-comparison-monitor.test.ts b/tests/pe-comparison-monitor.test.ts
+new file mode 100644
+index 0000000..a85c294
+--- /dev/null
++++ b/tests/pe-comparison-monitor.test.ts
+@@ -0,0 +1,387 @@
++import { execFileSync, spawnSync } from "node:child_process";
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { load } from "js-yaml";
++import { beforeAll, describe, expect, it, vi } from "vitest";
++import { comparisonFailure, comparisonFailureStage, upsertComparisonFailure } from "../scripts/report-pe-comparison-failure.js";
++
++const runUrl = "https://github.com/TheAxiomFoundation/axiom-api/actions/runs/123";
++const context = { compared: "success", archived: "success", failedStep: "setup", runUrl };
++
++describe("PE comparison monitoring", () => {
++  it("distinguishes actual drift, incomplete measurements, archives and later reports", () => {
++    expect(comparisonFailure({ ...context, compared: "failure", report: { rows: [{ drift: "diff" }] } }))
++      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
++    for (const report of [undefined, null, {}, { rows: [] }, { rows: [null] }, { rows: "bad" }]) {
++      expect(comparisonFailure({ ...context, compared: "failure", report }).category)
++        .toBe("comparison-error");
++    }
++    expect(comparisonFailure({ ...context, archived: "failure" }).category).toBe("archive");
++    expect(comparisonFailure({ ...context, archivePrepared: "failure", archived: "skipped" }).category)
++      .toBe("archive");
++    expect(comparisonFailure(context).category).toBe("downstream");
++    expect(comparisonFailure({ ...context, compared: "skipped" }).category).toBe("setup");
++  });
++
++  it("identifies actual failed setup steps without treating skipped steps as failures", () => {
++    for (const [key, expected] of [
++      ["CHECKOUT", "checking out the repository"],
++      ["NODE_SETUP", "setting up Node.js"],
++      ["DEPENDENCIES", "installing dependencies"],
++      ["CONFIGURATION", "checking comparison configuration"],
++      ["COMPAT_KEY", "issuing the ephemeral compat key"],
++      ["ARCHIVE_PREPARED", "preparing the bundled snapshot"]
++    ]) {
++      const stage = comparisonFailureStage({ COMPAT_KEY: "skipped", COMPARED: "skipped", [key!]: "failure" });
++      expect(stage).toBe(expected);
++      const notice = comparisonFailure({ ...context, compared: "skipped", failedStep: stage });
++      expect(notice.explanation).toContain(`Failure stage: ${expected}`);
++    }
++    expect(comparisonFailureStage({ COMPAT_KEY: "skipped", COMPARED: "skipped" }))
++      .toBe("checkout or dependency installation");
++  });
++
++  it("creates one marked issue, then updates it across pages without losing investigation notes", () => {
++    const notice = comparisonFailure({ ...context, archived: "failure" });
++    const createGh = vi.fn().mockReturnValueOnce("[[]]").mockReturnValueOnce('{"number":42}');
++    expect(upsertComparisonFailure(notice, "owner/repo", createGh)).toBe(42);
++    const created = JSON.parse(createGh.mock.calls[1]![1] as string) as { body: string; labels: string[] };
++    expect(created.labels).toEqual(["monitoring"]);
++    expect(created.body).toContain("axiom-pe-comparison-monitor:v1:archive");
++
++    const oldBody = `Investigation notes\n${created.body}\nKeep this conclusion`;
++    const updateGh = vi.fn().mockReturnValueOnce(JSON.stringify([
++      [{ number: 9, body: created.body, pull_request: {} }, { number: 10, body: "unrelated" }],
++      [{ number: 42, body: oldBody }]
++    ])).mockReturnValueOnce("{}");
++    expect(upsertComparisonFailure({ ...notice, runUrl: `${runUrl}4` }, "owner/repo", updateGh)).toBe(42);
++    expect(updateGh.mock.calls[0]![0]).toContain("--paginate");
++    expect(updateGh.mock.calls[1]![0]).toContain("PATCH");
++    const updated = JSON.parse(updateGh.mock.calls[1]![1] as string).body as string;
++    expect(updated).toBe(`Investigation notes\n${created.body.replace(runUrl, `${runUrl}4`)}\nKeep this conclusion`);
++
++    const retryGh = vi.fn().mockReturnValue(JSON.stringify([[{ number: 42, body: updated }]]));
++    expect(upsertComparisonFailure({ ...notice, runUrl: `${runUrl}4` }, "owner/repo", retryGh)).toBe(42);
++    expect(retryGh).toHaveBeenCalledTimes(1);
++  });
++
++  it("keeps drift and archive failures in separate issues and refuses damaged owned sections", () => {
++    const archive = comparisonFailure({ ...context, archived: "failure" });
++    const otherCategory = "<!-- axiom-pe-comparison-monitor:v1:drift -->\nInvestigating";
++    const separateGh = vi.fn().mockReturnValueOnce(JSON.stringify([[{ number: 1, body: otherCategory }]]))
++      .mockReturnValueOnce('{"number":2}');
++    expect(upsertComparisonFailure(archive, "owner/repo", separateGh)).toBe(2);
++    expect(separateGh.mock.calls[1]![0]).toContain("POST");
++    const damagedGh = vi.fn().mockReturnValue(JSON.stringify([[{
++      number: 3, body: "<!-- axiom-pe-comparison-monitor:v1:archive -->\nInvestigation notes"
++    }]]));
++    expect(() => upsertComparisonFailure(archive, "owner/repo", damagedGh)).toThrow("incomplete owned section");
++    expect(damagedGh).toHaveBeenCalledTimes(1);
++  });
++
++  it("allows the intended archive write only after a successful main comparison and serializes updates", () => {
++    const workflow = load(readFileSync(".github/workflows/pe-household-comparison.yml", "utf8")) as {
++      concurrency: { group: string; "cancel-in-progress": boolean };
++      jobs: { compare: { permissions: Record<string, string>; steps: Array<{
++        id?: string; name?: string; if?: string; run?: string; shell?: string; env?: Record<string, string>;
++        uses?: string; with?: Record<string, unknown>;
++      }> } };
++    };
++    expect(workflow.concurrency).toEqual({ group: "pe-household-comparison", "cancel-in-progress": false });
++    expect(workflow.jobs.compare.permissions).toMatchObject({ contents: "write", issues: "write" });
++    const steps = workflow.jobs.compare.steps;
++    const prepare = steps.find((step) => step.id === "archive_prepare")!;
++    expect(prepare.if).toBe("steps.compare.outcome == 'success' && github.ref == 'refs/heads/main'");
++    expect(prepare.run).toContain("npx tsx scripts/bundle-validation-run.ts");
++    expect(prepare.env).toBeUndefined();
++    const archive = workflow.jobs.compare.steps.find((step) => step.id === "archive")!;
++    expect(archive.if).toBe("steps.archive_prepare.outcome == 'success' && github.ref == 'refs/heads/main'");
++    expect(archive.run).toContain("git commit --only data/validation-runs/latest.json");
++    expect(archive.run).not.toMatch(/\b(npm|npx|node)\b/);
++    expect(archive.run).not.toContain("x-access-token:${GH_PUSH_TOKEN}@");
++    expect(archive.run).toContain('pull --rebase "https://github.com/${GITHUB_REPOSITORY}.git" main');
++    expect(archive.run).toContain('push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:main');
++    expect(archive.env).toMatchObject({ GH_PUSH_TOKEN: "${{ github.token }}", GIT_TERMINAL_PROMPT: "0" });
++    for (const step of steps) {
++      if (step.uses) expect(step.uses).toMatch(/@[0-9a-f]{40}$/);
++      if (step.uses?.startsWith("actions/checkout@")) expect(step.with?.["persist-credentials"]).toBe(false);
++      if (step.run?.match(/\b(npm|npx)\b/)) {
++        expect(JSON.stringify(step.env ?? {})).not.toContain("github.token");
++      }
++    }
++    const alarm = workflow.jobs.compare.steps.find((step) => step.name === "Report drift failure")!;
++    expect(alarm.if).toBe("failure()");
++    expect(alarm.shell).toBe("bash");
++    expect(alarm.env?.ARCHIVED).toBe("${{ steps.archive.outcome }}");
++    expect(alarm.env?.ARCHIVE_PREPARED).toBe("${{ steps.archive_prepare.outcome }}");
++    expect(alarm.env?.DEPENDENCIES).toBe("${{ steps.dependencies.outcome }}");
++    expect(alarm.env?.COMPAT_KEY).toBe("${{ steps.compatkey.outcome }}");
++    expect(alarm.run).toContain("node scripts/report-pe-comparison-failure.ts 2>&1)");
++    expect(alarm.run).toContain('category="comparison-error"');
++  });
++});
++
++
++type FallbackState = {
++  issues: Array<{ number: number; body: string; title?: string }>;
++  comments: Array<{ body: string; issue: number }>;
++  writes: string[];
++};
++
++function requireJq(path = process.env.PATH): void {
++  const result = spawnSync("jq", ["--version"], { env: { PATH: path }, encoding: "utf8" });
++  if (result.error || result.status !== 0) {
++    throw new Error("PE comparison shell tests require jq on PATH. Install it with 'brew install jq' on macOS or 'sudo apt-get install jq' on Ubuntu, then rerun npm test.");
++  }
++}
++
++it("explains the jq test dependency when it is unavailable", () => {
++  const directory = mkdtempSync(join(tmpdir(), "pe-monitor-no-jq-"));
++  try {
++    expect(() => requireJq(directory)).toThrow("brew install jq");
++  } finally {
++    rmSync(directory, { recursive: true, force: true });
++  }
++});
++
++// Execute the workflow's real shell in an empty checkout, with a broken Node
++// command and a stateful fake GitHub CLI. Neither credentials nor network are used.
++function fallbackHarness(issues: FallbackState["issues"], checkedOut = false, runReporter = false) {
++  const directory = mkdtempSync(join(tmpdir(), "pe-monitor-fallback-"));
++  const bin = join(directory, "bin");
++  const statePath = join(directory, "state.json");
++  const nodeAttempt = join(directory, "node-attempt");
++  mkdirSync(bin);
++  writeFileSync(statePath, JSON.stringify({ issues, comments: [], writes: [] }));
++  const nodeCommand = runReporter
++    ? 'exec "$TEST_NODE_EXECUTABLE" --experimental-strip-types "$@"'
++    : 'if [ -n "$TEST_REPORTER_STDOUT" ]; then printf "%s\\n" "$TEST_REPORTER_STDOUT"; fi; printf "%s\\n" "$TEST_REPORTER_OUTPUT" >&2; exit 1';
++  writeFileSync(join(bin, "node"), `#!/bin/bash\nprintf attempted > "$NODE_ATTEMPT"\n${nodeCommand}\n`, { mode: 0o755 });
++  // An absolute shebang keeps this test double independent of the broken node
++  // command under test; the fallback itself can only use bash, jq and gh.
++  writeFileSync(join(bin, "gh"), `#!${process.execPath}
++const fs = require("node:fs");
++const state = JSON.parse(fs.readFileSync(process.env.TEST_MONITOR_STATE, "utf8"));
++const args = process.argv.slice(2);
++const endpoint = args.find(arg => arg.startsWith("repos/"));
++if (process.env.TEST_GH_READ_FAILURE && !args.includes("POST") && !args.includes("PATCH")) process.exit(1);
++let result;
++if (args.includes("POST") || args.includes("PATCH")) {
++  const payload = JSON.parse(fs.readFileSync(0, "utf8"));
++  if (args.includes("PATCH")) {
++    const index = state.issues.findIndex(issue => issue.number === Number(endpoint.split("/")[4]));
++    if (index < 0) throw new Error("Unknown issue: " + endpoint);
++    state.issues[index] = { ...state.issues[index], ...payload };
++    state.writes.push("patch");
++    result = state.issues[index];
++  } else if (endpoint.endsWith("/comments")) {
++    state.comments.push({ ...payload, issue: Number(endpoint.split("/")[4]) });
++    state.writes.push("comment");
++    result = payload;
++  } else if (endpoint.endsWith("/issues")) {
++    result = { number: 213, ...payload };
++    state.issues.push(result);
++    state.writes.push("issue");
++  } else throw new Error("Unexpected write: " + endpoint);
++  fs.writeFileSync(process.env.TEST_MONITOR_STATE, JSON.stringify(state));
++} else if (endpoint.includes("/comments?")) result = [[], state.comments.filter(comment => comment.issue === Number(endpoint.split("/")[4]))];
++else if (endpoint.includes("/issues?")) result = [[], state.issues];
++else throw new Error("Unexpected read: " + endpoint);
++process.stdout.write(JSON.stringify(result));
++`, { mode: 0o755 });
++  if (checkedOut) {
++    mkdirSync(join(directory, "scripts"));
++    writeFileSync(join(directory, "scripts/report-pe-comparison-failure.ts"), readFileSync("scripts/report-pe-comparison-failure.ts", "utf8"));
++  }
++  const workflow = load(readFileSync(".github/workflows/pe-household-comparison.yml", "utf8")) as {
++    jobs: { compare: { steps: Array<{ name: string; run: string }> } };
++  };
++  const shell = workflow.jobs.compare.steps.find(step => step.name === "Report drift failure")!.run;
++  let output = "";
++  return {
++    run(outcomes: Record<string, string>) {
++      output = execFileSync("/bin/bash", ["-eo", "pipefail", "-c", shell], {
++        cwd: directory,
++        env: {
++          PATH: `${bin}:${process.env.PATH}`,
++          TEST_MONITOR_STATE: statePath,
++          NODE_ATTEMPT: nodeAttempt,
++          TEST_NODE_EXECUTABLE: process.execPath,
++          GH_TOKEN: "inert-test-token",
++          GH_REPO: "TheAxiomFoundation/axiom-api",
++          RUN_URL: runUrl,
++          CHECKOUT: "success", NODE_SETUP: "success", DEPENDENCIES: "success",
++          CONFIGURATION: "success", COMPAT_KEY: "success", COMPARED: "skipped",
++          ARCHIVE_PREPARED: "skipped", ARCHIVED: "skipped", ...outcomes
++        },
++        stdio: "pipe",
++        encoding: "utf8"
++      });
++      return JSON.parse(readFileSync(statePath, "utf8")) as FallbackState;
++    },
++    writeReport: (contents: string) => writeFileSync(join(directory, "pe-comparison-report.json"), contents),
++    state: () => JSON.parse(readFileSync(statePath, "utf8")) as FallbackState,
++    output: () => output,
++    nodeAttempted: () => existsSync(nodeAttempt),
++    dispose: () => rmSync(directory, { recursive: true, force: true })
++  };
++}
++
++describe("PE comparison shell fallback", () => {
++  beforeAll(() => requireJq());
++  const marker = "<!-- axiom-pe-comparison-monitor:v1:comparison-error -->";
++  // Intentionally incomplete generated section: a reporter error must not erase
++  // existing investigation notes or prevent the last-resort alert.
++  const body = `Preserve the original run links\n${marker}\nUnfinished investigation`;
++
++  it.each([
++    [false, { CHECKOUT: "failure", NODE_SETUP: "skipped", COMPAT_KEY: "skipped" }, "checking out the repository"],
++    [true, { NODE_SETUP: "failure", COMPAT_KEY: "skipped" }, "setting up Node.js"]
++  ] as const)("reports setup failure with checkedOut=%s and preserves canonical notes", (checkedOut, outcomes, stage) => {
++    const fallback = fallbackHarness([{ number: 213, body }], checkedOut);
++    try {
++      const state = fallback.run(outcomes);
++      expect(state.issues).toEqual([{ number: 213, body }]);
++      expect(state.writes).toEqual(["comment"]);
++      expect(state.comments[0]!.body).toContain(`failure at: ${stage}`);
++      expect(state.comments[0]!.body).toContain("Comparison step outcome: skipped");
++      expect(state.comments[0]!.body).toContain(runUrl);
++      expect(fallback.nodeAttempted()).toBe(checkedOut);
++      expect(fallback.run(outcomes)).toEqual(state);
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("catches primary reporter errors without denying a successful comparison", () => {
++    const fallback = fallbackHarness([{ number: 213, body }], true);
++    try {
++      const state = fallback.run({ COMPARED: "success", ARCHIVE_PREPARED: "success", ARCHIVED: "success", TEST_REPORTER_OUTPUT: "Sensitive upstream response: fixture-private-context" });
++      expect(state.issues[0]!.body).toBe(body);
++      expect(state.comments[0]!.body).toContain("failure at: the primary failure reporter");
++      expect(state.comments[0]!.body).toContain("Comparison step outcome: success");
++      expect(state.comments[0]!.body).toContain("Reporter failure alone does not establish calculation drift");
++      expect(state.comments[0]!.body).not.toContain("did not run");
++      expect(state.comments[0]!.body).not.toContain("fixture-private-context");
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("logs reporter stdout and stderr as data without publishing raw diagnostics to an issue", () => {
++    const fallback = fallbackHarness([{ number: 213, body }], true);
++    const stdout = "Reporter request started\n::warning::not an Actions annotation";
++    const stderr = "fixture-private-context: HTTP 403; literal %s and \\n";
++    try {
++      const state = fallback.run({ COMPARED: "failure", TEST_REPORTER_STDOUT: stdout, TEST_REPORTER_OUTPUT: stderr });
++      const output = fallback.output();
++      const token = output.match(/^::stop-commands::([^\n]+)\n/)?.[1];
++      expect(token).toMatch(/^axiom-reporter-(?:\d+-){3}\d+$/);
++      expect(output).toContain(`::stop-commands::${token}\n${stdout}\n${stderr}\n::${token}::\n`);
++      expect(state.writes).toEqual(["comment"]);
++      expect(state.comments[0]!.body).toContain("The primary failure reporter was unavailable or failed");
++      expect(JSON.stringify(state)).not.toContain("Reporter request started");
++      expect(JSON.stringify(state)).not.toContain("not an Actions annotation");
++      expect(JSON.stringify(state)).not.toContain("fixture-private-context");
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("exits after a successful primary update without adding a fallback alert", () => {
++    const start = "<!-- axiom-pe-comparison-monitor:v1:drift -->";
++    const end = "<!-- /axiom-pe-comparison-monitor -->";
++    const driftBody = `Investigation notes\n${start}\nOld generated report\n${end}\nKeep this conclusion`;
++    const fallback = fallbackHarness([{ number: 42, body: driftBody }], true, true);
++    try {
++      fallback.writeReport(JSON.stringify({ rows: [{ drift: "diff" }, { drift: "diff" }] }));
++      const state = fallback.run({ COMPARED: "failure" });
++      expect(fallback.output()).toContain("Monitor issue #42: drift\n");
++      expect(state.writes).toEqual(["patch"]);
++      expect(state.comments).toEqual([]);
++      expect(state.issues).toHaveLength(1);
++      expect(state.issues[0]!.number).toBe(42);
++      expect(state.issues[0]!.body).toContain(`Investigation notes\n${start}\n`);
++      expect(state.issues[0]!.body).toContain(`${end}\nKeep this conclusion`);
++      expect(state.issues[0]!.body).toContain("2 pinned expectation(s) did not hold");
++      expect(state.issues[0]!.body).toContain(runUrl);
++      expect(state.issues[0]!.body).not.toContain("Old generated report");
++      expect(state.issues[0]!.body).not.toContain("axiom-pe-comparison-fallback");
++      expect(fallback.run({ COMPARED: "failure" })).toEqual(state);
++      expect(fallback.output()).toContain("Monitor issue #42: drift\n");
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("preserves measured drift and the damaged issue diagnosis without moving the alert", () => {
++    const driftBody = "Existing investigation\n<!-- axiom-pe-comparison-monitor:v1:drift -->\nKeep these notes";
++    const fallback = fallbackHarness([{ number: 213, body }, { number: 42, body: driftBody }], true, true);
++    try {
++      fallback.writeReport(JSON.stringify({ rows: [{ drift: "diff" }, { drift: "same" }, { drift: "diff" }] }));
++      const state = fallback.run({ COMPARED: "failure" });
++      expect(state.issues).toEqual([{ number: 213, body }, { number: 42, body: driftBody }]);
++      expect(state.writes).toEqual(["comment"]);
++      expect(state.comments[0]!.issue).toBe(42);
++      expect(state.comments[0]!.body).toContain("monitor issue #42 because its owned section is incomplete");
++      expect(state.comments[0]!.body).toContain("2 drifted pinned expectation(s)");
++      expect(fallback.run({ COMPARED: "failure" })).toEqual(state);
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("gives a new drift fallback a matching title and stable category marker", () => {
++    const fallback = fallbackHarness([]);
++    try {
++      fallback.writeReport(JSON.stringify({ rows: [{ drift: "diff" }] }));
++      const state = fallback.run({ COMPARED: "failure" });
++      expect(state.issues[0]!.title).toBe("PE household comparison: pinned Axiom outputs drifted");
++      expect(state.issues[0]!.body).toContain("<!-- axiom-pe-comparison-monitor:v1:drift -->");
++      expect(state.issues[0]!.body).toContain("1 drifted pinned expectation(s)");
++      expect(fallback.run({ COMPARED: "failure" })).toEqual(state);
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
++    const fallback = fallbackHarness([{ number: 213, body }], true);
++    try {
++      fallback.writeReport(report);
++      const state = fallback.run({ COMPARED: "failure" });
++      expect(state.writes).toEqual(["comment"]);
++      expect(state.comments[0]!.issue).toBe(213);
++      expect(state.comments[0]!.body).toContain("Drift-row count unavailable");
++      expect(state.comments[0]!.body).not.toContain("drifted pinned expectation(s)");
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("does not create a duplicate issue when the canonical issue lookup fails", () => {
++    const fallback = fallbackHarness([{ number: 213, body }]);
++    try {
++      expect(() => fallback.run({ CHECKOUT: "failure", TEST_GH_READ_FAILURE: "1" })).toThrow();
++      expect(fallback.state().writes).toEqual([]);
++    } finally {
++      fallback.dispose();
++    }
++  });
++
++  it("creates one canonical comparison issue when absent and reuses it on retries", () => {
++    const fallback = fallbackHarness([]);
++    try {
++      const state = fallback.run({ CHECKOUT: "failure" });
++      expect(state.writes).toEqual(["issue"]);
++      expect(state.issues[0]!.title).toBe(comparisonFailure({ ...context, compared: "failure" }).title);
++      expect(state.issues[0]!.body).toContain(marker);
++      expect(state.issues[0]!.body).toContain("The primary failure reporter was unavailable or failed");
++      expect(state.issues[0]!.body).toContain("<!-- /axiom-pe-comparison-monitor -->");
++      expect(fallback.run({ CHECKOUT: "failure" })).toEqual(state);
++    } finally {
++      fallback.dispose();
++    }
++  });
++});

@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc _________
+tests/fake/test_notice_header.py:98: in test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc
+    assert notice_lines(daemon, job_id) == [
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_notice_header.py:35: in notice_lines
+    notice, = daemon.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))
+    ^^^^^^^
+E   ValueError: not enough values to unpack (expected 1, got 0)
+=========================== short test summary info ============================
+FAILED tests/fake/test_notice_header.py::test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc
+1 failed in 0.29s

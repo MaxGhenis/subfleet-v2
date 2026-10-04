@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.818" timestamp="2026-10-03T17:52:51.657246-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_importer" name="test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]" time="0.488"><properties><property name="nodeid" value="tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]" /></properties><failure message="AssertionError: assert 'session-held-by-legacy-owner' == 'history'&#10;  &#10;  - history&#10;  + session-held-by-legacy-owner">tests/unit/test_importer.py:1646: in test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing
+    assert dispositions(report)[LEGACY[3]] == "history"
+E   AssertionError: assert 'session-held-by-legacy-owner' == 'history'
+E     
+E     - history
+E     + session-held-by-legacy-owner</failure></testcase></testsuite></testsuites>

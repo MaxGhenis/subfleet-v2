@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_the_probe_record_is_the_newest_for_its_holder[19] ____________
+tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[19]
+1 failed in 0.43s

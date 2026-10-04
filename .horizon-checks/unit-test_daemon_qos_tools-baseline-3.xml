@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.336" timestamp="2026-10-03T17:47:51.469904-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_qos_tools" name="test_thread_priorities_reads_every_thread_of_a_clamped_process" time="0.041"><properties><property name="nodeid" value="tests/unit/test_daemon_qos_tools.py::test_thread_priorities_reads_every_thread_of_a_clamped_process" /></properties><failure message="PermissionError: [Errno 1] Operation not permitted: '/bin/ps'">tests/unit/test_daemon_qos_tools.py:65: in test_thread_priorities_reads_every_thread_of_a_clamped_process
+    while deadline and sum(repro.thread_priorities(child.pid).values()) &lt; 4:
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tools/store_contention_repro.py:241: in thread_priorities
+    out = subprocess.run(["/bin/ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,648 @@
+{
+  "action": {
+    "at": "2026-09-05T14:11:42-04:00",
+    "status": "authorized",
+    "type": "proceed"
+  },
+  "brief": "Review API PR222 exact head47facaf0d82098029f62b822103acc590e3cd79a vs actualmain9bed01ec384ae55fc033de7f597d1c76f28cc660. Main has read full patch and approves scopedbehavior after independent implementation/testing. Userauthorizesongoingimplementation+cleanupwithverification; no manualproductionworkflowdispatch,secretrotation,securitysettingchange,or deployment here. This repo uses Vercelpreview onPR automatically. Do not edit.\n\nObserved currentmain run33961302987 completed the comparison then failed snapshot gitpush403 with contentsread. Existing docs/observability.md explicitly describes public dashboard fallback; preserving it is intentional. Patch grants contentswrite onlyto scheduled/manual comparejob, archives single snapshotonly aftersuccess onmain, serializesworkflow runs. Newdependency-freeNode24 reporter distinguishes recordeddrift, comparison-error, archive, downstream, setup; paginates open monitoringissues andupdatesstablemarkedbodysection preservingoutside investigation notes andidempotentlyskips sameoutput. Parentwillseedexisting221archive/213comparison-error markers beforemerge,thenclose olderduplicates withlinks; no claimrootcausefixed untilactualrunverified. Noauthkeys/reportdata addedto source.\n\nValidation549tests allcoveragegates withnpmruncheck,13focusedworkflow/reporter tests; actualNode24CLI againstisolatedfakegh confirmsarchivecategory. Evidencefilesin /redacted/home/architecture-reviews/axiom-20260904/backlog-review/api-monitor-* . CurrentPR CIwillrunfresh. Assess actionable workflowregressions, reporting/erroridentity/bodypreservation/races, permission scope, runtimecompatibility, missingtests. Distinguish static review fromyouractualexecutedtests. Require currentheadandactualmain unchangedbeforeapproval; GithubPRbaseRefOidcanhistorical. Returnfindingspaths/lines orapprovewithlimits. ThisisnotPolicyEnginepolicycalculation; pureworkflowandmonitor logic.\n",
+  "certificate": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/certificate.json",
+  "created_at": "2026-09-05T09:32:17-04:00",
+  "id": "20260905-093217-pr-aff2fcda",
+  "kind": "pr",
+  "locator": {
+    "number": 222,
+    "repository": "TheAxiomFoundation/axiom-api"
+  },
+  "max_rounds": 0,
+  "merge_method": "merge",
+  "on_agreement": "proceed",
+  "peer": "fable",
+  "round_limit_changes": [
+    {
+      "at": "2026-09-05T13:17:03-04:00",
+      "expected_revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "max_rounds": 0,
+      "previous_max_rounds": 4
+    }
+  ],
+  "rounds": [
+    {
+      "attempt_id": "5fcacd50ae08464fba7cc5ab89e099d3",
+      "error": null,
+      "finished_at": "2026-09-05T09:36:15-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T09:32:17-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "47facaf0d82098029f62b822103acc590e3cd79a",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 1,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-lmuzn054",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r1",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-093222-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "47facaf0d82098029f62b822103acc590e3cd79a",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T09:32:17-04:00",
+      "status": "changes_requested",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "47facaf0d82098029f62b822103acc590e3cd79a",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [
+          {
+            "description": "Job-level `contents: write` is granted while actions/checkout@v6 keeps default persist-credentials (true) and actions are tag-pinned. The write-capable GITHUB_TOKEN therefore sits in .git/config for every step in the job: `npm ci` (lifecycle scripts of all dependencies), `npx tsx`, the live compare/resolve/status harnesses, and the third-party rulespec-us checkout. Because the archive step must push directly to `main` for the feature to work at all, branch protection cannot be relied on to block a compromised dependency doing the same. The repo's own convention for write-capable jobs (deploy-production.yml:42-48 and :69-76) is persist-credentials: false, SHA-pinned actions, and a token injected only in the push command. Apply the same here (e.g. `git push \"https://x-access-token:${GH_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\" HEAD:main` inside the archive step with persist-credentials: false, and SHA-pin checkout/setup-node/upload-artifact), or move the archive into a separate minimal job fed by the report artifact.",
+            "location": ".github/workflows/pe-household-comparison.yml:36-47,109-120",
+            "severity": "medium"
+          },
+          {
+            "description": "FAILED_STEP uses `steps.compatkey.outcome != 'success'`, which is also true when the step was *skipped* (checkout, setup-node or `npm ci` failed; or configured=false). A setup-category issue will then say \"Failure stage: issuing the ephemeral compat key\" for an npm ci failure, misdirecting the reader. The reporter falls into the `setup` branch precisely in these cases, so the wrong stage text is what gets written. Use `== 'failure'` for compatkey/compare and add a generic fallback such as 'checkout or dependency install'. No test covers this expression.",
+            "location": ".github/workflows/pe-household-comparison.yml:229 and scripts/report-pe-comparison-failure.ts:178-183",
+            "severity": "low"
+          }
+        ],
+        "notes": [
+          "Static review only: I did not execute vitest, tsc, or the Node 24 CLI; the brief's 549-test / fake-gh evidence was not independently reproduced.",
+          "Head verified: the clean worktree's branch ref resolves to 47facaf0d82098029f62b822103acc590e3cd79a and its workflow, script, test and doc contents match artifact.patch. The base SHA could not be checked against remote main from a read-only worktree.",
+          "Drift/comparison-error identity is sound against compare-pe.ts: HTTP-failed cases `continue` without rows (scripts/compare-pe.ts:243-247), fetch exceptions exit 2 before the report is written (:495,:575-578), so drift rows only exist when a pinned value actually changed; publish failure after drift still reports drift, which is correct.",
+          "Archive gating regression check: archive is skipped when compare is skipped (configured=false) or failed, and on non-main dispatch; `git commit --only` is harmless after `git add`. `git pull --rebase` remains vulnerable to any tracked-file modification during the run, but compare/publish only write gitignored outputs unless `--update` is passed, so no regression.",
+          "Reporter runtime: only erasable TS syntax, node: builtins, package.json type=module, tsconfig includes scripts/tests with NodeNext, so `node script.ts` on Node 24 and `tsc --noEmit` should both pass. Coverage thresholds only include src/**, so the untested `main()` cannot break the gate. `gh api --paginate --slurp` requires gh >= 2.52, which ubuntu-latest satisfies.",
+          "Design residual: an edited/damaged owned section makes the reporter throw, so the run fails with no issue update or comment; the only signal is the red run. A comment-fallback would keep the alarm audible. The old shell also created the `monitoring` label if missing; the new path relies on the API auto-creating labels on issue create, which GitHub does.",
+          "Concurrency: cancel-in-progress:false protects the running measurement, but GitHub still supersedes a *queued* run when a newer one arrives in the same group; acceptable for daily+manual cadence.",
+          "Pre-existing, out of scope: after a 503 compat-key skip the compare step still runs with an empty key and will raise a comparison-error issue rather than being skipped."
+        ],
+        "schema_version": 1,
+        "summary": "The patch correctly scopes archiving to successful main runs, serializes runs, and the dependency-free reporter's category logic, pagination, body-section preservation and idempotent skip hold up against compare-pe.ts and the workflow. One actionable security-scope regression: contents: write is now held by every step of a job that runs npm lifecycle scripts and live harnesses with persisted checkout credentials and tag-pinned actions, contrary to the repo's own write-job convention in deploy-production.yml; plus a low-severity FAILED_STEP misattribution for skipped steps. Head SHA verified against the worktree; base not verifiable read-only; no tests executed by this reviewer.",
+        "verdict": "changes_requested"
+      }
+    },
+    {
+      "attempt_id": "1ba6a9f43bb54955ae92202409c4749a",
+      "error": null,
+      "finished_at": "2026-09-05T09:53:13-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T09:48:13-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "1500543afc858b8e4edc105e6189eac86b57b62a",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 2,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-58ras09m",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r2",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-094816-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "1500543afc858b8e4edc105e6189eac86b57b62a",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T09:48:13-04:00",
+      "status": "changes_requested",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "1500543afc858b8e4edc105e6189eac86b57b62a",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [
+          {
+            "description": "The alarm path now depends on the repository checkout and on Node 24 type stripping: `node scripts/report-pe-comparison-failure.ts` cannot run when actions/checkout failed (the script is not on disk) and is not guaranteed to run when setup-node failed (the runner's preinstalled `node` is used and may not strip TypeScript). The replaced inline shell + `gh issue create` alarm had neither dependency, so for those two failure classes the run now goes red with no issue created or updated. The CHECKOUT and NODE_SETUP stages in comparisonFailureStage (scripts/report-pe-comparison-failure.ts:25-26) are therefore unreachable in the real workflow, while tests/pe-comparison-monitor.test.ts:26-27 assert them, which overstates coverage. Fix: keep a dependency-free shell fallback in the step, e.g. `node scripts/report-pe-comparison-failure.ts || gh issue create --title 'PE household comparison: measurement could not start' --body \"...Run: $RUN_URL\" --label monitoring`, or drop the two unreachable stages and their tests so the documented behavior matches what can actually fire.",
+            "location": ".github/workflows/pe-household-comparison.yml:241-256; scripts/report-pe-comparison-failure.ts:25-26; tests/pe-comparison-monitor.test.ts:26-27",
+            "severity": "low"
+          }
+        ],
+        "notes": [
+          "Static review only, using read-only file tools: I did not execute vitest, tsc, or the Node 24 CLI. The main agent's 550-test / tsc / fake-gh evidence was not independently reproduced.",
+          "Head verified: the worktree's branch ref fix/comparison-monitor-retention resolves to 1500543afc858b8e4edc105e6189eac86b57b62a, and the workflow, reporter, test and docs contents in the checkout are byte-for-byte what artifact.patch introduces. Local refs/remotes/origin/main is 9bed01ec384ae55fc033de7f597d1c76f28cc660, matching the stated base as of the last fetch; the live remote could not be checked read-only.",
+          "Both prior findings are resolved at this head: persist-credentials: false on both checkouts; checkout/setup-node/upload-artifact pinned to full SHAs identical to those already used by deploy-production.yml (d23441a4\u2026, 24997072\u2026), so the pin values are consistent with the repo convention even though I could not verify them against upstream tags; bundle generation split into an untokened step; GH_PUSH_TOKEN present only in the archive step via `git -c credential.helper=` reset plus a per-command `!f()` helper, so no token URL or persisted git config; comparisonFailureStage matches only literal 'failure' with a generic fallback. The -c settings propagate to pull's fetch/rebase subprocesses via GIT_CONFIG_PARAMETERS, and the token is expanded inside the helper's shell rather than appearing on a command line.",
+          "Category identity re-checked against scripts/compare-pe.ts: the report is written at :495 before every exit path that follows a completed run (:559-571), and HTTP-failed cases `continue` without rows (:243-247), so a drift row exists only when a pinned value changed; fetch exceptions exit 2 with no report (:575-578), and the reporter's JSON.parse failure then yields comparison-error. A publish-only failure (:537-540) with zero drift rows also lands in comparison-error with wording that says the run 'does not establish whether the pinned expectations still hold', which is over-cautious rather than wrong; behavior is unchanged from the old shell.",
+          "Archive gating and ordering: archive_prepare requires compare success on refs/heads/main; archive requires archive_prepare success; both are skipped for configured=false and for non-main dispatch. The pre-existing ordering test in tests/migration-schemas.test.ts:34-54 still finds 'Commit bundled run' before the RuleSpec pin, so no test conflict. `git pull --rebase <url> main` behaves the same as the former `origin main` on the shallow checkout; the only tracked-file change in the run is latest.json, which is committed before the rebase.",
+          "Reporter runtime and idempotency: only erasable TS syntax and node: builtins; package.json type=module and tsconfig NodeNext include scripts/tests; the argv[1] === import.meta.url guard keeps main() from running under vitest; coverage thresholds cover src/** only so the untested main() cannot break the gate. Upsert filters PRs, pages via --paginate --slurp, replaces only the owned section, skips the PATCH when unchanged, and throws on a missing end marker rather than clobbering notes. The 1 MB execFileSync maxBuffer is ample for open monitoring issues at current volume.",
+          "Residuals not treated as findings: docs/observability.md says branch protections still apply while deploy-production.yml:9-11 notes none currently enforce main; a damaged owned section makes the run fail without any issue update (design choice, tested); the planned seeding of markers into existing issues #221/#213 is outside this patch, and until it happens the first failure per category will open a fresh issue alongside the old ones; a 503 compat-key skip still lets compare run with an empty key (pre-existing)."
+        ],
+        "schema_version": 1,
+        "summary": "Head 1500543a verified against the clean worktree and the patch. The permission-scope and skipped-step findings from the prior review are correctly addressed: credentials are not persisted, actions are SHA-pinned consistently with deploy-production.yml, the write token is confined to the git archive step via a command-scoped credential helper, and stage attribution matches only literal failures. Category logic, archive gating, run serialization, pagination and body-section preservation hold up against compare-pe.ts and the workflow. One low-severity regression remains: the failure alarm now requires a successful checkout and a Node 24 runtime, so checkout or setup-node failures produce no issue at all, and the CHECKOUT/NODE_SETUP stages that tests assert are unreachable in practice. Static review only; no tests executed here.",
+        "verdict": "changes_requested"
+      }
+    },
+    {
+      "attempt_id": "6bbc5232b6254d2493d93e64342949b3",
+      "error": null,
+      "finished_at": "2026-09-05T10:44:12-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T10:37:17-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cbd41e311d17f8c81807e987ee24ea3c08a38247",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 3,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-br2pkhyl",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r3",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-103718-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "cbd41e311d17f8c81807e987ee24ea3c08a38247",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T10:37:17-04:00",
+      "status": "changes_requested",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cbd41e311d17f8c81807e987ee24ea3c08a38247",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [
+          {
+            "description": "The new shell-fallback tests execute the workflow's real run block via /bin/bash and require `jq` on PATH, but nothing guards or documents that dependency. On a developer machine without jq (macOS ships none), `npm test` now fails in five cases with an opaque execFileSync non-zero-exit error rather than a skip or a clear message; the suite previously had no external-tool dependency. Fix: gate the describe block with `describe.skipIf(!hasJq)` (probe with spawnSync('jq', ['--version'])) or fail fast with a message naming jq, and keep the CI run unconditional since ubuntu-latest has jq.",
+            "location": "tests/pe-comparison-monitor.test.ts:134-199 (fallbackHarness) and :201-262",
+            "severity": "low"
+          },
+          {
+            "description": "The inline fallback discards the primary reporter's failure reason and any measured drift. `node scripts/report-pe-comparison-failure.ts` runs inside the `if` with stderr going only to the step log, so the posted comment says merely 'The primary failure reporter was unavailable or failed'. When the reporter throws because a human damaged the owned section of, say, the drift issue (the deliberate throw at scripts/report-pe-comparison-failure.ts:99), every subsequent drift run silently lands as a comment on the comparison-error issue with no mention of which issue is damaged or that pe-comparison-report.json recorded drifted rows, and the drift issue never updates. The replaced shell alarm did count drift rows with jq. Fix: capture the reporter output (`if reporter_output=\"$(node scripts/... 2>&1)\"; then exit 0; fi`) and include a bounded tail of it in the fallback body, and when pe-comparison-report.json exists include the jq drift-row count so a real drift is not muted behind 'could not conclude'.",
+            "location": ".github/workflows/pe-household-comparison.yml:259-283",
+            "severity": "low"
+          }
+        ],
+        "notes": [
+          "Static review only using read-only file tools: I did not run vitest, tsc, node, bash, or gh. The main agent's 555-test / tsc / shell-harness evidence was not independently reproduced.",
+          "Head/base verification: the worktree's HEAD points at refs/heads/fix/comparison-monitor-retention, which resolves to cbd41e311d17f8c81807e987ee24ea3c08a38247; refs/remotes/origin/main resolves to 9bed01ec384ae55fc033de7f597d1c76f28cc660. The workflow, reporter, test, and docs contents in the checkout match artifact.patch. The local refs/heads/main is 962169fd (not the base) and is irrelevant to the comparison; the live remote and the GitHub PR head were not checked. The review brief's head 47facaf0 is stale relative to the supplied artifact revision.",
+          "Prior peer finding (alarm required checkout + Node 24) is resolved at this head: the reporter runs inside a guarded `if` (exempt from errexit), the fallback uses only bash/jq/gh, and the step sets shell: bash so pipefail makes a failed issue lookup abort before any create (verified by reasoning about `existing=\"$(gh ... | jq ...)\"` under -eo pipefail; the test 'does not create a duplicate issue when the canonical issue lookup fails' exercises it). YAML block-scalar dedent puts the multi-line body and created-issue lines at column 0, and the test loads the same YAML, so layout is covered. The fallback-created body places the category marker before the end marker, so the Node reporter's later section replacement for comparison-error is compatible.",
+          "Archive path re-checked: `-c credential.helper=` resets helpers and the inline `!f()` helper expands GH_PUSH_TOKEN inside its own shell; GIT_CONFIG_PARAMETERS propagates to pull's fetch/rebase subprocesses; persist-credentials false on both checkouts; no npm/npx step carries github.token. archive_prepare/archive conditions imply success() and are main-only; the pre-existing ordering test in tests/migration-schemas.test.ts:34-54 still resolves 'Commit bundled run' before the RuleSpec pin.",
+          "Residuals not treated as findings: pushes made with GITHUB_TOKEN do not trigger deploy-production.yml or ci.yml, so the bundled snapshot only reaches production with the next human push (pre-existing design, but it becomes visible now that the push will succeed); docs/observability.md:28 says 'branch protections still apply' while deploy-production.yml:9-11 notes none currently enforce main; the workflow-level concurrency queue holds one pending run and cancels older pending ones without an alert; issue creation relies on the `monitoring` label existing or being auto-created by the REST API; seeding markers into #221/#213 is outside this patch, so the first failure per category opens a new issue alongside the old ones; a 503 compat-key skip still runs compare with an empty key and lands in comparison-error (pre-existing)."
+        ],
+        "schema_version": 1,
+        "summary": "Head cbd41e31 verified against the worktree branch ref and origin/main matches the stated base. The prior peer's regression is fixed: the alarm now falls back to a bash/jq/gh path that needs neither checkout nor Node, aborts before creating issues if the lookup fails, dedups per run, and creates a marker-compatible comparison-error issue when none exists. Permission scope, credential confinement, SHA pins, archive gating, run serialization, category identity, pagination and body-section preservation all hold on static reading. Two low-severity items remain: the new tests hard-depend on jq and /bin/bash without a skip guard, and the fallback comment drops the reporter's error text and the report's drift count, which mutes real drift and hides a damaged drift issue when the reporter fails. No tests were executed here.",
+        "verdict": "changes_requested"
+      }
+    },
+    {
+      "attempt_id": "5eb405875187479e96448a929396bade",
+      "error": null,
+      "finished_at": "2026-09-05T11:03:52-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T10:57:11-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "36e6cd33c77605f5e89239d9308babd395fe3428",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 4,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-uloc83wc",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r4",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-105716-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "36e6cd33c77605f5e89239d9308babd395fe3428",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T10:57:11-04:00",
+      "status": "changes_requested",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "36e6cd33c77605f5e89239d9308babd395fe3428",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [
+          {
+            "description": "The shell fallback's primary path (reporter succeeds, step exits 0, no shell-side gh write) is never exercised end to end. The fake gh in fallbackHarness only accepts POST writes; a PATCH from a successful reporter update throws 'Unexpected read', so the one test that runs the real reporter through the workflow shell (runReporter=true) only reaches the fallback because the drift issue is deliberately damaged. If the guard at .github/workflows/pe-household-comparison.yml:260-262 regressed (e.g. the exit 0 were dropped or the assignment-in-condition were restructured), every daily failure would get both a reporter body update and a duplicate fallback comment, and no test would catch it. Fix: teach the fake gh to handle --method PATCH on repos/*/issues/N (update state.issues[n].body, record 'patch' in writes) and add a case with a complete owned section (marker + end marker) that asserts writes == ['patch'], no comment is created, and a rerun with identical output performs no write.",
+            "location": "tests/pe-comparison-monitor.test.ts:163-186 (fake gh) and :222-330 (shell fallback describe block)",
+            "severity": "low"
+          }
+        ],
+        "notes": [
+          "Static review only with read-only file tools; no vitest, tsc, node, bash, git, or gh was executed here. The main agent's 561-test / npm run check evidence was not independently reproduced.",
+          "Revision verification: the worktree's HEAD is refs/heads/fix/comparison-monitor-retention, which resolves to 36e6cd33c77605f5e89239d9308babd395fe3428 (matches supplied head). refs/remotes/origin/main resolves to 9bed01ec384ae55fc033de7f597d1c76f28cc660 (matches supplied base). The workflow, reporter, test, README and docs in the checkout match artifact.patch line for line. The review brief's head 47facaf0 is stale relative to the supplied artifact revision; the live remote and GitHub PR head were not checked.",
+          "Both prior-peer findings are resolved at this head: (1) the shell test group probes jq in beforeAll and fails with an install message, README documents the prerequisite, and a regression test covers the message; (2) the fallback now captures reporter output, publishes only the known 'incomplete owned section' signature with a bounded issue number, counts drift rows via a type-checked jq expression that rejects multi-document and malformed input, and routes measured drift (COMPARED=failure and count>0) to the drift marker/title so a damaged drift issue receives the count as a comment rather than being silenced on the comparison-error issue.",
+          "Verified by reading: shell fallback needs only bash/jq/gh (runner-provided), guard `if [ -f ... ] && reporter_output=\"$(node ...)\"` is errexit-exempt and uses the substitution's exit status; pipefail aborts before any create when the issue lookup fails; per-run dedup via body and comment run markers; YAML block-scalar dedent puts continuation lines at column 0 and the test executes the identical string. Reporter counts row.drift==='diff' over Array rows; jq counts objects with .drift=='diff' over an array; both treat unparsable reports as comparison-error, so categories agree. Archive path: `-c credential.helper=` resets helpers, inline helper reads GH_PUSH_TOKEN from its own environment, GIT_CONFIG_PARAMETERS propagates to fetch/rebase subprocesses, both checkouts set persist-credentials:false, no npm/npx step receives github.token (enforced by test), archive steps are main-only and imply compare success. tests/migration-schemas.test.ts:34-54 step ordering still holds. tsconfig includes scripts/ and tests/ with exactOptionalPropertyTypes; reporter types read as compatible.",
+          "Residual risks not treated as findings: action SHA pins (checkout d23441a4, setup-node 24997072, upload-artifact ea165f8d) could not be verified offline against the action repositories; the workflow is schedule/dispatch only, so PR CI does not exercise it and the first post-merge scheduled run is the real validation (a bad pin fails at checkout and is audible via the fallback). Pushes made with GITHUB_TOKEN do not trigger deploy-production.yml or ci.yml, so the bundled snapshot reaches production only with the next human push (pre-existing design). docs/observability.md says 'branch protections still apply' while deploy-production.yml:9-11 notes none currently enforce main. A comparison-error issue created by the fallback keeps the title 'failure reporter unavailable' since the reporter never updates titles. Fallback comments for archive/downstream/setup reporter failures land on the comparison-error issue by documented design. Fallback dedup keys on run URL, so a re-run of the same run id after a partial fix posts no new comment. Label creation relies on the REST API accepting/creating 'monitoring' (it already exists for #221/#213). Seeding markers into existing issues is outside this patch."
+        ],
+        "schema_version": 1,
+        "summary": "Head 36e6cd33 and base 9bed01ec verified against the worktree branch ref and origin/main; checkout contents match the artifact. Both prior low findings (jq test dependency, muted reporter reason/drift count) are resolved: the shell group fails fast with an install message, and the fallback now publishes only the known damaged-section signature, a validated drift-row count, and routes measured drift to the drift issue. Permission scope, credential confinement, errexit/pipefail semantics, per-run dedup, category identity between reporter and fallback, body preservation, and step ordering hold on static reading. One low finding remains: the primary path where the reporter succeeds through the workflow shell is untested because the fake gh rejects PATCH, so a regression that dropped the early exit and produced duplicate alerts would go unnoticed. No tests were executed here.",
+        "verdict": "changes_requested"
+      }
+    },
+    {
+      "attempt_id": "952538e4bdea4f99b306b19adddbbed5",
+      "error": "peer dispatch exited 3",
+      "finished_at": "2026-09-05T13:17:06-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:17:03-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 5,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-1ni6olnb",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r5",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/peer-output.md",
+      "peer_returncode": 3,
+      "peer_run_id": null,
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T13:17:03-04:00",
+      "status": "blocked",
+      "verdict": null
+    },
+    {
+      "attempt_id": "57317eda9f0a4fcebd0158f5cf783670",
+      "error": "peer dispatch exited 3",
+      "finished_at": "2026-09-05T13:21:02-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:20:59-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 6,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-v2q23iv0",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r6",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/peer-output.md",
+      "peer_returncode": 3,
+      "peer_run_id": null,
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T13:20:59-04:00",
+      "status": "blocked",
+      "verdict": null
+    },
+    {
+      "attempt_id": "71d5266ccb6144e2b3773ff815920387",
+      "error": null,
+      "finished_at": "2026-09-05T13:58:55-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:54:29-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 7,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-to_6nx8q",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r7",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-135430-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T13:54:29-04:00",
+      "status": "changes_requested",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [
+          {
+            "description": "The reporter's stdout and stderr are captured into reporter_output with 2>&1 and never written to the job log. On success the 'Monitor issue #N: category' line is discarded before exit 0, and on failure the actual error text (gh HTTP error, ENOENT, JSON parse failure, damaged-section message) is only regex-matched and then dropped; the fallback comment carries only the generic 'unavailable or failed' diagnostic. The previous implementation logged everything. An operator seeing the fallback comment cannot determine from the run log why the primary reporter failed, so a persistently broken reporter degrades silently every day. Fix: print reporter_output to the step log (e.g. printf '%s\\n' \"$reporter_output\" >&2) before the success exit and before the fallback proceeds; the Actions log is repo-member-only and secrets are runner-masked, so the 'never publish arbitrary output to an issue' rule is preserved.",
+            "location": ".github/workflows/pe-household-comparison.yml:259-262",
+            "severity": "medium"
+          },
+          {
+            "description": "When the shell fallback creates the canonical comparison-error issue it titles it 'PE household comparison: failure reporter unavailable' (line 285), and upsertComparisonFailure only ever PATCHes the body (scripts/report-pe-comparison-failure.ts:376-378), never the title. A canonical issue first opened by the fallback keeps a misleading title for its entire lifetime even after the reporter recovers and repeatedly updates its owned section. Either use the category title in the fallback (the body already states the reporter failed) or have the reporter PATCH the title alongside the body when it differs. Low impact today because #213 will be seeded with the marker before merge, but every other category can still hit this path.",
+            "location": ".github/workflows/pe-household-comparison.yml:285 and scripts/report-pe-comparison-failure.ts:376-378",
+            "severity": "low"
+          }
+        ],
+        "notes": [
+          "Static review only; I did not execute tests. The clean checkout's workflow, reporter, and test file match the artifact patch.",
+          "Verified: bash regex with \\# and {1,10} is valid ERE; jq -er multi-document handling makes the malformed-report tests correct; run-marker checks make reruns idempotent for both reporter and fallback paths; shell: bash gives -eo pipefail so the read-failure test matches runner semantics; import.meta.url main guard works under both node and vitest; script uses only erasable TS syntax so Node 24 type stripping is sufficient; coverage include is src/** so the untested main() does not affect thresholds.",
+          "The workflow has a single job, so job-level contents: write effectively applies to the whole workflow; the top-level contents: read is redundant but harmless. Credential helper reset via -c credential.helper= followed by an inline helper is the correct pattern and the token is env-only, not argv or git config.",
+          "gh api --slurp requires gh >= 2.50; ubuntu-latest ships a newer CLI but the fake gh in tests does not validate this. The reporter and fallback no longer run gh label create; the monitoring label already exists in the repo and other workflows still create it, so this is not a practical risk.",
+          "Shallow-clone git pull --rebase behavior and the compare/compatkey 503 interplay are pre-existing and unchanged."
+        ],
+        "schema_version": 1,
+        "summary": "The workflow and reporter logic are correct: category identity, marker-based upsert with body preservation, damaged-section refusal, idempotent reruns, credential scoping, and serialized runs all hold up under static review, and the new integration test does verify the reporter's early-exit path. Two actionable gaps remain: the primary reporter's output is swallowed entirely so real reporter failures leave no diagnostic in the run log (medium), and a fallback-created canonical issue keeps a permanently misleading title because the reporter never updates titles (low).",
+        "verdict": "changes_requested"
+      }
+    },
+    {
+      "attempt_id": "076d420bfce74f2fa4fa7a2838ae1ecd",
+      "error": null,
+      "finished_at": "2026-09-05T14:11:42-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T14:06:09-04:00",
+        "expected_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "e8dc810f7ea45c3508fe0cab5fe7af44df551753",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        }
+      },
+      "number": 8,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-s0qrk9id",
+        "-n",
+        "gate-20260905-093217-pr-aff2fcda-r8",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-140610-peer-output-md",
+      "revision": {
+        "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+        "head_sha": "e8dc810f7ea45c3508fe0cab5fe7af44df551753",
+        "kind": "pr",
+        "number": 222,
+        "repository": "TheAxiomFoundation/axiom-api"
+      },
+      "started_at": "2026-09-05T14:06:09-04:00",
+      "status": "approve",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+          "head_sha": "e8dc810f7ea45c3508fe0cab5fe7af44df551753",
+          "kind": "pr",
+          "number": 222,
+          "repository": "TheAxiomFoundation/axiom-api"
+        },
+        "findings": [],
+        "notes": [],
+        "schema_version": 1,
+        "summary": "Static read-only review of the immutable patch; I did not execute tests and could not verify live SHAs since the review directory is not a git repository, but the clean checkout's workflow, reporter, and test file match the artifact byte-for-byte. Both prior peer findings are resolved at this head: reporter stdout/stderr is now logged once inside a per-invocation ::stop-commands:: block before the success exit or fallback continuation (workflow lines 264-271), and a fallback-created comparison-error issue now uses the reporter's canonical title (line 297), asserted against comparisonFailure() in the new-issue test. Re-verified under static analysis: job-scoped contents:write with persist-credentials:false and an env-only inline credential helper; archive gated on compare success and refs/heads/main; workflow-level concurrency without cancellation; marker-based category identity shared by reporter and fallback; body-preserving PATCH with damaged-section refusal; run-marker idempotency for both paths including the reporter's no-op retry; jq -er multi-document and non-numeric guards preventing drift inference from malformed reports; bash 3.2/5 compatible syntax with -eo pipefail matching runner semantics; erasable-only TypeScript for Node 24 type stripping; the pre-existing migration-schemas step-ordering test still holds since 'Commit bundled run' precedes 'Read pinned RuleSpec revision'. Accepted trade-offs, not defects: a failed canonical-issue lookup aborts without any alert (tested, prefers no duplicates); setup/archive/downstream failures handled by the fallback land on the comparison-error issue as documented in docs/observability.md; the reporter's main guard compares realpath-based import.meta.url with path.resolve'd argv[1], which is safe in the runner's non-symlinked workspace; action SHA pins could not be verified offline; existing issues #213/#221 must be seeded with markers before merge as the parent stated, or the first run creates fresh issues.",
+        "verdict": "approve"
+      }
+    }
+  ],
+  "schema_version": 1,
+  "status": "completed",
+  "subject": {
+    "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+    "checks": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-05T18:06:41Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/TheAxiomFoundation/axiom-api/actions/runs/33982985634/job/101351416708",
+        "name": "test",
+        "startedAt": "2026-09-05T18:05:54Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "Vercel",
+        "startedAt": "2026-09-05T18:06:12Z",
+        "state": "SUCCESS",
+        "targetUrl": "https://vercel.com/axiom-foundation/axiom-api/BZpd51P6Dp3pu3fYXooB6TeX1ivH"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-05T18:06:12Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://vercel.com/github",
+        "name": "Vercel Preview Comments",
+        "startedAt": "2026-09-05T18:06:12Z",
+        "status": "COMPLETED",
+        "workflowName": ""
+      }
+    ],
+    "head_sha": "e8dc810f7ea45c3508fe0cab5fe7af44df551753",
+    "is_draft": false,
+    "kind": "pr",
+    "merge_commit": null,
+    "merge_state_status": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "number": 222,
+    "repository": "TheAxiomFoundation/axiom-api",
+    "state": "OPEN",
+    "url": "https://github.com/TheAxiomFoundation/axiom-api/pull/222"
+  },
+  "updated_at": "2026-09-05T14:11:42-04:00",
+  "workdir": "/redacted/home/TheAxiomFoundation/axiom-api-comparison-monitor"
+}

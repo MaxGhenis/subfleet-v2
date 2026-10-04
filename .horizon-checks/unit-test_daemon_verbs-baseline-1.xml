@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.471" timestamp="2026-10-03T17:49:05.842280-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_verbs" name="test_daemon_start_runs_in_its_own_session" time="0.334"><properties><property name="nodeid" value="tests/unit/test_daemon_verbs.py::test_daemon_start_runs_in_its_own_session" /></properties><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = &lt;function main at 0x10ad30900&gt;(['daemon', 'stop'])&#10; +    where &lt;function main at 0x10ad30900&gt; = cli.main">tests/unit/test_daemon_verbs.py:133: in test_daemon_start_runs_in_its_own_session
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = &lt;function main at 0x10ad30900&gt;(['daemon', 'stop'])
+E    +    where &lt;function main at 0x10ad30900&gt; = cli.main</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,10 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	ignorecase = true
+	precomposeunicode = true
+	worktree = /Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol
+[user]
+	name = Max Ghenis
+	email = mghenis@gmail.com

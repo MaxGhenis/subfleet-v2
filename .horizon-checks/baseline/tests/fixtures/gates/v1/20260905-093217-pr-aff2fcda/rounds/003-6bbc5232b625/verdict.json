@@ -1,0 +1,31 @@
+{
+  "artifact_revision": {
+    "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+    "head_sha": "cbd41e311d17f8c81807e987ee24ea3c08a38247",
+    "kind": "pr",
+    "number": 222,
+    "repository": "TheAxiomFoundation/axiom-api"
+  },
+  "findings": [
+    {
+      "description": "The new shell-fallback tests execute the workflow's real run block via /bin/bash and require `jq` on PATH, but nothing guards or documents that dependency. On a developer machine without jq (macOS ships none), `npm test` now fails in five cases with an opaque execFileSync non-zero-exit error rather than a skip or a clear message; the suite previously had no external-tool dependency. Fix: gate the describe block with `describe.skipIf(!hasJq)` (probe with spawnSync('jq', ['--version'])) or fail fast with a message naming jq, and keep the CI run unconditional since ubuntu-latest has jq.",
+      "location": "tests/pe-comparison-monitor.test.ts:134-199 (fallbackHarness) and :201-262",
+      "severity": "low"
+    },
+    {
+      "description": "The inline fallback discards the primary reporter's failure reason and any measured drift. `node scripts/report-pe-comparison-failure.ts` runs inside the `if` with stderr going only to the step log, so the posted comment says merely 'The primary failure reporter was unavailable or failed'. When the reporter throws because a human damaged the owned section of, say, the drift issue (the deliberate throw at scripts/report-pe-comparison-failure.ts:99), every subsequent drift run silently lands as a comment on the comparison-error issue with no mention of which issue is damaged or that pe-comparison-report.json recorded drifted rows, and the drift issue never updates. The replaced shell alarm did count drift rows with jq. Fix: capture the reporter output (`if reporter_output=\"$(node scripts/... 2>&1)\"; then exit 0; fi`) and include a bounded tail of it in the fallback body, and when pe-comparison-report.json exists include the jq drift-row count so a real drift is not muted behind 'could not conclude'.",
+      "location": ".github/workflows/pe-household-comparison.yml:259-283",
+      "severity": "low"
+    }
+  ],
+  "notes": [
+    "Static review only using read-only file tools: I did not run vitest, tsc, node, bash, or gh. The main agent's 555-test / tsc / shell-harness evidence was not independently reproduced.",
+    "Head/base verification: the worktree's HEAD points at refs/heads/fix/comparison-monitor-retention, which resolves to cbd41e311d17f8c81807e987ee24ea3c08a38247; refs/remotes/origin/main resolves to 9bed01ec384ae55fc033de7f597d1c76f28cc660. The workflow, reporter, test, and docs contents in the checkout match artifact.patch. The local refs/heads/main is 962169fd (not the base) and is irrelevant to the comparison; the live remote and the GitHub PR head were not checked. The review brief's head 47facaf0 is stale relative to the supplied artifact revision.",
+    "Prior peer finding (alarm required checkout + Node 24) is resolved at this head: the reporter runs inside a guarded `if` (exempt from errexit), the fallback uses only bash/jq/gh, and the step sets shell: bash so pipefail makes a failed issue lookup abort before any create (verified by reasoning about `existing=\"$(gh ... | jq ...)\"` under -eo pipefail; the test 'does not create a duplicate issue when the canonical issue lookup fails' exercises it). YAML block-scalar dedent puts the multi-line body and created-issue lines at column 0, and the test loads the same YAML, so layout is covered. The fallback-created body places the category marker before the end marker, so the Node reporter's later section replacement for comparison-error is compatible.",
+    "Archive path re-checked: `-c credential.helper=` resets helpers and the inline `!f()` helper expands GH_PUSH_TOKEN inside its own shell; GIT_CONFIG_PARAMETERS propagates to pull's fetch/rebase subprocesses; persist-credentials false on both checkouts; no npm/npx step carries github.token. archive_prepare/archive conditions imply success() and are main-only; the pre-existing ordering test in tests/migration-schemas.test.ts:34-54 still resolves 'Commit bundled run' before the RuleSpec pin.",
+    "Residuals not treated as findings: pushes made with GITHUB_TOKEN do not trigger deploy-production.yml or ci.yml, so the bundled snapshot only reaches production with the next human push (pre-existing design, but it becomes visible now that the push will succeed); docs/observability.md:28 says 'branch protections still apply' while deploy-production.yml:9-11 notes none currently enforce main; the workflow-level concurrency queue holds one pending run and cancels older pending ones without an alert; issue creation relies on the `monitoring` label existing or being auto-created by the REST API; seeding markers into #221/#213 is outside this patch, so the first failure per category opens a new issue alongside the old ones; a 503 compat-key skip still runs compare with an empty key and lands in comparison-error (pre-existing)."
+  ],
+  "schema_version": 1,
+  "summary": "Head cbd41e31 verified against the worktree branch ref and origin/main matches the stated base. The prior peer's regression is fixed: the alarm now falls back to a bash/jq/gh path that needs neither checkout nor Node, aborts before creating issues if the lookup fails, dedups per run, and creates a marker-compatible comparison-error issue when none exists. Permission scope, credential confinement, SHA pins, archive gating, run serialization, category identity, pagination and body-section preservation all hold on static reading. Two low-severity items remain: the new tests hard-depend on jq and /bin/bash without a skip guard, and the fallback comment drops the reporter's error text and the report's drift count, which mutes real drift and hides a damaged drift issue when the reporter fails. No tests were executed here.",
+  "verdict": "changes_requested"
+}

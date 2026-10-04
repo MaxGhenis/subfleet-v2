@@ -1,0 +1,14 @@
+.......F................                                                 [100%]
+=================================== FAILURES ===================================
+_____ test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded] _____
+tests/fake/test_unadmittable_pin_admission.py:133: in test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3
+    assert [a["lane_id"] for a in service.store.list_attempts(younger)] == ["claude-7"]
+E   AssertionError: assert ['claude-9'] == ['claude-7']
+E     
+E     At index 0 diff: 'claude-9' != 'claude-7'
+E     Use -v to get more diff
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4455350832:daemon.py:4663 job 20261003-182822-opus: pinned lane claude-9 can never admit it (excluded); it fails with rc 3 at 2026-10-03T22:58:22Z unless the lane can take it by then
+=========================== short test summary info ============================
+FAILED tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]
+1 failed, 23 passed in 38.21s

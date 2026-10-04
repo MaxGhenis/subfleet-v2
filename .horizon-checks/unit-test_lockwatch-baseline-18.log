@@ -1,0 +1,15 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+___ ERROR at setup of test_timers_write_to_the_store_outside_their_own_lock ____
+tests/unit/test_lockwatch.py:254: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+ERROR tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock
+1 error in 0.41s

@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________________ test_c6_9_a_reused_pid_is_not_the_caller ___________________
+tests/fake/test_admission_priority.py:188: in test_c6_9_a_reused_pid_is_not_the_caller
+    assert daemon._holds[job]["class"] == "background"
+           ^^^^^^^^^^^^^^^^^^
+E   KeyError: '20261003-182241-astra'
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_priority.py::test_c6_9_a_reused_pid_is_not_the_caller
+1 failed in 0.40s

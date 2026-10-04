@@ -1,0 +1,110 @@
+{
+  "api_error_status": null,
+  "duration_api_ms": 394014,
+  "duration_ms": 393398,
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "fast_mode_state": "off",
+  "first_content_frame_ms": 2685,
+  "is_error": false,
+  "modelUsage": {
+    "claude-fable-5-1": {
+      "cacheCreationInputTokens": 64629,
+      "cacheReadInputTokens": 211611,
+      "canonicalModel": "claude-fable-5-1",
+      "contextWindow": 1000000,
+      "costBasis": "list",
+      "costUSD": 2.8170027499999994,
+      "inputTokens": 162,
+      "maxOutputTokens": 64000,
+      "outputTokens": 29398,
+      "provider": "firstParty",
+      "thinkingTokens": 24869,
+      "webSearchRequests": 0
+    },
+    "claude-haiku-4-5-20251001": {
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "contextWindow": 200000,
+      "costBasis": "list",
+      "costUSD": 0.004252000000000001,
+      "inputTokens": 4177,
+      "maxOutputTokens": 32000,
+      "outputTokens": 15,
+      "provider": "firstParty",
+      "thinkingTokens": 0,
+      "webSearchRequests": 0
+    }
+  },
+  "num_turns": 22,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "---SUBFLEET-VERDICT-BEGIN---\n{\n  \"artifact_revision\": {\n    \"base_sha\": \"9bed01ec384ae55fc033de7f597d1c76f28cc660\",\n    \"head_sha\": \"36e6cd33c77605f5e89239d9308babd395fe3428\",\n    \"kind\": \"pr\",\n    \"number\": 222,\n    \"repository\": \"TheAxiomFoundation/axiom-api\"\n  },\n  \"findings\": [\n    {\n      \"description\": \"The shell fallback's primary path (reporter succeeds, step exits 0, no shell-side gh write) is never exercised end to end. The fake gh in fallbackHarness only accepts POST writes; a PATCH from a successful reporter update throws 'Unexpected read', so the one test that runs the real reporter through the workflow shell (runReporter=true) only reaches the fallback because the drift issue is deliberately damaged. If the guard at .github/workflows/pe-household-comparison.yml:260-262 regressed (e.g. the exit 0 were dropped or the assignment-in-condition were restructured), every daily failure would get both a reporter body update and a duplicate fallback comment, and no test would catch it. Fix: teach the fake gh to handle --method PATCH on repos/*/issues/N (update state.issues[n].body, record 'patch' in writes) and add a case with a complete owned section (marker + end marker) that asserts writes == ['patch'], no comment is created, and a rerun with identical output performs no write.\",\n      \"location\": \"tests/pe-comparison-monitor.test.ts:163-186 (fake gh) and :222-330 (shell fallback describe block)\",\n      \"severity\": \"low\"\n    }\n  ],\n  \"notes\": [\n    \"Static review only with read-only file tools; no vitest, tsc, node, bash, git, or gh was executed here. The main agent's 561-test / npm run check evidence was not independently reproduced.\",\n    \"Revision verification: the worktree's HEAD is refs/heads/fix/comparison-monitor-retention, which resolves to 36e6cd33c77605f5e89239d9308babd395fe3428 (matches supplied head). refs/remotes/origin/main resolves to 9bed01ec384ae55fc033de7f597d1c76f28cc660 (matches supplied base). The workflow, reporter, test, README and docs in the checkout match artifact.patch line for line. The review brief's head 47facaf0 is stale relative to the supplied artifact revision; the live remote and GitHub PR head were not checked.\",\n    \"Both prior-peer findings are resolved at this head: (1) the shell test group probes jq in beforeAll and fails with an install message, README documents the prerequisite, and a regression test covers the message; (2) the fallback now captures reporter output, publishes only the known 'incomplete owned section' signature with a bounded issue number, counts drift rows via a type-checked jq expression that rejects multi-document and malformed input, and routes measured drift (COMPARED=failure and count>0) to the drift marker/title so a damaged drift issue receives the count as a comment rather than being silenced on the comparison-error issue.\",\n    \"Verified by reading: shell fallback needs only bash/jq/gh (runner-provided), guard `if [ -f ... ] && reporter_output=\\\"$(node ...)\\\"` is errexit-exempt and uses the substitution's exit status; pipefail aborts before any create when the issue lookup fails; per-run dedup via body and comment run markers; YAML block-scalar dedent puts continuation lines at column 0 and the test executes the identical string. Reporter counts row.drift==='diff' over Array rows; jq counts objects with .drift=='diff' over an array; both treat unparsable reports as comparison-error, so categories agree. Archive path: `-c credential.helper=` resets helpers, inline helper reads GH_PUSH_TOKEN from its own environment, GIT_CONFIG_PARAMETERS propagates to fetch/rebase subprocesses, both checkouts set persist-credentials:false, no npm/npx step receives github.token (enforced by test), archive steps are main-only and imply compare success. tests/migration-schemas.test.ts:34-54 step ordering still holds. tsconfig includes scripts/ and tests/ with exactOptionalPropertyTypes; reporter types read as compatible.\",\n    \"Residual risks not treated as findings: action SHA pins (checkout d23441a4, setup-node 24997072, upload-artifact ea165f8d) could not be verified offline against the action repositories; the workflow is schedule/dispatch only, so PR CI does not exercise it and the first post-merge scheduled run is the real validation (a bad pin fails at checkout and is audible via the fallback). Pushes made with GITHUB_TOKEN do not trigger deploy-production.yml or ci.yml, so the bundled snapshot reaches production only with the next human push (pre-existing design). docs/observability.md says 'branch protections still apply' while deploy-production.yml:9-11 notes none currently enforce main. A comparison-error issue created by the fallback keeps the title 'failure reporter unavailable' since the reporter never updates titles. Fallback comments for archive/downstream/setup reporter failures land on the comparison-error issue by documented design. Fallback dedup keys on run URL, so a re-run of the same run id after a partial fix posts no new comment. Label creation relies on the REST API accepting/creating 'monitoring' (it already exists for #221/#213). Seeding markers into existing issues is outside this patch.\"\n  ],\n  \"schema_version\": 1,\n  \"summary\": \"Head 36e6cd33 and base 9bed01ec verified against the worktree branch ref and origin/main; checkout contents match the artifact. Both prior low findings (jq test dependency, muted reporter reason/drift count) are resolved: the shell group fails fast with an install message, and the fallback now publishes only the known damaged-section signature, a validated drift-row count, and routes measured drift to the drift issue. Permission scope, credential confinement, errexit/pipefail semantics, per-run dedup, category identity between reporter and fallback, body preservation, and step ordering hold on static reading. One low finding remains: the primary path where the reporter succeeds through the workflow shell is untested because the fake gh rejects PATCH, so a regression that dropped the early exit and produced duplicate alerts would go unnoticed. No tests were executed here.\",\n  \"verdict\": \"changes_requested\"\n}\n---SUBFLEET-VERDICT-END---",
+  "session_id": "bdfbbcbc-06b8-46cd-bd95-1264700244d7",
+  "stop_reason": "end_turn",
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "time_to_request_ms": 189,
+  "total_cost_usd": 2.8212547499999996,
+  "ttft_ms": 2824,
+  "ttft_stream_ms": 1621,
+  "type": "result",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 64629,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 64629,
+    "cache_read_input_tokens": 211611,
+    "inference_geo": "not_available",
+    "input_tokens": 162,
+    "iterations": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8145,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 8145,
+        "cache_read_input_tokens": 59284,
+        "input_tokens": 32,
+        "output_tokens": 13188,
+        "type": "message"
+      }
+    ],
+    "output_tokens": 29398,
+    "output_tokens_details": {
+      "thinking_tokens": 24869
+    },
+    "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  },
+  "uuid": "62b03c31-19a0-4ee2-94a7-d95d62a8b7c7"
+}

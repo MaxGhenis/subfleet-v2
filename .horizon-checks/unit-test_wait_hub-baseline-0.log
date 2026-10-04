@@ -1,0 +1,15 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_____________ ERROR at setup of test_a_poked_wait_returns_at_once ______________
+tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+ERROR tests/unit/test_wait_hub.py::test_a_poked_wait_returns_at_once - subfle...
+1 error in 0.55s

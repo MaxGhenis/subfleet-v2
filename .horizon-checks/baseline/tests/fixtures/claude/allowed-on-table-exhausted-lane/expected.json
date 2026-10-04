@@ -1,0 +1,57 @@
+{
+  "case": "allowed-on-table-exhausted-lane",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "rate_limit_info verbatim from experiment-0 (max.ghenis@gmail.com, whose cached v1 table said EXHAUSTED at 147% of the week while the server reported 0.42 / 0.33 and allowed the turn). Surrounding frames assembled.",
+  "account": "max.ghenis@gmail.com",
+  "requested_model": "claude-haiku-4-5-20251001",
+  "session_id": "cc1514f8-ebac-4d71-ba0e-356d663b8784",
+  "class": "ok",
+  "detail_contains": "rate_limit_event",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.42,
+      "resets_at_epoch": 1788612600,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.33,
+      "resets_at_epoch": 1788616800,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "overage": {
+    "overage_status": "rejected",
+    "overage_disabled_reason": "org_level_disabled",
+    "is_using_overage": false
+  },
+  "deliverable": "ok",
+  "attestation": {
+    "status": "attested",
+    "served_model": "claude-haiku-4-5-20251001"
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [
+      "claude-haiku-4-5-20251001"
+    ],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

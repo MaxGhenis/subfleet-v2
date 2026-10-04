@@ -1,0 +1,33 @@
+---SUBFLEET-VERDICT-BEGIN---
+{
+  "artifact_revision": {
+    "base_sha": "9bed01ec384ae55fc033de7f597d1c76f28cc660",
+    "head_sha": "cd8619517f1a226b3ec5588a9614940791d3ffca",
+    "kind": "pr",
+    "number": 222,
+    "repository": "TheAxiomFoundation/axiom-api"
+  },
+  "findings": [
+    {
+      "description": "The reporter's stdout and stderr are captured into reporter_output with 2>&1 and never written to the job log. On success the 'Monitor issue #N: category' line is discarded before exit 0, and on failure the actual error text (gh HTTP error, ENOENT, JSON parse failure, damaged-section message) is only regex-matched and then dropped; the fallback comment carries only the generic 'unavailable or failed' diagnostic. The previous implementation logged everything. An operator seeing the fallback comment cannot determine from the run log why the primary reporter failed, so a persistently broken reporter degrades silently every day. Fix: print reporter_output to the step log (e.g. printf '%s\\n' \"$reporter_output\" >&2) before the success exit and before the fallback proceeds; the Actions log is repo-member-only and secrets are runner-masked, so the 'never publish arbitrary output to an issue' rule is preserved.",
+      "location": ".github/workflows/pe-household-comparison.yml:259-262",
+      "severity": "medium"
+    },
+    {
+      "description": "When the shell fallback creates the canonical comparison-error issue it titles it 'PE household comparison: failure reporter unavailable' (line 285), and upsertComparisonFailure only ever PATCHes the body (scripts/report-pe-comparison-failure.ts:376-378), never the title. A canonical issue first opened by the fallback keeps a misleading title for its entire lifetime even after the reporter recovers and repeatedly updates its owned section. Either use the category title in the fallback (the body already states the reporter failed) or have the reporter PATCH the title alongside the body when it differs. Low impact today because #213 will be seeded with the marker before merge, but every other category can still hit this path.",
+      "location": ".github/workflows/pe-household-comparison.yml:285 and scripts/report-pe-comparison-failure.ts:376-378",
+      "severity": "low"
+    }
+  ],
+  "notes": [
+    "Static review only; I did not execute tests. The clean checkout's workflow, reporter, and test file match the artifact patch.",
+    "Verified: bash regex with \\# and {1,10} is valid ERE; jq -er multi-document handling makes the malformed-report tests correct; run-marker checks make reruns idempotent for both reporter and fallback paths; shell: bash gives -eo pipefail so the read-failure test matches runner semantics; import.meta.url main guard works under both node and vitest; script uses only erasable TS syntax so Node 24 type stripping is sufficient; coverage include is src/** so the untested main() does not affect thresholds.",
+    "The workflow has a single job, so job-level contents: write effectively applies to the whole workflow; the top-level contents: read is redundant but harmless. Credential helper reset via -c credential.helper= followed by an inline helper is the correct pattern and the token is env-only, not argv or git config.",
+    "gh api --slurp requires gh >= 2.50; ubuntu-latest ships a newer CLI but the fake gh in tests does not validate this. The reporter and fallback no longer run gh label create; the monitoring label already exists in the repo and other workflows still create it, so this is not a practical risk.",
+    "Shallow-clone git pull --rebase behavior and the compare/compatkey 503 interplay are pre-existing and unchanged."
+  ],
+  "schema_version": 1,
+  "summary": "The workflow and reporter logic are correct: category identity, marker-based upsert with body preservation, damaged-section refusal, idempotent reruns, credential scoping, and serialized runs all hold up under static review, and the new integration test does verify the reporter's early-exit path. Two actionable gaps remain: the primary reporter's output is swallowed entirely so real reporter failures leave no diagnostic in the run log (medium), and a fallback-created canonical issue keeps a permanently misleading title because the reporter never updates titles (low).",
+  "verdict": "changes_requested"
+}
+---SUBFLEET-VERDICT-END---

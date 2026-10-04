@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_daemon_stop_on_a_stale_lock_is_a_no_op __________________
+tests/unit/test_daemon_verbs.py:160: in test_daemon_stop_on_a_stale_lock_is_a_no_op
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10add8900>(['daemon', 'stop'])
+E    +    where <function main at 0x10add8900> = cli.main
+----------------------------- Captured stderr call -----------------------------
+subfleet: daemon stop: cannot verify that pid 999999 is the recorded daemon (C-5.3); refusing to signal it
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_stop_on_a_stale_lock_is_a_no_op
+1 failed in 0.36s

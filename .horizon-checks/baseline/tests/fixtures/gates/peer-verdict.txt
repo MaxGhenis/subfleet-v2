@@ -1,0 +1,3 @@
+---SUBFLEET-VERDICT-BEGIN---
+{"schema_version":1,"artifact_revision":REVISION,"verdict":"approve","summary":"The copied plan is consistent.","findings":[],"notes":[]}
+---SUBFLEET-VERDICT-END---

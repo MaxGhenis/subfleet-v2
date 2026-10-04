@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="10.037" timestamp="2026-10-03T17:31:58.448657-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_codex_shim" name="test_known_api_home_refused_even_with_legacy_override[True]" time="6.474"><properties><property name="nodeid" value="tests/unit/test_codex_shim.py::test_known_api_home_refused_even_with_legacy_override[True]" /></properties><failure message="subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/.horizon-checks/baseline/bin/codex', 'exec', '-']' timed out after 5 seconds">tests/unit/test_codex_shim.py:106: in test_known_api_home_refused_even_with_legacy_override
+    result = run("exec", "-", SUBFLEET_ALLOW_API_LANE="1",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/.horizon-checks/baseline/bin/codex', 'exec', '-']' timed out after 5 seconds</failure></testcase></testsuite></testsuites>

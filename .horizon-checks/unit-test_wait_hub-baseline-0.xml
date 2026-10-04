@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.385" timestamp="2026-10-03T18:19:47.547042-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_wait_hub" name="test_a_poked_wait_returns_at_once" time="0.031"><properties><property name="nodeid" value="tests/unit/test_wait_hub.py::test_a_poked_wait_returns_at_once" /></properties><error message="failed on setup with &quot;subfleet.procs.InspectionError: macOS boot identity is unavailable&quot;">tests/unit/test_wait_hub.py:40: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</error></testcase></testsuite></testsuites>

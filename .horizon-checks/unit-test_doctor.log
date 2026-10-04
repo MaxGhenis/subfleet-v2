@@ -1,0 +1,20 @@
+........................F.F.............                                 [100%]
+=================================== FAILURES ===================================
+__________ test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone __________
+tests/unit/test_doctor.py:322: in test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone
+    assert item["status"] == doctor.FAIL and "stale" in item["detail"]
+E   AssertionError: assert ('unknown' == 'fail'
+E     
+E     - fail
+E     + unknown)
+______________ test_daemon_lock_row_passes_against_a_live_daemon _______________
+tests/unit/test_doctor.py:339: in test_daemon_lock_row_passes_against_a_live_daemon
+    assert doctor.check_daemon_lock(root)["status"] == doctor.PASS
+E   AssertionError: assert 'unknown' == 'pass'
+E     
+E     - pass
+E     + unknown
+=========================== short test summary info ============================
+FAILED tests/unit/test_doctor.py::test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone
+FAILED tests/unit/test_doctor.py::test_daemon_lock_row_passes_against_a_live_daemon
+2 failed, 38 passed in 2.86s

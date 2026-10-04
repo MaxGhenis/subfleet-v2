@@ -1,0 +1,49 @@
+{
+  "case": "empty-result-rc0",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "Synthetic. rc 0 with an empty `result` string and no assistant text; the rate_limit_info is the verbatim experiment-0 max@axiom.org payload, so the readings survive a class of `unknown`.",
+  "requested_model": "claude-haiku-4-5-20251001",
+  "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "class": "unknown",
+  "detail_contains": "empty",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.05,
+      "resets_at_epoch": 1788624000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.25,
+      "resets_at_epoch": 1789056000,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

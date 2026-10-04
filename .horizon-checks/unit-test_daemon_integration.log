@@ -1,0 +1,47 @@
+...FFFF                                                                  [100%]
+=================================== FAILURES ===================================
+___________ test_c10_3_no_desktop_login_means_no_credential_is_read ____________
+tests/unit/test_daemon_integration.py:81: in test_c10_3_no_desktop_login_means_no_credential_is_read
+    daemon = Daemon(tmp_path, desktop_prober=lambda: asked.append(True))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____ test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane _____
+tests/unit/test_daemon_integration.py:100: in test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane
+    daemon = Daemon(tmp_path, desktop_prober=lambda: ProfileResult(
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_______ test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared ________
+tests/unit/test_daemon_integration.py:132: in test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared
+    daemon = Daemon(tmp_path)
+             ^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+____ test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports ____
+tests/unit/test_daemon_integration.py:160: in test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports
+    daemon = Daemon(tmp_path)
+             ^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read
+FAILED tests/unit/test_daemon_integration.py::test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane
+FAILED tests/unit/test_daemon_integration.py::test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared
+FAILED tests/unit/test_daemon_integration.py::test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports
+4 failed, 3 passed in 1.13s

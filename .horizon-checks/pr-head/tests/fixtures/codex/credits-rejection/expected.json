@@ -1,0 +1,14 @@
+{
+  "class": "limited",
+  "scope": "account",
+  "clock_source": "reported",
+  "closure": true,
+  "native_session_id": "00000000-0000-4000-8000-000000000004",
+  "synthetic": true,
+  "provenance": {
+    "source": "synthetic",
+    "reason": "No matching provider failure in the newest 150 v1 run directories inspected on 2026-09-05; successful transcript quotations are not failure evidence."
+  },
+  "until_at": "2026-09-05T18:00:00Z",
+  "closure_reason": "credits"
+}

@@ -1,0 +1,2 @@
+0000000000000000000000000000000000000000 026e3db8cc3b89fc9013c6124fe9227c25a6011a Max Ghenis <mghenis@gmail.com> 1791056610 -0400
+026e3db8cc3b89fc9013c6124fe9227c25a6011a 7bab08169a0f16c277c2ab9d89e9583174b57127 Max Ghenis <mghenis@gmail.com> 1791057448 -0400	commit: fix(capacity): keep ranking judgement stable until its horizon

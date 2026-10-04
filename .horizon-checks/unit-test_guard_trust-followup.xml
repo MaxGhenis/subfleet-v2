@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.871" timestamp="2026-10-03T19:13:22.544799-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_guard_trust" name="test_reap_failure_never_hides_the_probe_diagnostics[slow-reap]" time="0.884"><properties><property name="nodeid" value="tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[slow-reap]" /></properties><failure message="FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7670/test_reap_failure_never_hides_0/report.json'">tests/unit/test_guard_trust.py:573: in test_reap_failure_never_hides_the_probe_diagnostics
+    report = json.loads(report_path.read_text())
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7670/test_reap_failure_never_hides_0/report.json'</failure></testcase><testcase classname="tests.unit.test_guard_trust" name="test_reap_failure_never_hides_the_probe_diagnostics[reap-error]" time="0.524"><properties><property name="nodeid" value="tests/unit/test_guard_trust.py::test_reap_failure_never_hides_the_probe_diagnostics[reap-error]" /></properties><failure message="AssertionError: assert ('environment' == 'timeout'&#10;  &#10;  - timeout&#10;  + environment)">tests/unit/test_guard_trust.py:571: in test_reap_failure_never_hides_the_probe_diagnostics
+    assert result.kind == guard.TIMEOUT and "deadline" in result.message
+E   AssertionError: assert ('environment' == 'timeout'
+E     
+E     - timeout
+E     + environment)</failure></testcase></testsuite></testsuites>

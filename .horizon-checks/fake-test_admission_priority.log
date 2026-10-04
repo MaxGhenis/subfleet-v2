@@ -1,0 +1,52 @@
+FFF...F.....................                                             [100%]
+=================================== FAILURES ===================================
+________ test_c6_4_c6_9_one_pass_places_every_job_on_one_lane_by_class _________
+tests/fake/test_admission_priority.py:63: in test_c6_4_c6_9_one_pass_places_every_job_on_one_lane_by_class
+    live_session(tmp_path, monkeypatch)
+tests/fake/test_admission_priority.py:44: in live_session
+    "statusUpdatedAt": 0, "procStart": start or subprocess.run(       # as Claude Code records it
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+___ test_c6_9_caps_set_in_policy_still_hold_and_the_order_decides_who_waits ____
+tests/fake/test_admission_priority.py:76: in test_c6_9_caps_set_in_policy_still_hold_and_the_order_decides_who_waits
+    live_session(tmp_path, monkeypatch)
+tests/fake/test_admission_priority.py:44: in live_session
+    "statusUpdatedAt": 0, "procStart": start or subprocess.run(       # as Claude Code records it
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+____ test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go _____
+tests/fake/test_admission_priority.py:94: in test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go
+    live_session(tmp_path, monkeypatch)
+tests/fake/test_admission_priority.py:44: in live_session
+    "statusUpdatedAt": 0, "procStart": start or subprocess.run(       # as Claude Code records it
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'
+___________________ test_c6_9_a_reused_pid_is_not_the_caller ___________________
+tests/fake/test_admission_priority.py:188: in test_c6_9_a_reused_pid_is_not_the_caller
+    assert daemon._holds[job]["class"] == "background"
+           ^^^^^^^^^^^^^^^^^^
+E   KeyError: '20261003-182203-astra'
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_priority.py::test_c6_4_c6_9_one_pass_places_every_job_on_one_lane_by_class
+FAILED tests/fake/test_admission_priority.py::test_c6_9_caps_set_in_policy_still_hold_and_the_order_decides_who_waits
+FAILED tests/fake/test_admission_priority.py::test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go
+FAILED tests/fake/test_admission_priority.py::test_c6_9_a_reused_pid_is_not_the_caller
+4 failed, 24 passed in 4.72s

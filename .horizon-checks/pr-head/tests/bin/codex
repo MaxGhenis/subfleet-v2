@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Replay redacted Codex fixtures without a provider connection (C-12.8)."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+
+ENV_KEYS = (
+    "CODEX_HOME", "SUBFLEET_JOB", "SUBFLEET_ATTEMPT",
+    "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+)
+
+
+def output_path(argv: list[str]) -> Path | None:
+    for index, arg in enumerate(argv):
+        if arg in ("--output-last-message", "-o") and index + 1 < len(argv):
+            return Path(argv[index + 1])
+        if arg.startswith("--output-last-message="):
+            return Path(arg.split("=", 1)[1])
+    return None
+
+
+def last_message(fixture: Path, stdout: bytes) -> bytes | None:
+    saved = fixture / "last.md"
+    if saved.is_file():
+        return saved.read_bytes()
+    last = None
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, UnicodeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        item = event.get("item")
+        if (
+            event.get("type") == "item.completed"
+            and isinstance(item, dict)
+            and item.get("type") == "agent_message"
+            and isinstance(item.get("text"), str)
+        ):
+            last = item["text"].encode()
+    return last
+
+
+def nested_grandchild() -> int:
+    # The intermediate process makes the detached sleeper a grandchild of
+    # the fake provider. It inherits SUBFLEET_ATTEMPT for containment scans.
+    helper = (
+        "import subprocess,sys; "
+        "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],"
+        "start_new_session=True,stdin=subprocess.DEVNULL,"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); print(p.pid)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", helper],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, check=True,
+    )
+    return int(result.stdout)
+
+
+#: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
+SIGTERM_INTERIM = "I am checking the newer validation code before finalizing the review.\n"
+
+
+def sigterm_exit_0(argv: list[str]) -> int:
+    """The `sigterm-exit-0` scenario: Codex stopped by the daemon (C-9.2, C-15.1).
+
+    Observed 2026-09-24: on SIGTERM the real CLI exits 0 and leaves its last
+    interim progress message in the `--output-last-message` file, so the exit
+    looks like a finished turn. This fake starts a turn, and on SIGTERM writes
+    such a message there and exits 0. Unsignalled it gives up after 30 s with
+    rc 1 and no message, so a test that never stops it fails instead of passing.
+    """
+    destination = output_path(argv)
+
+    def stopped(signum, frame):
+        if destination is not None:
+            destination.write_text(SIGTERM_INTERIM)
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, stopped)
+    sys.stdin.buffer.read()
+    print(json.dumps({"type": "thread.started",
+                      "thread_id": "01991c18-2680-7000-8000-00000000f00d"}), flush=True)
+    diagnostics_path = os.environ.get("SUBFLEET_FAKE_DIAGNOSTICS_PATH")
+    if diagnostics_path:
+        Path(diagnostics_path).write_text(json.dumps({"argv": argv, "cwd": os.getcwd()}) + "\n")
+    time.sleep(30)
+    return 1
+
+
+def main() -> int:
+    # Metadata requests made by the real guard preflight, before any exec.
+    if sys.argv[1:] == ["--version"]:
+        print("codex-cli 0.153.3")
+        return 0
+    if sys.argv[1:2] == ["app-server"]:
+        # The guard preflight's hooks/list probe and conversation turns (C-26).
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from tests.fake.interactive_codex import main as app_server
+        return app_server(sys.argv[1:])
+    scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
+    if os.environ.get("SUBFLEET_PROBE"):
+        # C-11.4: a probe is a tiny read-only turn; the fake answers it at once
+        # whatever scenario the surrounding test configured for real work.
+        scenario = "success"
+        os.environ["SUBFLEET_FAKE_DELAY_S"] = "0"
+        os.environ.pop("SUBFLEET_FAKE_DIRTY", None)
+    if scenario == "sigterm-exit-0":
+        return sigterm_exit_0(sys.argv[1:])
+    fixture_name = "success" if scenario in {"slow", "nested-setsid"} else scenario
+    fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
+    fixture = fixture_root / fixture_name
+    if Path(fixture_name).name != fixture_name or not fixture.is_dir():
+        print(f"Unknown fake Codex scenario: {scenario}", file=sys.stderr)
+        return 2
+
+    stdin = sys.stdin.buffer.read()
+    diagnostics = {
+        "argv": sys.argv[1:],
+        "cwd": os.getcwd(),
+        "stdin": stdin.decode("utf-8", "replace"),
+        "env": {key: os.environ.get(key) for key in ENV_KEYS},
+    }
+    if scenario == "nested-setsid":
+        diagnostics["nested_grandchild_pid"] = nested_grandchild()
+    diagnostics_path = os.environ.get("SUBFLEET_FAKE_DIAGNOSTICS_PATH")
+    if diagnostics_path:
+        Path(diagnostics_path).write_text(json.dumps(diagnostics) + "\n")
+
+    if os.environ.get("SUBFLEET_FAKE_DIRTY") == "1":
+        Path("fake-dirty.txt").write_text("unfinished provider work\n")
+
+    # Let process-lifetime tests release the provider after their observations,
+    # independent of how long the machine takes to schedule the test parent.
+    release = os.environ.get("SUBFLEET_FAKE_RELEASE_PATH")
+    if release and not os.environ.get("SUBFLEET_PROBE"):
+        while not Path(release).exists():
+            time.sleep(.01)
+
+    delay = max(0.0, float(os.environ.get("SUBFLEET_FAKE_DELAY_S", "0")))
+    if scenario == "slow":
+        delay = delay or 1.0
+    if scenario == "nested-setsid":
+        delay = max(delay, 30.0)
+    if delay:
+        time.sleep(delay)
+
+    stdout = (fixture / "stdout").read_bytes()
+    stderr = (fixture / "stderr").read_bytes()
+    destination = output_path(sys.argv[1:])
+    final = last_message(fixture, stdout)
+    if destination is not None and final is not None:
+        destination.write_bytes(final)
+    sys.stdout.buffer.write(stdout)
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.write(stderr)
+    sys.stderr.buffer.flush()
+    return int((fixture / "rc").read_text().strip())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

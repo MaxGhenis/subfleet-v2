@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.185" timestamp="2026-10-03T18:23:50.020007-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_notice_header" name="test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc" time="0.087"><properties><property name="nodeid" value="tests/fake/test_notice_header.py::test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc" /></properties><failure message="ValueError: not enough values to unpack (expected 1, got 0)">tests/fake/test_notice_header.py:98: in test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc
+    assert notice_lines(daemon, job_id) == [
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_notice_header.py:35: in notice_lines
+    notice, = daemon.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))
+    ^^^^^^^
+E   ValueError: not enough values to unpack (expected 1, got 0)</failure></testcase></testsuite></testsuites>

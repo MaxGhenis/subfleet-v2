@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________________ test_offline_kill_json_emits_one_object ____________________
+tests/unit/test_offline.py:248: in test_offline_kill_json_emits_one_object
+    assert cli.main(["kill", JOB, "--json"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10ab81120>(['kill', '20260905-120000-demo', '--json'])
+E    +    where <function main at 0x10ab81120> = cli.main
+----------------------------- Captured stdout call -----------------------------
+{"action": "refused", "attempt_id": "20260905-120000-demo/a1", "job_id": "20260905-120000-demo", "pgid": 999999, "pid": 999999, "reason": "cannot verify that pid 999999 is still the recorded guardian (C-5.3); refusing to signal a pid that may have been recycled", "state": "running"}
+=========================== short test summary info ============================
+FAILED tests/unit/test_offline.py::test_offline_kill_json_emits_one_object - ...
+1 failed in 0.55s

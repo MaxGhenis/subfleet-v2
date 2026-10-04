@@ -1,0 +1,184 @@
+{
+  "tiers": [
+    "trivial",
+    "easy",
+    "standard",
+    "hard"
+  ],
+  "chains": {
+    "lookup": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "research": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "review": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "build": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "astra"
+    ],
+    "sweep": [
+      "terra",
+      "terra",
+      "terra",
+      "astra"
+    ],
+    "authored-prose": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ],
+    "strategy": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ],
+    "adjudication": [
+      "fable",
+      "fable",
+      "fable",
+      "fable"
+    ]
+  },
+  "fallback": "upward-only",
+  "permissions": {
+    "build": "workspace-write",
+    "*": "read-only"
+  },
+  "network": {
+    "codex_workspace_write": true
+  },
+  "models": {
+    "fable": {
+      "provider": "claude",
+      "id": "claude-fable-5-1",
+      "priority": 4,
+      "scope": "fable"
+    },
+    "opus": {
+      "provider": "claude",
+      "id": "claude-opus-5-5",
+      "priority": 3
+    },
+    "sonnet": {
+      "provider": "claude",
+      "id": "claude-sonnet-5",
+      "priority": 2
+    },
+    "haiku": {
+      "provider": "claude",
+      "id": "claude-haiku-4-5-20251001",
+      "priority": 1
+    },
+    "astra": {
+      "provider": "codex",
+      "id": "gpt-6-astra",
+      "effort": "ultra"
+    },
+    "terra": {
+      "provider": "codex",
+      "id": "gpt-5.6-terra"
+    }
+  },
+  "retired": {
+    "sol": "astra",
+    "claude-fable-5": "fable"
+  },
+  "desktop_login": "never",
+  "caps": {
+    "max_active_attempts": null,
+    "max_in_flight_per_lane": null,
+    "max_in_flight_unmeasured": null,
+    "max_active_attempts_per_parent": null,
+    "reading_ttl_s": 120,
+    "max_wall_s": 21600,
+    "max_attempts": 3,
+    "max_child_jobs": null,
+    "max_writable_per_session": null,
+    "max_tokens_observed": null,
+    "keepalive_workers": 4,
+    "keepalive_timeout_s": 60,
+    "probe_timeout_s": 60,
+    "gate_max_rounds": 4
+  },
+  "reset_credits": {
+    "enabled": true,
+    "headroom_floor_pct": 15,
+    "min_interval_min": 30
+  },
+  "timers": {
+    "probe_interval_s": 60,
+    "keepalive_interval_s": 18300
+  },
+  "alerts": {
+    "realert_hours": 6,
+    "expiring_capacity_daily": true
+  },
+  "sessions": {
+    "nudge_max_age_h": 8,
+    "nudge_cooldown_min": 1.5,
+    "nudge_delay_s": 8,
+    "nudge_sample_s": 3,
+    "sweep_quiet_s": 120,
+    "muster_max_age_h": 2,
+    "muster_quiet_s": 120,
+    "revive_min_age_s": 120,
+    "revive_max_batch": 8,
+    "auto_revive_desktop_owned": false,
+    "mirror_interval_s": 60,
+    "mirror_hot_interval_s": 2,
+    "mirror_stall_min": 10,
+    "mirror_hang_min": 30,
+    "mirror_ultracode_default": true,
+    "handoff_caps": {
+      "recent_records": 40,
+      "recent": 48000,
+      "tool_result": 5000,
+      "tool_results_total": 16000,
+      "tool_input": 4000,
+      "tool_inputs_total": 12000,
+      "original_task": 24000,
+      "progress": 32000,
+      "repository": 16000
+    }
+  },
+  "admission": {
+    "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
+    "desktop_recent_s": 1800,
+    "machine_guard": null,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 604800
+  },
+  "conversations": {
+    "approval_wait_s": null,
+    "stop_sigint_after_s": 10,
+    "stop_close_after_s": 20,
+    "stop_contain_after_s": 30,
+    "after_result_s": 135
+  },
+  "reserve": {
+    "models": [
+      "fable"
+    ],
+    "cap_ratio": 2.0,
+    "min_slack": 0.05,
+    "usage_spacing_s": 3
+  }
+}

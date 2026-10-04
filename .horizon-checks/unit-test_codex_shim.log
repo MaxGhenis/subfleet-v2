@@ -1,0 +1,250 @@
+FFFFFFFFFF.F.......F....FF.....                                          [100%]
+=================================== FAILURES ===================================
+________ test_shim_forwards_model_and_original_argv[args0-gpt-6-astra] _________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-m', 'gpt-6-astra', 'do the task']' timed out after 5 seconds
+_______ test_shim_forwards_model_and_original_argv[args1-gpt-5.6-terra] ________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'e', '--model=gpt-5.6-terra', '-']' timed out after 5 seconds
+________ test_shim_forwards_model_and_original_argv[args2-gpt-6-astra] _________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', '--model', 'gpt-6-astra', 'exec', '-']' timed out after 5 seconds
+________ test_shim_forwards_model_and_original_argv[args3-gpt-6-astra] _________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-mgpt-6-astra', '-']' timed out after 5 seconds
+____________ test_shim_forwards_model_and_original_argv[args4-None] ____________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'review', '--base', '--model', '-']' timed out after 5 seconds
+____________ test_shim_forwards_model_and_original_argv[args5-None] ____________
+tests/unit/test_codex_shim.py:68: in test_shim_forwards_model_and_original_argv
+    result = run(*args, CHILD_RC="13")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '--', '--model', 'not-a-model']' timed out after 5 seconds
+_ test_noninteractive_subscription_launch_removes_api_environment[False-exec] __
+tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment
+    result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-']' timed out after 5 seconds
+___ test_noninteractive_subscription_launch_removes_api_environment[False-e] ___
+tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment
+    result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'e', '-']' timed out after 5 seconds
+_ test_noninteractive_subscription_launch_removes_api_environment[False-review] _
+tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment
+    result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'review', '-']' timed out after 5 seconds
+__ test_noninteractive_subscription_launch_removes_api_environment[True-exec] __
+tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment
+    result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-']' timed out after 5 seconds
+_ test_noninteractive_subscription_launch_removes_api_environment[True-review] _
+tests/unit/test_codex_shim.py:81: in test_noninteractive_subscription_launch_removes_api_environment
+    result = run(command, "-", CODEX_API_KEY="fake-codex-env-key", OPENAI_API_KEY="fake-openai-env-key",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'review', '-']' timed out after 5 seconds
+_________ test_known_api_home_refused_even_with_legacy_override[True] __________
+tests/unit/test_codex_shim.py:106: in test_known_api_home_refused_even_with_legacy_override
+    result = run("exec", "-", SUBFLEET_ALLOW_API_LANE="1",
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '-']' timed out after 5 seconds
+________ test_interactive_and_help_passthrough_need_no_subfleet[args4] _________
+tests/unit/test_codex_shim.py:121: in test_interactive_and_help_passthrough_need_no_subfleet
+    result = run(*args, CODEX_API_KEY="fake-interactive-codex-key", OPENAI_API_KEY="fake-interactive-openai-key")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', '--help']' timed out after 5 seconds
+________________ test_explicit_home_skips_pick_but_keeps_guard _________________
+tests/unit/test_codex_shim.py:131: in test_explicit_home_skips_pick_but_keeps_guard
+    result = run("exec", "resume", "session", CODEX_HOME=str(picked), SUBFLEET_NO_AUTOPICK="1")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_codex_shim.py:50: in run
+    return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1253: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['/bin/bash', '/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/bin/codex', 'exec', 'resume', 'session']' timed out after 5 seconds
+=========================== short test summary info ============================
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args0-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args1-gpt-5.6-terra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args2-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args3-gpt-6-astra]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args4-None]
+FAILED tests/unit/test_codex_shim.py::test_shim_forwards_model_and_original_argv[args5-None]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-exec]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-e]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[False-review]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-exec]
+FAILED tests/unit/test_codex_shim.py::test_noninteractive_subscription_launch_removes_api_environment[True-review]
+FAILED tests/unit/test_codex_shim.py::test_known_api_home_refused_even_with_legacy_override[True]
+FAILED tests/unit/test_codex_shim.py::test_interactive_and_help_passthrough_need_no_subfleet[args4]
+FAILED tests/unit/test_codex_shim.py::test_explicit_home_skips_pick_but_keeps_guard
+14 failed, 17 passed in 162.01s (0:02:42)

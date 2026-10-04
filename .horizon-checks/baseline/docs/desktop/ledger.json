@@ -1,0 +1,553 @@
+{
+  "version": 2,
+  "updated": "2026-09-28",
+  "statuses": [
+    "open",
+    "recovered",
+    "implemented",
+    "verified",
+    "deferred"
+  ],
+  "rows": [
+    {
+      "id": "M-1",
+      "requirement": "Everyday coding in Subfleet instead of the Claude and Codex apps, with both providers",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-24.1",
+        "C-26.1",
+        "C-29.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-2",
+      "requirement": "A conversation moves to an account with capacity; no manual sign-in/out between accounts",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-26.2",
+        "C-26.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Claude: automatic, with labelled continuation after a limit and account affinity otherwise. Codex: pinned to its home; moves by labelled handoff unless the Stage 3 relocation test passes. Daemon side: usage-limit failover with a labelled continuation on another lane, same session (tests/e2e/test_conversations.py)."
+    },
+    {
+      "id": "M-3",
+      "requirement": "Existing Claude and Codex sessions appear under their display names",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-30.1",
+        "C-30.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-4a",
+      "requirement": "Clicking an existing Claude session opens it and lets him continue it",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-30.2",
+        "C-24.3",
+        "C-26.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-4b",
+      "requirement": "Clicking an existing Codex-app thread opens it and lets him continue it",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-30.2",
+        "C-30.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
+    },
+    {
+      "id": "M-5",
+      "requirement": "A normal macOS app: window controls, Dock, menus, not an overlay",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-6",
+      "requirement": "Menu bar bolt keeps the quota popover and an obvious Open action",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.3",
+        "C-29.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-7",
+      "requirement": "Return sends; Shift-Return inserts a newline",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-8",
+      "requirement": "Paste screenshots and images into the composer and send them",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-28.1",
+        "C-28.3",
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-9",
+      "requirement": "Composer stays editable while a turn runs; follow-ups queue",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-24.5",
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-9b",
+      "requirement": "Offer steering a queued follow-up into the running Claude or Codex turn",
+      "source": "Max, steer request (2026-09-27)",
+      "clauses": [
+        "C-24.9",
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon and app sides of steer.v1 are implemented, and the 2026-09-28 steer review's findings are resolved (image steers, the Claude watchdog, queue position, late steers, Esc, the contract). Live provider verification remains: the Claude fold and Codex turn/steer behaviour against real CLIs (docs/steer-provider-claims.md) and test_core_live step 14, which cannot run inside a Subfleet lane."
+    },
+    {
+      "id": "M-10",
+      "requirement": "Local acknowledgement p95 <= 250 ms; activity shown within 1 s of an event",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-25.3",
+        "C-25.4",
+        "C-29.9"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-10b",
+      "requirement": "Submit to provider acknowledgement and to first output, p50/p95, within 1.5 s of the native app's p95 for new and resumed conversations on each provider",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-26.1"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Measured in Stage 3 beside the native app on the same account; a miss reopens warm workers."
+    },
+    {
+      "id": "M-11",
+      "requirement": "Shows what the agent is thinking and doing, live",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-25.5",
+        "C-29.9"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-12",
+      "requirement": "Markdown renders in conversations",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-13",
+      "requirement": "Fast is its own setting, independent of model and reasoning effort",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Claude Fast bills usage credits; labelled and confirmed per conversation."
+    },
+    {
+      "id": "M-14",
+      "requirement": "Per-account usage: percent, reset times, weekly reset, Fable/overall/5-hour windows",
+      "source": "Max, Codex task 01a04752 (2026-08-28..09-01)",
+      "clauses": [
+        "C-29.6",
+        "C-18.1"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "M-15",
+      "requirement": "A keyboard shortcut to search, like ⌘K",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.12"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_search.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Palette over the window: conversations and sessions by title, workspace, provider and loaded message text, fuzzy titles last, and a new-conversation item; the daemon's catalog query for sessions past the loaded page. Not done: former titles (not kept anywhere) and a full-text search of transcripts the app has not loaded (no daemon op). Not yet seen in the installed app."
+    },
+    {
+      "id": "M-16",
+      "requirement": "Readable text: conversation text was small",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.13"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_text_scale.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Body 16 pt at actual size; View > Bigger, Smaller and Actual size step as Claude Code's zoom does and persist one scale; the conversation column widens with it. Not yet seen in the installed app."
+    },
+    {
+      "id": "P-1",
+      "requirement": "Project selection and compose with workspace choice, settings and errors",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-24.1",
+        "C-26.10",
+        "C-29.11"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-2",
+      "requirement": "Model, reasoning and Fast controls negotiated against the provider catalog; unsupported settings never implied",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-3",
+      "requirement": "Real permission and question requests with allow/deny/answer/cancel round trips in Subfleet",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-27.1",
+        "C-27.2",
+        "C-27.3",
+        "C-27.4",
+        "C-27.5",
+        "C-25.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon side done: tests/e2e/test_conversations.py approval, question, deny, person-only refusal, duplicate answer, restart mid-approval. App side pending. C-27.5 (2026-09-27): a pending card is reachable from the pinned strip's Review and scrolled into view (tests/frontend/test_core_approval_reach.py, tests/frontend/test_conversation_view.py)."
+    },
+    {
+      "id": "P-4",
+      "requirement": "Cancel a queued message; stop only the owned active turn",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-24.7",
+        "C-24.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon side: turn.interrupt and the unblock note have e2e tests; message.cancel e2e pending."
+    },
+    {
+      "id": "P-5",
+      "requirement": "Changes and results per turn and per conversation, tied to workspace and attempt; no automatic commit or merge",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.10",
+        "C-26.10",
+        "C-26.14"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon side built: turn.diff and conversation.diff over start and end working-tree snapshots (C-26.14; tests/e2e/test_conversations.py, tests/fake/test_turn_trees.py, tests/fake/test_conversation_pools.py, tests/unit/test_conversation_diff.py). The app's Changes pane, Reveal in Finder, Open in editor, Open PR and Remove worktree are not built."
+    },
+    {
+      "id": "P-6",
+      "requirement": "Bounded read-only history of existing sessions; IDs preserved",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-30.1",
+        "C-30.2",
+        "C-29.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-7",
+      "requirement": "Explicit cross-provider handoff with provenance, never presented as the same session",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-30.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon side: `conversation.handoff` (C-30.3, design D-18) makes a new labelled conversation from a Claude transcript or a Codex rollout and moves pending messages (tests/e2e/test_conversations.py, tests/unit/test_conversation_handoff.py). The app's \"handoff from\" label is open."
+    },
+    {
+      "id": "P-8",
+      "requirement": "Truthful fleet/status; reloading a snapshot is not a new observation",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.2",
+        "C-29.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-9",
+      "requirement": "Drafts and attachments survive app restart",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-28.3"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-10",
+      "requirement": "Compose and dispatch detached jobs with a route preview (kept from the legacy cockpit)",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.10"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-11",
+      "requirement": "Follow-ups keep the conversation's model, effort, Fast and permission settings",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-24.2",
+        "C-26.8"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-12",
+      "requirement": "A capability the daemon does not offer is disabled with its reason",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.11",
+        "C-25.1"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "P-13",
+      "requirement": "Notifications when a background conversation completes, fails or needs approval",
+      "source": "transition plan capability map",
+      "clauses": [
+        "C-29.9"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-1",
+      "requirement": "Lost acknowledgement, app restart, daemon recovery and ambiguous sends: no duplicate accepted turn, no automatic re-send",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-24.2",
+        "C-24.6",
+        "C-26.4",
+        "C-26.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon side: kill -9 mid-approval adopts the turn and sends nothing twice (tests/e2e/test_conversations.py). App outbox pending."
+    },
+    {
+      "id": "R-2",
+      "requirement": "Independent conversations; external-writer handling; single writer per session",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-24.5",
+        "C-26.3",
+        "C-26.13"
+      ],
+      "status": "open",
+      "evidence": [
+        "tests/unit/test_conversation_service.py::test_a_claude_turn_waits_while_another_process_holds_its_session",
+        "tests/unit/test_conversation_service.py::test_a_registry_pid_holds_a_session_only_while_it_is_an_outside_claude_process",
+        "tests/unit/test_legacy_hold.py: a blocked conversation gets no turn by any path; resume refuses a turn source and a conversation-bound session; the daemon and the sessions kit never revive or nudge one; a live Claude process outside Subfleet is an admission wait"
+      ],
+      "notes": "2026-09-24: a Claude turn continuing a session the Claude app still held ran as a second writer (this design's own session). Claude's external-writer wait now runs at dispatch; Codex's already ran in the driver. Still open: a process that takes the session after dispatch, before the provider starts. Open: concurrent independent conversations and the lease waits of resume, revive and handoff reservations have no evidence here yet."
+    },
+    {
+      "id": "R-3",
+      "requirement": "Explicit endpoint; no v1 fallback; daemon-down is a visible state",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-29.1",
+        "C-29.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-4",
+      "requirement": "Guard, trust and toolchain pins pass for every turn launch, including the Codex turn server",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-26.11",
+        "C-14.2",
+        "C-14.3",
+        "C-23.6"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon: a Codex turn launches only with the verified guard override and re-checks hooks/list on its own server (codex_turn.check_hooks); e2e with the fake app-server in tests/e2e/test_conversations.py. Live app-server firing test pending."
+    },
+    {
+      "id": "R-5",
+      "requirement": "Real isolated Claude and Codex task with response, served-model evidence and a useful diff",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-26.8",
+        "C-29.10"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-6",
+      "requirement": "Installed release: exact source/build hashes, CI evidence, rollback bundle, guardian adoption verified",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-7",
+      "requirement": "Backend and UI rollback rehearsed on a copy; the main store stays schema 5",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-24.1"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "design §11 Recovery: drain turn jobs before a daemon rollback."
+    },
+    {
+      "id": "R-8",
+      "requirement": "Capacity waiting, fleet-full, daemon down, auth failure, stale usage, unsupported setting and model mismatch are distinguishable from completion",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-29.11",
+        "C-29.2"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "R-9",
+      "requirement": "Legacy cockpit import: repeated import creates nothing new; every legacy message has an owner and disposition",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-30.4"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_importer.py, legacy cockpit section: per-message classification, repeated import creates nothing, held sessions (a message or journal entry, a live cockpit worker or Claude process, and every session while the journal, outbox or workers file cannot be read or the broker runs), every conversation of a held session fenced before anything is placed whatever its origin, one spelling per session, no session or row ends a pass, client journal, dry run, daemon.lock",
+        "tests/unit/test_conversation_store.py: legacy history is terminal, idempotent by id, written first, never dispatched",
+        "tests/e2e/test_legacy_cockpit.py: imported history reopens through the daemon by its native session, and a new message resumes that session while no history row is sent",
+        "tests/unit/test_legacy_hold.py: the import's hold keeps every turn off its conversation (no dispatch, no re-admission, no admission of a queued turn job, a running turn stopped on adoption), and no outcome, unblock or resolve replaces or lifts it; resume refuses a turn source and a conversation-bound session, the daemon and the sessions kit never revive or nudge one, and a live Claude process outside Subfleet is an admission wait"
+      ],
+      "notes": "The hold rests on C-24.5 and C-26.3 (R-2), which stay open: the tests above cover the paths the hold and the one-writer rule close, not all of R-2. Not run against the real v1 state yet. A dry run over a private copy of the real outbox (2026-09-24, scratch state root) placed all 6 finished messages as history in 3 legacy conversations. A real pass needs the daemon stopped (docs/migration.md, 'The legacy cockpit, milestone 9')."
+    },
+    {
+      "id": "R-10",
+      "requirement": "Launch at login",
+      "source": "transition plan Stage 5 release checks",
+      "clauses": [
+        "C-29.11"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "S-1",
+      "requirement": "Legacy cockpit source (committed and uncommitted) preserved with checksums and restore instructions",
+      "source": "transition plan Stage 0",
+      "clauses": [],
+      "status": "verified",
+      "evidence": [
+        "~/subfleet-desktop-recovery/20260924T121841Z/SHA256SUMS (shasum -c: 0 failures)",
+        "RESTORE.md"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "S-2",
+      "requirement": "Legacy delivery state inventoried privately; every pending message has an owner and disposition",
+      "source": "transition plan Stage 0",
+      "clauses": [],
+      "status": "verified",
+      "evidence": [
+        "~/subfleet-desktop-recovery/20260924T121841Z/legacy-state/INVENTORY.md: 6 messages, all finished; pending journal {}; 0 attachments"
+      ],
+      "notes": "The import itself is R-9."
+    }
+  ]
+}

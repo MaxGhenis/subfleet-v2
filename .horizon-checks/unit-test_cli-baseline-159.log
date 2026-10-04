@@ -1,0 +1,9 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_an_identity_mismatch_names_the_rendering_trap ______________
+tests/unit/test_cli.py:1347: in test_an_identity_mismatch_names_the_rendering_trap
+    assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
+E   assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in 'subfleet: no daemon at /tmp/sf-q4y2_8up/daemon.sock: [Errno 2] No such file or directory\n  fix: subfleet daemon start\n'
+=========================== short test summary info ============================
+FAILED tests/unit/test_cli.py::test_an_identity_mismatch_names_the_rendering_trap
+1 failed in 10.38s

@@ -1,0 +1,26 @@
+........................................................................ [ 40%]
+.....................F.................................................. [ 81%]
+...............F.................                                        [100%]
+=================================== FAILURES ===================================
+________________ test_a_lock_whose_holder_is_dead_is_no_daemon _________________
+tests/unit/test_cli.py:612: in test_a_lock_whose_holder_is_dead_is_no_daemon
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
+E   AssertionError: assert 0 == 69
+E    +  where 0 = run_cli(['run', '-m', 'opus', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-7239/test_a_lock_whose_holder_is_de0/repo', 'hi'])
+----------------------------- Captured stdout call -----------------------------
+20260905-120000-demo
+----------------------------- Captured stderr call -----------------------------
+subfleet run: dispatched job=20260905-120000-demo request=88f11f24-ab3b-483e-a95d-d86fac591d3f (sync — outside a Claude session)
+  out: /tmp/sf-0h4tyxgz/jobs/20260905-120000-demo/a1/deliverable.md
+  log: /tmp/sf-0h4tyxgz/jobs/20260905-120000-demo/a1/lane.log
+  waiting inline; if this session restarts: subfleet wait 20260905-120000-demo
+  status: subfleet runs --mine · details: subfleet runs show 20260905-120000-demo · cancel: subfleet kill 20260905-120000-demo
+subfleet wait: 20260905-120000-demo SUCCEEDED · - · lane=- · - · out=-
+______________ test_an_identity_mismatch_names_the_rendering_trap ______________
+tests/unit/test_cli.py:1347: in test_an_identity_mismatch_names_the_rendering_trap
+    assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in captured
+E   assert "not 'Sat Jan  1 00:00:00 2000' as recorded" in 'subfleet: no daemon at /tmp/sf-gbqvi1zb/daemon.sock: [Errno 2] No such file or directory\n  fix: subfleet daemon start\n'
+=========================== short test summary info ============================
+FAILED tests/unit/test_cli.py::test_a_lock_whose_holder_is_dead_is_no_daemon
+FAILED tests/unit/test_cli.py::test_an_identity_mismatch_names_the_rendering_trap
+2 failed, 175 passed in 67.93s (0:01:07)

@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_revive_probes_lane_before_launch _____________________
+tests/fake/test_sessions_end_to_end.py:500: in test_revive_probes_lane_before_launch
+    attempt = service.store.list_attempts(result.job_id)[0]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   IndexError: list index out of range
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_revive_probes_lane_before_launch
+1 failed in 9.68s

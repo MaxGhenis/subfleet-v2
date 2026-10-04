@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="11.585" timestamp="2026-10-03T18:26:07.533612-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_sessions_end_to_end" name="test_world_shutdown_reaps_a_provider_still_writing_receipts" time="10.566"><properties><property name="nodeid" value="tests/fake/test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts" /></properties><failure message="AssertionError: condition timed out after 10s">tests/fake/test_sessions_end_to_end.py:249: in test_world_shutdown_reaps_a_provider_still_writing_receipts
+    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 10s</failure></testcase></testsuite></testsuites>

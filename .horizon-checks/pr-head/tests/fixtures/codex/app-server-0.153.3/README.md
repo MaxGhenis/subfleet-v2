@@ -1,0 +1,19 @@
+# Codex app-server protocol schema, codex-cli 0.153.3
+
+Generated on 2026-09-24 with `codex app-server generate-json-schema --out <dir>`
+(stable surface; `--experimental` not passed) from the installed codex-cli
+0.153.3, the version pinned in the guard TRUST file. Only the files the
+conversation driver's frames are validated against are kept. Regenerate and
+diff when the pin moves; never edit by hand.
+
+sha256:
+706cf248d75027c84a3c63348d0ed507182e8eba40069dd17541793de029145a  ClientNotification.json
+25bc001b5dfe3b35785597b8f9ad9e5aaf7e437331fa9921f041c9e0e03fc9f3  ClientRequest.json
+6d0767113e22f311381809b6b236b0dde2b99b01992879c26bf7b1ea0e003cb7  CommandExecutionRequestApprovalResponse.json
+b95b03ee6be674e25cee2e863cc135a28620e1070addd2f34685aadee27cde08  FileChangeRequestApprovalResponse.json
+d7ea353d4875ae204625da5a00a1ecb5afc69101d5778b9acc253a49f8932992  JSONRPCError.json
+792a012fdfe53ac211575a6c37ffbd492be848d15cb313d1bb4b534ade1f54ac  McpServerElicitationRequestResponse.json
+23f3f24e9dbf35db3e0b85703f0d934da5a1cff3cbb611fba8bcd41f3b4a04b0  PermissionsRequestApprovalResponse.json
+b3e76cf11842f3e8b3270c05e000212b56eabafb0152fc38e8f920e2ef902991  ServerNotification.json
+31f580ad468fbd18766eb7adb12744be4e3790e3357b58bd4413c0108c4f65d0  ServerRequest.json
+5073b245f741fa8ce62ec52e4dd1809b7831f9c4284c279a78abc9b171f8e3f2  ToolRequestUserInputResponse.json

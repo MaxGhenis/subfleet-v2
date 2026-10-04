@@ -1,0 +1,241 @@
+{
+  "action": {
+    "at": "2026-09-05T13:59:20-04:00",
+    "status": "authorized",
+    "type": "proceed"
+  },
+  "brief": "Re-review PR519 after actual main advanced during the original successful CI. This response supersedes the original brief's head/base and pending-CI statements. It is a new exact-revision approval request, not a request to carry forward the old certificate automatically.\n\nExact candidate: b31bf822059c64a34f9f93abd3a1879cd41672f0.\nExact PR base and independently checked actual main: e16e1feb58fb97d53c65c2fe331ac04d4be14664.\nRepository: TheAxiomFoundation/axiom-oracles; PR519; target main.\nMain reviewed and approves this exact revision. Agreement authorizes proceeding only; any merge still requires all current-head CI jobs to complete successfully and the actual target main to remain this exact base.\n\nThe existing gate's review-root checkout, /redacted/home/TheAxiomFoundation/axiom-oracles-comparison-completeness, was clean and safely fast-forwarded to the new remote PR head. The separate fresh preparation/verification worktree is /redacted/home/TheAxiomFoundation/axiom-oracles-completeness-refresh-20260905. Both preserve all previous commits; no force push or reset occurred. The original unrelated divergent checkout was preserved.\n\nRead the refreshed section of oracles-263-review-packet.md in this directory and oracles-519-refreshed.patch. The entire seven-file diff against new main is byte-identical to the previously approved implementation diff: SHA256 2f702dc0217df9b5e6f216806e232dc27db0749345e4d0921e2121e639487c0e. Independently, git diff from previously approved head4c17a5f8 to candidate b31bf822 is empty for axiom_oracles/, scripts/, tests/, and README.md. No implementation or tests changed since your prior approval.\n\nActual upstream main acquired31 scheduled report-refresh commits across37 JSON files. The three fixed-range independent audits are oracles-519-upstream-interaction-review.md (28bdda7..af5a380), oracles-519-upstream-round2-review.md (af5a380..fe4d0b07), and oracles-519-upstream-round3-review.md (fe4d0b07..e16e1feb). Read the paired JSON delta/hash evidence as needed. Each audit finds only provenance/freshness timestamps and propagated report/census/overview/certificate hashes; no measured outputs, counts, declared cases, agreement rates, verdicts, engine pins, mappings, workflow, or code changes. All affected exact-byte hash links and embedded overview payloads checked correctly. The final audit found22 timestamps and17 checksums across7 report refreshes. These static hash checks do not certify policy results or waive broader certificate guards.\n\nThe scheduled writer33974558393 is stopped. Ten jobs exceeded the existing90-minute job timeout; a GitHub annotation explicitly confirms maximum execution time1h30m0s. No active replacement writer was observed. We did not cancel or dispatch workflows, change their timeout, regenerate saved reports, or claim all suites completed. The partial refresh is already upstream; PR519's relative-base diff does not alter any saved report/certificate.\n\nValidation on this refreshed candidate:192 focused completeness/comparator/report/streaming/case/CLI/wrapper tests passed;14 overview/census/report-derived data tests passed; generated overview, exercise census, scoreboard, Ruff, and whitespace checks passed. No new tests mirror timestamp edits. Full original-head hosted CI33972321445 passed:3079 tests/88 skips, plus73 live GETTSIM tests, with all data/certificate/real-engine guards and package build green. Current-head CI33980027107 is running and must complete successfully before merge. Older local baseline-equivalent fixture/census failures remain historical environment evidence, not a CI waiver.\n\nPlease independently inspect the updated revision and upstream interaction for actionable bugs, regressions, or misleading evidence. Tests should remain main/CI's job; your review is static/read-only. Keep the original scope: only comparison-denominator completeness; broad issue263 must remain open. Adapter-side NaN coercion, preparation filters, method labels, required live CI, independence, workload authorization, and attestations remain outside this PR. Use the gate's exact verdict schema and exact new head/base. No secrets are needed.\n",
+  "certificate": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/certificate.json",
+  "created_at": "2026-09-05T13:11:18-04:00",
+  "id": "20260905-131118-pr-8668d420",
+  "kind": "pr",
+  "locator": {
+    "number": 519,
+    "repository": "TheAxiomFoundation/axiom-oracles"
+  },
+  "max_rounds": 0,
+  "merge_method": "squash",
+  "on_agreement": "proceed",
+  "peer": "fable",
+  "round_limit_changes": [
+    {
+      "at": "2026-09-05T13:21:08-04:00",
+      "expected_revision": {
+        "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+        "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+        "kind": "pr",
+        "number": 519,
+        "repository": "TheAxiomFoundation/axiom-oracles"
+      },
+      "max_rounds": 0,
+      "previous_max_rounds": 4
+    }
+  ],
+  "rounds": [
+    {
+      "attempt_id": "861b8deef0234670bad0d7ce81422eff",
+      "error": "peer dispatch exited 3",
+      "finished_at": "2026-09-05T13:11:24-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:11:18-04:00",
+        "expected_revision": {
+          "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+          "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+          "kind": "pr",
+          "number": 519,
+          "repository": "TheAxiomFoundation/axiom-oracles"
+        }
+      },
+      "number": 1,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-oracles-comparison-completeness",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-ztmvkbgr",
+        "-n",
+        "gate-20260905-131118-pr-8668d420-r1",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/001-861b8deef023/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/001-861b8deef023/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/001-861b8deef023/peer-output.md",
+      "peer_returncode": 3,
+      "peer_run_id": null,
+      "revision": {
+        "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+        "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+        "kind": "pr",
+        "number": 519,
+        "repository": "TheAxiomFoundation/axiom-oracles"
+      },
+      "started_at": "2026-09-05T13:11:18-04:00",
+      "status": "blocked",
+      "verdict": null
+    },
+    {
+      "attempt_id": "78a04b0a1e354849b1cf50cc3dfc97fe",
+      "error": "peer dispatch exited 3",
+      "finished_at": "2026-09-05T13:21:10-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:21:08-04:00",
+        "expected_revision": {
+          "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+          "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+          "kind": "pr",
+          "number": 519,
+          "repository": "TheAxiomFoundation/axiom-oracles"
+        }
+      },
+      "number": 2,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-oracles-comparison-completeness",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-mkhgd8ri",
+        "-n",
+        "gate-20260905-131118-pr-8668d420-r2",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/002-78a04b0a1e35/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/002-78a04b0a1e35/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/002-78a04b0a1e35/peer-output.md",
+      "peer_returncode": 3,
+      "peer_run_id": null,
+      "revision": {
+        "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+        "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+        "kind": "pr",
+        "number": 519,
+        "repository": "TheAxiomFoundation/axiom-oracles"
+      },
+      "started_at": "2026-09-05T13:21:08-04:00",
+      "status": "blocked",
+      "verdict": null
+    },
+    {
+      "attempt_id": "0f0307289d8a46a4926aae4492054736",
+      "error": null,
+      "finished_at": "2026-09-05T13:59:20-04:00",
+      "main_approval": {
+        "approved": true,
+        "at": "2026-09-05T13:54:40-04:00",
+        "expected_revision": {
+          "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+          "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+          "kind": "pr",
+          "number": 519,
+          "repository": "TheAxiomFoundation/axiom-oracles"
+        }
+      },
+      "number": 3,
+      "peer": "fable",
+      "peer_argv": [
+        "--attach",
+        "--independent-review",
+        "--review-root",
+        "/redacted/home/TheAxiomFoundation/axiom-oracles-comparison-completeness",
+        "-m",
+        "fable",
+        "-t",
+        "review",
+        "-s",
+        "read-only",
+        "-C",
+        "/tmp/subfleet-review-wq18tofe",
+        "-n",
+        "gate-20260905-131118-pr-8668d420-r3",
+        "-p",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/003-0f0307289d8a/peer-prompt.md",
+        "-o",
+        "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/003-0f0307289d8a/peer-output.md"
+      ],
+      "peer_output": "/redacted/home/chief-of-staff/state/subfleet/gates/20260905-131118-pr-8668d420/rounds/003-0f0307289d8a/peer-output.md",
+      "peer_returncode": 0,
+      "peer_run_id": "20260905-135441-peer-output-md",
+      "revision": {
+        "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+        "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+        "kind": "pr",
+        "number": 519,
+        "repository": "TheAxiomFoundation/axiom-oracles"
+      },
+      "started_at": "2026-09-05T13:54:40-04:00",
+      "status": "approve",
+      "verdict": {
+        "artifact_revision": {
+          "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+          "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+          "kind": "pr",
+          "number": 519,
+          "repository": "TheAxiomFoundation/axiom-oracles"
+        },
+        "findings": [],
+        "notes": [],
+        "schema_version": 1,
+        "summary": "Static read-only re-review of PR 519 at head b31bf822 against base e16e1feb. The checkout's worktree ref resolves to the exact head sha and its comparator.py, report.py, cli.py, and run_comparison.py contents match artifact.patch hunk-for-hunk. The diff makes comparison completeness strict: Comparator.compare requires a household-ID bijection between engine results (and with outputs_by_case when supplied), rejects duplicate mapping concepts, treats missing/both-missing values as mismatches, requires every summed component to be present, raises on non-finite inputs and differences, and rejects empty per-household comparisons; ComparisonReportAccumulator validates the whole batch (submitted-case/comparison bijection, cross-batch case repeats, engine-pair stability, exact requested-output coverage) before mutating any counter or writing case rows, and counts submitted cases rather than surviving comparisons. The CLI passes each prepared case's outputs as the requested surface and converts ValueError into a ClickException without writing a report; comparable_mappings already guarantees both-engine targets, so the new 'Unmapped requested outputs' path cannot trigger on the CLI happy path, and case outputs are trimmed to the selected concept set before comparison. All other Comparator/build_comparison_report callers were inspected (scripts/run_comparison.py gettsim runner now propagates explicit concepts into case outputs and is covered by the parametrized test; scripts/run_canada_official_comparison.py suites declare exactly the three mapped concepts; the entitledto report compares one aligned household at a time with a two-target mapping) and remain consistent with the stricter contract. New tests cover bijection failures, sum-component semantics, non-finite handling, zero-agreement empty comparisons, no-mutation-on-rejection for streaming batches, per-case scoped outputs, and the CLI error/success paths. Residual, non-actionable observations: heterogeneous suites whose case ends with no comparable declared outputs for a given engine pair now abort the run instead of contributing a vacuous case, which is the documented intent; _filter_comparisons_for_case_outputs remains defined and unit-tested but is no longer used by the CLI compare path. The packet and upstream-audit markdown files referenced by the brief were not present in the review directory, so this verdict rests on artifact.patch plus the clean checkout; the PR diff touches no saved report JSON, so the upstream timestamp-only refreshes do not interact with it. Tests were not executed here; merge remains contingent on the current-head CI completing successfully.",
+        "verdict": "approve"
+      }
+    }
+  ],
+  "schema_version": 1,
+  "status": "completed",
+  "subject": {
+    "base_sha": "e16e1feb58fb97d53c65c2fe331ac04d4be14664",
+    "checks": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "detailsUrl": "https://github.com/TheAxiomFoundation/axiom-oracles/actions/runs/33980027107/job/101343487059",
+        "name": "test",
+        "startedAt": "2026-09-05T17:08:44Z",
+        "status": "IN_PROGRESS",
+        "workflowName": "CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-05T17:09:28Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/TheAxiomFoundation/axiom-oracles/actions/runs/33980027107/job/101343486972",
+        "name": "gettsim-live",
+        "startedAt": "2026-09-05T17:08:43Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      }
+    ],
+    "head_sha": "b31bf822059c64a34f9f93abd3a1879cd41672f0",
+    "is_draft": false,
+    "kind": "pr",
+    "merge_commit": null,
+    "merge_state_status": "UNSTABLE",
+    "mergeable": "MERGEABLE",
+    "number": 519,
+    "repository": "TheAxiomFoundation/axiom-oracles",
+    "state": "OPEN",
+    "url": "https://github.com/TheAxiomFoundation/axiom-oracles/pull/519"
+  },
+  "updated_at": "2026-09-05T13:59:20-04:00",
+  "workdir": "/redacted/home/TheAxiomFoundation/axiom-oracles-comparison-completeness"
+}

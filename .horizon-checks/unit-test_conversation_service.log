@@ -1,0 +1,16 @@
+........................................................................ [ 78%]
+.....F..............                                                     [100%]
+=================================== FAILURES ===================================
+_ test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing _
+tests/unit/test_conversation_service.py:1928: in test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+    daemon = Daemon(root, tick_s=.05)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
+1 failed, 91 passed in 97.42s (0:01:37)

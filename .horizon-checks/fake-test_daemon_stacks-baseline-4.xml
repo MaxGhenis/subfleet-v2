@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.130" timestamp="2026-10-03T18:23:21.656487-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_daemon_stacks" name="test_a_lock_that_changes_between_the_two_reads_is_not_signalled" time="0.101"><properties><property name="nodeid" value="tests/fake/test_daemon_stacks.py::test_a_lock_that_changes_between_the_two_reads_is_not_signalled" /></properties><failure message="AssertionError: Traceback (most recent call last):&#10;    File &quot;&lt;string&gt;&quot;, line 6, in &lt;module&gt;&#10;    File &quot;/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/.horizon-checks/baseline/subfleet/procs.py&quot;, line 93, in boot_id&#10;      raise InspectionError(&quot;macOS boot identity is unavailable&quot;)&#10;  subfleet.procs.InspectionError: macOS boot identity is unavailable&#10;  &#10;assert '' == 'ready'&#10;  &#10;  - ready">tests/fake/test_daemon_stacks.py:144: in test_a_lock_that_changes_between_the_two_reads_is_not_signalled
+    stopping = spawn(OLD_DAEMON, root)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_daemon_stacks.py:74: in spawn
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+E   AssertionError: Traceback (most recent call last):
+E       File "&lt;string&gt;", line 6, in &lt;module&gt;
+E       File "/Users/maxghenis/.subfleet/worktrees/20261003-144901-rank-horizon-fix-sol/.horizon-checks/baseline/subfleet/procs.py", line 93, in boot_id
+E         raise InspectionError("macOS boot identity is unavailable")
+E     subfleet.procs.InspectionError: macOS boot identity is unavailable
+E     
+E   assert '' == 'ready'
+E     
+E     - ready</failure></testcase></testsuite></testsuites>

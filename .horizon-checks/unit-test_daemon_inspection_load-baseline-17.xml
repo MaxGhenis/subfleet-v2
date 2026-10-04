@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.310" timestamp="2026-10-03T17:47:36.979212-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_inspection_load" name="test_the_export_sweep_is_one_statement_however_much_history_is_kept" time="0.055"><properties><property name="nodeid" value="tests/unit/test_daemon_inspection_load.py::test_the_export_sweep_is_one_statement_however_much_history_is_kept" /></properties><error message="failed on setup with &quot;subfleet.procs.InspectionError: macOS boot identity is unavailable&quot;">tests/unit/test_daemon_inspection_load.py:94: in daemon
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</error></testcase></testsuite></testsuites>

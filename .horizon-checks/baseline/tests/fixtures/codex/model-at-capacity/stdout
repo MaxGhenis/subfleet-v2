@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000009"}
+{"type":"turn.started"}
+{"type":"turn.failed","error":{"message":"The model is at capacity. Please try again later."}}

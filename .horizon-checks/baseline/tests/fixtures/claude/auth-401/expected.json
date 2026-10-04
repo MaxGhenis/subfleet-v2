@@ -1,0 +1,32 @@
+{
+  "case": "auth-401",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "Synthetic. The envelope is the Anthropic authentication_error shape Claude Code 2.1.260 carries in its error-type table; no captured 401 artifact survives in the newest 150 v1 run directories.",
+  "requested_model": "claude-opus-5",
+  "session_id": "44444444-4444-4444-8444-444444444444",
+  "class": "auth-dead",
+  "detail_contains": "401",
+  "evidence": {
+    "auth": "no system/init and a 401 in stderr",
+    "admission": "not reached",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": null,
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": false,
+    "assistants": 0,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": null,
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

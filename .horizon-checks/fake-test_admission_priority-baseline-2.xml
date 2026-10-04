@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.865" timestamp="2026-10-03T18:22:39.436638-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.fake.test_admission_priority" name="test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go" time="0.308"><properties><property name="nodeid" value="tests/fake/test_admission_priority.py::test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go" /></properties><failure message="PermissionError: [Errno 1] Operation not permitted: '/bin/ps'">tests/fake/test_admission_priority.py:94: in test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go
+    live_session(tmp_path, monkeypatch)
+tests/fake/test_admission_priority.py:44: in live_session
+    "statusUpdatedAt": 0, "procStart": start or subprocess.run(       # as Claude Code records it
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+../../../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'</failure></testcase></testsuite></testsuites>

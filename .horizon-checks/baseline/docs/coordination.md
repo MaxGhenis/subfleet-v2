@@ -1,0 +1,67 @@
+# Shadow-week coordination (v1 and v2 in parallel)
+
+Started 2026-09-06 07:20 EDT. During the shadow week v1 (`~/chief-of-staff/subfleet`, branch `master`) keeps running production and other sessions keep improving it, while v2 (`~/subfleet-v2`, branch `main`) runs its daemon beside it and owns the canary account. This file is the ledger both sides read. Integrator for v2: the Fable session named `maxghenis-02` (message it by that name); it merges v2 lanes and ports v1 changes that matter to v2.
+
+## Rules while both run
+
+- v2 changes go through `main` of `MaxGhenis/subfleet-v2` with a green full suite (`uv run pytest -q`, 3,400+ tests); lanes branch from `main` under `~/subfleet-v2-lanes/<lane>/` and the integrator merges.
+- v1 changes stay on v1's own branches and `master`; v2 never edits v1 files except through `sf2 lanes transfer` (the roster record and the home rename).
+- Machine state nobody else touches during the soak: `~/.subfleet/` (the v2 state root), `~/.subfleet/lanes/codex-3/` (the relocated canary home; `~/.codex-3` is gone on purpose and must not be re-created), launchd `com.subfleet.daemon` and `com.subfleet.soak-report`, and the `transferred_to_v2` entry in `~/chief-of-staff/subfleet/codex-accounts.json`.
+- A v1 change to a file the v2 importer reads (`claude-oauth-raw.json`, `capacity-live-cache.json`, `claude-accounts.json`, `codex-accounts.json`, `runs/<id>/meta.json`, `keepalive.json`, `notices`, `outbox.sqlite3`; manifest in `docs/migration.md`) gets a row below before it merges, with the exact keys that change.
+- A v1 change to a verb v2 delegates until milestone 6 or 7 (`sessions`, `revive`, `tickle`, `muster`, `handoff`, `mirror`, `gate`) stays live automatically, because v2's compat layer calls the v1 binary; v2's own port of that behaviour (`subfleet/sessions/`, `subfleet/gate/`) is updated from the row below.
+- Capacity vocabulary: v2 labels every reading `provider`, `stale-provider`, `admission-observed`, `local-backoff`, or `unknown` (contract C-9.1). A v1 change that adds provenance to percentages should use words that map onto these, so the nightly shadow-diff compare can explain every difference.
+
+## v1 changes in flight
+
+| When | Session (branch) | What changes | Files | v2 impact | v2 action | Status |
+|---|---|---|---|---|---|---|
+| 2026-09-06 | "Make subfleet report real login usage, not inferred percentages" (`claude/nifty-rubin-204883`, 09a49e16 + follow-ups, unmerged) | Every Claude percentage names its source; inferred figures say so | `subfleet/claude.py`, `render.py`, `snapshot.py`, `paths.py`, `bin/subfleet-statusline`, tests | None on the importer: `claude-oauth-raw.json`, `capacity-live-cache.json`, `claude-accounts.json` are unchanged (verified by the session by diff). Additive keys elsewhere: `claude-statusline.json` (+`entrypoint`, `auth_source`, `subscription_type`, `rate_limits_available`; history lines +`session_id`, `auth_source`), `snapshot.json` (`claude.live` +reset times, `model_week_resets`, `account_verified`, weekly-scoped `limits[]`; new `claude.panel`; `claude.statusline_attributable`; lanes +`five_hour_confidence`, `weekly_confidence`, `panel`), and one new read-only input outside v1: `~/Library/Application Support/Claude/plan-usage-history.json` (desktop app sampler, org-scoped, no reset times) | Vocabulary map below adopted for the shadow compare; nothing to port until merge | keys received 07:40; awaiting merge |
+| 2026-09-06 | "Fix subfleet revive: persistent host, no template causes, independent liveness alert" (`claude/vibrant-hypatia-a0021e`) | Revive semantics in v1's sessions kit | v1 `sessions`/`revive` code (not yet committed) | Live in v2 through delegation until milestone 6; v2's `subfleet/sessions/` port must mirror it (C-23.30 to C-23.36); a liveness alert that reads `ps` must treat an inspection failure as unknown, never as dead (v2 defect fixed 2026-09-05, C-4.2) | Awaiting a summary of the behaviour change on merge | open |
+
+## Vocabulary map: v1 provenance words to v2 reading labels (C-9.1)
+
+Decided 2026-09-06 07:45 from the usage-instrument session's list and the contract text. C-9.1 has five labels and a percentage is rendered only from `provider` or `stale-provider`.
+
+| v1 word (as printed after the change) | v2 label | Note |
+|---|---|---|
+| "endpoint" (snapshot `live.source` oauth), "endpoint, cached" (oauth-cache, capacity-cache), `stale=false` | `provider` | source and age recorded; the compare relabels stale by v2's own `reading_ttl_s`, not v1's 180 minutes |
+| the same with `stale=true` | `stale-provider` | marked stale in v2 output |
+| "app panel" (desktop app's org-scoped fetch, principal = org uuid) | `provider` for the desktop lane only (C-10.3: the lane whose identity org equals the panel's org); no reading for any other lane | the compare carries the org uuid and prints "panel: different principal" where it does not apply |
+| "statusline tap, session <id8>" with `account_verified` (auth_source keychain) | `provider` for the keychain login's lane | |
+| statusline tap without `account_verified` | no reading (`unknown`) | C-9.1 has no reading for an unidentified principal; a percentage is never rendered from it |
+| v1 "observed" (lane sums over a capacity learned from an observed hard limit or a keepalive-observed reset) | `unknown` for the percentage; the hard limit itself is a closure plus an `admission-observed` reading for that lane and model | `admission-observed` is an event label ("recently succeeded or was rejected"), not a percentage source |
+| v1 "estimated", "inferred from session activity", "(provenance unknown)", "?" | `unknown` | no percentage rendered |
+
+Two nuances confirmed by the usage-instrument session (07:55): (a) "endpoint, cached" readings from `capacity-live-cache.json` carry `as_of` equal to that file's `probed_at`, not the endpoint's response time, so v2's staleness keys off `probed_at`; (b) a v1 "observed" hard limit lives in the lane ledger per model scope (cooldowns keyed `"*"` or a model id), so the derived closure is model-scoped unless the key is `"*"`, which is account-wide. The session will message when the branch merges and the statusline tap's `auth_source` starts flowing.
+
+## Incident 2026-09-06 08:07: Opus dispatch burned the Fable week (rule change for everyone)
+
+Max: farness and policybench were hammered with Opus requests before they got exhausted on Fable; half the week's Fable usage lost. Mechanism, read from the OAuth usage payload: `limits[]` carries `weekly_all` (the shared all-models bucket) and `weekly_scoped` with `scope.model.display_name = "Fable"`. Fable usage counts against both; Opus, Sonnet, and Haiku count only against `weekly_all`. At 100 on `weekly_all` the account is dead for Fable regardless of the Fable bucket (rulesatlas at 08:05: all 88, Fable 24; the account in Max's screenshot: all 94, Fable 49). v1 has no per-lane usage for its 13 Claude lanes, so its picker rotated Opus onto Fable-bearing accounts blind.
+
+Rule (Max: "we can use Opus before Fable is exhausted but not to the degree where it'd cost us Fable"): non-Fable dispatch on an account may consume only the slack, all-models remaining minus Fable remaining expressed on the all-models scale (cap ratio measured per account, unknown today and apparently well above 1, which makes `weekly_all` the binding bucket for Fable). Until the ratio is measured: no Opus, Sonnet, or Haiku on any account with Fable headroom; non-Fable work goes to accounts with Fable at or near 100, to Astra, or waits. Every session dispatching lanes follows this from now. v1: the usage-instrument session is asked to gate the picker; v2: readings scoped to the Fable window and a slack routing rule, in progress (integrator).
+
+### Update 08:50: what can be measured, and by whom
+
+- The usage-instrument session declines the v1 picker change under Max's direct instruction to it ("do not change rotation rules, cooldown logic, or lane routing"); a third, unidentified session holds uncommitted edits in v1's routing seam (`capacity.py`, `cli.py`, `delegate.py`, `consensus.py`). Nobody in this ledger owns a v1 fix. v1 stop-loss is therefore operational: no non-Fable dispatch on Claude lanes; `subfleet run -m opus -a <email>` pins Opus to an account whose Fable row already reads about 100, `-x <email>` excludes lanes.
+- Setup-token lanes (all 13 enrolled Claude lanes; `claude-quota-<email>` in the agent keychain) answer 403 to `/api/oauth/usage` per the usage-instrument session's memory; my own probe saw 429 with `Retry-After: 3035` on twelve and 403 on one, so the 403 is to be confirmed once the penalty lifts (about 09:05). No `claude-oauth-<email>` full-scope login exists in the agent keychain today. Consequence under C-11.7: every Claude lane is `reserve:fable:unmeasured` for non-Fable work until it is re-enrolled with a full-scope OAuth login (`subfleet login claude <email>`, a browser click each). That is the intended stop-loss, and it is Max's decision whether to re-enroll.
+- The accounting assumption (Opus, Sonnet, and Haiku draw only on the shared weekly window; Fable draws on both) is what Max observed and what the two-bucket display implies; the payload cannot confirm it. Recorded as an assumption in C-11.7's decision log.
+- v2 landed the rule: C-9.9 usage sensor (paced, Retry-After honoured, no model turn) and C-11.7 reserve rule with `reserve.cap_ratio` 2.0, a bound from the incident account (94 shared, 49 Fable, hence ratio below 1.92).
+
+## Flags raised for Max (from the usage-instrument session, 2026-09-06 07:40; verified here)
+
+- The v1 main checkout `~/chief-of-staff` runs production with large uncommitted changes to `subfleet/subfleet/capacity.py`, `cli.py`, `consensus.py`, `delegate.py` (135 insertions, a "measured_only" gating change from another session; `git status` confirms). That is why the checkout shows 13 of 14 Claude lanes dispatchable while committed HEAD shows 8 of 14. v2's gate runs and dispatches yesterday and today went through that uncommitted code. Nobody in this ledger owns it; it needs a commit or a revert by whoever wrote it.
+- The "orchestrator" tmux server was started with `-e CLAUDE_CODE_OAUTH_TOKEN=…` on its command line, so the token is visible to any local `ps`. v2's census reads process command lines and environments for containment markers and, by C-5.5, retains none of it; that does not make the exposure smaller. Flagged, not acted on.
+
+## v2 state other sessions should know
+
+- `main` at the commit that adds this file: all seven milestones merged, 3,482 tests green, release gates green except canary, soak, and shadow diff.
+- Decisions on the four cutover prerequisites: `docs/decisions/2026-09-05-cutover-prerequisites.md` (peer-reviewed by Astra and a Fable peer; final round in progress).
+- Canary: codex-3 (max@axiom.org) transfers to v2 today; 100 read-only isolated-review jobs wait behind the weekly closure until Monday 07:04; seven-day soak with a daily record under `docs/soak/`.
+- Runbook: `tools/canary_runbook.sh`, one phase per invocation.
+
+## Incident 2026-09-22 10:45–14:03 EDT (noticed about 11:40): admission stalled on email pins (fixed by C-6.12 and C-11.2)
+
+- What happened: `worker admission failed: ValueError (128 in a row)`. No attempt was reserved between 14:45:05Z and 18:02:45Z for any session. Five queued jobs pinned by email (`max@axiom.org`, `max@thesisinstitute.org`), each with a task and no model, named a Claude lane and a Codex lane at once. Admission evaluates against the capacity view, where every Codex lane carries its probe-reported email. Submit had resolved against the store's lane rows, which have no such email, and kept the raw email as the pin. `_admit_pass` caught nothing per job, so every pass aborted at the first of the five. `why` showed "No decision recorded.". Every Codex lane (codex-1 to codex-6) shares its email with a Claude lane, so any `-a <email>` for those six accounts was exposed.
+- Manual unblock (Microcosm non-dynamics session): the five pins were rewritten in the store to `claude-11` and `claude-9`. Placement resumed at 18:02:45Z.
+- Fix: branch `fix/admission-route-isolation`. Admission isolates each job's route evaluation (C-6.12). A job whose own pin cannot be routed fails with exit 2 and the message; any other evaluation error waits on `route` with backoff and never holds another job. Submit resolves a pin against the capacity view, narrows it by the job's provider, and stores the lane id (C-11.2). Each daemon start rewrites the unfinished pins that name exactly one lane, and `subfleet doctor` reports any that are left. Report: `docs/reports/2026-09-22-admission-route-stall.md`.
+- Other sessions: pin by lane id (`-a claude-11`) where you can. An email still works and is stored as the lane id. `-a <email>` names the Claude account and `-H` a Codex home, as in v1, so `-a <email> -m astra` is refused at submit. A job whose model or task says the provider, submitted without the flag (a gate), resolves to that provider's lane.

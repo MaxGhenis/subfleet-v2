@@ -1,0 +1,713 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="89" skipped="0" tests="212" time="17.694" timestamp="2026-10-03T18:02:37.972409-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[0]" time="0.053"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[0]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[1]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[1]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[2]" time="0.030"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[2]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[3]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[3]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[4]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[4]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[5]" time="0.027"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[5]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[6]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[6]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[7]" time="0.024"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[7]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[8]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[8]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[9]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[9]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[10]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[10]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[11]" time="0.027"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[11]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[12]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[12]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[13]" time="0.023"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[13]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[14]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[14]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[15]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[15]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[16]" time="0.028"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[16]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[17]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[17]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[18]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[18]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[19]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[19]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[20]" time="0.031"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[20]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[21]" time="0.036"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[21]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[22]" time="0.033"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[22]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[23]" time="0.034"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[23]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[24]" time="0.028"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[24]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[25]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[25]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[26]" time="0.031"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[26]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[27]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[27]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[28]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[28]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[29]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[29]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[30]" time="0.027"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[30]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[31]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[31]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[32]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[32]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[33]" time="0.037"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[33]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[34]" time="0.049"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[34]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[35]" time="0.031"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[35]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[36]" time="0.034"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[36]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[37]" time="0.038"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[37]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[38]" time="0.036"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[38]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_hold_every_keys_newest[39]" time="0.028"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_hold_every_keys_newest[39]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_reading_candidates_are_few_when_timestamps_are_canonical" time="0.448"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_reading_candidates_are_few_when_timestamps_are_canonical" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_view_from_the_store_matches_one_from_every_reading" time="0.043"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_view_from_the_store_matches_one_from_every_reading" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[0]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[0]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[1]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[1]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[2]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[2]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[3]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[3]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[4]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[4]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[5]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[5]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[6]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[6]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[7]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[7]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[8]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[8]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[9]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[9]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[10]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[10]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[11]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[11]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[12]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[12]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[13]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[13]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[14]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[14]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[15]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[15]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[16]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[16]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[17]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[17]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[18]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[18]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[19]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[19]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[20]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[20]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[21]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[21]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[22]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[22]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[23]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[23]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[24]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[24]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[25]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[25]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[26]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[26]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[27]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[27]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[28]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[28]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[29]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[29]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[30]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[30]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[31]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[31]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[32]" time="0.004"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[32]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[33]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[33]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[34]" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[34]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[35]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[35]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[36]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[36]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[37]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[37]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[38]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[38]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_is_the_newest_for_its_holder[39]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_is_the_newest_for_its_holder[39]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:128: in test_the_probe_record_is_the_newest_for_its_holder
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_probe_record_with_a_nan_is_still_the_newest" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_probe_record_with_a_nan_is_still_the_newest" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:147: in test_a_probe_record_with_a_nan_is_still_the_newest
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_probe_payload_that_is_not_json_is_passed_over" time="0.007"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_probe_payload_that_is_not_json_is_passed_over" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:161: in test_a_probe_payload_that_is_not_json_is_passed_over
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_probe_payload_with_a_repeated_key_is_never_another_holders" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_probe_payload_with_a_repeated_key_is_never_another_holders" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:183: in test_a_probe_payload_with_a_repeated_key_is_never_another_holders
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_lookup_uses_its_indexes" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_uses_its_indexes" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:209: in test_the_probe_record_lookup_uses_its_indexes
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_probe_record_lookup_does_not_grow_with_history" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_probe_record_lookup_does_not_grow_with_history" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:222: in test_the_probe_record_lookup_does_not_grow_with_history
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_an_existing_store_gains_the_indexes_at_start_whatever_its_payloads" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_an_existing_store_gains_the_indexes_at_start_whatever_its_payloads" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[0]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[0]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[1]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[1]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[2]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[2]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[3]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[3]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[4]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[4]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[5]" time="0.027"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[5]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[6]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[6]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[7]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[7]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[8]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[8]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[9]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[9]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[10]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[10]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[11]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[11]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[12]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[12]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[13]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[13]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[14]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[14]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[15]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[15]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[16]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[16]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[17]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[17]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[18]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[18]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[19]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[19]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[20]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[20]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[21]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[21]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[22]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[22]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[23]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[23]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[24]" time="0.031"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[24]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[25]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[25]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[26]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[26]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[27]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[27]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[28]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[28]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[29]" time="0.020"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[29]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[30]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[30]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[31]" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[31]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[32]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[32]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[33]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[33]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[34]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[34]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[35]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[35]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[36]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[36]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[37]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[37]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[38]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[38]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_gate_loads_its_newest_state[39]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_gate_loads_its_newest_state[39]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_batches_and_submissions_are_found_by_job_id" time="0.008"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_batches_and_submissions_are_found_by_job_id" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:303: in test_batches_and_submissions_are_found_by_job_id
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[0]" time="0.022"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[0]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[1]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[1]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[2]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[2]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[3]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[3]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[4]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[4]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[5]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[5]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[6]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[6]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[7]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[7]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[8]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[8]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[9]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[9]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[10]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[10]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[11]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[11]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[12]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[12]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[13]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[13]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[14]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[14]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[15]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[15]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[16]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[16]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[17]" time="0.024"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[17]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[18]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[18]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[19]" time="0.024"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[19]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[20]" time="0.032"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[20]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[21]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[21]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[22]" time="0.020"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[22]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[23]" time="0.030"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[23]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[24]" time="0.032"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[24]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[25]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[25]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[26]" time="0.029"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[26]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[27]" time="0.029"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[27]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[28]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[28]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[29]" time="0.031"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[29]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[30]" time="0.034"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[30]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[31]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[31]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[32]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[32]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[33]" time="0.036"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[33]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[34]" time="0.029"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[34]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[35]" time="0.028"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[35]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[36]" time="0.020"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[36]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[37]" time="0.026"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[37]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[38]" time="0.024"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[38]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_shared_override_context_answers_as_a_fresh_read[39]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_shared_override_context_answers_as_a_fresh_read[39]" /></properties></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[0]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[0]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[1]" time="0.006"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[1]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[2]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[2]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[3]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[3]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[4]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[4]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[5]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[5]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[6]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[6]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[7]" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[7]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[8]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[8]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[9]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[9]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[10]" time="0.065"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[10]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[11]" time="0.017"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[11]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[12]" time="0.019"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[12]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[13]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[13]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[14]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[14]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[15]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[15]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[16]" time="0.009"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[16]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[17]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[17]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[18]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[18]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[19]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[19]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[20]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[20]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[21]" time="0.020"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[21]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[22]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[22]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[23]" time="0.010"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[23]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[24]" time="0.013"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[24]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[25]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[25]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[26]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[26]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[27]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[27]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[28]" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[28]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[29]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[29]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[30]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[30]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[31]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[31]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[32]" time="0.012"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[32]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[33]" time="0.018"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[33]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[34]" time="0.015"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[34]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[35]" time="0.014"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[35]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[36]" time="0.021"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[36]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[37]" time="0.028"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[37]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[38]" time="0.039"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[38]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_session_events_are_the_newest_per_kind_and_session[39]" time="0.030"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_session_events_are_the_newest_per_kind_and_session[39]" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:420: in test_session_events_are_the_newest_per_kind_and_session
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_session_event_with_a_nan_is_still_the_newest" time="0.023"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_session_event_with_a_nan_is_still_the_newest" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:445: in test_a_session_event_with_a_nan_is_still_the_newest
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_a_session_payload_with_a_repeated_key_is_never_another_sessions" time="0.011"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_a_session_payload_with_a_repeated_key_is_never_another_sessions" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:459: in test_a_session_payload_with_a_repeated_key_is_never_another_sessions
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_store_contention_queries" name="test_the_session_events_read_their_unparsed_rows_by_index" time="0.016"><properties><property name="nodeid" value="tests/unit/test_store_contention_queries.py::test_the_session_events_read_their_unparsed_rows_by_index" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_store_contention_queries.py:476: in test_the_session_events_read_their_unparsed_rows_by_index
+    daemon = Daemon(tmp_path / "state")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase></testsuite></testsuites>

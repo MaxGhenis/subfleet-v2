@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="7" time="0.854" timestamp="2026-10-03T17:47:45.595019-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_daemon_integration" name="test_c14_2_daemon_consumes_guard_preflight_and_passes_override" time="0.026"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c14_2_daemon_consumes_guard_preflight_and_passes_override" /></properties></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c6_5_api_key_home_is_refused_without_exposing_its_value" time="0.002"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c6_5_api_key_home_is_refused_without_exposing_its_value" /></properties></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c5_8_failed_identity_initialization_releases_flock" time="0.011"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c5_8_failed_identity_initialization_releases_flock" /></properties></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c10_3_no_desktop_login_means_no_credential_is_read" time="0.016"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c10_3_no_desktop_login_means_no_credential_is_read" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_daemon_integration.py:81: in test_c10_3_no_desktop_login_means_no_credential_is_read
+    daemon = Daemon(tmp_path, desktop_prober=lambda: asked.append(True))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane" time="0.015"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_daemon_integration.py:100: in test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane
+    daemon = Daemon(tmp_path, desktop_prober=lambda: ProfileResult(
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared" time="0.015"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_daemon_integration.py:132: in test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared
+    daemon = Daemon(tmp_path)
+             ^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase><testcase classname="tests.unit.test_daemon_integration" name="test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports" time="0.005"><properties><property name="nodeid" value="tests/unit/test_daemon_integration.py::test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports" /></properties><failure message="subfleet.procs.InspectionError: macOS boot identity is unavailable">tests/unit/test_daemon_integration.py:160: in test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports
+    daemon = Daemon(tmp_path)
+             ^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable</failure></testcase></testsuite></testsuites>

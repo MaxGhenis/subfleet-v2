@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before ______
+tests/fake/test_daemon_stacks.py:175: in test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before
+    core = daemon_module.Daemon(root)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/fake/test_daemon_stacks.py::test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before
+1 failed in 0.29s

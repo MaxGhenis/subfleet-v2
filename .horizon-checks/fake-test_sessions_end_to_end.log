@@ -1,0 +1,44 @@
+F............FFFFF...............                                        [100%]
+=================================== FAILURES ===================================
+_________ test_world_shutdown_reaps_a_provider_still_writing_receipts __________
+tests/fake/test_sessions_end_to_end.py:249: in test_world_shutdown_reaps_a_provider_still_writing_receipts
+    until(lambda: (adir / "stdout").is_file() and "ready" in (adir / "stdout").read_text())
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 10s
+____________________ test_revive_probes_lane_before_launch _____________________
+tests/fake/test_sessions_end_to_end.py:500: in test_revive_probes_lane_before_launch
+    attempt = service.store.list_attempts(result.job_id)[0]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   IndexError: list index out of range
+_____________ test_revive_census_refreshed_and_skips_running_twin ______________
+tests/fake/test_sessions_end_to_end.py:532: in test_revive_census_refreshed_and_skips_running_twin
+    assert lease is not None and lease["holder"] == first.job_id
+E   assert (None is not None)
+________ test_a_revive_that_loses_the_lease_race_is_skipped_not_queued _________
+tests/fake/test_sessions_end_to_end.py:565: in test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+    assert (job["state"], job["rc"]) == ("failed", 7)
+E   AssertionError: assert ('waiting', None) == ('failed', 7)
+E     
+E     At index 0 diff: 'waiting' != 'failed'
+E     Use -v to get more diff
+__________ test_the_lease_is_session_scoped_and_released_with_the_job __________
+tests/fake/test_sessions_end_to_end.py:615: in test_the_lease_is_session_scoped_and_released_with_the_job
+    assert until(lambda: seen()["holder"], timeout=stage_s(service),
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 20s: {'state': 'waiting', 'rc': None, 'holder': None}, attempts []
+____ test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one ____
+tests/fake/test_sessions_end_to_end.py:630: in test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+    attempt = until(lambda: (service.store.list_attempts(result.job_id) or [None])[0],
+tests/fake/test_sessions_end_to_end.py:49: in until
+    raise AssertionError(f"condition timed out after {timeout}s"
+E   AssertionError: condition timed out after 20s
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts
+FAILED tests/fake/test_sessions_end_to_end.py::test_revive_probes_lane_before_launch
+FAILED tests/fake/test_sessions_end_to_end.py::test_revive_census_refreshed_and_skips_running_twin
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+FAILED tests/fake/test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+6 failed, 27 passed in 67.35s (0:01:07)

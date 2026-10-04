@@ -1,0 +1,252 @@
+{
+  "code": "/private/tmp/sfr-base-e053b2c",
+  "root": "/private/tmp/sfr-runs/root-B5-base-trivial-backlog",
+  "diagnostics": true,
+  "daemon_cpu_cores": 0.111,
+  "admission": {
+    "holds_s": {
+      "n": 89,
+      "p50": 0.001,
+      "p90": 0.002,
+      "p99": 0.0148,
+      "max": 0.0148,
+      "mean": 0.0012
+    },
+    "reserve_holds_s": {
+      "n": 73,
+      "p50": 0.001,
+      "p90": 0.0021,
+      "p99": 0.0148,
+      "max": 0.0148,
+      "mean": 0.0014
+    },
+    "hold_cpu_s": {
+      "n": 89,
+      "p50": 0.0009,
+      "p90": 0.0015,
+      "p99": 0.0026,
+      "max": 0.0026,
+      "mean": 0.0009
+    },
+    "reserve_hold_cpu_s": {
+      "n": 73,
+      "p50": 0.001,
+      "p90": 0.0015,
+      "p99": 0.0026,
+      "max": 0.0026,
+      "mean": 0.0011
+    },
+    "hold_cpu_s_per_s": 0.00054,
+    "store_waits_s": {
+      "n": 344,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0049,
+      "max": 0.1241,
+      "mean": 0.0005
+    },
+    "holds_over_1s": 0,
+    "held_s_per_s": 0.0007,
+    "turn_queued_to_reserved_s": {
+      "n": 14,
+      "p50": 3.2159,
+      "p90": 7.8888,
+      "p99": 13.4761,
+      "max": 13.4761,
+      "mean": 3.6388
+    },
+    "turns_submitted": 14,
+    "turns_never_reserved": 0,
+    "turn_errors": []
+  },
+  "route_evaluations": {
+    "reused": 81,
+    "again": 0,
+    "moved": 0,
+    "old": 0,
+    "failed": 0
+  },
+  "args": {
+    "code": "/tmp/sfr-base-e053b2c",
+    "python": null,
+    "root": "/tmp/sfr-runs/root-B5-base-trivial-backlog",
+    "lanes": 20,
+    "history": 300,
+    "events": 200000,
+    "decisions": 3000,
+    "readings": 34000,
+    "probe_events": 6500,
+    "gate_events": 980,
+    "gate_pollers": 1,
+    "duty": 1.0,
+    "running": 6,
+    "sessions": 21,
+    "short_every": 8.0,
+    "short_s": 3.0,
+    "backlog": 48,
+    "backlog_s": 30.0,
+    "backlog_tier": "trivial",
+    "prepare_s": 2.0,
+    "turns_every": 10.0,
+    "spinners": 18,
+    "nice": 10,
+    "warmup": 20.0,
+    "duration": 150.0,
+    "dumps": true,
+    "sample": false,
+    "hold_s": null,
+    "report": "/tmp/sfr-runs/B5-base-trivial-backlog.json"
+  },
+  "store": {
+    "jobs": 300,
+    "attempts": 300,
+    "events": 207521,
+    "decisions": 3000,
+    "notices": 300,
+    "readings": 34000
+  },
+  "measured_s": 150.1,
+  "ops": {
+    "gate.poll": {
+      "n": 315,
+      "p50": 0.0079,
+      "p90": 0.1018,
+      "p99": 0.3229,
+      "max": 0.6569,
+      "mean": 0.0334,
+      "outcomes": {
+        "ok": 315
+      },
+      "rate_per_s": 2.1
+    },
+    "list(hook)": {
+      "n": 1155,
+      "p50": 0.0006,
+      "p90": 0.1209,
+      "p99": 0.4324,
+      "max": 0.8152,
+      "mean": 0.0335,
+      "outcomes": {
+        "ok": 1155
+      },
+      "rate_per_s": 7.69
+    },
+    "notice.pending(deliver)": {
+      "n": 6,
+      "p50": 0.0004,
+      "p90": 0.0006,
+      "p99": 0.0006,
+      "max": 0.0006,
+      "mean": 0.0004,
+      "outcomes": {
+        "ok": 6
+      },
+      "rate_per_s": 0.04
+    },
+    "notice.pending(prompt)": {
+      "n": 364,
+      "p50": 0.0003,
+      "p90": 0.0006,
+      "p99": 0.438,
+      "max": 0.676,
+      "mean": 0.0123,
+      "outcomes": {
+        "ok": 364
+      },
+      "rate_per_s": 2.42
+    },
+    "probe:list": {
+      "n": 122,
+      "p50": 0.0007,
+      "p90": 0.1632,
+      "p99": 0.4252,
+      "max": 0.4338,
+      "mean": 0.0389,
+      "outcomes": {
+        "ok": 122
+      },
+      "rate_per_s": 0.81
+    },
+    "probe:ping": {
+      "n": 125,
+      "p50": 0.0003,
+      "p90": 0.0006,
+      "p99": 0.2299,
+      "max": 0.3265,
+      "mean": 0.0073,
+      "outcomes": {
+        "ok": 125
+      },
+      "rate_per_s": 0.83
+    },
+    "probe:show": {
+      "n": 121,
+      "p50": 0.003,
+      "p90": 0.1439,
+      "p99": 0.5269,
+      "max": 0.7586,
+      "mean": 0.0449,
+      "outcomes": {
+        "ok": 121
+      },
+      "rate_per_s": 0.81
+    },
+    "probe:status": {
+      "n": 117,
+      "p50": 0.0471,
+      "p90": 0.2164,
+      "p99": 0.471,
+      "max": 0.7438,
+      "mean": 0.0875,
+      "outcomes": {
+        "ok": 117
+      },
+      "rate_per_s": 0.78
+    },
+    "submit": {
+      "n": 18,
+      "p50": 0.0237,
+      "p90": 0.1133,
+      "p99": 0.2626,
+      "max": 0.2626,
+      "mean": 0.0563,
+      "outcomes": {
+        "ok": 18
+      },
+      "rate_per_s": 0.12
+    },
+    "wait": {
+      "n": 25,
+      "p50": 60.1369,
+      "p90": 60.3135,
+      "p99": 60.7149,
+      "max": 60.7149,
+      "mean": 52.4554,
+      "outcomes": {
+        "ok": 25
+      },
+      "rate_per_s": 0.17
+    }
+  },
+  "wake_after_terminal_s": {
+    "n": 6,
+    "p50": -0.0125,
+    "p90": 0.0422,
+    "p99": 0.0422,
+    "max": 0.0422,
+    "mean": -0.0403
+  },
+  "wakes_unmatched": 0,
+  "client_errors": {},
+  "lockwatch_lines": {
+    "hold": 1
+  },
+  "holders_innermost": [],
+  "long_holds_s": {
+    "n": 0,
+    "max": null,
+    "sum": 0
+  },
+  "stack_dumps": 2,
+  "samples": null
+}

@@ -1,0 +1,60 @@
+.............EEFF.E.                                                     [100%]
+==================================== ERRORS ====================================
+_____ ERROR at setup of test_the_daemon_writes_long_store_holds_to_its_log _____
+tests/unit/test_lockwatch.py:254: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_ ERROR at setup of test_sigusr1_writes_every_threads_stack_to_the_daemon_log __
+tests/unit/test_lockwatch.py:254: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+___ ERROR at setup of test_timers_write_to_the_store_outside_their_own_lock ____
+tests/unit/test_lockwatch.py:254: in daemon
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=================================== FAILURES ===================================
+________ test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it ________
+tests/unit/test_lockwatch.py:334: in test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it
+    older = Daemon(tmp_path / "older")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+_______ test_a_signal_after_the_daemon_lets_the_handler_go_ends_nothing ________
+tests/unit/test_lockwatch.py:352: in test_a_signal_after_the_daemon_lets_the_handler_go_ends_nothing
+    core = Daemon(tmp_path / "state")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:546: in __init__
+    ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
+                                            ^^^^^^^^^^^^^^^
+subfleet/procs.py:93: in boot_id
+    raise InspectionError("macOS boot identity is unavailable")
+E   subfleet.procs.InspectionError: macOS boot identity is unavailable
+=========================== short test summary info ============================
+FAILED tests/unit/test_lockwatch.py::test_a_closed_daemon_gives_up_sigusr1_and_a_newer_one_keeps_it
+FAILED tests/unit/test_lockwatch.py::test_a_signal_after_the_daemon_lets_the_handler_go_ends_nothing
+ERROR tests/unit/test_lockwatch.py::test_the_daemon_writes_long_store_holds_to_its_log
+ERROR tests/unit/test_lockwatch.py::test_sigusr1_writes_every_threads_stack_to_the_daemon_log
+ERROR tests/unit/test_lockwatch.py::test_timers_write_to_the_store_outside_their_own_lock
+2 failed, 15 passed, 3 errors in 4.00s

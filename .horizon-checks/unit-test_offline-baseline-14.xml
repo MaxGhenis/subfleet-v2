@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.330" timestamp="2026-10-03T17:54:59.367010-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_offline" name="test_offline_kill_json_emits_one_object" time="0.203"><properties><property name="nodeid" value="tests/unit/test_offline.py::test_offline_kill_json_emits_one_object" /></properties><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = &lt;function main at 0x10ab81120&gt;(['kill', '20260905-120000-demo', '--json'])&#10; +    where &lt;function main at 0x10ab81120&gt; = cli.main">tests/unit/test_offline.py:248: in test_offline_kill_json_emits_one_object
+    assert cli.main(["kill", JOB, "--json"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = &lt;function main at 0x10ab81120&gt;(['kill', '20260905-120000-demo', '--json'])
+E    +    where &lt;function main at 0x10ab81120&gt; = cli.main</failure></testcase></testsuite></testsuites>

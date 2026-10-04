@@ -1,0 +1,57 @@
+{
+  "case": "allowed-out-of-credits-overage",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 0,
+  "synthetic": true,
+  "provenance": "rate_limit_info verbatim from experiment-0 (max@thesisinstitute.org). overageDisabledReason is out_of_credits while status is allowed: the case that proves overageStatus is never admission evidence (C-9.8). Surrounding frames assembled.",
+  "account": "max@thesisinstitute.org",
+  "requested_model": "claude-haiku-4-5-20251001",
+  "session_id": "bf80957d-887d-4cd8-a131-e70a97f14a54",
+  "class": "ok",
+  "detail_contains": "rate_limit_event",
+  "evidence": {
+    "auth": "system/init",
+    "admission": "rate_limit_event.status=allowed",
+    "quota": "rate_limit_event.unifiedWindows"
+  },
+  "closure": null,
+  "readings": [
+    {
+      "scope": "account",
+      "window": "five_hour",
+      "utilization": 0.29,
+      "resets_at_epoch": 1788612600,
+      "label": "provider",
+      "source": "rate_limit_event"
+    },
+    {
+      "scope": "account",
+      "window": "seven_day",
+      "utilization": 0.18,
+      "resets_at_epoch": 1788613200,
+      "label": "provider",
+      "source": "rate_limit_event"
+    }
+  ],
+  "overage": {
+    "overage_status": "rejected",
+    "overage_disabled_reason": "out_of_credits",
+    "is_using_overage": false
+  },
+  "deliverable": "ok",
+  "attestation": {
+    "status": "attested",
+    "served_model": "claude-haiku-4-5-20251001"
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [
+      "claude-haiku-4-5-20251001"
+    ],
+    "rate_limit_events": 1,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

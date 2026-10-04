@@ -1,0 +1,11 @@
+Revision3 resolves all7 round2 findings in its final section. Review the exact snapshot, particularly that section; unchanged sections remain as previously reviewed. No runtime implementation yet.
+
+1. Explicit expected source-gap closure is34/56 after including seven ambiguous non-Axiom shared-work items. This was independently computed from current YAML. Pin that exact set separately from further capacity/actuals gaps. UI preserves source-target column/edges without injecting assumed completions, exposes canonical detailed Axiom work alongside coarse family nodes, and tests observable no-leads/late-hire effects on independent paths/capacity.
+2. Explicit merged bands with rationale; lower number first, preserve existing intra-band -1 values; cross-program contention test.
+3. Movable ongoing work fits entire remaining horizon atomically, no failed-booking leakage. Fixed ongoing retains window with findings. Final fractional effort exempt from min staffing. Independent scheduling-fixtures.md captures examples.
+4. Remove root prefix aliases; final resolve root+portfolio from built packed dist. Any temporary aliases must be exact-match and removed before finalchecks.
+5. Integer cents in engine, BigInt fixed-total rounding; exact rational salary escalation/loading/share arithmetic in adapter using existing declared constants. No floating loaded rate fed into cents boundary, no annual rounding. Tie and multi-year tests.
+6. axiom-lead source ambiguity explicitly retained as unresolved coarse group; candidate President+DoP vs President+enc. No capacity or work allocated by this group since all its tasks are aliases/unresolved. The real roster remains authoritative.
+7. Required fixtures for executive stress reservation, stale hires, proposed/committed coverage,34-ID closure,real scenarioeffects added.
+
+All support files live under /redacted/home/architecture-reviews/plangraph-build-20260905/ (absolute). Latest targeted audit proposed-dispositions.json screened all56 family nodes and preserves20 demands of8 overlapping non-Axiom items. milestone-mapping.md has rationale. economics-fixtures.md and scheduling-fixtures.md provide independent expected vectors. Please return remaining concrete blockers or approval; don't repeat already-resolved issues or expand beyond this local monthly portfolio build.

@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_daemon_start_runs_in_its_own_session ___________________
+tests/unit/test_daemon_verbs.py:133: in test_daemon_start_runs_in_its_own_session
+    assert cli.main(["daemon", "stop"]) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function main at 0x10ad30900>(['daemon', 'stop'])
+E    +    where <function main at 0x10ad30900> = cli.main
+----------------------------- Captured stderr call -----------------------------
+subfleet: daemon stop: cannot verify that pid 58996 is the recorded daemon (C-5.3); refusing to signal it
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_verbs.py::test_daemon_start_runs_in_its_own_session
+1 failed in 0.72s

@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________________________ test_states_map_from_rc ____________________________
+tests/unit/test_importer.py:583: in test_states_map_from_rc
+    assert states["20260905-100300-lost"] == "lost"
+E   AssertionError: assert 'running' == 'lost'
+E     
+E     - lost
+E     + running
+=========================== short test summary info ============================
+FAILED tests/unit/test_importer.py::test_states_map_from_rc - AssertionError:...
+1 failed in 0.87s
