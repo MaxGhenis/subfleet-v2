@@ -20,14 +20,16 @@ WAITING = "waiting"
 STARTING = "starting"
 RUNNING = "running"
 APPROVAL_NEEDED = "approval-needed"
+STEERING = "steering"
+STEERED = "steered"
 COMPLETE = "complete"
 FAILED = "failed"
 INTERRUPTED = "interrupted"
 CANCELLED = "cancelled"
 DELIVERY_UNKNOWN = "delivery-unknown"
 
-LIVE_STATES = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED, DELIVERY_UNKNOWN)
-TERMINAL_STATES = (COMPLETE, FAILED, INTERRUPTED, CANCELLED)
+LIVE_STATES = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED, DELIVERY_UNKNOWN, STEERING)
+TERMINAL_STATES = (COMPLETE, FAILED, INTERRUPTED, CANCELLED, STEERED)
 MESSAGE_STATES = (QUEUED, *LIVE_STATES, *TERMINAL_STATES)
 
 PERMISSIONS = ("ask", "accept-edits", "bypass", "read-only")
@@ -104,6 +106,9 @@ class Outcome:
     # (the driver's own check ended it, before or after sending), or "eof"
     # (stdout ended with neither, so its delivery is for reconciliation).
     ended_by: str = "driver"
+    # Shared with the driver until stdout drains: lifecycle/steer responses may
+    # follow the provider's terminal frame, before settlement runs.
+    steers: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -121,3 +126,54 @@ class Step:
         self.resolved += other.resolved
         self.outcome = self.outcome or other.outcome
         return self
+
+
+class SteerTracking:
+    """Delivery evidence shared by both pure drivers and the relay runner.
+
+    A result or echo that proves consumption outranks a later cancellation:
+    Claude also calls already-consumed folds cancelled when their turn fails.
+    Requeueing those would deliver the person's message twice.
+    """
+
+    def _init_steers(self) -> None:
+        self.steers: dict[str, dict[str, Any]] = {}
+        self._steer_pending: set[str] = set()
+        self._steer_announced: set[str] = set()
+
+    def restore_steer(self, message_id: str, frame: str = "written") -> None:
+        self.steers.setdefault(message_id, {"frame": frame, "fate": "unknown", "detail": None})
+        self._steer_pending.add(message_id)
+
+    def steer_written(self, message_id: str) -> None:
+        if message_id in self.steers:
+            self.steers[message_id]["frame"] = "written"
+
+    def drop_steer(self, message_id: str, detail: str) -> Step:
+        self.restore_steer(message_id, "unsent")
+        self._steer_pending.discard(message_id)
+        entry = self.steers[message_id]
+        if entry["fate"] not in ("consumed", "delivered", "unanswered"):
+            entry.update(frame="unsent", fate="refused", detail=detail)
+        return Step(events=[Event("steer.missed", {"message_id": message_id, "why": detail},
+                                  f"cmd:steer-missed:{message_id}")])
+
+    def _steer_delivered(self, message_id: str, source: str, *, fate: str = "delivered") -> Step:
+        if message_id not in self.steers:
+            return Step()
+        entry = self.steers[message_id]
+        entry.update(fate="consumed" if entry["fate"] == "consumed" else fate, detail=None)
+        if message_id in self._steer_announced:
+            return Step()
+        self._steer_announced.add(message_id)
+        return Step(events=[Event("steer.delivered", {"message_id": message_id}, source)])
+
+    def _steer_refused(self, message_id: str, detail: str, source: str, *, fate: str = "refused") -> Step:
+        if message_id not in self.steers:
+            return Step()
+        self._steer_pending.discard(message_id)
+        entry = self.steers[message_id]
+        if entry["fate"] in ("consumed", "delivered", "unanswered"):
+            return Step()
+        entry.update(fate=fate, detail=detail)
+        return Step(events=[Event("steer.missed", {"message_id": message_id, "why": detail}, source)])

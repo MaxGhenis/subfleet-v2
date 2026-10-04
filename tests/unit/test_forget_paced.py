@@ -27,7 +27,7 @@ class Growing(dict):
 
 def test_an_entry_added_while_forgetting_does_not_raise():
     due = Growing({"a1": 1.0, "a2": 2.0, "a3": 3.0})
-    core = SimpleNamespace(_inspect_next=due, _inspect_retry=set(), _native=set())
+    core = SimpleNamespace(_inspect_next=due, _inspect_retry=set(), _native=set(), _v1_unread={})
     Daemon._forget_paced(core, live={"a1"})
     assert "a1" in due and "a2" not in due and "a3" not in due
 
@@ -35,7 +35,7 @@ def test_an_entry_added_while_forgetting_does_not_raise():
 def test_forgetting_races_workers_without_raising():
     """Bounded: a worker adds and removes entries while forgetting runs 2,000 times,
     with the interpreter switching threads as often as it can."""
-    core = SimpleNamespace(_inspect_next={}, _inspect_retry=set(), _native=set())
+    core = SimpleNamespace(_inspect_next={}, _inspect_retry=set(), _native=set(), _v1_unread={})
     stop, errors = threading.Event(), []
 
     def worker():

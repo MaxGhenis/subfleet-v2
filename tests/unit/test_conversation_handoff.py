@@ -237,6 +237,30 @@ def test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled(wo
     assert not world.service._cancel_job_without_attempt(job_id)
 
 
+def test_a_rolled_back_handoff_keeps_a_missed_steer_running_next(world, monkeypatch):
+    """C-24.5, C-30.3: a steer that missed its turn was dispatched ahead of a message
+    queued for later; a handoff cancels its turn job and then fails. Put back, it keeps
+    the `steer-missed:` mark the queue orders by, in its row and its change row, so it
+    still runs next rather than behind the message queued for later."""
+    cid, (later, missed) = source(world, "queued for later", "the steer that missed its turn")
+    world.store.set_state(missed, "queued", reason="steer-missed: interrupt-cancelled")
+    assert [m["message_id"] for m in world.store.next_dispatchable()] == [missed]
+    job_id = turn_job(world, missed, cid, state="waiting")
+    world.store.set_state(missed, "waiting", job_id=job_id)
+
+    def fail_commit(*args, **kwargs):
+        raise OSError("commit failed")
+    monkeypatch.setattr(world.store, "commit_handoff", fail_commit)
+    with pytest.raises(OSError):
+        handoff(world, cid)
+    row = world.store.message(missed)
+    assert (row["state"], row["state_reason"]) == ("queued", "steer-missed: handoff-rolled-back")
+    change = world.store.one("SELECT state_reason FROM changes WHERE message_id=? ORDER BY seq DESC LIMIT 1", (missed,))
+    assert change["state_reason"] == "steer-missed: handoff-rolled-back"
+    assert [m["message_id"] for m in world.store.next_dispatchable()] == [missed]
+    assert world.store.message(later)["state"] == "queued"
+
+
 @pytest.mark.parametrize("failure", [
     "cancel-refused", "cancel-error", "cancelled-then-error", "commit-error",
     "commit-interrupted", "commit-sql-error", "commit-deferred-error", "discard-error",

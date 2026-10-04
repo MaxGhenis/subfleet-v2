@@ -11,8 +11,10 @@ import errno
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -176,6 +178,160 @@ def test_c6_8_a_failure_that_says_something_about_the_repository_fails_at_once(s
     assert failed["transient"] is False and failed["deferrals"] == 0
 
 
+def test_c6_8_a_snapshot_failure_that_quotes_a_name_that_is_not_utf8_fails_the_job_with_it(state_daemon, monkeypatch):
+    """Review of cda4c161, N1, at admission: the baseline snapshot's `add -A` quotes such a
+    name (faked, as APFS refuses it; every other git call is real). Carried as a surrogate,
+    it reached the job's notice, which SQLite could not encode: the admission pass raised
+    on every try, holding every job behind it."""
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True))["job_id"]
+    fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\nfatal: adding files failed\n')
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
+    error = 'git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    assert f"workspace preparation failed: SalvageError: {error}" in daemon.store.list_notices()[0]["text"]
+    [failed] = events(daemon, job_id, "job.workspace_failed")
+    assert failed["error"] == error and failed["transient"] is False
+
+
+def test_c6_8_the_full_disk_the_live_daemon_failed_a_job_on_waits_instead(state_daemon, monkeypatch):
+    """Live (daemon.log, 2026-09-22, job 20260922-164440-pb-fixverify-v4): the baseline
+    snapshot's `write-tree` said `fatal: sha1 file '….lock' write error. Out of diskspace`,
+    git's other wording for a full disk, and the job failed at once. It waits (C-6.8), and
+    is admitted on the first pass after the disk has room. Only `write-tree` is faked."""
+    from tests.unit.test_salvage_unindexable import OUT_OF_DISKSPACE, fake_write_tree
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", in_place=True))["job_id"]
+    real_run = subprocess.run
+    fake_write_tree(monkeypatch, OUT_OF_DISKSPACE)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "SalvageError" and record["error"].endswith("write error. Out of diskspace")
+    assert daemon.store.list_notices() == []
+    monkeypatch.setattr(subprocess, "run", real_run)       # the disk has room again
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(state_daemon, monkeypatch):
+    """`git worktree add` prints a file it could not check out in its own bytes; read as
+    strict UTF-8 that raised `UnicodeDecodeError` out of the admission pass on every try.
+    The call is faked (APFS refuses such names) and decodes as `subprocess` would."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "failed"
+    assert ("could not allocate worktree: error: unable to create file caf\\xe9.txt: Permission denied"
+            in daemon.store.list_notices()[0]["text"])
+
+
+@pytest.mark.parametrize("stderr", [
+    b"fatal: could not create work tree dir '/w/worktrees/j': No space left on device\n",
+    b"fatal: Unable to create '/r/.git/index.lock': File exists.\n\n"
+    b"Another git process seems to be running in this repository, e.g.\n",
+    b"fatal: unable to write new index file\n",
+])
+def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, monkeypatch, stderr):
+    """Review of 43b8bf29, F4: `git worktree add`'s failure was never classified, so a full
+    disk or a lock another git process held at allocation failed the job at once, where
+    C-6.8 waits. It runs under the C locale and its stderr is read as salvage's is; the
+    half-made directory is removed, and the job is admitted once the call succeeds. The
+    call is faked and decodes as `subprocess` would."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+    environments = []
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            environments.append(kwargs.get("env") or {})
+            Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)     # what a cut-short add leaves
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error_type"] == "SalvageError" and record["error"].startswith("could not allocate worktree: fatal: ")
+    assert environments[0].get("LC_ALL") == "C" and "LANGUAGE" not in environments[0]
+    assert not (daemon.root / "worktrees" / job_id).exists() and daemon.store.list_notices() == []
+    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)          # the disk has room again
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+
+def test_c6_8_a_worktree_add_killed_by_a_signal_waits(state_daemon, monkeypatch):
+    """Adversarial review of the round-3 branch: a `git worktree add` killed by a signal (a
+    memory-pressure kill: a negative return code, nothing on stderr) did not finish, so it
+    waits as a timed-out one does, rather than failing the job at once."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "worktree" in cmd and "add" in cmd:
+            Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, "" if kwargs.get("text") else b"",
+                                               "" if kwargs.get("text") else b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
+    [record] = events(daemon, job_id, "job.workspace_deferred")
+    assert record["error"] == "could not allocate worktree: git worktree was killed by SIGKILL"
+    assert not (daemon.root / "worktrees" / job_id).exists()
+    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)
+    due(daemon, job_id)
+    daemon._admit()
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+def test_c6_8_a_submit_that_cannot_read_the_checkouts_top_leaves_nothing_behind(state_daemon, monkeypatch):
+    """C-6.8 "at submit it is exit 1 with nothing stored" (adversarial review of the round-3
+    branch): the top level a worktree job's place is read against was looked up after the
+    job's directory and prompt were written, outside the submit's handler, so a transient
+    failure there left `jobs/<id>/` behind with no job, which retention never removes."""
+    import subfleet.daemon as daemon_module
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+
+    def pressed(*args, **kwargs):
+        raise SalvageError("git rev-parse failed: fatal: Out of memory, malloc failed", transient=True)
+    monkeypatch.setattr(daemon_module, "git_toplevel", pressed)
+    before = set((daemon.root / "jobs").iterdir()) if (daemon.root / "jobs").exists() else set()
+    with pytest.raises(AdapterError, match="could not inspect the workdir: .*Out of memory") as caught:
+        daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))
+    assert caught.value.code == 1
+    assert set((daemon.root / "jobs").iterdir()) == before and daemon.store.query("SELECT * FROM jobs") == []
+
+
 def test_c6_8_a_wrapped_timeout_is_transient_and_names_the_underlying_type(state_daemon, monkeypatch):
     """C-6.8 salvage wraps git's timeout; the record still says TimeoutExpired."""
     daemon, harness = state_daemon
@@ -284,3 +440,112 @@ def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
+
+
+@pytest.mark.parametrize("max_attempts", [3, 1])
+def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_launched(
+        state_daemon, monkeypatch, max_attempts):
+    """Review of ceacf18b, P3-5: the main/master re-check at launch ran a git that was killed
+    (a memory-pressure kill; EMFILE and ENOMEM read the same). The attempt ended as a spawn
+    error, which both adapters classify `unknown`, never retried, so the job failed for good.
+    Now nothing launches (C-13.2 fails closed) and the attempt ends as one whose guardian
+    could not be started: the job is queued again while it has attempts left, after C-6.8's
+    backoff (review of the P3-5 fix: queued at once, it was asked again on the next pass).
+    Its next admission asks again, waiting under C-6.8's backoff while git gives no answer,
+    and refuses the checkout, switched to `main` meanwhile, once git answers."""
+    import subfleet.daemon as daemon_module
+    from subfleet.daemon import Daemon
+    from tests.fake.test_state_contract import reserve
+    daemon, harness = state_daemon
+    workdir = repository(daemon, harness)
+    job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True,
+                                 max_attempts=max_attempts)
+    git(workdir, "branch", "-m", "main")                  # what a git that answered would refuse
+    real_run, killed = subprocess.run, [True]
+
+    def run(cmd, *args, **kwargs):
+        if killed[0] and "symbolic-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, b"", b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    Daemon._launch(daemon, attempt)                       # the fixture forbids scheduled launches
+    assert daemon._children == {} and not (daemon.root / "jobs" / job_id / "a1" / "launch.json").exists()
+    a1 = daemon.store.get_attempt(attempt["attempt_id"])
+    detail = "workdir-branch-check-unfinished: git symbolic-ref was killed by SIGKILL"
+    assert (a1["state"], a1["outcome_detail"]) == ("failed", detail)
+    assert daemon.store.list_leases() == []
+    job = daemon.store.get_job(job_id)
+    if max_attempts == 1:
+        assert (job["state"], job["rc"]) == ("failed", 1)
+        assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [detail]
+        return
+    assert (job["state"], job["rc"], job["wait_reason"]) == ("waiting", None, "workspace")
+    assert 0 < seconds_until(job["next_check_at"]) <= 5
+    [deferred] = events(daemon, job_id, "job.workspace_deferred")
+    assert deferred == {"stage": "launch", "deferrals": 1, "next_check_at": job["next_check_at"],
+                        "error_type": "SalvageError", "error": "git symbolic-ref was killed by SIGKILL"}
+    assert daemon.dispatch("show", {"job_id": job_id})["workspace"]["stage"] == "launch"
+    daemon._admit()                                       # not due: git is not asked, nothing is reserved
+    assert daemon.store.get_job(job_id)["next_check_at"] == job["next_check_at"]
+    assert len(daemon.store.list_attempts(job_id)) == 1
+    due(daemon, job_id)
+    daemon._admit()                                       # due, and still no answer: admission's own wait
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+    assert len(daemon.store.list_attempts(job_id)) == 1
+    latest = events(daemon, job_id, "job.workspace_deferred")[-1]
+    assert latest["deferrals"] == 1 and "stage" not in latest
+    killed[0] = False
+    due(daemon, job_id)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"]) == ("failed", 7) and len(daemon.store.list_attempts(job_id)) == 1
+    lines = daemon.store.list_notices()[-1]["text"].split("\n")[1:]
+    assert lines[0].startswith("failed while preparing the retry: writable job refused on main")
+    assert lines[1:] == [f"attempt a1: unknown, rc=-: {detail}"]
+
+
+def seconds_until(stamp: str) -> float:
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) - datetime.now(timezone.utc)).total_seconds()
+
+
+def test_c6_8_launch_time_checks_that_get_no_answer_back_off_counted_in_a_row(state_daemon, monkeypatch):
+    """Review of the P3-5 fix: if git kept giving no answer at launch while admission's own
+    check got one (and reset admission's count), the job was queued at once each time and
+    used up its attempts in as many passes. Each such wait now doubles with the attempts
+    that ended so in a row, read from the store: 5 s, then 10 s. The attempts still bound
+    it, and the notice names every attempt, none of which launched."""
+    import subfleet.daemon as daemon_module
+    from subfleet.daemon import Daemon
+    from tests.fake.test_state_contract import reserve
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id, _, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True, max_attempts=3)
+    real_run, killed = subprocess.run, [False]
+
+    def run(cmd, *args, **kwargs):
+        if killed[0] and "symbolic-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, b"", b"")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+    waits = []
+    for seq in (1, 2, 3):
+        current = daemon.store.list_attempts(job_id)[-1]
+        assert (current["seq"], current["state"]) == (seq, "reserved")
+        killed[0] = True
+        Daemon._launch(daemon, current)                   # the fixture forbids scheduled launches
+        killed[0] = False
+        assert daemon._children == {}
+        job = daemon.store.get_job(job_id)
+        if seq == 3:
+            break
+        assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
+        waits.append(seconds_until(job["next_check_at"]))
+        assert events(daemon, job_id, "job.workspace_deferred")[-1]["deferrals"] == seq
+        due(daemon, job_id)
+        daemon._admit()                                   # admission's check answers: the next attempt
+    assert 0 < waits[0] <= 5 < waits[1] <= 10
+    assert (job["state"], job["rc"]) == ("failed", 1) and len(events(daemon, job_id, "job.workspace_deferred")) == 2
+    detail = "workdir-branch-check-unfinished: git symbolic-ref was killed by SIGKILL"
+    assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [
+        f"attempt a3: {detail}", f"attempt a2: unknown, rc=-: {detail}", f"attempt a1: unknown, rc=-: {detail}"]

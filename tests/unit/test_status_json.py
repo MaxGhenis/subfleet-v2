@@ -401,7 +401,8 @@ def test_c18_1_probe_fields_are_additions_only():
     rows = [reading(window="seven_day", utilization=0.8), reading("claude", window="five_hour", utilization=0.2)]
     result = build_status(build_view([lane(), lane("claude")], rows, now=NOW))
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
-    assert set(result) == {"generated_at", "offline", "jobs", "conversations", "codex", "claude"}
+    assert set(result) == {"generated_at", "offline", "jobs", "conversations", "alerts", "codex", "claude"}
+    assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
     assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes"}
     assert set(codex) == V1_CODEX_ROW | PROBE_ROW
     assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
