@@ -17,7 +17,7 @@ def visual_probe(tmp_path_factory):
 
 def test_every_text_token_meets_contrast_on_every_surface(visual_probe):
     values = run_probe(visual_probe, "contrast")
-    assert len(values) == 30
+    assert len(values) == 40
     for value in values:
         assert value["contrast"] >= value["target"], value
 
@@ -72,7 +72,8 @@ def test_review_presentation_keeps_masked_command_and_serving_facts_in_their_pla
     assert out["fallback"] == "provider command"
     assert out["noCommand"] is None, "Do not replace a loaded request with provider input"
     assert not any(out["acknowledgments"][s] for s in
-                   ("waiting", "starting", "running", "approval-needed", "complete"))
+                   ("waiting", "starting", "running", "approval-needed"))
+    assert out["acknowledgments"]["complete"]
     assert all(out["acknowledgments"][s] for s in ("queued", "steering", "steered", "delivery-unknown", "unknown", "sending"))
     assert "max@example.com" in out["tooltip"] and "claude-opus-5-5" in out["tooltip"]
     assert out["home"] == "~/project" and out["outside"] == "/Users/examples/project"
