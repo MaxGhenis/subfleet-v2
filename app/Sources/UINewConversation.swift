@@ -92,7 +92,6 @@ struct NewConversationDraftView: View {
             }
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.newDraft.startResolution)
                     Text("Return to start · Shift-Return for a new line")
                 }.font(.caption).foregroundStyle(Theme.text.secondary.color)
                 Spacer()
