@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -154,11 +155,14 @@ def test_a_running_attempt_is_withheld_only_when_a_pass_would_do_nothing(core, m
     # runs in, and a clock that moves between the two (under load, milliseconds)
     # makes a due time that falls between them look like a missed inspection,
     # which the next tick, 50 ms on, offers.
-    instant = time.monotonic()
-    frozen = datetime.now(timezone.utc)
+    instant, frozen = time.monotonic(), datetime.now(timezone.utc)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
     monkeypatch.setattr(daemon_module, "time", FrozenTime(instant))
-    monkeypatch.setattr(daemon_module, "age", lambda timestamp: 0.0 if timestamp is None else (
-        frozen - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds())
+    monkeypatch.setattr(daemon_module, "datetime", FrozenDatetime)       # the real `age`, at one instant
     offered = core._has_work(tick_row(core))
     # A second of margin on each side of the two clocks the test and the filter both read.
     surely_quiet = (receipt is None and not cancelled and age_s < max_wall_s - 2
@@ -321,21 +325,70 @@ def test_a_run_v1_still_owns_is_never_offered_and_one_it_settled_is(core, monkey
     assert drive(core, monkeypatch, 4, each) == [[], [], [ATTEMPT], [ATTEMPT]]
 
 
-@pytest.mark.parametrize("where", ["_has_work", "_v1_owned"])
-def test_an_error_in_the_look_offers_the_attempt_and_ends_no_tick(core, monkeypatch, where):
-    """C-5.11, C-5.10 (review of 0b1d8cdd): every doubt is a yes, an error included.
-    Raised on the control thread, it would end the tick for every other key, unpaced;
-    offered, the pass raises it keyed to this attempt and C-5.10 paces it."""
+def test_an_error_in_the_work_filter_offers_the_attempt_and_ends_no_tick(core, monkeypatch):
+    """C-5.11, C-5.10 (review of 0b1d8cdd): a doubt about what a pass would do is a yes,
+    an error included. Raised on the control thread, it would end the tick for every
+    other key, unpaced; offered, the pass raises it keyed to this attempt."""
     arrange(core)
     def broken(*args):
         raise ValueError("a timestamp the filter cannot parse")
-    monkeypatch.setattr(core, where, broken)
+    monkeypatch.setattr(core, "_has_work", broken)
     exports = []
     real_exports = core._pending_exports
     monkeypatch.setattr(core, "_pending_exports", lambda: exports.append(1) or real_exports())
-    offered = drive(core, monkeypatch, 3)
-    assert offered == [[ATTEMPT], [ATTEMPT], [ATTEMPT]]
+    assert drive(core, monkeypatch, 3) == [[ATTEMPT], [ATTEMPT], [ATTEMPT]]
     assert exports == [1, 1, 1], "the rest of every tick still ran"
+
+
+def test_an_error_reading_ownership_gives_no_pass_and_ends_no_tick(core, monkeypatch):
+    """Migration principle 3, C-5.11 (review of 067b8e6a): a doubt about whether v1
+    owns the run is a no. A pass on a run v1 executes could kill or lose it; one
+    tick's store error must not hand it over. It is logged on the 1st, 2nd, 4th tick."""
+    arrange(core)
+    def broken(aid):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(core, "_v1_owned", broken)
+    exports, errors = [], []
+    real_exports = core._pending_exports
+    monkeypatch.setattr(core, "_pending_exports", lambda: exports.append(1) or real_exports())
+    monkeypatch.setattr(core.log, "error", lambda text, *args: errors.append(text % args))
+    assert drive(core, monkeypatch, 5) == [[], [], [], [], []]
+    assert exports == [1, 1, 1, 1, 1], "the rest of every tick still ran"
+    assert len(errors) == 3 and all("OperationalError" in line and "principle 3" in line for line in errors)
+    monkeypatch.undo()
+    drive(core, monkeypatch, 1)
+    assert core._v1_unread == {}, "a read that works clears the count"
+
+
+def test_a_v1_run_whose_ownership_read_fails_once_is_never_given_a_pass(core, monkeypatch):
+    """Principle 3 (review of 067b8e6a): an imported run v1 still executes, whose
+    evidence read raises on one tick, is given no pass on that tick or any other."""
+    arrange(core, inspect_in=None)
+    with core.store.transaction("fixture.imported") as tx:
+        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                   (json.dumps({"imported": True, "imported_external": True}), ATTEMPT))
+    real_one, calls = core.store.one, []
+
+    def one(sql, params=()):
+        calls.append(sql)
+        if "evidence_json" in sql and len(calls) == 2:
+            raise sqlite3.OperationalError("database is locked")
+        return real_one(sql, params)
+    monkeypatch.setattr(core.store, "one", one)
+    assert drive(core, monkeypatch, 4) == [[], [], [], []]
+
+
+def test_a_pass_on_a_run_v1_owns_does_nothing(core, monkeypatch):
+    """Principle 3, defence in depth: should a pass ever be given a run v1 still owns,
+    it returns at once, acts on nothing and changes nothing."""
+    arrange(core, inspect_in=None, cancelled=True)
+    with core.store.transaction("fixture.imported") as tx:
+        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                   (json.dumps({"imported": True, "imported_external": True}), ATTEMPT))
+    reached = forbid_action(core, monkeypatch)
+    before = snapshot(core)
+    assert core._process_attempt(ATTEMPT) is None
+    assert reached == [] and snapshot(core) == before
 
 
 def test_an_attempt_of_this_daemons_own_has_its_evidence_read_once(core, monkeypatch):

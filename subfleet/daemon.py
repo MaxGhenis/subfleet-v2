@@ -110,6 +110,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
 #: C-5.7a: a probe a look left quarantined is looked at again this long after,
 #: doubling per consecutive such look to the ceiling.
 PROBE_RECHECK_BASE_S = 1
@@ -323,6 +327,8 @@ class Daemon:
         # imported" is read once; one that is imported is read again each tick,
         # because the importer clears the flag when it settles the run.
         self._native: set[str] = set()
+        # Consecutive ticks on which an attempt's ownership could not be read.
+        self._v1_unread: dict[str, int] = {}
         # Raised inspections stay pending until an inspection runs to its end.
         self._inspect_retry: set[str] = set()
         # The last table read (None if the read failed) and when it expires,
@@ -2047,6 +2053,16 @@ class Daemon:
         for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
             self._inspect_retry.discard(aid)
         self._native &= live
+        for aid in [aid for aid in self._v1_unread.copy() if aid not in live]:
+            self._v1_unread.pop(aid, None)
+
+    def _note_ownership_unread(self, aid: str, exc: BaseException) -> None:
+        """Log an attempt whose v1 ownership could not be read, on the 1st, 2nd,
+        4th, ... consecutive tick (as C-5.10 logs a failing worker), type only."""
+        count = self._v1_unread[aid] = self._v1_unread.get(aid, 0) + 1
+        if count & (count - 1) == 0:
+            self.log.error("attempt %s: whether v1 owns it could not be read: %s (%d ticks in a row); "
+                           "no pass is given until it can (principle 3)", aid, type(exc).__name__, count)
 
     def _v1_owned(self, aid: str) -> bool:
         """Whether v1 still executes this live attempt (`imported_external`), read
@@ -2105,14 +2121,24 @@ class Daemon:
                 live = self.store.query(LIVE_TICK)
                 self._forget_paced({a["attempt_id"] for a in live})
                 for a in live:
+                    # Migration principle 3: a doubt about whether v1 still owns
+                    # the run is a no. No pass is given; it is asked again next
+                    # tick, and an error never ends the tick for other keys.
+                    try:
+                        owned = self._v1_owned(a["attempt_id"])
+                    except Exception as exc:        # noqa: BLE001 - logged, bounded
+                        self._note_ownership_unread(a["attempt_id"], exc)
+                        continue
+                    self._v1_unread.pop(a["attempt_id"], None)
+                    if owned:
+                        continue                    # v1 still owns it (principle 3)
                     # C-5.11: every live attempt is looked at each tick; the pool
                     # is given those a pass could do something for. Every doubt
-                    # is a yes, an error in the look included: the pass raises
-                    # it, keyed to this attempt, and C-5.10 paces it. Raised
-                    # here, it would end the tick for every other key.
+                    # about what a pass would do is a yes, an error in the look
+                    # included: the pass raises it, keyed to this attempt, and
+                    # C-5.10 paces it. Raised here, it would end the tick for
+                    # every other key.
                     try:
-                        if self._v1_owned(a["attempt_id"]):
-                            continue                # v1 still owns it (principle 3)
                         offer = self._has_work(a)
                     except Exception:               # noqa: BLE001 - the pass reports it
                         offer = True
@@ -2125,7 +2151,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -2198,16 +2224,47 @@ class Daemon:
                 "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        # C-23.26, C-8.4: first, and on its own: it used to follow a completed
+        # pass only, so a store too large to finish a pass never shed its old
+        # service notices. One that fails is logged and holds retention up no
+        # longer than this line.
+        try:
+            self._prune_service_notices()
+        except sqlite3.Error as exc:
+            self.log.warning("retention: old service notices were not pruned this pass: %s", type(exc).__name__)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel,
+                             deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        self._prune_service_notices()
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+            pruned = len(result.get("pruned") or ())
+            if pruned:
+                # It pruned before its time ran out, so the store is smaller and
+                # the next pass gets further: retried on C-5.10's clock, as a pass
+                # that raises is. A retry that prunes nothing waits the hour
+                # (below), so the retries end.
+                self.log.warning("retention: the pass reached its %g s deadline after pruning %d jobs; it is "
+                                 "retried on the worker clock (C-8.4, C-5.10)", RETENTION_PASS_S, pruned)
+                raise TimeoutError("retention deadline reached")
+            # C-8.4: it ran out of time before it pruned a job. The next pass
+            # sizes every job again from the first, so one offered 60 s later
+            # meets the same deadline: retried on C-5.10's clock, a store too
+            # large to size in one pass kept a worker in `lstat` half of every
+            # two minutes for as long as the daemon ran. It is due again when a
+            # completed pass would be.
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline before it pruned a job (%d jobs in "
+                             "the store); the next pass is due in %g s (C-8.4)",
+                             RETENTION_PASS_S, result.get("jobs_after") or 0, RETENTION_INTERVAL_S)
+            self._last_maintenance = time.monotonic()
+            return
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+        # A raising pass remains due so the worker retry clock can re-offer it,
+        # and so does one whose own bookkeeping above raised, or that pruned
+        # before its time ran out. A pass that ran to its end, or out of time
+        # before it pruned anything, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
 
     def _prune_service_notices(self) -> int:
@@ -3437,6 +3494,8 @@ class Daemon:
             self._inspect_next.pop(aid, None)
             self._inspect_retry.discard(aid)
             return None
+        if imported_external(a):
+            return None                     # v1 still owns it (principle 3): the loop's check, again
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
