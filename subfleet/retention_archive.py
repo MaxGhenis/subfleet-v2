@@ -1769,9 +1769,15 @@ class _Builder:
         bad: list[str] = []
         try:
             checked: set[str] = set()
-            for tree in trees.values():
+            for label, tree in trees.items():
                 for entry in tree["entries"]:
                     name = entry.get("store")
+                    if entry["sig"]["t"] == "f" and not name and not entry.get("blob") and not entry.get("regen"):
+                        # An accepted salvage (or a caller vouching for its ref)
+                        # proves nothing about paths that snapshot skipped.
+                        # Every non-exempt file must have bytes to read back;
+                        # skipping a missing store would authorize its deletion.
+                        raise Defer("unarchived path", DEFER_ERROR_S, f"{label}/{entry['p']}")
                     if not name or name in checked:
                         continue
                     checked.add(name)

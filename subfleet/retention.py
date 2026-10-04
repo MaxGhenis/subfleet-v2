@@ -368,7 +368,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     every retirement in its journal for the next pass. `holders` lists the
     processes holding a batch's trees (default: `lsof`). `pins` is asked again
     inside every delete transaction. `salvage_referenced_elsewhere` is kept for
-    callers of the old API: an artifact it vouches for does not pin. A job
+    callers of the old API: an artifact it vouches for does not pin its ref;
+    every file, including paths salvage skipped, still needs archive verification. A job
     whose baseline no network remote holds, and whose bundle would carry more
     than `remote_less_history_bytes` of history, is kept (`remote-less-history`;
     None: no limit).
