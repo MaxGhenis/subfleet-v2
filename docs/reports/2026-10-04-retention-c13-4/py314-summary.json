@@ -1,0 +1,13 @@
+{
+  "python": "3.14.7 (GIL enabled)",
+  "scope": "All unit salvage files, retention worktrees, and new salvage property",
+  "counts": {
+    "tests": 142,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "foreground_slices": 15,
+  "max_slice_seconds": 188.49,
+  "summed_slice_seconds": 857.1
+}

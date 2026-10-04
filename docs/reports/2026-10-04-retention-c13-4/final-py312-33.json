@@ -1,0 +1,23 @@
+{
+  "name": "final-py312-33",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage_unindexable.py::test_a_name_that_is_not_utf8_is_carried_and_excluded_byte_for_byte",
+    "tests/unit/test_salvage_unindexable.py::test_git_carries_a_name_that_is_not_utf8_in_what_it_prints",
+    "tests/unit/test_salvage_unindexable.py::test_a_salvage_on_a_branch_whose_name_is_not_utf8_writes_its_ref",
+    "tests/unit/test_salvage_unindexable.py::test_a_branch_whose_sanitized_name_is_one_long_part_still_gets_its_ref",
+    "tests/unit/test_salvage_unindexable.py::test_an_add_that_quotes_a_name_that_is_not_utf8_fails_with_valid_utf8",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_restores_the_paths_salvage_left_out",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/final-py312-33.xml"
+  ],
+  "baseline": false,
+  "sweep_examples": "40",
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 138.79
+}

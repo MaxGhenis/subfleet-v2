@@ -1,0 +1,15 @@
+{
+  "name": "final-py312-11",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/final-py312-11.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 156.65
+}

@@ -1,0 +1,15 @@
+{
+  "name": "release-c13-4",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/release-c13-4.xml"
+  ],
+  "baseline": true,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 14.74
+}

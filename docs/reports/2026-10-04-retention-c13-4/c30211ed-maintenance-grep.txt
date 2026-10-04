@@ -1,0 +1,35 @@
+c30211ed:tests/fake/test_resume_contract.py:14:from subfleet.retention import maintenance
+c30211ed:tests/unit/test_policy_support.py:17:from subfleet.retention import maintenance
+c30211ed:tests/unit/test_retention_81_notes.py:48:    return retention.maintenance(w.store, w.root, **kwargs)
+c30211ed:tests/unit/test_retention_archive.py:52:    return retention.maintenance(w.store, w.root, **kwargs)
+c30211ed:tests/unit/test_retention_archive.py:1512:        result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
+c30211ed:tests/unit/test_retention_archive_properties.py:150:    result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0,
+c30211ed:tests/unit/test_retention_qos.py:125:        result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0, holders=lambda watches, **_: {})
+c30211ed:tests/unit/test_retention_regenerable.py:59:    return retention.maintenance(w.store, w.root, **kwargs)
+c30211ed:tests/unit/test_retention_regenerable_properties.py:477:        result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0, holders=lambda watches, **_: {})
+c30211ed:tests/unit/test_retention_sweep_race.py:54:    return retention.maintenance(w.store, w.root, **kwargs)
+c30211ed:tests/unit/test_retention_turns.py:49:    result = retention.maintenance(store, root, max_jobs=3, max_bytes=10**6, turn_max_jobs=2,
+c30211ed:tests/unit/test_retention_turns.py:57:    result = retention.maintenance(store, root, max_jobs=3, max_bytes=10**6, turn_max_jobs=2,
+c30211ed:tests/unit/test_retention_turns.py:69:    result = retention.maintenance(store, root, max_jobs=10, max_bytes=100, turn_max_jobs=10,
+c30211ed:tests/unit/test_retention_turns.py:83:    result = retention.maintenance(store, root, turn_max_jobs=0, turn_max_bytes=0, turn_keep_s=14 * 86400)
+c30211ed:tests/unit/test_retention_turns.py:100:    result = retention.maintenance(store, root, turn_max_jobs=0, turn_max_bytes=0, turn_keep_s=0, pins=pins)
+c30211ed:tests/unit/test_retention_turns.py:112:    result = retention.maintenance(store, root, turn_max_jobs=0, turn_max_bytes=0, turn_keep_s=0,
+c30211ed:tests/unit/test_retention_turns.py:127:    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
+c30211ed:tests/unit/test_retention_worktrees.py:76:        result = retention.maintenance(store, root, max_jobs=1, max_bytes=100)
+c30211ed:tests/unit/test_retention_worktrees.py:94:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:114:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:129:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:143:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:157:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:178:        result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_retention_worktrees.py:184:    result = retention.maintenance(store, root, max_jobs=0)
+c30211ed:tests/unit/test_salvage_unindexable.py:957:    outcome = retention.maintenance(store, root, max_jobs=0, salvage_referenced_elsewhere=lambda artifact: True)
+c30211ed:tests/unit/test_timers_busy_read.py:29:from subfleet.retention import maintenance
+c30211ed:tests/unit/test_timers_retention.py:50:    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
+c30211ed:tests/unit/test_timers_retention.py:74:    first = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
+c30211ed:tests/unit/test_timers_retention.py:95:    result = retention.maintenance(store, root, max_bytes=10)
+c30211ed:tests/unit/test_timers_retention.py:112:    result = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
+c30211ed:tests/unit/test_timers_retention.py:131:    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel, deadline=deadline)
+c30211ed:tests/unit/test_timers_retention.py:157:    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+c30211ed:tests/unit/test_timers_retention.py:181:    first = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+c30211ed:tests/unit/test_timers_retention.py:186:    resumed = retention.maintenance(store, root, max_jobs=0)

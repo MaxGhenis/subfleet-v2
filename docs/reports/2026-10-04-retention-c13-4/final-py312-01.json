@@ -1,0 +1,28 @@
+{
+  "name": "final-py312-01",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_policy_support.py::test_default_policy_exact_models_and_caps",
+    "tests/unit/test_policy_support.py::test_policy_rejects_invalid_caps[max_attempts-0]",
+    "tests/unit/test_policy_support.py::test_policy_rejects_invalid_caps[reading_ttl_s-False]",
+    "tests/unit/test_policy_support.py::test_policy_rejects_invalid_caps[max_active_attempts-4]",
+    "tests/unit/test_policy_support.py::test_minimal_pick_filters_and_pins",
+    "tests/unit/test_policy_support.py::test_unmeasured_stale_lane_and_fleet_caps",
+    "tests/unit/test_policy_support.py::test_keychain_secret_only_enters_environment",
+    "tests/unit/test_policy_support.py::test_env_credential_resolves_without_keychain_and_roundtrips_store",
+    "tests/unit/test_policy_support.py::test_env_credential_missing_refuses_with_fix[None]",
+    "tests/unit/test_policy_support.py::test_env_credential_missing_refuses_with_fix[]",
+    "tests/unit/test_policy_support.py::test_env_credential_missing_refuses_with_fix[  ]",
+    "tests/unit/test_policy_support.py::test_registry_injected_factory_never_imports_provider",
+    "tests/unit/test_policy_support.py::test_retention_preserves_active_unread_quarantine_salvage_gate",
+    "tests/unit/test_policy_support.py::test_retention_count_and_byte_caps_keep_newest",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/final-py312-01.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 5.75
+}

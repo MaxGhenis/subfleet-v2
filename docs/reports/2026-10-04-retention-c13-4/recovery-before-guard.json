@@ -1,0 +1,15 @@
+{
+  "name": "recovery-before-guard",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/recovery-before-guard.xml"
+  ],
+  "baseline": false,
+  "returncode": 1,
+  "timed_out": false,
+  "seconds": 25.63
+}

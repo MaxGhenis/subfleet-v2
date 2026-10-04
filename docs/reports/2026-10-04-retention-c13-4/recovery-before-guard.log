@@ -1,0 +1,47 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path ________
+
+owned = (<subfleet.store.Store object at 0x26e93da7210>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/p..._wztzgbx7mgc7l1r0416cy7m0000gn/T/pytest-of-maxghenis/pytest-8624/test_c13_4_retention_recovery_0/state/worktrees/job'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x26e95453fd0>
+
+    def test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path(owned, monkeypatch):
+        """A cached archive must pass the same coverage check after a restart."""
+        import json
+        from subfleet import retention_archive as rarch
+        from tests.unit.retention_world import Clock, snapshot
+        _salvage_beside_a_skipped_repository(owned)
+        store, root, repository, worktree = owned
+        before = snapshot(worktree)
+    
+        def interrupt(self):
+            raise rarch.Interrupted("restart before the final check")
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement, "final_check", interrupt)
+            first = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                          salvage_referenced_elsewhere=lambda artifact: True)
+        assert first["pruned"] == [] and first.get("interrupted")
+        retirement = rarch.Retirement(rarch.Context(root, store), "job")
+        assert retirement.state == "archived"
+        manifest = retirement.manifest()
+        entry = next(e for e in manifest["trees"]["worktree"]["entries"] if e["p"] == NESTED + "inside.txt")
+        (retirement.building / "files" / entry.pop("store")).unlink()
+        (retirement.building / "manifest.json").write_text(json.dumps(manifest))
+    
+        def no_rebuild(*args, **kwargs):
+            pytest.fail("recovery of an archived journal does not run the builder")
+    
+        monkeypatch.setattr(rarch.Retirement, "archive", no_rebuild)
+        outcome = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                        salvage_referenced_elsewhere=lambda artifact: True)
+>       assert outcome["pruned"] == [] and outcome["protected"] == ["job"]
+E       AssertionError: assert (['job'] == []
+E         
+E         Left contains one more item: 'job'
+E         Use -v to get more diff)
+
+tests/unit/test_salvage_unindexable.py:1025: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_salvage_unindexable.py::test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path
+1 failed in 17.97s

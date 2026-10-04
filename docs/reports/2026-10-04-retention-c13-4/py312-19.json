@@ -1,0 +1,21 @@
+{
+  "name": "py312-19",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget",
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too",
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends",
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete",
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/py312-19.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 17.51
+}

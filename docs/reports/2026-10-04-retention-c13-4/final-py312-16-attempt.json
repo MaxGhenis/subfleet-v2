@@ -1,0 +1,13 @@
+{
+  "name": "final-py312-16",
+  "code_head": "9a333411e0e791d75f3ebe633cc95c370a43f96d",
+  "observed_runner_returncode": 1,
+  "pytest_result": null,
+  "timed_out": null,
+  "log_bytes": 0,
+  "junit_and_result_metadata_present": false,
+  "diagnostic": "The orchestration retained the runner exit but discarded its unfiltered output. The precise cause is unknown. A later exact-file lsof check found no process holding the log.",
+  "classification": "infrastructure failure without a retained pytest result",
+  "retry": "final-py312-16-retry",
+  "retry_returncode": 0
+}

@@ -1,0 +1,71 @@
+{
+  "tests/unit/test_retention_regenerable_properties.py": [
+    477
+  ],
+  "tests/unit/test_retention_turns.py": [
+    49,
+    57,
+    69,
+    83,
+    100,
+    112,
+    127
+  ],
+  "tests/unit/test_policy_support.py": [
+    173,
+    186,
+    189
+  ],
+  "tests/unit/test_retention_sweep_race.py": [
+    54
+  ],
+  "tests/unit/test_retention_worktrees.py": [
+    76,
+    94,
+    114,
+    129,
+    143,
+    157,
+    178,
+    184
+  ],
+  "tests/unit/test_retention_regenerable.py": [
+    59
+  ],
+  "tests/unit/test_retention_salvage_properties.py": [
+    64
+  ],
+  "tests/unit/test_retention_81_notes.py": [
+    48
+  ],
+  "tests/unit/test_retention_qos.py": [
+    125
+  ],
+  "tests/unit/test_retention_archive_properties.py": [
+    150
+  ],
+  "tests/unit/test_retention_archive.py": [
+    52,
+    1512
+  ],
+  "tests/unit/test_timers_retention.py": [
+    50,
+    74,
+    95,
+    112,
+    131,
+    157,
+    181,
+    186
+  ],
+  "tests/unit/test_timers_busy_read.py": [
+    488
+  ],
+  "tests/unit/test_salvage_unindexable.py": [
+    973,
+    988
+  ],
+  "tests/fake/test_resume_contract.py": [
+    147
+  ]
+}

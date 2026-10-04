@@ -1,0 +1,22 @@
+{
+  "name": "py312-12",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+    "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+    "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back",
+    "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/py312-12.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 14.7
+}

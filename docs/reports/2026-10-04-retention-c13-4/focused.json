@@ -1,0 +1,17 @@
+{
+  "name": "focused",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out",
+    "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_restores_the_paths_salvage_left_out",
+    "tests/unit/test_retention_salvage_properties.py",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/focused.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 233.06
+}

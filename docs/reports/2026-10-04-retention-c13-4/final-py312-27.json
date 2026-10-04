@@ -1,0 +1,16 @@
+{
+  "name": "final-py312-27",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage_unindexable.py::test_utf8_text_is_always_valid_utf8_and_leaves_valid_text_alone",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/final-py312-27.xml"
+  ],
+  "baseline": false,
+  "sweep_examples": "40",
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 19.59
+}

@@ -1,0 +1,22 @@
+{
+  "name": "final-py312-22",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged[marks0-True]",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged[marks1-False]",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged[marks1-True]",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged[marks2-False]",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_records_paths_the_real_index_marks_unchanged[marks2-True]",
+    "tests/unit/test_salvage.py::test_c6_8_snapshot_keeps_the_real_index_mtime_for_racy_entries",
+    "tests/unit/test_salvage.py::test_a_checkout_whose_name_ends_in_a_space_is_found",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/final-py312-22.xml"
+  ],
+  "baseline": false,
+  "sweep_examples": "40",
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 14.51
+}

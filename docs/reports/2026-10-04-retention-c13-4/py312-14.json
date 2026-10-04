@@ -1,0 +1,16 @@
+{
+  "name": "py312-14",
+  "argv": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/.venv312/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit/test_retention_regenerable.py::test_a_directory_whose_case_changed_on_disk_keeps_its_tracked_edits",
+    "tests/unit/test_retention_regenerable.py::test_the_sampled_estimate_nets_what_the_archive_adds",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-091312-pr76-c13-4-fix/docs/reports/2026-10-04-retention-c13-4/py312-14.xml"
+  ],
+  "baseline": false,
+  "returncode": 0,
+  "timed_out": false,
+  "seconds": 17.29
+}
