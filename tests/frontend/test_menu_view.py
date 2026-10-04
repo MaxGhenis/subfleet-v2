@@ -95,3 +95,15 @@ def test_manual_reload_acknowledges_read_and_loads_replacement(menu_probe, tmp_p
     assert result["failed_read_error"]
     assert result["failed_snapshot_cleared"] is True
     assert result["visible_windows"] == 0
+
+
+def test_c18_4_menu_lays_out_alerts_and_marks_the_problem(menu_probe, tmp_path):
+    """C-18.4 the real menu view hosts the alerts section, keeps its width, and the
+    menu bar icon shows a problem while one is in force."""
+    from tests.frontend.test_status_model import ALERTS
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps(build_status({"lanes": [lane("codex", lane_id=f"codex-{i}") for i in range(3)],
+                                             "alerts": ALERTS}, now=NOW)))
+    result = invoke(menu_probe, path)
+    assert result["alert_count"] == 3 and result["has_problem"] is True
+    assert result["minimum_width"] == 430 and result["visible_windows"] == 0

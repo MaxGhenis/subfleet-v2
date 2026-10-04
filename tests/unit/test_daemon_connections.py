@@ -261,7 +261,7 @@ def test_c16_7_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
     departed_read = connect(service)
     send(departed_read, "daemon.status")
     departed_write = connect(service)
-    send(departed_write, "ping", text="left before the reply")
+    send(departed_write, "ping", text="left before the reply", session_id="s-departed")
     live = connect(service)
     send(live, "list")
     until(lambda: service.requests._work_queue.qsize() == 3)
@@ -275,8 +275,8 @@ def test_c16_7_a_departed_clients_read_is_not_run_but_its_write_still_is(serve):
     # is dropped by its reader or by the pool, neither ordered before that answer.
     until(lambda: sorted(ran[1:]) == ["list", "ping"] and counts(service)["abandoned"] == 1)
     assert ran[0] == "readings" and "daemon.status" not in ran
-    notes = until(lambda: service.store.query("SELECT text FROM service_notices"))
-    assert [row["text"] for row in notes] == ["left before the reply"]
+    notes = until(lambda: service.store.query("SELECT session_id, text FROM service_notices"))
+    assert [(row["session_id"], row["text"]) for row in notes] == [("s-departed", "left before the reply")]
     blocker.close()
     live.close()
 

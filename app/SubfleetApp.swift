@@ -152,11 +152,24 @@ struct JobsSection: Decodable {
     var recent: [JobRow]?
 }
 
+// C-18.4: an alert in force, as `status.json` lists it, most severe first.
+struct AlertRow: Decodable, Identifiable {
+    var key: String
+    var severity: String?
+    var subject: String?
+    var body: String?
+    var since: String?
+    var last_sent: String?
+    var id: String { key }
+}
+
 struct Snapshot: Decodable {
     var generated_at: String
     var offline: Bool?
     // Optional: a snapshot written by a daemon that predates C-18.2 has no jobs.
     var jobs: JobsSection?
+    // Optional: one that predates C-18.4 has no alerts.
+    var alerts: [AlertRow]?
     var codex: CodexSection
     var claude: ClaudeSection
 
@@ -210,6 +223,27 @@ struct JobDisplay {
     var detail: String
     var status: String
     var tone: LaneTone
+}
+
+struct AlertDisplay {
+    var title: String
+    var detail: String
+    var since: String?
+    var tone: LaneTone
+}
+
+/// C-18.4: an alert's subject, then its body, which names what to run (C-23.52).
+/// Critical is an error, info is neutral, and anything else is a warning.
+func alertDisplay(_ alert: AlertRow) -> AlertDisplay {
+    let subject = alert.subject ?? ""
+    let tone: LaneTone = alert.severity == "critical" ? .error : alert.severity == "info" ? .neutral : .warning
+    return AlertDisplay(title: subject.isEmpty ? alert.key : subject, detail: alert.body ?? "",
+                        since: alert.since, tone: tone)
+}
+
+/// C-18.4: an alert other than `info` is a problem the menu bar icon shows.
+func alertsNeedAttention(_ snapshot: Snapshot) -> Bool {
+    (snapshot.alerts ?? []).contains { alertDisplay($0).tone != .neutral }
 }
 
 /// C-18.2: a waiting job says why; a failed one says its exit code.
@@ -398,6 +432,7 @@ final class QuotaStore: ObservableObject {
     var hasProblem: Bool {
         guard let snap else { return true }
         if snap.offline == true || snap.isStale(now: loadedAt) || snap.codex.fleet.dispatchable_now == 0 { return true }
+        if alertsNeedAttention(snap) { return true }
         let rows = snap.codex.homes.map { codexDisplay($0, snapshot: snap, now: loadedAt) }
             + (snap.claude.accounts ?? []).map { claudeDisplay($0, snapshot: snap, now: loadedAt) }
         return rows.contains { $0.tone == .error || $0.tone == .warning }
@@ -498,6 +533,33 @@ struct JobRowView: View {
     }
 }
 
+struct AlertsView: View {
+    let alerts: [AlertRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ALERTS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(alerts) { alert in
+                let display = alertDisplay(alert)
+                HStack(alignment: .top, spacing: 6) {
+                    Circle().fill(toneColor(display.tone)).frame(width: 7, height: 7).padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(display.title).font(.callout).foregroundStyle(toneColor(display.tone))
+                        // Selectable, so the command it names can be copied.
+                        if !display.detail.isEmpty {
+                            Text(display.detail).font(.caption2).foregroundStyle(.secondary)
+                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let since = display.since {
+                            Text("since \(clock(since))").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct JobsView: View {
     let jobs: JobsSection?
 
@@ -576,6 +638,10 @@ struct ContentView: View {
             if snap.isStale(now: store.loadedAt) {
                 Label("Snapshot is stale. Check that the daemon is running.", systemImage: "clock.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.orange)
+            }
+            if let alerts = snap.alerts, !alerts.isEmpty {
+                Divider()
+                AlertsView(alerts: alerts).accessibilityIdentifier("alerts-section")
             }
             Divider()
             JobsView(jobs: snap.jobs).accessibilityIdentifier("jobs-section")

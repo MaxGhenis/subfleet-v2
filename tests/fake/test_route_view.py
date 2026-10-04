@@ -8,7 +8,7 @@ and parent cap, and any lane pin.
 
 import dataclasses
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -46,23 +46,47 @@ def store_daemon(routing_state, tmp_path, monkeypatch):  # noqa: F811
         home.mkdir()
         service.store.put_lane(Lane(identity, provider, f"{provider}:{identity}@example.com",
                                     Credential(provider, str(home), "home"), str(home), LaneOwner.V2, False))
-    for identity in LANES:
-        service.store.add_reading(Reading(identity, "account", "seven_day", .3, after(86400),
+    for identity, used in zip(LANES, (.3, .95, .6, .1)):          # codex-2 is below the headroom floor
+        service.store.add_reading(Reading(identity, "account", "seven_day", used, after(86400),
                                           ReadingLabel.PROVIDER, "fixture", utcnow()))
+    # Stopped after the readings, so their ages are small and not negative and
+    # every lane is measured (review of 66d50c17: stopped at import, every reading
+    # was in the future and no lane was).
+    monkeypatch.setattr(_Instant, "at", datetime.now(timezone.utc) + timedelta(seconds=1))
     return service
 
 
+#: Parent values a hand edit, an import or an older writer could leave: empty, blank,
+#: and a job the store does not hold. `ROUTE_JOBS` keeps a parent `> ''`; the
+#: scheduler follows a parent that is truthy.
+ODD_PARENTS = ("", " ", "job-99")
+
+
+def _parent(parent):
+    if parent is None or isinstance(parent, str):
+        return parent
+    return f"job-{parent}"
+
+
 def lay(service, jobs, attempts):
-    """Replace every job and attempt with these."""
+    """Replace every job and attempt with these. Foreign keys are off while the
+    store is laid, so a parent may name no job, as an odd value can."""
+    service.store.connection.execute("PRAGMA foreign_keys=OFF")
+    try:
+        _lay(service, jobs, attempts)
+    finally:
+        service.store.connection.execute("PRAGMA foreign_keys=ON")
+
+
+def _lay(service, jobs, attempts):
     with service.store.transaction("fixture.store") as tx:
-        tx.execute("PRAGMA defer_foreign_keys=ON")
         for table in ("decisions", "notices", "artifacts", "attempts", "jobs"):
             tx.execute(f"DELETE FROM {table}")
         for index, (parent, state) in enumerate(jobs):
             tx.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,"
                        "parent_job_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                        (f"job-{index}", f"r-{index}", "d", "dispatch", state, "/w", "/w/p.md", "read-only",
-                        None if parent is None else f"job-{parent}", f"2026-10-02T00:00:{index:02d}Z"))
+                        _parent(parent), f"2026-10-02T00:00:{index:02d}Z"))
         for index, (job, lane, state, evidence) in enumerate(attempts):
             tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
                        "evidence_json) VALUES(?,?,?,?,?,?,?,?)",
@@ -74,7 +98,7 @@ def lay(service, jobs, attempts):
 def stores(draw):
     count = draw(st.integers(min_value=1, max_value=12))
     # A parent is any job, earlier or later, so chains and cycles both appear.
-    jobs = [(draw(st.one_of(st.none(), st.integers(min_value=0, max_value=count - 1))),
+    jobs = [(draw(st.one_of(st.none(), st.integers(min_value=0, max_value=count - 1), st.sampled_from(ODD_PARENTS))),
              draw(st.sampled_from(["queued", "waiting", "running", "succeeded", "failed"]))) for _ in range(count)]
     attempts = draw(st.lists(st.tuples(st.integers(min_value=0, max_value=count - 1), st.sampled_from(LANES),
                                        st.sampled_from(STATES), st.sampled_from([0, 9000])), max_size=14))
@@ -84,7 +108,8 @@ def stores(draw):
 candidates = st.fixed_dictionaries(
     {"task": st.sampled_from(["research", "build", "sweep"]), "tier": st.sampled_from(["easy", "standard", "hard"]),
      "sandbox": st.just("read-only")},
-    optional={"pinned_lane": st.sampled_from(LANES), "parent": st.integers(min_value=0, max_value=11),
+    optional={"pinned_lane": st.sampled_from(LANES),
+              "parent": st.one_of(st.integers(min_value=0, max_value=11), st.sampled_from(ODD_PARENTS)),
               "existing": st.integers(min_value=0, max_value=11)})
 
 
@@ -106,13 +131,14 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     if "existing" in job and job["existing"] < len(jobs):
         job["job_id"] = f"job-{job['existing']}"
         parent = jobs[job["existing"]][0]
-        job["parent_job_id"] = None if parent is None else f"job-{parent}"
-    elif "parent" in job and job["parent"] < len(jobs):
-        job["parent_job_id"] = f"job-{job['parent']}"
+        job["parent_job_id"] = _parent(parent)
+    elif "parent" in job and (isinstance(job["parent"], str) or job["parent"] < len(jobs)):
+        job["parent_job_id"] = _parent(job["parent"])
     job.pop("existing", None), job.pop("parent", None)
     full = service._capacity_view(None)
     route = service._capacity_view(None, route=True)
     assert route["now"] == full["now"]
+    assert sum(1 for lane in full["lanes"] if lane["measured"]) == len(LANES), "the measured branches run"
     try:
         expected = scheduler.evaluate(policy, full, job)
     except (ValueError, scheduler.RouteError) as refusal:
@@ -122,8 +148,24 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     assert dataclasses.asdict(scheduler.evaluate(policy, route, job)) == dataclasses.asdict(expected)
     # What the route view leaves out it leaves out because it cannot matter.
     assert all(row["state"] in scheduler.ACTIVE_ATTEMPTS for row in route["attempts"])
-    assert all(row["parent_job_id"] for row in route["jobs"])
+    assert all(row["parent_job_id"] > "" for row in route["jobs"])
     assert route["in_flight"] == full["in_flight"]
+
+
+@pytest.mark.parametrize("odd", ODD_PARENTS)
+def test_a_parent_cap_counts_the_same_under_any_parent_value(store_daemon, odd):
+    """C-6.4, C-11 (review of 66d50c17): a sibling whose parent is empty, blank or a
+    missing job counts against the cap exactly as the scheduler follows that value,
+    in both views. The property test reaches this only by chance."""
+    service = store_daemon
+    lay(service, [(odd, "running"), (odd, "running")], [(0, "codex-1", "running", 0)])
+    policy = {**service.policy, "caps": {**service.policy["caps"], "max_active_attempts_per_parent": 1}}
+    job = {"task": "research", "tier": "hard", "sandbox": "read-only", "job_id": "job-1", "parent_job_id": odd}
+    full, route = service._capacity_view(None), service._capacity_view(None, route=True)
+    held = scheduler.evaluate(policy, full, job)
+    assert dataclasses.asdict(scheduler.evaluate(policy, route, job)) == dataclasses.asdict(held)
+    blocked = any(str(block).startswith("parent:") for row in held.evaluations for block in row["capacity_blocks"])
+    assert blocked == bool(odd), "a truthy parent is followed and its cap applies; an empty one is no parent"
 
 
 def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daemon):
@@ -133,9 +175,10 @@ def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daem
     assert "attempts_live" in plan
 
 
-def test_why_and_admission_use_the_route_view_and_status_the_full_one(store_daemon, monkeypatch):
-    """C-6.11, C-6.3: `_pick` (admission, `why`, `run --dry-run`) reads the route rows; `daemon.status`
-    still carries every job and attempt (C-6.11's `subfleet status` counts live ones from it)."""
+def test_pick_reads_the_route_rows_and_status_every_row(store_daemon, monkeypatch):
+    """C-6.11, C-6.3: `_pick` (which admission reaches through `_route`, and `why` and
+    `run --dry-run` call) reads the route rows; `daemon.status` still carries every job
+    and attempt (C-6.11's `subfleet status` counts live ones from it)."""
     service = store_daemon
     lay(service, [(None, "succeeded"), (0, "running")], [(0, "codex-1", "succeeded", 9000), (1, "codex-1", "running", 9000)])
     seen = []
