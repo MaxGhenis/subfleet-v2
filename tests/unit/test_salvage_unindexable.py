@@ -938,10 +938,7 @@ def test_an_object_git_cannot_write_always_fails_the_snapshot(files, beside):
 # --- retention keeps what the snapshot left out ---------------------------------------
 
 
-def test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out(owned):  # noqa: F811
-    """The salvage ref holds everything else; the left-out path exists only in the
-    worktree, so retention must not remove it (it recomputes the tree with a plain
-    `add -A`, which refuses the path, and a refusal protects the job)."""
+def _salvage_beside_a_skipped_repository(owned):
     import hashlib
     from subfleet.contracts import Credential, Lane, LaneOwner
     store, root, repository, worktree = owned
@@ -954,6 +951,79 @@ def test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out(owned):
     result = salvage(worktree, git(worktree, "rev-parse", "HEAD"), 1, timestamp="2026-09-27T19:19:12Z")
     assert result.skipped == (NESTED,)
     store.add_artifact("job/a1", "salvage", result.ref, hashlib.sha256(result.commit.encode()).hexdigest(), 0)
+
+
+def test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out(owned, monkeypatch):  # noqa: F811
+    """A vouched-for salvage cannot authorize deleting bytes the archive missed.
+
+    Archive retention normally copies the nested repository. Exercise the
+    missing-copy case explicitly; release/217's plain add refused it outright.
+    """
+    from subfleet import retention_archive as rarch
+    _salvage_beside_a_skipped_repository(owned)
+    store, root, repository, worktree = owned
+    original = rarch._Builder._file
+
+    def leave_out(self, entry, *args, **kwargs):
+        original(self, entry, *args, **kwargs)
+        if entry["p"] == NESTED + "inside.txt":
+            entry.pop("store")
+
+    monkeypatch.setattr(rarch._Builder, "_file", leave_out)
     outcome = retention.maintenance(store, root, max_jobs=0, salvage_referenced_elsewhere=lambda artifact: True)
     assert outcome["pruned"] == [] and outcome["protected"] == ["job"]
+    assert outcome["deferred"]["job"] == "unarchived path: worktree/" + NESTED + "inside.txt"
+    assert store.get_job("job") is not None and store.list_leases() == []
+    assert str(worktree) in git(repository, "worktree", "list", "--porcelain")
     assert (worktree / NESTED / "inside.txt").read_text() == "never committed\n"
+
+
+def test_c13_4_retention_restores_the_paths_salvage_left_out(owned, tmp_path):
+    """The archive, rather than the salvage ref, holds all nested repository bytes."""
+    from subfleet import retention_archive as rarch
+    from tests.unit.retention_world import snapshot
+    _salvage_beside_a_skipped_repository(owned)
+    store, root, _, worktree = owned
+    before = snapshot(worktree / NESTED)
+    outcome = retention.maintenance(store, root, max_jobs=0, salvage_referenced_elsewhere=lambda artifact: True)
+    assert outcome["pruned"] == ["job"] and outcome["protected"] == []
+    assert rarch.check_archive(root, "job")["ok"]
+    rarch.restore(root, "job", to=tmp_path / "restored")
+    assert snapshot(tmp_path / "restored" / "worktree" / NESTED) == before
+
+
+def test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path(owned, monkeypatch):
+    """A cached archive must pass the same coverage check after a restart."""
+    import json
+    from subfleet import retention_archive as rarch
+    from tests.unit.retention_world import Clock, snapshot
+    _salvage_beside_a_skipped_repository(owned)
+    store, root, repository, worktree = owned
+    before = snapshot(worktree)
+
+    def interrupt(self):
+        raise rarch.Interrupted("restart before the final check")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rarch.Retirement, "final_check", interrupt)
+        first = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                      salvage_referenced_elsewhere=lambda artifact: True)
+    assert first["pruned"] == [] and first.get("interrupted")
+    retirement = rarch.Retirement(rarch.Context(root, store), "job")
+    assert retirement.state == "archived"
+    manifest = retirement.manifest()
+    entry = next(e for e in manifest["trees"]["worktree"]["entries"] if e["p"] == NESTED + "inside.txt")
+    (retirement.building / "files" / entry.pop("store")).unlink()
+    (retirement.building / "manifest.json").write_text(json.dumps(manifest))
+
+    def no_rebuild(*args, **kwargs):
+        pytest.fail("recovery of an archived journal does not run the builder")
+
+    monkeypatch.setattr(rarch.Retirement, "archive", no_rebuild)
+    outcome = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
+                                    salvage_referenced_elsewhere=lambda artifact: True)
+    assert outcome["pruned"] == [] and outcome["protected"] == ["job"]
+    assert outcome["deferred"]["job"] == "unarchived path: worktree/" + NESTED + "inside.txt"
+    assert snapshot(worktree) == before and store.get_job("job") is not None
+    assert store.list_leases() == []
+    assert str(worktree) in git(repository, "worktree", "list", "--porcelain")

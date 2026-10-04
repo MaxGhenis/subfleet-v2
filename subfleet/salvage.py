@@ -586,8 +586,8 @@ def salvage(workdir: str | Path, baseline_commit: str, seq: int, *, writable: bo
         left_out.extend(skipped)
     if tree == baseline_tree:
         # Nothing to commit. A nested repository left out still makes the
-        # worktree dirty, so retention keeps it (C-13.4): it removes a dirty
-        # worktree only when a salvage ref holds exactly its current tree.
+        # worktree dirty. Retention must preserve its bytes itself before
+        # removing the worktree; no salvage ref covers this path (C-13.4).
         return None
     ref, commit = _hold(workdir, ref, tree, baseline, f"subfleet salvage attempt a{seq}", timeout_s=timeout_s)
     return SalvageResult(ref, commit, tree, baseline, skipped)

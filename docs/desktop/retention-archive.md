@@ -1,5 +1,13 @@
 # Job retention by archive
 
+Revision 7, 2026-10-04: explicitly reject a regular file with no archived
+bytes and no verified omission or regenerable proof, at readback and again
+before committing, including an archive resumed after a restart. An accepted salvage
+ref never proves preservation of paths its snapshot skipped. The regression
+merged from release/217 assumed plain `add -A` retention; this implementation
+archives nested repositories directly, including all 19 files of that test
+fixture. Tests now cover both verified restoration and a missing byte copy.
+
 Revision 6, 2026-10-03: finish note 2's sweep protection. Presence alone did
 not detect a tree moved away during its registration lookup and back before
 quarantine. Record its identity, check that identity after quarantine and
@@ -396,7 +404,7 @@ idle journal's deferral is recalled once per daemon.
 | Staged content | The index file is archived; every blob it stages is in the anchor's `index/` tree, in the bundle |
 | Detached, reflog-only, `ORIG_HEAD`, `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase state | Every commit, tree and blob id the admin directory names is a parent or entry of the anchor, in the bundle; the directory itself is archived |
 | Salvage commits | Parents of the anchor, so in the bundle or on a network remote; the manifest records each ref and commit; the refs themselves are never touched |
-| Nested repositories (`.git` directories, bare repositories) | Archived byte for byte, object stores included, wherever they are, inside a would-be virtualenv too |
+| Nested repositories (`.git` directories, bare repositories), including salvage `skipped` paths | Archived byte for byte, object stores included, wherever they are, inside a would-be virtualenv too; if any non-exempt file has no stored bytes to verify, the job is protected with `unarchived path` and that path |
 | A submodule (gitdir inside the admin directory) | Archived with the admin directory |
 | A linked worktree nested in the tree (its admin directory elsewhere) | The job is kept |
 | Another job's worktree registered in a repository inside this tree | This job is pinned until that one retires with its own anchor (section 10) |
@@ -715,7 +723,12 @@ estimates from N sampled jobs what retiring frees versus archives.
 
 Each is tested (section 16).
 
-- **I1, nothing lost.** Restoring gives back every entry that existed at
+- **I1, nothing lost.** A salvage ref or a caller vouching for it never covers
+  bytes the snapshot skipped. A non-exempt regular file without stored bytes
+  cannot pass archive verification: the worktree, registration and rows are
+  kept, reported as `protected` with `unarchived path` in `deferred`. A nested
+  repository whose bytes do read back may retire and restore.
+  Restoring gives back every entry that existed at
   archive time in the worktree, the job directory and the admin directory,
   except inside a regenerable directory (I11): path, type, permission bits,
   bytes, link target, hard-link grouping, mtime.
@@ -920,6 +933,18 @@ they continue to exercise the quarantine and final presence checks
 independently of the earlier persistent-id deferral.
 The final fallback tests also cover an existing lane with a dangling `.git`
 file, both with and without salvage, and a replaced salvage ref in that source.
+
+Revision 7 tests: `test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out`
+models an omitted archive copy; `test_c13_4_retention_restores_the_paths_salvage_left_out`
+checks the normal byte archive, including the nested git directory.
+`test_c13_4_retention_recovery_keeps_an_unarchived_skipped_path` resumes an
+archived journal without running the builder and refuses an uncovered file.
+`test_retention_salvage_properties.py` generates skipped or ignored paths,
+missing, corrupt or verified archive copies, and paths absent before retirement.
+A vouched salvage is present in every case. The oracle checks kept trees and
+registrations or imports the verified bundle into an independent repository and
+compares restored entries byte for byte.
+
 
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
