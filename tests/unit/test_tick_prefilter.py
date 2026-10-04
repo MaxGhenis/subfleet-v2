@@ -54,12 +54,12 @@ def core(tmp_path):
 
 
 def arrange(core, *, state="running", receipt=None, cancelled=False, started=None, max_wall_s=21600,
-            inspect_in=3600.0, retry=False, failed=False):
+            inspect_in=3600.0, retry=False, failed=False, kind="run"):
     """Put the one attempt in a given situation; `inspect_in` is seconds until its next inspection (None: never set)."""
     with core.store.transaction("fixture.arrange") as tx:
         tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", (state, ATTEMPT))
-        tx.execute("UPDATE jobs SET cancel_requested_at=?,started_at=?,max_wall_s=? WHERE job_id=?",
-                   (utcnow() if cancelled else None, started or utcnow(), max_wall_s, JOB))
+        tx.execute("UPDATE jobs SET cancel_requested_at=?,started_at=?,max_wall_s=?,kind=? WHERE job_id=?",
+                   (utcnow() if cancelled else None, started or utcnow(), max_wall_s, kind, JOB))
     path = attempt_dir(core.root, JOB, 1) / "exit.json"
     path.unlink(missing_ok=True)
     if receipt is not None:
@@ -88,6 +88,8 @@ def forbid_action(core, monkeypatch):
     for name in ("_inspect_running", "_begin_finalizing", "_kill_attempt", "_launch", "_unlaunched",
                  "_finalize", "_contain", "_quarantine"):
         monkeypatch.setattr(core, name, lambda *args, _name=name, **kwargs: reached.append(_name))
+    # D-13, IR-4: on this line a turn's cancel or wall limit stops its provider first.
+    monkeypatch.setattr(core.conversations, "stop", lambda *args, **kwargs: reached.append("conversations.stop") or True)
     return reached
 
 
@@ -110,22 +112,22 @@ def test_a_pass_the_filter_withholds_would_have_done_nothing(core, monkeypatch):
     reached = forbid_action(core, monkeypatch)
     withheld = 0
     walls = [(None, 21600), (LONG_AGO, 1), (LONG_AGO, 10 ** 9)]
-    for state, receipt, cancelled, (started, max_wall_s), inspect_in, retry, failed in itertools.product(
+    for state, receipt, cancelled, (started, max_wall_s), inspect_in, retry, failed, kind in itertools.product(
             ["reserved", "starting", "running", "finalizing"], RECEIPTS, [False, True], walls,
-            [None, -5.0, 0.0, 3600.0], [False, True], [False, True]):
+            [None, -5.0, 0.0, 3600.0], [False, True], [False, True], ["run", "turn"]):
         arrange(core, state=state, receipt=receipt, cancelled=cancelled, started=started, max_wall_s=max_wall_s,
-                inspect_in=inspect_in, retry=retry, failed=failed)
+                inspect_in=inspect_in, retry=retry, failed=failed, kind=kind)
         if core._has_work(tick_row(core)):
             continue                              # offered, as before this clause: nothing to prove
         withheld += 1
-        situation = (state, receipt, cancelled, started, max_wall_s, inspect_in, retry, failed)
+        situation = (state, receipt, cancelled, started, max_wall_s, inspect_in, retry, failed, kind)
         before = snapshot(core)
         assert core._process_attempt(ATTEMPT) is None, situation
         assert reached == [], situation
         assert before == snapshot(core), situation
     # Withheld is rare by construction, and not empty: a running attempt inside
     # its wall limit, not due, nothing pending, with nothing at exit.json.
-    assert withheld == 2
+    assert withheld == 4                          # two situations, each for a run and a turn
 
 
 class FrozenTime:
@@ -191,6 +193,8 @@ def test_a_quiet_running_attempt_is_not_offered(core):
     {"inspect_in": -1.0}, {"inspect_in": 0.0}, {"inspect_in": None},   # an inspection due, or never yet scheduled
     {"retry": True}, {"failed": True},                                 # C-5.10: a pass that raised
     {"state": "reserved"}, {"state": "starting"}, {"state": "finalizing"},
+    {"kind": "turn", "started": LONG_AGO, "max_wall_s": 1},          # D-13: a turn's wall limit, no cancel yet
+    {"kind": "turn", "cancelled": True},
 ])
 def test_each_thing_a_pass_acts_on_is_offered(core, change):
     """C-5.11, C-5.10, C-5.12: any one of these alone makes the attempt the pool's this tick."""
@@ -260,16 +264,26 @@ def test_an_attempt_whose_job_row_is_missing_is_offered(core):
     assert core.store.get_job(JOB) is not None
 
 
-def drive(core, monkeypatch, ticks, each=None):
-    """Run the control loop for `ticks` iterations; the attempts it gave the pool, per tick."""
+def drive(core, monkeypatch, ticks, each=None, keys=None):
+    """Run the control loop for `ticks` iterations; the attempts it gave the pool, per tick.
+
+    Given a `keys` list, recovery is complete, so each tick also schedules this
+    line's `conversations`, `admission` and `admission:turns`; their keys are
+    recorded there, per tick, and their work is not run."""
     offered = [[]]
     monkeypatch.setattr(core, "_recover_then_start_timers", lambda: None)
     monkeypatch.setattr(core, "_retention", lambda: None)
+    if keys is not None:
+        core._recovery_complete.set()
+        monkeypatch.setattr(core.timers, "tick", lambda: None)
+        keys.append([])
     real = core._schedule
 
     def schedule(key, fn, *args, paced=False):
         if fn == core._process_attempt:
             offered[-1].append(key)
+        elif keys is not None and key in ("conversations", "admission", "admission:turns"):
+            keys[-1].append(key)
         elif key not in ("timer-recovery", "retention"):
             real(key, fn, *args, paced=paced)
     monkeypatch.setattr(core, "_schedule", schedule)
@@ -283,6 +297,8 @@ def drive(core, monkeypatch, ticks, each=None):
             core.stopping.set()
         else:
             offered.append([])
+            if keys is not None:
+                keys.append([])
     monkeypatch.setattr(core.stopping, "wait", wait)
     core.stopping.clear()
     core._control()
@@ -336,8 +352,10 @@ def test_an_error_in_the_work_filter_offers_the_attempt_and_ends_no_tick(core, m
     exports = []
     real_exports = core._pending_exports
     monkeypatch.setattr(core, "_pending_exports", lambda: exports.append(1) or real_exports())
-    assert drive(core, monkeypatch, 3) == [[ATTEMPT], [ATTEMPT], [ATTEMPT]]
+    keys = []
+    assert drive(core, monkeypatch, 3, keys=keys) == [[ATTEMPT], [ATTEMPT], [ATTEMPT]]
     assert exports == [1, 1, 1], "the rest of every tick still ran"
+    assert keys == [["conversations", "admission", "admission:turns"]] * 3, "conversations and both admission passes too"
 
 
 def test_an_error_reading_ownership_gives_no_pass_and_ends_no_tick(core, monkeypatch):
@@ -352,8 +370,10 @@ def test_an_error_reading_ownership_gives_no_pass_and_ends_no_tick(core, monkeyp
     real_exports = core._pending_exports
     monkeypatch.setattr(core, "_pending_exports", lambda: exports.append(1) or real_exports())
     monkeypatch.setattr(core.log, "error", lambda text, *args: errors.append(text % args))
-    assert drive(core, monkeypatch, 5) == [[], [], [], [], []]
+    keys = []
+    assert drive(core, monkeypatch, 5, keys=keys) == [[], [], [], [], []]
     assert exports == [1, 1, 1, 1, 1], "the rest of every tick still ran"
+    assert keys == [["conversations", "admission", "admission:turns"]] * 5, "conversations and both admission passes too"
     assert len(errors) == 3 and all("OperationalError" in line and "principle 3" in line for line in errors)
     monkeypatch.undo()
     drive(core, monkeypatch, 1)
