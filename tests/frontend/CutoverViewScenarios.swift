@@ -58,6 +58,7 @@ final class CutoverClient: DaemonCalling, @unchecked Sendable {
             state.apply(models: try models.decode(ModelsListResult.self), provider: provider)
         }
     }
+    if let capabilities = input["availability"] { state.availability = .ready(try capabilities.decode(Capabilities.self)) }
     let client = CutoverClient(input)
     let model = UIModel(paths: .rooted(at: root), client: client, defaults: defaults, state: state)
     var snapshots: [[String: Any]] = [try cutoverSnapshot(model)]

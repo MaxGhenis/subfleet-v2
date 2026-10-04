@@ -125,7 +125,7 @@ def test_c18_1_frontend_accepts_empty_fleet(probe, tmp_path):
     result = display(probe, tmp_path, [])
     assert result == {"stale": False, "codex": [], "claude": [],
                       "has_jobs_section": True, "job_groups": [], "recent_jobs": [],
-                      "dispatchable": {"claude": 0, "codex": 0}, "auto_provider": "codex",
+                      "dispatchable": {"claude": 0, "codex": 0}, "auto_provider": "claude",
                       "has_alerts_section": True, "alerts": [], "alerts_need_attention": False}
 
 
