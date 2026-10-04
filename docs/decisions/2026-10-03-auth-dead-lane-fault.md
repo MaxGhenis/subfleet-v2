@@ -268,3 +268,20 @@ lapsed pilot wakes admission; and the revive transcript note. Left as they
 are: a cancelled job's second `auth-dead` also leaves its lane enabled, and the
 notice line says "two lanes" even when the second is the first lane's
 re-enrolled successor.
+
+Round 3 (Subfleet run `20261003-164305-pr121-review-r3`, on `75b5c8ab`)
+approved, with follow-ups. Taken:
+
+- A probe that answers `auth-dead` sends the job on in the same pass, as after
+  `limited`, since the lane is already disabled (its finding 2).
+- C-6.14 says a pilot is never a job that moved on (nit 5), and that an `ok`
+  probe proves its lane even when its identity does not bind (finding 3).
+- A mutation test for the moved-on-job probe rule (nit 4). Each property now
+  pins the examples its mutations must meet, so they fail every run, not when
+  Hypothesis happens to draw two dead lanes (CI on `036bf377` showed that).
+
+Left as a follow-up: a probe that keeps ending `unknown` (its 60 s deadline,
+under heavy load) makes each moved-on job probe the same lane in turn, one per
+60 s (finding 1). The fix is one probe per lane per `prove_wait_s`. And
+telling "stream empty or missing" from "stream unreadable", so a writable job
+that failed before writing any event can move on (nit 6).

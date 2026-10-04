@@ -26,7 +26,9 @@ from dataclasses import replace
 import json
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+import random
+
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module
 from subfleet.adapters import registry
@@ -500,6 +502,15 @@ def check_fleet(lanes, dead_lanes, enabled, found, probed, prove):
 
 @settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(**FLEETS)
+# The shapes each mutation below must meet, run on every run, not left to the search:
+# the incident (one dead lane, then a live one), two dead lanes with the hold off (a job
+# moves on once, then ends), and two dead lanes with the hold on (the second is probed).
+@example(lanes=2, dead=[True, False, False, False], jobs=[{"pin": None}], writable=None, prove=None,
+         order=random.Random(0))
+@example(lanes=3, dead=[True, True, False, False], jobs=[{"pin": None}], writable=None, prove=None,
+         order=random.Random(0))
+@example(lanes=3, dead=[True, True, False, False], jobs=[{"pin": None}], writable=None, prove=900,
+         order=random.Random(0))
 def test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(
         tmp_path_factory, lanes, dead, jobs, writable, prove, order):
     """For any fleet of 1 to 4 lanes, some of them dead (every attempt there `auth-dead`
@@ -534,6 +545,15 @@ def test_c4_5_the_property_fails_under_the_rule_of_2026_09_30(tmp_path_factory, 
     """Mutation: with no lane fault (C-4.5 as it stood), the property above finds the
     incident: an unpinned read-only job failed by the one dead lane it met."""
     monkeypatch.setattr(Daemon, "_lane_fault", staticmethod(lambda *args: None))
+    with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
+        test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)
+    assertions_only(caught)
+
+
+def test_c4_5_the_property_fails_when_a_moved_on_job_may_pilot_an_unproven_lane(tmp_path_factory, monkeypatch):
+    """Mutation: with a job that moved on allowed to be a lane's pilot (round 2 of the
+    review), the second dead lane fails it with the hold on, which the property forbids."""
+    monkeypatch.setattr(Daemon, "_moved_on_from", lambda self, job_id: 0)
     with pytest.raises((AssertionError, BaseExceptionGroup)) as caught:
         test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets(tmp_path_factory=tmp_path_factory)
     assertions_only(caught)

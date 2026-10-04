@@ -23,7 +23,9 @@ import json
 import os
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+import random
+
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import capacity, scheduler
 from subfleet import daemon as daemon_module
@@ -194,6 +196,28 @@ def test_c6_14_c4_5_two_dead_lanes_fail_no_job_of_a_burst(state_daemon, monkeypa
     assert {daemon.store.get_job(job_id)["state"] for job_id in jobs} == {"waiting"}
 
 
+def test_c4_5_a_probe_that_answers_auth_dead_sends_the_job_on_at_once(state_daemon, monkeypatch):
+    """Round 3 of the review: a moved-on job's probe that answers `auth-dead` has disabled
+    its lane (C-23.44), so the job's next evaluation goes on in the same pass, as after a
+    `limited` probe, rather than after the 60 s an inconclusive probe waits."""
+    daemon, harness = state_daemon
+    hold_on(daemon)
+    job_id = submit_many(daemon, harness, 1)[0]
+    daemon._admit()
+    first, = placed(daemon)
+    finish(daemon, first, LaneRefuses)                       # codex-1 dead; the job moves on
+    register("codex", Streams)
+    add_lane(daemon, harness, "codex-2")
+    add_lane(daemon, harness, "codex-3")
+    probed = probes_answer(daemon, monkeypatch, dead={"codex-2"})
+    due(daemon)
+    daemon._admit()                                           # one pass
+    assert probed == [(job_id, "codex-2"), (job_id, "codex-3")]
+    assert daemon.store.get_lane("codex-2").enabled is False
+    retry, = placed(daemon)
+    assert (retry["job_id"], retry["lane_id"]) == (job_id, "codex-3")
+
+
 def test_c6_14_a_pilot_that_ends_ok_proves_its_lane(state_daemon):
     """An adapter whose stream the daemon cannot read is proven by an attempt that ends
     `ok` (`Daemon._answered`): before the attempt leaves flight, so no second pilot."""
@@ -240,11 +264,11 @@ def test_c6_14_a_pilot_that_never_answers_holds_its_lane_for_prove_wait_s_and_no
     jobs = submit_many(daemon, harness, 4)
     daemon._admit()
     pilot, = placed(daemon)
-    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-299))
+    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-240))
     due(daemon)
     daemon._admit()
     assert len(placed(daemon)) == 1                            # within the wait: still its lane's pilot
-    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-301))
+    daemon.store.update_attempt(pilot["attempt_id"], reserved_at=daemon_module.after(-360))
     daemon.policy["admission"]["prove_wait_s"] = None
     due(daemon)
     daemon._admit()
@@ -534,6 +558,7 @@ OPS = st.lists(st.sampled_from(["submit", "submit3", "admit", "admit", "answer",
 
 @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(lanes=st.integers(1, 3), ops=OPS, pick=st.randoms(use_true_random=False))
+@example(lanes=1, ops=["submit3", "admit"], pick=random.Random(0))     # the burst; its mutation meets it every run
 def test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_factory, lanes, ops, pick):
     """For any order of submissions, passes, answers, ends (on a lane that works or one
     that has gone auth-dead) and lanes going idle past the window:

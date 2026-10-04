@@ -3845,7 +3845,10 @@ class Daemon:
             outcome = self._probe_candidate(job, decision, holder)
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
-            elif outcome.cls != OutcomeClass.LIMITED:
+            elif outcome.cls not in (OutcomeClass.LIMITED, OutcomeClass.AUTH_DEAD):
+                # A `limited` probe closed its lane and an `auth-dead` one disabled it
+                # (C-23.44), so the next evaluation goes elsewhere at once; anything
+                # else waits.
                 # C-6.10: this wait keeps its own 60 s clock and is never brought
                 # forward (a released lease must not re-probe the provider), but a
                 # probe that ends the same way adds no second decision row.
