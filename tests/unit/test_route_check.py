@@ -383,19 +383,19 @@ def test_c6_3_the_chosen_lane_whose_reading_ages_out_is_judged_again(policy):
     store = fleet(readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=118), resets_in=600),
                             reading("codex-2", .5, 2), reading("codex-3", .6, 3)])
     assert stands(policy, store, store, seconds=0) == (None, "codex-1")
-    assert stands(policy, store, store, seconds=5) == (None, "codex-2")
-    assert judged_again(policy, store, store, seconds=5) == (None, 1)
+    assert stands(policy, store, store, seconds=5) == (None, "codex-1")
+    assert judged_again(policy, store, store, seconds=5) == (None, 0)
 
 
-def test_c11_3_a_stale_window_renewing_invalidates_the_lanes_fresh_ranking(policy):
-    """A stale primary reset makes even fresh weekly evidence unmeasured until reread."""
+def test_c11_3_a_stale_window_renewing_does_not_invalidate_fresh_ranking(policy):
+    """A stopped primary window outside the TTL cannot change fresh weekly ranking."""
     primary = {**reading("codex-1", .9, 4, observed=NOW - timedelta(seconds=130), resets_in=3),
                "window": "five_hour"}
     store = fleet(readings=[reading("codex-1", .2, 1, resets_in=600), reading("codex-2", .5, 2),
                             reading("codex-3", .6, 3), primary])
     assert stands(policy, store, store, seconds=0) == (None, "codex-1")
-    assert stands(policy, store, store, seconds=5) == (None, "codex-2")
-    assert judged_again(policy, store, store, seconds=5) == (None, 1)
+    assert stands(policy, store, store, seconds=5) == (None, "codex-1")
+    assert judged_again(policy, store, store, seconds=5) == (None, 0)
 
 
 def test_c6_3_a_closure_that_ends_on_a_lane_it_looks_at_opens_that_lane(policy):

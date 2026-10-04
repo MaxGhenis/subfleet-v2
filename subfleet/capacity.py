@@ -279,7 +279,8 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     only that lane's readings and closures. So before its horizon a lane is
     judged as the view judged it: until one of its readings turns fresh (a
     future `observed_at`) or stops being fresh (`fresh_until`), a latest provider
-    window renews even after its TTL, or one of its closures ends (`until_at`).
+    window renews within its TTL or its renewal uncertainty ages out, or one
+    of its closures ends (`until_at`).
     A window expired at its own observation is already unusable, so its reset
     before that observation adds no clock. Either can close a lane, not only open one (a
     reported closure on a reserved model gives its lane slack behind a probe,
@@ -304,12 +305,19 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
         row = _row(item)
         observed = _time(row["observed_at"])
         note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
-        # C-11.3 marks the whole lane unmeasured when ANY latest applicable
-        # provider window renews, even one already too old for ranking. Its
-        # future reset can therefore change the lane beside a fresh window.
+        # C-11.3's renewal uncertainty lasts only within the reading TTL.
+        # An already renewed row is not fresh_provider, but its TTL expiry
+        # can restore the ranking supplied by another, still-fresh window.
         if (row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None
-                and row.get("resets_at") and (reset := _time(row["resets_at"])) > max(instant, observed)):
-            note(row["lane_id"], reset)
+                and row.get("resets_at")):
+            expiry = observed + timedelta(seconds=reading_ttl_s)
+            reset = _time(row["resets_at"])
+            if observed <= instant <= expiry:
+                note(row["lane_id"], expiry)
+                if max(instant, observed) < reset <= expiry:
+                    note(row["lane_id"], reset)
+            elif observed > instant and reset <= observed:
+                note(row["lane_id"], observed)
         if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
             note(row["lane_id"], observed)
     for item in view.get("closures", ()):

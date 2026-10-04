@@ -564,8 +564,10 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
     weekly window has the least headroom, and supplies BOTH headroom and reset.
     Equal headrooms bind the earliest known reset, then scope, deterministically.
     A missing reset sorts after known resets in the same reserve class. If any
-    latest applicable provider window has already reset, rank the whole lane as
-    unmeasured until another reading arrives; do not assume zero utilization.
+    latest applicable provider window read within the TTL has already reset,
+    rank the lane as unmeasured until a reading arrives or that evidence ages
+    out. A stopped window cannot demote the lane forever. Do not assume zero
+    utilization. This uncertainty changes ranking only, never probes or pick.
     Admission's existing floors, slots and model reserve are judged separately.
     """
     latest: dict[tuple[str, str], Mapping[str, Any]] = {}
@@ -579,8 +581,10 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
     # A window already expired at its own observation was never usable. It is
     # uncertain from the outset, even with clock skew, rather than becoming
     # uncertain at a reset before its future observation (C-6.3).
+    recent = [row for row in latest.values()
+              if 0 <= (now - _time(row["observed_at"])).total_seconds() <= reading_ttl_s]
     renewed = any(row.get("resets_at") and _time(row["resets_at"]) <= max(now, _time(row["observed_at"]))
-                  for row in latest.values())
+                  for row in recent)
     fresh = [] if renewed else [row for row in latest.values()
         if fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
     weekly = min((row for row in fresh if row["window"] == "seven_day"),
@@ -599,7 +603,7 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
     reserve_class = ("weekly+five-hour" if weekly_low and five_hour_low else
                      "weekly" if weekly_low else "five-hour" if five_hour_low else
                      "clear" if fresh else "unmeasured")
-    observed = min((_time(row["observed_at"]) for row in (fresh or latest.values())), default=None)
+    observed = min((_time(row["observed_at"]) for row in (fresh or recent or latest.values())), default=None)
     return {"measured": bool(fresh), "weekly_headroom": weekly_headroom,
             "five_hour_headroom": five_hour_headroom,
             "seven_day_reset": _iso(_time(weekly["resets_at"])) if weekly and weekly.get("resets_at") else None,
@@ -641,8 +645,11 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     measured_readings = [row for row in lane_readings
                          if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
     headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
-    detail = {**ranking_usage(lane_readings, now=now, reading_ttl_s=caps["reading_ttl_s"],
-                             admission=admission_settings(policy)),
+    ranking = ranking_usage(lane_readings, now=now, reading_ttl_s=caps["reading_ttl_s"],
+                            admission=admission_settings(policy))
+    # C-11.3's uncertainty orders candidates only. C-11.4 probes and C-11.5
+    # pick keep the admission freshness predicate they used before this rule.
+    detail = {**ranking, "ranking_measured": ranking["measured"], "measured": bool(measured_readings),
               "headroom": headroom, "in_flight": in_flight}
     detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
     if model["provider"] == "claude":
@@ -889,7 +896,7 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
     spread = setup.get("lane_spread")
     band = detail["in_flight"] // spread if spread else 0
     prefix = (band, not bool(detail.get("stranded_scopes"))) if provider == "claude" else (band,)
-    base = (*prefix, not detail["measured"], detail["weekly_reserve"], detail["five_hour_reserve"],
+    base = (*prefix, not detail.get("ranking_measured", detail["measured"]), detail["weekly_reserve"], detail["five_hour_reserve"],
             detail["seven_day_reset"] or "9999", -(detail["weekly_headroom"] or 0),
             detail["in_flight"], identity)
     desktop = bool(detail.get("desktop"))

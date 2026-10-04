@@ -127,15 +127,11 @@ def clocks(case: dict, instant: datetime) -> tuple:
 
 
 def window_not_renewed(row: dict, instant: datetime) -> bool:
-    """The independent C-11.3 reset clock, including stale observations.
-
-    A reset at/before observation can never grant fresh evidence, even with
-    the observer's clock ahead of ours, and has no future transition.
-    """
-    return bool(row.get("label") in ("provider", "stale-provider")
-                and row.get("utilization") is not None and row.get("resets_at")
-                and capacity._time(row["resets_at"]) > instant
-                and capacity._time(row["resets_at"]) > capacity._time(row["observed_at"]))
+    """The independent C-11.3 uncertainty clock starts at observation and ends at TTL."""
+    return not bool(row.get("label") in ("provider", "stale-provider")
+                    and row.get("utilization") is not None and row.get("resets_at")
+                    and 0 <= (instant - capacity._time(row["observed_at"])).total_seconds() <= TTL
+                    and capacity._time(row["resets_at"]) <= max(instant, capacity._time(row["observed_at"])))
 
 
 def test_the_clock_alone_changes_no_decision_before_its_horizon():
@@ -209,7 +205,7 @@ def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
            "observed_at": iso(T0 + timedelta(seconds=2))}
     view = {"now": iso(T0), "readings": [row], "closures": []}
     assert capacity.decision_horizon(view, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
-    for inert in ({**row, "label": "unknown"}, {**row, "resets_at": iso(T0 + timedelta(seconds=1))}):
+    for inert in ({**row, "label": "unknown"},):
         assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
 
 
@@ -302,7 +298,7 @@ def test_every_rank_key_is_constant_before_its_lanes_horizon():
                 assert {key: later[key] for key in mine} == mine, (seed, lane_id, instant, until)
 
 
-def test_weekly_and_five_hour_resets_bound_fresh_and_stale_ranking():
+def test_weekly_and_five_hour_resets_bound_only_recent_ranking():
     for window in ("seven_day", "five_hour"):
         for age in (0, TTL + 1):
             row = {"lane_id": "codex-1", "scope": "account", "window": window,
@@ -314,8 +310,11 @@ def test_weekly_and_five_hour_resets_bound_fresh_and_stale_ranking():
                     "closures": [], "attempts": [], "jobs": [], "overrides": {},
                     "job": {"pinned_model": "astra", "sandbox": "read-only"}}
             view, _ = view_at(case, T0)
-            until = T0 + timedelta(seconds=2)
+            until = T0 + timedelta(seconds=2 if age == 0 else TTL)
             assert capacity.lane_horizons(view, reading_ttl_s=TTL) == {"codex-1": until}
             assert capacity.decision_horizon(view, reading_ttl_s=TTL) == until
             assert rank_keys(case, until - timedelta(microseconds=1)) == rank_keys(case, T0)
-            assert rank_keys(case, until) != rank_keys(case, T0)
+            if age == 0:
+                assert rank_keys(case, until) != rank_keys(case, T0)
+            else:
+                assert rank_keys(case, T0 + timedelta(seconds=3)) == rank_keys(case, T0)

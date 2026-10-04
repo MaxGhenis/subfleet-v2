@@ -1138,6 +1138,10 @@ def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> 
     from .scheduler import ranking_reading_age
     age = ranking_reading_age(detail, now) if now else detail.get("reading_age_s")
     return (f"reserve={detail.get('reserve_class', 'unknown')} "
+            f"usage={'measured' if detail.get('measured') else 'unmeasured'} "
+            f"ranking={'measured' if detail.get('ranking_measured', detail.get('measured')) else 'unmeasured'} "
+            f"renewal={'pending' if detail.get('reading_renewed') else 'none'} "
+            f"admission-headroom={percent('headroom')} "
             f"weekly-scope={detail.get('weekly_scope') or 'unknown'} "
             f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
             f"weekly-headroom={percent('weekly_headroom')} "

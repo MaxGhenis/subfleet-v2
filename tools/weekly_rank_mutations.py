@@ -54,7 +54,7 @@ MUTATIONS = {
         "load_band_precedes_measured_and_weekly_preferences",
     ),
     "ignore-measured-precedence": (
-        'not detail["measured"]',
+        'not detail.get("ranking_measured", detail["measured"])',
         'False',
         "measured_precedes_unmeasured_in_the_same_band",
     ),
