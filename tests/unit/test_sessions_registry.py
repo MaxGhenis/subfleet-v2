@@ -152,6 +152,19 @@ def test_an_interactive_session_is_never_mistaken_for_a_lane(home):
     assert registry.is_lane_run(SESSION, lane_ids=set()) is False
 
 
+def test_a_desktop_session_one_message_started_is_listed(home):
+    """C-23.31: the desktop app's one `sdk` prompt is not a lane's brief; its
+    `entrypoint` is the app's, so the session is listed. A `claude -p` run with
+    more prompts than v1's rule allowed a lane is still left out."""
+    fx.register(home, SESSION, os.getpid(), started_at=2.0)
+    fx.transcript(home, SESSION, fx.desktop_interrupted())
+    fx.register(home, "lane-three", os.getppid(), started_at=1.0)
+    fx.transcript(home, "lane-three", fx.notified_lane())
+    assert [(item.session_id, item.lane) for item in registry.sessions(lane_ids=set())] \
+        == [(SESSION, False)]
+    assert registry.is_lane_run("lane-three", lane_ids=set()) is True
+
+
 # --- the listing --------------------------------------------------------------
 
 def test_only_live_rows_are_listed_by_default(home):
