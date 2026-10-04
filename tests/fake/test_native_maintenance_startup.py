@@ -68,8 +68,10 @@ class _Clock:
 
 
 #: What a pass does, and how long it takes. `deadline` ran out of time while still
-#: sizing; `pruning-deadline` ran out of time with a prune in hand.
-_OUTCOMES = {'ok': 5.0, 'deadline': 60.0, 'pruning-deadline': 60.0, 'cancelled': 1.0, 'raise': 0.25}
+#: sizing; `sized-deadline` got past sizing and ran out of time before its first
+#: prune; `pruning-deadline` ran out of time after pruning a job.
+_OUTCOMES = {'ok': 5.0, 'deadline': 60.0, 'sized-deadline': 60.0, 'pruning-deadline': 60.0, 'cancelled': 1.0,
+             'raise': 0.25}
 
 
 def _drive(service, monkeypatch, start, gaps, outcomes):
@@ -101,6 +103,8 @@ def _drive(service, monkeypatch, start, gaps, outcomes):
             return {'interrupted': 'cancelled', 'pruned': [], 'jobs_after': 3, 'bytes_before': None}
         if outcome == 'deadline':
             return {'interrupted': 'deadline', 'pruned': [], 'jobs_after': 3, 'bytes_before': None}
+        if outcome == 'sized-deadline':
+            return {'interrupted': 'deadline', 'pruned': [], 'jobs_after': 3, 'bytes_before': 4096}
         if outcome == 'pruning-deadline':
             return {'interrupted': 'deadline', 'pruned': ['job-1'], 'jobs_after': 2, 'bytes_before': 4096}
         return {}
@@ -167,7 +171,7 @@ def test_a_retention_pass_that_runs_out_of_time_sizing_is_due_again_in_an_hour(s
     assert service._last_maintenance == 10920.0
     assert daemon_module.RETENTION_INTERVAL_S == 3600 and daemon_module.RETENTION_PASS_S == 60
     assert 'retention' not in service._worker_retry_at and 'retention' not in service._worker_failures
-    assert len(warnings) == 2 and all('before it had sized' in line and "store's 3 jobs" in line for line in warnings)
+    assert len(warnings) == 2 and all('before it pruned a job' in line and '3 jobs in the store' in line for line in warnings)
 
 
 def test_a_raise_after_a_sizing_deadline_starts_its_backoff_over(state_daemon, monkeypatch):
@@ -213,6 +217,100 @@ def test_old_service_notices_go_whatever_becomes_of_the_pass(state_daemon, monke
     assert left == [('acknowledged', '2999'), ('pending', '2026')]
 
 
+def test_a_pass_that_got_past_sizing_but_pruned_nothing_waits_the_hour(state_daemon, monkeypatch):
+    """C-8.4 (review of 19ecb52f): sizing that ends just inside the deadline leaves
+    nothing pruned; retried, every pass would size for about a minute and prune
+    nothing, the incident again. It waits the hour as a sizing deadline does."""
+    service, _ = state_daemon
+    passes = _drive(service, monkeypatch, 7200.0, [.25, .5, 60, 3540, .25], ['sized-deadline', 'sized-deadline'])
+    assert passes == [(7200.0, 7260.0, 'sized-deadline'), (10860.75, 10920.75, 'sized-deadline')]
+    assert 'retention' not in service._worker_retry_at and 'retention' not in service._worker_failures
+
+
+class _JumpingTime:
+    """`time` inside `subfleet.retention` only: past any deadline once `jumped` is set."""
+
+    def __init__(self):
+        import threading
+        import time
+        self.jumped, self._real = threading.Event(), time
+
+    def monotonic(self):
+        return self._real.monotonic() + (10 ** 6 if self.jumped.is_set() else 0)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _old_jobs(service, *names):
+    for name in names:
+        service.store.add_job(job_id=name, request_id=name, payload_digest="digest", kind="dispatch",
+                              workdir=str(service.root), prompt_path="/prompt", sandbox="read-only", state="succeeded")
+        directory = service.root / "jobs" / name
+        directory.mkdir(parents=True)
+        (directory / "stdout").write_bytes(b"x" * 10)
+
+
+def test_the_real_pass_that_runs_out_of_time_before_its_first_prune_waits_the_hour(state_daemon, monkeypatch):
+    """C-8.4 (review of 19ecb52f): against the real `maintenance`, a deadline that falls
+    after sizing and before the first prune rearms the hour and raises nothing."""
+    from subfleet import retention
+    service, _ = state_daemon
+    _old_jobs(service, "old-a", "old-b")
+    clock, real_pins = _JumpingTime(), retention._pins
+    monkeypatch.setattr(retention, "time", clock)
+    monkeypatch.setattr(retention, "_pins", lambda *a, **k: (clock.jumped.set(), real_pins(*a, **k))[1])
+    real = retention.maintenance
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: real(*a, **{**k, "max_jobs": 0}))
+    service._last_maintenance = 0
+    service._retention()                                       # returns: no TimeoutError
+    assert service._last_maintenance > 0
+    assert service.timers.status()["retention"]["last_error_type"] == "TimeoutError"
+    assert service.store.get_job("old-a") is not None and service.store.get_job("old-b") is not None
+
+
+def test_the_real_pass_that_runs_out_of_time_after_a_prune_is_retried(state_daemon, monkeypatch):
+    """C-8.4, C-5.10: against the real `maintenance`, a deadline that falls after the
+    first prune has committed raises, so the worker clock retries the pass."""
+    from contextlib import contextmanager
+    from subfleet import retention
+    service, _ = state_daemon
+    _old_jobs(service, "old-a", "old-b")
+    clock, real_transaction = _JumpingTime(), service.store.transaction
+    monkeypatch.setattr(retention, "time", clock)
+
+    @contextmanager
+    def transaction(kind="state.changed", **options):
+        with real_transaction(kind, **options) as conn:
+            yield conn
+        if kind == "retention.pruned":
+            clock.jumped.set()
+    monkeypatch.setattr(service.store, "transaction", transaction)
+    real = retention.maintenance
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: real(*a, **{**k, "max_jobs": 0}))
+    service._last_maintenance = 0
+    with pytest.raises(TimeoutError):
+        service._retention()
+    assert service._last_maintenance == 0                      # still due: C-5.10's clock offers it again
+    pruned = [name for name in ("old-a", "old-b") if service.store.get_job(name) is None]
+    assert len(pruned) == 1
+
+
+def test_a_failing_notice_prune_does_not_stop_the_pass(state_daemon, monkeypatch):
+    """C-8.4, C-23.26 (review of 19ecb52f): the notice delete runs first and a failure there is logged."""
+    import sqlite3
+    service, _ = state_daemon
+    warnings, ran = [], []
+    monkeypatch.setattr(service.log, 'warning', lambda text, *args: warnings.append(text % args))
+    def broken():
+        raise sqlite3.OperationalError("no such table: service_notices")
+    monkeypatch.setattr(service, '_prune_service_notices', broken)
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda *a, **k: ran.append(1) or {})
+    service._retention()
+    assert ran == [1] and service._last_maintenance > 0
+    assert any('service notices were not pruned' in line and 'OperationalError' in line for line in warnings)
+
+
 _gaps = st.one_of(st.floats(min_value=.05, max_value=2), st.floats(min_value=10, max_value=120),
                   st.floats(min_value=600, max_value=4000))
 
@@ -224,8 +322,8 @@ _gaps = st.one_of(st.floats(min_value=.05, max_value=2), st.floats(min_value=10,
 def test_retention_runs_exactly_when_its_two_clocks_allow(state_daemon, monkeypatch, gaps, outcomes):
     """C-8.4, C-5.10: for every sequence of outcomes and ticks, a pass starts at the
     first tick an hour after one ended that ran to its end, was cancelled, or ran out
-    of time sizing, or the worker retry delay after one ended that raised or ran out
-    of time pruning, and at no other tick."""
+    of time before it pruned a job, or the worker retry delay after one ended that
+    raised or ran out of time after pruning, and at no other tick."""
     service, _ = state_daemon
     passes = _drive(service, monkeypatch, 7200.0, gaps, outcomes)
 

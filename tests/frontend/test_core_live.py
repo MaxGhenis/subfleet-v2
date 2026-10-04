@@ -85,7 +85,11 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
     checks = out["checks"]
     failures = [c for c in checks if not c["passed"]]
     (tmp_path / "live-checks.json").write_text(json.dumps(checks, indent=1))
-    assert not failures, json.dumps(failures, indent=1)
+    # A required step that failed stopped the run there (`LiveRun.require`), with the app
+    # core's state and the daemon's view of the same turns in the notes.
+    stopped = {key: out["notes"][key] for key in ("stopped_at", "state") if key in out["notes"]}
+    (tmp_path / "live-state.json").write_text(json.dumps(stopped, indent=1))
+    assert not failures, json.dumps({"failures": failures, **stopped}, indent=1)
     names = {c["name"] for c in checks}
     for required in ("the outbox sent create, first and follow-up in order", "approval.get answers the development app",
                      "the card resolves from approval.resolved", "the follow-up ends interrupted (stopped)",

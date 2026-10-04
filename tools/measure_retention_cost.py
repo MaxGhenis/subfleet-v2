@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import resource
 import sys
+import shutil
 import tempfile
 import threading
 import time
@@ -44,47 +45,50 @@ def cpu() -> float:
 
 def measure(window_s: float = 150, jobs: int = 200, files: int = 1000, pass_s: float = 1,
             retention: bool = True) -> dict:
-    with tempfile.TemporaryDirectory(prefix="sfr-", dir="/tmp") as directory:
-        root = Path(directory)
-        Harness(root)
-        register("codex", FakeAdapter)
-        daemon = Daemon(root, desktop_prober=lambda: None)
-        daemon._launch = lambda a: None
-        daemon.timers.intervals.clear()
-        for index in range(jobs):
-            job_id = f"20260901-000000-history-{index}"
-            daemon.store.add_job(job_id=job_id, request_id=f"history-{index}", payload_digest="digest", kind="run",
-                                 state="succeeded", workdir=str(root), prompt_path=str(root / "prompt.md"),
-                                 sandbox="read-only")
-            folder = root / "jobs" / job_id / "a1"
-            folder.mkdir(parents=True, exist_ok=True)
-            for name in range(files):
-                (folder / f"f{name}").touch()
-        passes: list[float] = []
-        real = daemon_module.maintenance
+    # Removed only once the measured daemon has stopped: a root removed under a
+    # live daemon thread would make its next pass fail in ways nobody measured.
+    directory = tempfile.mkdtemp(prefix="sfr-", dir="/tmp")
+    root = Path(directory)
+    Harness(root)
+    register("codex", FakeAdapter)
+    daemon = Daemon(root, desktop_prober=lambda: None)
+    daemon._launch = lambda a: None
+    daemon.timers.intervals.clear()
+    for index in range(jobs):
+        job_id = f"20260901-000000-history-{index}"
+        daemon.store.add_job(job_id=job_id, request_id=f"history-{index}", payload_digest="digest", kind="run",
+                             state="succeeded", workdir=str(root), prompt_path=str(root / "prompt.md"),
+                             sandbox="read-only")
+        folder = root / "jobs" / job_id / "a1"
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in range(files):
+            (folder / f"f{name}").touch()
+    passes: list[float] = []
+    real = daemon_module.maintenance
 
-        def bounded(*args, **kwargs):
-            began = time.monotonic()
-            try:
-                return real(*args, **{**kwargs, "deadline": began + pass_s})
-            finally:
-                passes.append(time.monotonic() - began)
-
-        daemon_module.maintenance = bounded
-        # Due on the first tick, as an hour after the daemon started; or never.
-        daemon._last_maintenance = time.monotonic() - (3600 if retention else -10 * window_s)
-        server = threading.Thread(target=daemon.serve_forever, daemon=True)
-        before, started = cpu(), time.monotonic()
-        server.start()
+    def bounded(*args, **kwargs):
+        began = time.monotonic()
         try:
-            time.sleep(window_s)
-            elapsed, used = time.monotonic() - started, cpu() - before
+            return real(*args, **{**kwargs, "deadline": began + pass_s})
         finally:
-            daemon_module.maintenance = real
-            daemon.stopping.set()
-            server.join(timeout=30)
-            if server.is_alive():       # the root is about to be removed under it
-                raise SystemExit("the measured daemon did not stop within 30 s")
+            passes.append(time.monotonic() - began)
+
+    daemon_module.maintenance = bounded
+    # Due on the first tick, as an hour after the daemon started; or never.
+    daemon._last_maintenance = time.monotonic() - (3600 if retention else -10 * window_s)
+    server = threading.Thread(target=daemon.serve_forever, daemon=True)
+    before, started = cpu(), time.monotonic()
+    server.start()
+    try:
+        time.sleep(window_s)
+        elapsed, used = time.monotonic() - started, cpu() - before
+    finally:
+        daemon_module.maintenance = real
+        daemon.stopping.set()
+        server.join(timeout=30)
+        if server.is_alive():
+            raise SystemExit(f"the measured daemon did not stop within 30 s; {directory} is left in place")
+        shutil.rmtree(directory, ignore_errors=True)
     return {"window_s": elapsed, "passes": len(passes), "in_passes_s": sum(passes), "cpu_s": used}
 
 

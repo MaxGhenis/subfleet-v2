@@ -161,19 +161,42 @@ def test_the_end_snapshot_records_head_after_and_only_brackets_a_started_snapsho
     a commit made by the turn is part of its changes."""
     head, start = diff.snapshot(repository)
     assert diff.end_snapshot(repository, head_before=head, start_tree=None) == {"head_after": head,
-                                                                                 "end_tree": None}
+                                                                                 "end_tree": None, "skipped": []}
     (repository / "tracked.txt").write_text("committed by the turn\n")
     git(repository, "commit", "-am", "turn work")
     end = diff.end_snapshot(repository, head_before=head, start_tree=start)
-    assert end["head_after"] != head and end["end_tree"]
+    assert end["head_after"] != head and end["end_tree"] and end["skipped"] == []
     files = diff.build(repository, start, end["end_tree"])["files"]
     assert [f["path"] for f in files] == ["tracked.txt"]
     plain = tmp_path / "plain"
     plain.mkdir()
     assert diff.snapshot(plain) is None
-    assert diff.end_snapshot(plain, head_before=None, start_tree=None) == {"head_after": None, "end_tree": None}
+    assert diff.end_snapshot(plain, head_before=None, start_tree=None) == {"head_after": None, "end_tree": None,
+                                                                           "skipped": []}
     with pytest.raises(SalvageError):
         diff.end_snapshot(plain, head_before=None, start_tree=start)
+
+
+def test_a_live_snapshot_says_which_nested_repositories_it_left_out(repository):
+    """C-13.1, C-26.14 (review of cda4c161, N3): a live `to` is this snapshot, and it leaves
+    out a nested repository with no commit, as every C-6.8 snapshot does; `left_out` names
+    it, so the live diff can say what it does not show. The tree is the one without it."""
+    head, start = diff.snapshot(repository)
+    nested = repository / "scratch" / "repo "
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    (nested / "inside.txt").write_text("never committed\n")
+    (repository / "new.txt").write_text("fresh\n")
+    skipped: list[str] = []
+    assert diff.snapshot(repository, left_out=skipped)[0] == head
+    assert skipped == ["scratch/repo /"]
+    shutil.rmtree(nested)
+    unnamed: list[str] = []
+    _, without = diff.snapshot(repository, left_out=unnamed)
+    assert unnamed == []
+    nested.mkdir(parents=True)
+    git(nested, "init", "-q")
+    assert diff.snapshot(repository)[1] == without           # the same tree, with or without it
 
 
 def test_a_git_call_past_its_cap_is_killed_and_transient(repository, monkeypatch):
@@ -217,6 +240,23 @@ def test_a_directory_path_selects_every_changed_file_under_it(repository):
     assert sorted(f["path"] for f in under["files"]) == ["sub/deeper/new.txt", "sub/inner.txt"]
     assert "tracked.txt" not in under["diff"] and under["stats"]["files"] == 2
     assert diff.build(repository, start, end, path="su")["files"] == []
+
+
+@pytest.mark.parametrize("name", ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                                  "GIT_ICASE_PATHSPECS"])
+def test_a_paths_diff_reads_its_filter_as_written_whatever_the_environment(repository, monkeypatch, name):
+    """Review of the P3-3 fix: the diff ran git with the daemon's environment as it was, so
+    under an inherited `GIT_LITERAL_PATHSPECS=1` its `:(top,literal)sub` filter was read as
+    a file of that name and the path's diff showed no changes. It runs in salvage's
+    environment now, as the snapshots it compares were taken."""
+    monkeypatch.setenv(name, "1")
+    _, start = diff.snapshot(repository)
+    (repository / "sub" / "inner.txt").write_text("changed\n")
+    (repository / "tracked.txt").write_text("changed outside\n")
+    _, end = diff.snapshot(repository)
+    under = diff.build(repository, start, end, path="sub")
+    assert [f["path"] for f in under["files"]] == ["sub/inner.txt"] and "+changed" in under["diff"]
+    assert diff.build(repository, start, end, path="SUB")["files"] == []          # literal, and case counts
 
 
 def test_a_listing_past_its_bound_says_it_is_incomplete(repository):

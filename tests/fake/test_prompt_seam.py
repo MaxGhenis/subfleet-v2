@@ -28,7 +28,7 @@ def prepare(launch_state, monkeypatch, model, sandbox):
     head = "fixture-baseline" if sandbox == "workspace-write" else None
     monkeypatch.setattr(module, "git_head", lambda _, **__: head)
     monkeypatch.setattr(module, "git_toplevel", lambda _, **__: None)   # C-6.5: falls back to the workdir
-    monkeypatch.setattr(daemon, "_workspace", lambda job: (str(harness.workdir), head, None))
+    monkeypatch.setattr(daemon, "_workspace", lambda job: (str(harness.workdir), head, None, []))
     monkeypatch.setattr(daemon, "_guard_override", lambda *args: "hooks={}")
     return daemon, harness, calls, lane
 

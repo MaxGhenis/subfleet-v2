@@ -1093,6 +1093,27 @@ def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(s
     assert svc.daemon.submits == []
 
 
+def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch):
+    """Review of 43b8bf29, F6: `git worktree add` prints a file it could not check out in
+    its own bytes; read as strict UTF-8 that raised `UnicodeDecodeError` out of
+    `conversation.create`, not the `worktree-failed` refusal naming the file. The call is
+    faked (APFS refuses such names) and decodes as `subprocess` would."""
+    real = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if cmd[3:5] == ["worktree", "add"]:
+            stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real(cmd, *args, **kwargs)
+    monkeypatch.setattr(service_module.subprocess, "run", run)
+    with pytest.raises(ConversationError) as err:
+        create_worktree(svc, repo)
+    assert err.value.reason == "worktree-failed"
+    assert str(err.value) == "error: unable to create file caf\\xe9.txt: Permission denied\nfatal: could not reset"
+    str(err.value).encode("utf-8")                                     # a reply can carry it
+
+
 def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
     """D-16: outside git the create is refused and no conversation is left behind."""
     plain = tmp_path / "plain"
@@ -2110,6 +2131,38 @@ class EndedRunner(FakeRunner):
         self.offset, self.next_seq = 0, 1          # what settling reads to stamp its reconcile event
 
 
+@pytest.mark.parametrize("person_stopped", [False, True])
+@pytest.mark.parametrize("resolution", ["delivered", "not-delivered"])
+def test_resolving_unknown_delivery_honors_a_recorded_personal_stop(svc, tmp_path, monkeypatch,
+                                                                  person_stopped, resolution):
+    """C-24.6/7/8: resolution preserves the Stop the person already requested;
+    other delivered Claude turns still need an unfinished-turn choice."""
+    from subfleet.conversations.peers import Verdict
+
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    if person_stopped:
+        svc.op_turn_interrupt({"message_id": mid}, None)
+    adir = tmp_path / "outcome"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "failed", "ended_by": "eof",
+                                                "reason": "ended-without-result"}))
+    monkeypatch.setattr(service_module.reconcile, "gather", lambda *a, **k: service_module.reconcile.Evidence(
+        acknowledged=False, frame="written", process_gone=True, native="absent"))
+    svc._on_outcome(EndedRunner(adir, mid, cid))
+    assert svc.store.message(mid)["state"] == "delivery-unknown"
+    assert svc.store.conversation(cid)["blocked_by"] == "delivery-unknown"
+    monkeypatch.setattr(svc, "_person", lambda *a: Verdict(True, "test-person", 4242))
+    svc.op_message_resolve({"message_id": mid, "resolution": resolution, "confirm": True}, None)
+    message = svc.store.message(mid)
+    expected = ("interrupted", "stopped") if person_stopped else ("failed", f"resolved-{resolution}")
+    assert (message["state"], message["state_reason"]) == expected
+    assert message["resolution"]["resolution"] == resolution
+    assert svc.store.conversation(cid)["blocked_by"] == (
+        "unfinished-turn" if resolution == "delivered" and not person_stopped else None)
+
+
 def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions(svc, tmp_path, monkeypatch):
     """C-26.3: the launch looks again (a job can wait in admission while the
     Claude app takes the session), records its answer for a replay, and an
@@ -2290,3 +2343,24 @@ def test_a_conversation_lists_the_runs_its_turns_dispatched(svc):
     assert (new["lane_id"], new["model_served"], new["attempt_state"], new["attempts"], new["task"], new["tier"]) == (
         "codex-2", "gpt-6-astra", "running", 2, "build", "hard")
     assert runs[1]["lane_id"] is None and runs[1]["attempts"] == 0
+
+
+def test_an_approval_view_names_the_providers_request_under_both_names(svc):
+    """C-27.1 and C-27.5, merged for 2.1.10: `approval.list`, `conversation.open` and
+    `approval.get` name the provider's request as `provider_request_id` (the inline
+    approval card's field) and as `request_id` (approvals within reach), the same id,
+    so either client joins its card exactly."""
+    from subfleet.conversations.peers import Verdict
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    approval, _ = svc.store.add_approval(message_id=mid, conversation_id=cid, attempt_id="j/a1",
+                                         provider_request_id="perm-7", kind="tool", request={"tool": "Bash"},
+                                         display={"tool": "Bash"}, options=("allow", "deny"))
+    svc._person = lambda peer, what: Verdict(True, "test", peer)
+    views = [svc.handle("approval.list", {"conversation_id": cid}, None)["approvals"][0],
+             svc.handle("conversation.open", {"conversation_id": cid}, None)["pending_approvals"][0],
+             svc.handle("approval.get", {"approval_id": approval["approval_id"]}, None)["approval"]]
+    for view in views:
+        assert view["approval_id"] == approval["approval_id"]
+        assert view["request_id"] == view["provider_request_id"] == "perm-7"
