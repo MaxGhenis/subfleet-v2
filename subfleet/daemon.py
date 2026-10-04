@@ -71,7 +71,7 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
 #: attempts and 26 jobs with a parent.
 ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
                   "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
-ROUTE_JOBS = "SELECT job_id,parent_job_id FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
+ROUTE_JOBS = "SELECT job_id,parent_job_id,state FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
