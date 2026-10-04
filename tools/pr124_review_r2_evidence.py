@@ -124,9 +124,17 @@ if __name__ == "__main__":
     elif mode == "focused":
         pytest(ROOT, "focused-unit", [UNIT, "tests/unit/test_pr124_fixes.py"])
         pytest(ROOT, "focused-ui", [UI, "tests/frontend/test_pr124_fixes_ui.py"])
+    elif mode == "policy":
+        pytest(ROOT, "suite-policy", ["tests/unit/test_policy.py", "tests/unit/test_policy_support.py", UNIT])
+    elif mode == "property":
+        result = run("r2-property-seed9001", 580,
+                     ["/usr/bin/env", "PR124_PROPERTY_SEED=9001", PYTHON, "-m", "pytest",
+                      "-p", "tools.app_cutover_pytest", "-q", "-s", "--hypothesis-show-statistics",
+                      "tests/frontend/test_pr124_recovery_properties.py"])
+        assert result["exit_code"] == 0 and not result["timeout"], result
     elif mode == "base-failures":
         folder = archived(BASE, "r2-pr-base", overlay=False)
         for index, node in enumerate(sys.argv[2:]):
             pytest(folder, "base-failure-" + str(index), [node], expect_failure=True)
     else:
-        raise SystemExit("expected baseline, focused, mutations, or base-failures")
+        raise SystemExit("expected baseline, focused, mutations, policy, property, or base-failures")
