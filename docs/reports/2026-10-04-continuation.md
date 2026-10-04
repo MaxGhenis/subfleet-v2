@@ -99,3 +99,27 @@ Implementation commits: `644917e` (backend), `74e8650` (timeline, contract,
 design and build/probes), and `8cd43c9` (replay/polling/deliverables and provider
 validation). The bundle also contains the final report commit. Every commit
 has the requested Claude Opus 5.5 co-author trailer. Nothing was pushed.
+
+## REQUEST CHANGES follow-up (PR 127 at 7504f3b8)
+
+Work is confined to the assigned review worktree. No live state, daemon,
+installed application, Application Support files, routing aliases or default
+policy are changed. Shared Git metadata refused a branch write, so the fixes
+use `.git-local`, branch `subfleet/pr127-review-fixes`; the final bundle requires
+7504f3b8. No pushes or history rewrites are made.
+
+CI was addressed first. The eight parametrized MCP scope tests reproduced
+with their exact old environment assertions; the ledger check reproduced its
+three orphan clauses. A service-level reproduction of CoreProbeLive's tenth
+failure returned no native history before catalog discovery. The native live
+probe itself requires process inspection unavailable in this lane.
+
+| Finding | Fix and regression | Head result | Fixed result | Mutation |
+| --- | --- | --- | --- | --- |
+| P1 CI environment (8 cases) | `tests/unit/test_claude_conversation_mcp_scope.py`: retain exact flags and expect the two intentional turn markers | 8 failed | 8 passed | reverting marker expectations: 8 failures |
+| P1 CI ledger | `docs/desktop/ledger.json`: R-11–13 cite C-24.10–12 with implementation evidence | 1 failed | 4 ledger tests passed | removing C-24.10: 1 failure |
+| P1 CI empty native history | `history.page` and `op_conversation_history`: prefer catalog paths, then recorded attempt paths or the exact Claude workspace path; no tree scan | `test_history_before_first_catalog_pass`: failed | passed | disabling the exact path fallback: 1 failure |
+
+The first fixed CI slice was 13 passed on Python 3.14. Mutation details are
+in `2026-10-04-continuation-review-mutations.json`. Final line references,
+base classifications, suite counts, app build and bundle head follow below.

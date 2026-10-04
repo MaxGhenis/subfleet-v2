@@ -592,8 +592,13 @@ class ConversationService:
         from .history import page
         conversation = self.store.conversation(args["conversation_id"])
         messages = self.store.query("SELECT message_id,turn_ref FROM messages WHERE conversation_id=?", (conversation["conversation_id"],))
+        attempt = self.daemon.store.one(
+            "SELECT a.transcript_path FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE j.kind='turn' AND j.name=? AND a.native_session_id=? AND a.transcript_path IS NOT NULL "
+            "ORDER BY a.reserved_at DESC LIMIT 1", (f"turn-{conversation['conversation_id']}", conversation["native_session_id"]))
         return page(conversation, root=self.root, before=args.get("before"), limit=int(args.get("limit") or 50),
                     lanes=self.daemon.store.lane_rows(), resolved_only=True,
+                    known_path=attempt["transcript_path"] if attempt else None,
                     owned={m["message_id"] for m in messages}, owned_turns={m["turn_ref"] for m in messages if m["turn_ref"]})
 
     # --- ops: events -----------------------------------------------------------

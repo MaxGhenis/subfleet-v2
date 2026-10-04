@@ -187,7 +187,8 @@ def _claude_items(path: Path, before: int | None, limit: int, owned: set[str] | 
 
 
 def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes: list[dict],
-         resolved_only: bool = False, owned: set[str] | None = None, owned_turns: set[str] | None = None) -> dict:
+         resolved_only: bool = False, owned: set[str] | None = None, owned_turns: set[str] | None = None,
+         known_path: str | None = None) -> dict:
     limit = max(1, min(int(limit), 200))
     before = int(before) if before is not None else None
     sid = conversation.get("native_session_id")
@@ -196,6 +197,15 @@ def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes:
     from .catalog import transcript_record
     record = transcript_record(root, conversation["provider"], sid)
     path = Path(record["path"]) if record and record.get("path") else None
+    if path is None and known_path:
+        path = Path(known_path)
+    if path is None and conversation["provider"] == "claude" and conversation.get("workspace"):
+        # A just-created session may precede the first catalog pass. Its exact
+        # workspace path is known, so no native-tree discovery is necessary.
+        from ..adapters.claude import encode_project_dir
+        candidate = transcripts.projects_dir() / encode_project_dir(conversation["workspace"]) / f"{sid}.jsonl"
+        if candidate.is_file():
+            path = candidate
     if resolved_only and path is None:
         return {"items": [], "next_before": None, "missing": True}
     if conversation["provider"] == "claude":
