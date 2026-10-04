@@ -22,15 +22,16 @@ keeps, verbatim in effect:
   turns either. Trailing assistant text above one is treated as interrupted:
   a genuinely finished session answers a nudge with one cheap "nothing pending"
   turn, while a missed resume strands real work.
-* **A headless lane run is not a session** (C-23.31). Claude Code stamps every
-  entry with the `entrypoint` of the process that wrote it: `sdk-cli` for a
-  `claude -p` run, `claude-desktop` for the desktop app, `cli` for a terminal.
-  A transcript is a lane run when the entries that carry one all name a headless
-  entrypoint (`HEADLESS_ENTRYPOINTS`); one entry written by any other process
-  makes it a session. Only a transcript with no `entrypoint` at all (older
-  Claude Code) falls back to v1's prompt rule: one or two text prompts, all
-  `promptSource: sdk`. That rule cannot read a current transcript, because the
-  desktop app sends its prompts as `sdk` too.
+* **A headless lane run is not a session** (C-23.31). Claude Code stamps its
+  entries with the `entrypoint` of the process that wrote them: `sdk-cli` for a
+  `claude -p` run whose environment names no entrypoint, `claude-desktop` for
+  the desktop app, `cli` for a terminal. A transcript is a lane run when some
+  entry names a headless entrypoint (`HEADLESS_ENTRYPOINTS`) and none names
+  another; one entry written by any other process makes it a session. Only
+  prompts that name no `entrypoint` (older Claude Code) are read by v1's prompt
+  rule, under which a transcript of such prompts is a lane run with one or two
+  text prompts, all `promptSource: sdk`. That rule cannot read a current
+  transcript, because the desktop app sends its prompts as `sdk` too.
 
 `fingerprint` is the C-23.34 re-check: the identity of the real last turn. The
 resume stub and the app's bookkeeping rows change the file without changing it;
@@ -56,13 +57,16 @@ RESUME_STUB_ASSISTANT = "No response requested."
 MARKER = "subfleet: this session restarted"
 MUSTER_MARKER = "subfleet muster: roll call"
 
-#: C-23.31: the `entrypoint` values of a process no person drives. Claude Code
-#: 2.1.286 keeps an entrypoint a host set (the desktop app sets `claude-desktop`)
-#: and otherwise sets `sdk-cli` for a non-interactive run and `cli` for an
-#: interactive one; `sdk-ts` and `sdk-py` are the Agent SDKs'. Its own
-#: transcript reader checks a transcript's `entrypoint` against this same set.
-#: Every other value (`claude-desktop`, `cli`, and the rest of Claude Code's
-#: list) is a session. Measured on 2026-10-03 across one machine's 18,575
+#: C-23.31: the `entrypoint` values of a headless SDK process: `sdk-cli` for
+#: `claude -p`, `sdk-ts` and `sdk-py` for the Agent SDKs. Claude Code 2.1.286
+#: keeps an entrypoint its environment already names (the desktop app sets
+#: `claude-desktop`, and a `claude -p` started from a desktop session's shell
+#: inherits it), and otherwise sets `sdk-cli` for a non-interactive run and `cli`
+#: for an interactive one. Its own transcript reader checks a transcript's
+#: `entrypoint` against this same set. A person can drive an SDK host (a Subfleet
+#: conversation is `sdk-cli`), which is why a conversation is identified by the
+#: daemon's records, never by this shape. Every other value (`claude-desktop`,
+#: `cli`, and the rest of Claude Code's list) is a session. Measured on 2026-10-03 across one machine's 18,575
 #: transcripts: `sdk-cli` (all 2,042 Claude lane runs in the ledger),
 #: `claude-desktop` and `cli`, nothing else.
 HEADLESS_ENTRYPOINTS = frozenset({"sdk-cli", "sdk-ts", "sdk-py"})
@@ -336,8 +340,8 @@ def headless_transcript(transcript: str | Path | None, *,
                         max_lines: int = 5000) -> bool:
     """True for a `claude -p` (SDK) run — a lane run, a probe, or a one-shot.
 
-    C-23.31: a headless lane run is not a session. Claude Code stamps every
-    entry with its writer's `entrypoint`, so the process says what it is: a
+    C-23.31: a headless lane run is not a session. Claude Code stamps its
+    entries with their writer's `entrypoint`, so the process says what it is: a
     transcript is headless when some entry names an entrypoint in
     `HEADLESS_ENTRYPOINTS` and none names another. One entry from the desktop
     app or a terminal makes it a session, and a headless process that later
