@@ -67,7 +67,7 @@ struct PermissionControl: View {
                 Button(choice.policy.label) { select(choice.policy.rawValue) }.disabled(!choice.enabled)
             }
         } label: {
-            Label(PermissionPolicy(rawValue: value)?.label ?? value, systemImage: "slider.horizontal.3")
+            Text("\(Image(systemName: "slider.horizontal.3")) \(PermissionPolicy(rawValue: value)?.label ?? value)")
                 .foregroundColor(labelColor)
         }
         .menuStyle(.borderlessButton).fixedSize().windowFont(.control)
