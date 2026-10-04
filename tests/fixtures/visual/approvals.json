@@ -1,0 +1,216 @@
+[
+  {
+    "id": "codex-command",
+    "kind": "command",
+    "headline": "Clean the build outputs",
+    "request": {
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "command": "rm -rf build && git clean -fdx",
+        "cwd": "/repo/project",
+        "kind": "command",
+        "networkApprovalContext": {
+          "host": "example.com",
+          "protocol": "https"
+        },
+        "proposedExecpolicyAmendment": [
+          "git",
+          "clean"
+        ],
+        "proposedNetworkPolicyAmendments": [
+          {
+            "host": "example.com",
+            "action": "allow"
+          }
+        ],
+        "futureGrant": {
+          "root": "/future/root"
+        }
+      }
+    },
+    "visible": [
+      "rm -rf build",
+      "git clean -fdx",
+      "/repo/project",
+      "example.com",
+      "https",
+      "allow",
+      "/future/root",
+      "networkApprovalContext",
+      "proposedExecpolicyAmendment",
+      "proposedNetworkPolicyAmendments"
+    ]
+  },
+  {
+    "id": "codex-file-change",
+    "kind": "file-change",
+    "headline": "Write the release notes",
+    "request": {
+      "method": "item/fileChange/requestApproval",
+      "params": {
+        "grantRoot": "/",
+        "reason": "Write release notes",
+        "changes": [
+          {
+            "path": "/repo/release.md"
+          }
+        ]
+      }
+    },
+    "visible": [
+      "grantRoot: /",
+      "/repo/release.md"
+    ]
+  },
+  {
+    "id": "codex-permissions",
+    "kind": "permissions",
+    "headline": "Grant additional permissions",
+    "request": {
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "cwd": "/repo/project",
+        "permissions": {
+          "network": {
+            "enabled": true
+          },
+          "fileSystem": {
+            "read": [
+              "/private/data"
+            ],
+            "write": [
+              "/repo/output"
+            ]
+          }
+        },
+        "permissions.fileSystem.write[0]": "/literal/grant/root"
+      }
+    },
+    "visible": [
+      "/repo/project",
+      "/private/data",
+      "/repo/output",
+      "enabled: true",
+      "/literal/grant/root"
+    ]
+  },
+  {
+    "id": "claude-bash",
+    "kind": "tool",
+    "headline": "Run the build",
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "Bash",
+      "input": {
+        "command": "echo [MASKED]",
+        "description": "Run the build"
+      },
+      "blocked_path": "/private/cache",
+      "permission_suggestions": [
+        {
+          "type": "addDirectories",
+          "directories": [
+            "/grant/root"
+          ],
+          "destination": "session"
+        }
+      ],
+      "command": "secondary scoped command"
+    },
+    "visible": [
+      "echo [MASKED]",
+      "/private/cache",
+      "/grant/root",
+      "session",
+      "secondary scoped command"
+    ]
+  },
+  {
+    "id": "claude-write",
+    "kind": "tool",
+    "headline": "Write the hosts file",
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "Write",
+      "input": {
+        "file_path": "/etc/hosts",
+        "content": "127.0.0.1 example.test"
+      },
+      "blocked_path": "/etc",
+      "permissions": {
+        "write": true
+      }
+    },
+    "visible": [
+      "/etc/hosts",
+      "input.content:",
+      "example.test",
+      "blocked_path: /etc",
+      "write: true"
+    ]
+  },
+  {
+    "id": "claude-question",
+    "kind": "question",
+    "headline": "Choose the deployment scope",
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "question": "Where should this run?",
+            "header": "Scope",
+            "options": [
+              {
+                "label": "Local",
+                "description": "Only this checkout"
+              }
+            ]
+          }
+        ],
+        "grant_root": "/deployment/root"
+      },
+      "blocked_path": "/protected"
+    },
+    "visible": [
+      "/deployment/root",
+      "/protected",
+      "Where should this run?",
+      "Only this checkout"
+    ]
+  },
+  {
+    "id": "flat-command",
+    "kind": "command",
+    "headline": "Run the legacy command",
+    "request": {
+      "command": "git status",
+      "cwd": "/legacy/root",
+      "grant_root": "/grant/root",
+      "permissions": {
+        "network": false
+      },
+      "execpolicy_amendment": [
+        "git",
+        "status"
+      ],
+      "network_amendments": [
+        {
+          "host": "legacy.test",
+          "action": "deny"
+        }
+      ]
+    },
+    "visible": [
+      "git status",
+      "/legacy/root",
+      "/grant/root",
+      "network: false",
+      "legacy.test",
+      "deny",
+      "execpolicy_amendment",
+      "network_amendments"
+    ]
+  }
+]
