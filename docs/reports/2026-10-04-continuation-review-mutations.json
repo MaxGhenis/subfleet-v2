@@ -187,5 +187,12 @@
     "killed": true,
     "result": "1 failed in 10.01s",
     "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_moot_block_report_uses_the_implemented_mtime_criterion __________\ntests/unit/test_review_pr127_report.py:7: in test_moot_block_report_uses_the_implemented_mtime_criterion\n    assert \"catalog transcript mtime\" in report and \"strictly after blocked_at\" in report\nE   AssertionError: assert ('catalog transcript mtime' in '# Durable conversation continuation and review fixes\\n\\nConversation turns record their job as the parent of dispatch...ion evidence. The app is built locally without installation or launch.\\nNothing is pushed from this review worktree.\\n')\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_report.py::test_moot_block_report_uses_the_implemented_mtime_criterion\n1 failed in 10.01s\n"
+  },
+  {
+    "mutation": "expanded-grammar-replays-timer",
+    "test": "tests/unit/test_review_pr127_requests.py::test_expanded_grammar_replay_preserves_legacy_timer_identity",
+    "killed": true,
+    "result": "1 failed in 12.33s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_expanded_grammar_replay_preserves_legacy_timer_identity _________\ntests/unit/test_review_pr127_requests.py:64: in test_expanded_grammar_replay_preserves_legacy_timer_identity\n    assert svc.store.query(\"SELECT * FROM wake_requests WHERE state='pending' AND kind='time'\") == []\nE   assert [{'conversati...\": \"\"}', ...}] == []\nE     \nE     Left contains one more item: {'conversation_id': 'cv-1791144327755-ddbc35fe5be1', 'request_id': 'final:e071c31c-2591-4233-8255-e7e02591c12b:1', 'kind': 'time', 'payload_json': '{\"at\": 1300.0, \"note\": \"\"}', ...}\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_expanded_grammar_replay_preserves_legacy_timer_identity\n1 failed in 12.33s\n"
   }
 ]

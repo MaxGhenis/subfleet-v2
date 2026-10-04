@@ -6,6 +6,7 @@ and the unattended counter share the message transaction, including after restar
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import re
 import shlex
@@ -82,7 +83,7 @@ def _wake_line(line: str) -> str | None:
     return line if line.startswith("WAKE-ME:") else None
 
 
-def _trailing_wake_lines(text: str) -> list[str]:
+def _trailing_wake_lines(text: str, *, with_positions: bool = False) -> list:
     lines = text.rstrip().splitlines()
     top_level = []
     fence = None
@@ -99,13 +100,13 @@ def _trailing_wake_lines(text: str) -> list[str]:
         lines.pop()
         top_level.pop()
     result = []
-    for line, allowed in reversed(list(zip(lines, top_level))):
+    for position, (line, allowed) in reversed(list(enumerate(zip(lines, top_level)))):
         if not line.strip():
             continue
         normalized = _wake_line(line) if allowed else None
         if normalized is None:
             break
-        result.append(normalized)
+        result.append((position, normalized) if with_positions else normalized)
     return list(reversed(result))
 
 
@@ -236,8 +237,22 @@ class WakeEngine:
         message = self.store.one("SELECT created_at,job_id FROM messages WHERE message_id=?", (mid,))
         started = self.service.daemon.store.one("SELECT created_at FROM jobs WHERE job_id=?", (message["job_id"],)) if message and message["job_id"] else None
         validation_time = datetime.fromisoformat((started or message)["created_at"].replace("Z", "+00:00")).timestamp() if message else self.now()
-        for index, line in enumerate(_trailing_wake_lines(text)):
-            request_id = f"final:{mid}:{index}"
+        raw_lines = text.rstrip().splitlines()
+        start = len(raw_lines)
+        while start and raw_lines[start - 1].startswith("WAKE-ME:"):
+            start -= 1
+        legacy_ids = {i: f"final:{mid}:{i - start}" for i in range(start, len(raw_lines))}
+        entries = _trailing_wake_lines(text, with_positions=True)
+        duplicates, new_ids = {}, {}
+        for position, line in reversed(entries):
+            digest = hashlib.sha256(line.encode()).hexdigest()
+            ordinal = duplicates.get(digest, 0)
+            duplicates[digest] = ordinal + 1
+            new_ids[position] = f"final:{mid}:line:{digest}:{ordinal}"
+        for index, (position, line) in enumerate(entries):
+            # Preserve the legacy literal-tail ids. Newly recognised forms cannot
+            # shift them and replay an already-fired timer after an upgrade.
+            request_id = legacy_ids.get(position, new_ids[position])
             if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id)):
                 continue
             try:
@@ -247,7 +262,7 @@ class WakeEngine:
                 self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
                 if message:
                     self.store.append_events(conversation_id=cid, message_id=mid, attempt_id=f"wake:{mid}",
-                        events=[("command", f"wake-refused:{index}", 0, "status",
+                        events=[("command", f"wake-refused:{request_id}", 0, "status",
                                  {"phase": "wake-refused", "detail": f"Wake request refused: {exc}"})],
                         stdout_offset=0, stdin_seq=0)
 

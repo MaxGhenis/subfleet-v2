@@ -48,3 +48,18 @@ def test_only_top_level_final_requests_are_accepted(svc, text):
     cid = bound(svc)
     svc.wakes.from_final(cid, "final", text)
     assert svc.store.query("SELECT * FROM wake_requests") == []
+
+
+def test_expanded_grammar_replay_preserves_legacy_timer_identity(svc):
+    cid = bound(svc)
+    mid = submit(svc, cid)
+    svc.store._db.execute("UPDATE messages SET created_at=? WHERE message_id=?", (datetime.fromtimestamp(1000, UTC).isoformat(), mid))
+    svc.wakes.now = lambda: 1000
+    instant = datetime.fromtimestamp(1300, UTC).isoformat()
+    svc.wakes.register(cid, f"final:{mid}:0", wakes.normalize(at=instant, now=1000))
+    with svc.store.transaction() as tx:
+        tx.execute("UPDATE wake_requests SET state='fired'")
+    svc.wakes.now = lambda: 1400
+    svc.wakes.from_final(cid, mid, "- WAKE-ME: prs=o/r#2\nWAKE-ME: at=" + instant)
+    assert svc.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='time'") == []
+    assert len(svc.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='pr'")) == 1
