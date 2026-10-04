@@ -62,6 +62,19 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap, and only
+#: a job with a parent extends an ancestry (`scheduler._parent_blocks`). Every
+#: other attempt and job the store keeps changes no route: on 2026-10-02 the
+#: live store held 2,722 attempts (23 MB, most of it `evidence_json`) and 2,625
+#: jobs, read and turned into dicts on every evaluation, against 38 active
+#: attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+#: `state` is carried for C-6.15's host-pressure hold (#106), which leaves out the
+#: attempts of any ancestor of a job that has not started; every such job has a
+#: parent, so the rows here are all it needs.
+ROUTE_JOBS = "SELECT job_id,parent_job_id,state FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
@@ -101,6 +114,10 @@ EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", 
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
 #: C-5.7a: a probe a look left quarantined is looked at again this long after,
 #: doubling per consecutive such look to the ceiling.
 PROBE_RECHECK_BASE_S = 1
@@ -721,11 +738,20 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop=None):
+    def _capacity_view(self, desktop=None, *, route: bool = False):
+        """The capacity view (C-6.4, C-9.1). `route` is for a route evaluation
+        (`_pick`): it reads only the attempts and jobs a route can depend on
+        (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`), and `scheduler.evaluate` reaches the same
+        decision over them as over every row (a differential property test).
+        Status and the operator's views read every row."""
+        if route:
+            attempts, jobs = self.store.query(ROUTE_ATTEMPTS), self.store.query(ROUTE_JOBS)
+        else:
+            attempts = self.store.list_attempts()
+            jobs = self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")
         view = capacity.build_view(
             self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
-            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            attempts, jobs, reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
@@ -843,7 +869,7 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        view = self._capacity_view(desktop)
+        view = self._capacity_view(desktop, route=True)
         # C-6.15: the last reading, for admission and `why` only: the `pick` op's
         # advice to a person's own session is not held. Nothing is read here,
         # because this also runs inside the reserving transaction (C-3.3).
@@ -2067,7 +2093,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -2140,16 +2166,47 @@ class Daemon:
                 "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        # C-23.26, C-8.4: first, and on its own: it used to follow a completed
+        # pass only, so a store too large to finish a pass never shed its old
+        # service notices. One that fails is logged and holds retention up no
+        # longer than this line.
+        try:
+            self._prune_service_notices()
+        except sqlite3.Error as exc:
+            self.log.warning("retention: old service notices were not pruned this pass: %s", type(exc).__name__)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel,
+                             deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        self._prune_service_notices()
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+            pruned = len(result.get("pruned") or ())
+            if pruned:
+                # It pruned before its time ran out, so the store is smaller and
+                # the next pass gets further: retried on C-5.10's clock, as a pass
+                # that raises is. A retry that prunes nothing waits the hour
+                # (below), so the retries end.
+                self.log.warning("retention: the pass reached its %g s deadline after pruning %d jobs; it is "
+                                 "retried on the worker clock (C-8.4, C-5.10)", RETENTION_PASS_S, pruned)
+                raise TimeoutError("retention deadline reached")
+            # C-8.4: it ran out of time before it pruned a job. The next pass
+            # sizes every job again from the first, so one offered 60 s later
+            # meets the same deadline: retried on C-5.10's clock, a store too
+            # large to size in one pass kept a worker in `lstat` half of every
+            # two minutes for as long as the daemon ran. It is due again when a
+            # completed pass would be.
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline before it pruned a job (%d jobs in "
+                             "the store); the next pass is due in %g s (C-8.4)",
+                             RETENTION_PASS_S, result.get("jobs_after") or 0, RETENTION_INTERVAL_S)
+            self._last_maintenance = time.monotonic()
+            return
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+        # A raising pass remains due so the worker retry clock can re-offer it,
+        # and so does one whose own bookkeeping above raised, or that pruned
+        # before its time ran out. A pass that ran to its end, or out of time
+        # before it pruned anything, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
 
     def _prune_service_notices(self) -> int:
