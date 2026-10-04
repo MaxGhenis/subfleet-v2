@@ -1,0 +1,66 @@
+{
+  "audited_at": "2026-10-04T10:33:50.942516+00:00",
+  "cutoff": "2026-10-04T10:33:46Z",
+  "replay_claude_results": [
+    {
+      "status": "identity-unbound",
+      "count": 20,
+      "retry_after_3600": 0
+    },
+    {
+      "status": "network-error",
+      "count": 6,
+      "retry_after_3600": 0
+    },
+    {
+      "status": "no-scope",
+      "count": 708,
+      "retry_after_3600": 0
+    },
+    {
+      "status": "rate-limited",
+      "count": 997,
+      "retry_after_3600": 996
+    },
+    {
+      "status": "unavailable",
+      "count": 1,
+      "retry_after_3600": 0
+    },
+    {
+      "status": "unknown",
+      "count": 25,
+      "retry_after_3600": 0
+    }
+  ],
+  "since_cutover_claude_results": [
+    {
+      "status": "no-scope",
+      "count": 18,
+      "retry_after_3600": 0
+    },
+    {
+      "status": "rate-limited",
+      "count": 39,
+      "retry_after_3600": 39
+    }
+  ],
+  "oauth_usage": {
+    "rows": 3,
+    "distinct_observations": 1,
+    "first": "2026-09-18T17:48:01Z",
+    "last": "2026-09-18T17:48:01Z"
+  },
+  "codex_readings": {
+    "rows": 73168,
+    "five_hour": 0
+  },
+  "log_status_line_counts": {
+    "no-scope": 0,
+    "HTTP 403": 0,
+    "HTTP 429": 0,
+    "Retry-After": 0,
+    "rate-limited": 0
+  },
+  "log_note": "Log counts are corroboration only; structured timer.verdict rows determine sensor outcomes."
+}
