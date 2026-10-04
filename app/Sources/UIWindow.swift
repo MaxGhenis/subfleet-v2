@@ -294,7 +294,10 @@ struct ConversationView: View {
                             case .item(let item):
                                 TimelineRow(model: model, conversation: conversation, item: item, review: review).id(item.id)
                             case .work(let group):
-                                WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork).id(group.id)
+                                WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork,
+                                    served: group.completed ? group.items.first?.messageID.flatMap {
+                                        model.state.servedChip(conversationID: conversation.conversation_id, messageID: $0)
+                                    } : nil).id(group.id)
                             }
                         }
                         Theme.clear.frame(height: 1).id("bottom")
@@ -460,7 +463,7 @@ struct ConversationView: View {
                 renamedTitle = model.state.conversationTitle(conversation)
                 renaming = true
             } label: { Image(systemName: "pencil") }
-                .buttonStyle(.borderless).help("Rename conversation").accessibilityLabel("Rename conversation")
+                .buttonStyle(.borderless).help("Rename").accessibilityLabel("Rename")
             if model.canShowChanges {
                 Button { model.showChanges(.conversation(conversation.conversation_id)) } label: {
                     Label("Changes", systemImage: "plus.forwardslash.minus")
@@ -468,11 +471,6 @@ struct ConversationView: View {
                 .buttonStyle(.borderless)
                 .help("What this conversation changed in its checkout since its first writable turn")
             }
-            HStack(spacing: Theme.space.step) {
-                ProviderMark(provider: conversation.provider)
-                Text(modelDisplayName(conversation.settings.model, models: model.state.models[conversation.provider] ?? []))
-                    .windowFont(.control)
-            }.foregroundStyle(Theme.text.secondary.color)
             AccountUsageChip(model: model, conversation: conversation)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -569,23 +567,12 @@ struct TurnStatusLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
-            if turn.isReadSteer {
-                ReadMark()
-            } else if live || turn.isUnreadSteer {
-                ProgressView().controlSize(.mini)
-            }
-            // A steered message reads as Claude Code's does: unread, by what the turn is doing, then Read.
-            Text(model.state.timelines[conversation.conversation_id]?.statusText(
-                of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
-                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
-            if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
-                ServedChipView(chip: chip)
-            }
-            if live && !turn.steerRequested {
-                Button("Stop") {
-                    model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-                }.buttonStyle(.link).font(.caption)
+            if turn.showsMessageAcknowledgment {
+                if turn.isReadSteer { ReadMark() }
+                else if turn.isUnreadSteer || turn.state == "sending" { ProgressView().controlSize(.mini) }
+                Text(model.state.timelines[conversation.conversation_id]?.statusText(
+                    of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
+                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
             }
             if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                 Button {
@@ -991,9 +978,11 @@ struct ServedChipView: View {
 
 struct WorkGroupView: View {
     let group: WorkGroup
+    let served: ServedChip?
     @State private var expanded: Bool
-    init(group: WorkGroup, initiallyExpanded: Bool = false) {
+    init(group: WorkGroup, initiallyExpanded: Bool = false, served: ServedChip? = nil) {
         self.group = group
+        self.served = served
         _expanded = State(initialValue: initiallyExpanded)
     }
     var body: some View {
@@ -1016,7 +1005,7 @@ struct WorkGroupView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(QuietButtonStyle())
-            .help(expanded ? "Hide work details" : "Show work details")
+            .help(group.tooltip(served: served, expanded: expanded))
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             if expanded {
                 ForEach(group.items) { item in

@@ -16,7 +16,7 @@ struct ApprovalCardView: View {
             HStack {
                 Image(systemName: card.kind == "question" ? "questionmark.bubble.fill" : "hand.raised.fill")
                    .foregroundStyle(Theme.state.attention)
-                Text(title).bold()
+                Text(ApprovalPresentation.headline(card)).bold()
                 Spacer()
                 switch card.state {
                 case .pending: EmptyView()
@@ -34,37 +34,22 @@ struct ApprovalCardView: View {
                         Text(question.question).readingFont(.secondary)
                     }
                 }
+                requestDetails
             } else {
-                if card.isPending, let detail {
-                    // The full request includes grant roots, permissions and command
-                    // text that a provider's display summary may omit or truncate.
-                    ScrollView {
-                        Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(minHeight: 60, maxHeight: 240)
-                    if !detail.masked.isEmpty {
-                        Label("Some values are masked. Allow opens details for review.", systemImage: "eye.slash")
-                            .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
-                    }
-                } else {
-                    ForEach(card.display.shownFields, id: \.key) { field in
-                        Text("\(field.key): \(field.value)").readingFont(.code, design: .monospaced)
-                            .textSelection(.enabled)
-                    }
-                    if card.isPending {
-                        if loadFailed {
-                            Button("Reload request") { Task { await load() } }
-                        } else {
-                            ProgressView("Loading the request…").controlSize(.small)
-                        }
+                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail?.request))
+                if card.isPending && detail == nil {
+                    if loadFailed {
+                        Button("Reload request") { Task { await load() } }
+                    } else {
+                        ProgressView("Loading the request…").controlSize(.small)
                     }
                 }
-                if let reason = card.display.reason ?? card.display.description {
-                    Text(reason).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
+                if let detail, !detail.masked.isEmpty {
+                    Label("Some values are masked. Allow opens details for review.", systemImage: "eye.slash")
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
                 if card.isActionable {
                     HStack {
-                        Button("Details / add a note", action: review).buttonStyle(.link)
                         Spacer()
                         if card.options.contains("deny") {
                             Button("Deny") { Task { await respond("deny") } }.buttonStyle(.bordered)
@@ -76,6 +61,7 @@ struct ApprovalCardView: View {
                         if sending { ProgressView().controlSize(.small) }
                     }.disabled(sending)
                 }
+                requestDetails
             }
             if card.isPending && !card.isActionable {
                 Text("Waiting for the request to be identified…").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
@@ -115,14 +101,21 @@ struct ApprovalCardView: View {
         _ = await model.respond(detail, decision: decision, answers: nil, message: nil, reviewedMasked: false)
     }
 
-    private var title: String {
-        switch card.kind {
-        case "question": return "Question"
-        case "command": return "Run a command?"
-        case "file-change": return "Change files?"
-        case "permissions": return "Grant permissions?"
-        default: return "Use \(card.display.tool ?? "a tool")?"
-        }
+    private var requestDetails: some View {
+        DisclosureGroup("Details") {
+            if let detail {
+                Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(card.display.shownFields, id: \.key) { field in
+                    Text("\(field.key): \(field.value)").readingFont(.code, design: .monospaced)
+                        .textSelection(.enabled)
+                }
+            }
+            if card.isActionable && card.kind != "question" {
+                Button("Add a note", action: review).buttonStyle(.link)
+            }
+        }.readingFont(.secondary)
     }
 }
 
@@ -190,7 +183,7 @@ struct QuestionCardView: View {
                     .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 if needsMaskedReview {
                     if let detail = reviewDetail {
-                        DisclosureGroup("Review the question request") {
+                        DisclosureGroup("Details") {
                             Text(prettyApprovalRequest(detail.request))
                                 .readingFont(.code, design: .monospaced).textSelection(.enabled)
                             Button("Reveal masked values") {
@@ -286,6 +279,17 @@ struct QuestionCardView: View {
     }
 }
 
+private struct ApprovalCommandView: View {
+    let command: String?
+    var body: some View {
+        if let command, !command.isEmpty {
+            Text(command).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.hover.color))
+        }
+    }
+}
+
 // MARK: - Approval sheet
 
 struct ApprovalSheet: View {
@@ -301,15 +305,18 @@ struct ApprovalSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Approve this request?").readingFont(.subheading, weight: .bold)
+            Text(ApprovalPresentation.headline(card)).readingFont(.subheading, weight: .bold)
             if let detail {
-                ScrollView {
-                    Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail.request))
+                DisclosureGroup("Details") {
+                    ScrollView {
+                        Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 120, maxHeight: 320)
+                    .padding(6)
+                    .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.hover.color))
                 }
-                .frame(minHeight: 120, maxHeight: 320)
-                .padding(6)
-                .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.hover.color))
                 if !detail.masked.isEmpty && !revealed {
                     HStack {
                         Label("\(detail.masked.count) value(s) that look like secrets are masked",

@@ -104,3 +104,23 @@ enum WorkPresentation {
         return rows
     }
 }
+
+
+extension TurnTimeline {
+    /// Live status belongs to the bottom strip; settled serving facts to work's tooltip.
+    /// Queued and steered messages still need their own delivery acknowledgment.
+    var showsMessageAcknowledgment: Bool {
+        isReadSteer || isUnreadSteer || messageState == .queued || messageState == .steering
+            || messageState == .deliveryUnknown || messageState == .unknown || (messageState == nil && state == "sending")
+    }
+}
+
+extension WorkGroup {
+    func tooltip(served: ServedChip?, expanded: Bool) -> String {
+        let action = expanded ? "Hide work details" : "Show work details"
+        guard completed, let served else { return action }
+        let facts = [served.account, served.model, served.effort, served.fast]
+            .compactMap { $0 }.filter { !$0.isEmpty } + served.warnings
+        return ([action] + facts).joined(separator: " · ")
+    }
+}

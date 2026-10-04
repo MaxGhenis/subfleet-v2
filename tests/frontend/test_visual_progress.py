@@ -63,3 +63,16 @@ def test_account_usage_matches_serving_lane_and_hides_stale_or_unmatched_usage(v
     assert out["stale"] == "max@example.com · 5h — · week —"
     assert out["other"] == "other · 5h — · week —"
     assert out["mismatch"] == "max@example.com · 5h — · week —"
+
+
+def test_review_presentation_keeps_masked_command_and_serving_facts_in_their_place(visual_probe):
+    out = run_probe(visual_probe, "review")
+    assert out["headline"] == "Run the frontend tests in this checkout"
+    assert out["command"] == "echo [MASKED]"
+    assert out["fallback"] == "provider command"
+    assert out["noCommand"] is None, "Do not replace a loaded request with provider input"
+    assert not any(out["acknowledgments"][s] for s in
+                   ("waiting", "starting", "running", "approval-needed", "complete"))
+    assert all(out["acknowledgments"][s] for s in ("queued", "steering", "steered", "delivery-unknown", "unknown", "sending"))
+    assert "max@example.com" in out["tooltip"] and "claude-opus-5-5" in out["tooltip"]
+    assert out["home"] == "~/project" and out["outside"] == "/Users/examples/project"

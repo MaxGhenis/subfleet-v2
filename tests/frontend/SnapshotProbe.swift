@@ -15,6 +15,13 @@ final class SnapshotClient: DaemonCalling, @unchecked Sendable {
         provider_request_id: "request1", kind: "command",
         display: ApprovalDisplay(fields: ["description": .string("Run the frontend tests in this checkout"), "tool": .string("Bash")]),
         options: ["allow", "deny"], created_at: "2026-10-04T10:03:11Z", state: "pending")
+    static let question = ApprovalView(approval_id: "question1", message_id: "m1", conversation_id: "c0",
+        provider_request_id: "request1", kind: "question",
+        display: ApprovalDisplay(fields: ["description": .string("Choose which tests to run"), "tool": .string("AskUserQuestion"),
+            "questions": .array([.object(["question": .string("Which test suite should I run first?"),
+                "options": .array([.object(["label": .string("Frontend"), "description": .string("Check the app’s views and controls.")]),
+                                   .object(["label": .string("App regressions"), "description": .string("Check approval and recovery behavior.")])])])])]),
+        options: ["answer", "deny"], created_at: "2026-10-04T10:03:11Z", state: "pending")
     func call<A: Encodable, R: Decodable>(_ op: DaemonOperation<A, R>, _ args: A) throws -> R {
         if op.name == "workspace.check" {
             let value = try JSONValue.parse(JSONEncoder().encode(args))
@@ -24,9 +31,14 @@ final class SnapshotClient: DaemonCalling, @unchecked Sendable {
                 "fix": .string("Choose a project folder or use a new scratch folder.")]).decode(R.self)
         }
         if op.name == "approval.get" {
-            let data = try JSONValue.parse(JSONEncoder().encode(Self.approval))
+            let args = try JSONValue.parse(JSONEncoder().encode(args))
+            let approval = args["approval_id"]?.string == "question1" ? Self.question : Self.approval
+            let data = try JSONValue.parse(JSONEncoder().encode(approval))
+            let request: JSONValue = approval.kind == "question"
+                ? .object(["tool": .string("AskUserQuestion"), "input": .object(["questions": approval.display.fields["questions"]!])])
+                : .object(["tool": .string("Bash"), "input": .object(["command": .string("python -m pytest tests/frontend")])])
             return try JSONValue.object(["approval": data, "nonce": .string("fixture"), "request_sha256": .string("fixture"),
-                "request": .object(["tool": .string("Bash"), "input": .object(["command": .string("python -m pytest tests/frontend")])]),
+                "request": request,
                 "masked": .array([])]).decode(R.self)
         }
         if op.name == "conversation.runs" { return try JSONValue.object(["runs": .array([])]).decode(R.self) }
@@ -52,14 +64,14 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) t
     for (i, title) in names.enumerated() {
         let date = stamp.string(from: Calendar.current.date(byAdding: .day, value: i < 7 ? 0 : i < 14 ? -1 : -5, to: Date())!)
         state.conversations.append(Conversation(conversation_id: "c\(i)", provider: i % 3 == 0 ? "codex" : "claude",
-            title: title, workspace: i % 2 == 0 ? "/Users/example/subfleet" : "/Users/example/policyengine",
+            title: title, workspace: NSHomeDirectory() + (i % 2 == 0 ? "/subfleet" : "/policyengine"),
             workspace_kind: "in-place", allow_main: false, lane_id: "claude-2",
             settings: ConversationSettings(model: "claude-opus-5-5", effort: "medium"), origin: "person",
             blocked_by: i == 2 ? "unfinished-turn" : nil, created_at: date, updated_at: date,
-            pending_approvals: i == 1 ? 1 : 0, active: i == 0 && (["live", "live-expanded", "sidebar"].contains(scenario)), live_elsewhere: i == 4))
+            pending_approvals: i == 1 ? 1 : 0, active: i == 0 && (["live", "live-expanded", "sidebar", "question"].contains(scenario)), live_elsewhere: i == 4))
     }
     state.conversations[0].provider = "claude"
-    let live = scenario == "live" || scenario == "live-expanded" || scenario == "sidebar"
+    let live = scenario == "live" || scenario == "live-expanded" || scenario == "sidebar" || scenario == "question"
     if scenario == "blocked" { state.conversations[0].blocked_by = "unfinished-turn" }
     let receipt = Receipt(message_id: "m1", conversation_id: "c0", seq: 1, origin: "person",
         state: live ? "running" : "complete", settings: state.conversations[0].settings,
@@ -81,14 +93,15 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) t
         }
     }
     _ = state.apply(events: EventsPage(events: replay, next: replay.count, reset: false), conversationID: "c0")
-    if live, ["live", "live-expanded"].contains(scenario) {
+    let pendingApproval = scenario == "question" ? SnapshotClient.question : SnapshotClient.approval
+    if live, ["live", "live-expanded", "question"].contains(scenario) {
         let request = ConversationEvent(seq: replay.count + 1, message_id: "m1", kind: "approval.requested",
-            ts: replayStamp(191), data: .object(["request_id": .string("request1"), "kind": .string("command"),
-               "description": .string("Run the frontend tests in this checkout"), "tool": .string("Bash"),
-               "options": .array([.string("allow"), .string("deny")])]))
+            ts: replayStamp(191), data: .object(pendingApproval.display.fields.merging([
+                "request_id": .string("request1"), "kind": .string(pendingApproval.kind),
+                "options": .array(pendingApproval.options.map(JSONValue.string))]) { _, new in new }))
         _ = state.apply(events: EventsPage(events: [request], next: request.seq, reset: false), conversationID: "c0")
     }
-    if ["live", "live-expanded"].contains(scenario) { state.timelines["c0"]?.attach(approvals: [SnapshotClient.approval]) }
+    if ["live", "live-expanded", "question"].contains(scenario) { state.timelines["c0"]?.attach(approvals: [pendingApproval]) }
     state.focus("c0")
     state.laneLabels = ["claude-2": "max@example.com"]
     if draftScene {
@@ -215,7 +228,7 @@ struct SnapshotCanvas: View {
         let root = out.appendingPathComponent(".fixture-state")
         defer { try? FileManager.default.removeItem(at: root) }
         let scenarios = ProcessInfo.processInfo.environment["SF_SNAPSHOT_SCENES"]?.split(separator: ",").map(String.init)
-            ?? ["sidebar", "finished", "live", "live-expanded", "blocked", "new", "refused", "permission", "empty"]
+            ?? ["sidebar", "finished", "live", "live-expanded", "blocked", "new", "refused", "permission", "empty", "question"]
         for scenario in scenarios {
             for dark in [true, false] {
                 let model = try snapshotModel(root.appendingPathComponent(UUID().uuidString), scenario: scenario, events: events)
