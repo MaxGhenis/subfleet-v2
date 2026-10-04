@@ -87,6 +87,8 @@ def _drive(service, monkeypatch, start, gaps, outcomes):
     service._worker_failures.clear()
     service._worker_retry_at.clear()
     monkeypatch.setattr(service, '_admit', lambda: None)
+    monkeypatch.setattr(service, '_admit_turns', lambda: None)          # this line's turn pass (C-26.9)
+    monkeypatch.setattr(service.conversations, 'tick', lambda: None)    # and its conversations (C-26)
     monkeypatch.setattr(service.timers, 'tick', lambda: None)
     clock, later, script, passes = _Clock(start), iter(gaps), iter(outcomes), []
     monkeypatch.setattr(daemon_module, 'time', clock)
@@ -242,9 +244,9 @@ class _JumpingTime:
         return getattr(self._real, name)
 
 
-def _old_jobs(service, *names):
+def _old_jobs(service, *names, kind="dispatch"):
     for name in names:
-        service.store.add_job(job_id=name, request_id=name, payload_digest="digest", kind="dispatch",
+        service.store.add_job(job_id=name, request_id=name, payload_digest="digest", kind=kind,
                               workdir=str(service.root), prompt_path="/prompt", sandbox="read-only", state="succeeded")
         directory = service.root / "jobs" / name
         directory.mkdir(parents=True)
@@ -260,8 +262,7 @@ def test_the_real_pass_that_runs_out_of_time_before_its_first_prune_waits_the_ho
     clock, real_pins = _JumpingTime(), retention._pins
     monkeypatch.setattr(retention, "time", clock)
     monkeypatch.setattr(retention, "_pins", lambda *a, **k: (clock.jumped.set(), real_pins(*a, **k))[1])
-    real = retention.maintenance
-    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: real(*a, **{**k, "max_jobs": 0}))
+    _budget(service, jobs=0)
     service._last_maintenance = 0
     service._retention()                                       # returns: no TimeoutError
     assert service._last_maintenance > 0
@@ -286,14 +287,61 @@ def test_the_real_pass_that_runs_out_of_time_after_a_prune_is_retried(state_daem
         if kind == "retention.pruned":
             clock.jumped.set()
     monkeypatch.setattr(service.store, "transaction", transaction)
-    real = retention.maintenance
-    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: real(*a, **{**k, "max_jobs": 0}))
+    _budget(service, jobs=0)
     service._last_maintenance = 0
     with pytest.raises(TimeoutError):
         service._retention()
     assert service._last_maintenance == 0                      # still due: C-5.10's clock offers it again
     pruned = [name for name in ("old-a", "old-b") if service.store.get_job(name) is None]
     assert len(pruned) == 1
+
+
+def _budget(service, **changes):
+    """This line's retention budgets, through the policy the daemon reads (C-8.4, C-26.12)."""
+    service.policy = {**service.policy, "retention": {**service.policy["retention"], **changes}}
+
+
+def _deadline_after_first_prune(service, monkeypatch):
+    from contextlib import contextmanager
+    from subfleet import retention
+    clock, real_transaction = _JumpingTime(), service.store.transaction
+    monkeypatch.setattr(retention, "time", clock)
+
+    @contextmanager
+    def transaction(kind="state.changed", **options):
+        with real_transaction(kind, **options) as conn:
+            yield conn
+        if kind == "retention.pruned":
+            clock.jumped.set()
+    monkeypatch.setattr(service.store, "transaction", transaction)
+
+
+def test_the_real_pass_prunes_turn_jobs_on_their_own_budget(state_daemon, monkeypatch):
+    """C-8.4, C-26.12 (port review of 454525ec): the turn pool's budget and keep time
+    reach the real pass from policy. Only turn jobs are over budget; the first is
+    pruned and the deadline after it raises."""
+    service, _ = state_daemon
+    _old_jobs(service, "turn-a", "turn-b", kind="turn")
+    _old_jobs(service, "kept")
+    _budget(service, turn_jobs=0, turn_keep_days=0)
+    _deadline_after_first_prune(service, monkeypatch)
+    service._last_maintenance = 0
+    with pytest.raises(TimeoutError):
+        service._retention()
+    assert [name for name in ("turn-a", "turn-b") if service.store.get_job(name) is None] in (["turn-a"], ["turn-b"])
+    assert service.store.get_job("kept") is not None, "the detached pool is under its own budget"
+
+
+def test_the_real_pass_keeps_what_the_conversation_service_pins(state_daemon, monkeypatch):
+    """C-8.4, C-26.12, IR-17 (port review of 454525ec): the conversation service's pins
+    reach the real pass; the pinned job survives and the other is pruned."""
+    service, _ = state_daemon
+    _old_jobs(service, "pinned", "free", kind="turn")
+    _budget(service, turn_jobs=0, turn_keep_days=0)
+    monkeypatch.setattr(service.conversations, "retention_pins", lambda: {"pinned"})
+    service._last_maintenance = 0
+    service._retention()
+    assert service.store.get_job("pinned") is not None and service.store.get_job("free") is None
 
 
 def test_a_failing_notice_prune_does_not_stop_the_pass(state_daemon, monkeypatch):
