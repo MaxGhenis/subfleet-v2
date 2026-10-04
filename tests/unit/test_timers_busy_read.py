@@ -1148,3 +1148,82 @@ def test_c18_3_differential_a_busy_read_publishes_what_an_idle_read_would(
             })
     idle, busy = published
     assert busy == idle
+
+
+@pytest.mark.parametrize('provider', ['claude', 'codex'])
+@pytest.mark.parametrize('idle_first', [False, True])
+def test_busy_claude_reads_start_after_idle_lanes_are_available(rig, provider, idle_first):
+    """Eight paced busy reads cannot occupy workers/pacing while idle slots are held."""
+    rig.timer.policy['reserve']['usage_spacing_s'] = .03
+    idle = rig.enroll('idle-' + provider, provider=provider) if idle_first else None
+    busy = [rig.enroll(f'claude-busy-{n}', provider='claude') for n in range(8)]
+    for lane in busy:
+        rig.occupy(lane)
+    idle = idle or rig.enroll('idle-' + provider, provider=provider)
+    seen = []
+    def observe():
+        view = rig.timer.snapshot()
+        rig.timer.fence_probes(view)
+        row = next(row for row in view['lanes'] if row['lane_id'] == idle.lane_id)
+        seen.append((row['dispatchable'], idle.lane_id in rig.wham.calls,
+                     bool(rig.wham_readings(idle)), idle.lane_id in view['unavailable_lanes']))
+    for lane in busy:
+        rig.wham.during[lane.lane_id] = [observe]
+    rig.timer.probe_cycle()
+    assert len(seen) == 8
+    assert seen == [(True, True, True, False)] * 8
+    assert not rig.timer._probe_holders
+    assert not leases(rig.store)
+
+
+def test_busy_pacing_debt_from_the_previous_cycle_is_paid_before_any_idle_lease(rig, monkeypatch):
+    """A requested repeat cannot hold idle Claude/Codex slots while waiting for busy pacing."""
+    rig.enroll('claude-idle', provider='claude')
+    rig.enroll('codex-idle', provider='codex')
+    rig.timer.policy['reserve']['usage_spacing_s'] = 3
+    # The predecessor's last busy read owns the next usage start. Advance
+    # that wait deterministically, inspecting the real leases at the wait.
+    rig.timer._usage_next = time.monotonic() + 1000
+    observed = []
+    def wait(seconds):
+        observed.append(leases(rig.store))
+        rig.timer._usage_next = time.monotonic()
+        return False
+    monkeypatch.setattr(rig.timer.cancel, 'wait', wait)
+    rig.timer.probe_cycle()
+    assert observed
+    assert observed[0] == []
+    assert set(rig.wham.calls) == {'claude-idle', 'codex-idle'}
+
+
+@pytest.mark.parametrize('busy', [False, True])
+@pytest.mark.parametrize('status,retry_after', [('no-scope', None), ('identity-unbound', None),
+    ('unavailable', None), ('network-error', None), ('rate-limited', 3600)])
+def test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart(rig, busy, status, retry_after):
+    lane = rig.enroll('claude-1', provider='claude')
+    rig.timer.probe_cycle()
+    previous = rig.wham_readings(lane)
+    rig.clock.advance(180)
+    if busy:
+        rig.occupy(lane)
+    failure = {'status': status, 'readings': (), 'retry_after_s': retry_after}
+    rig.wham.responses[lane.lane_id] = [dict(failure)]
+    rig.timer.probe_cycle()
+    assert rig.wham_readings(lane) == previous
+    calls = len(rig.wham.calls)
+    # Explicit cycles, including after a restart, must not bypass failure pacing.
+    rig.timer.probe_cycle()
+    assert len(rig.wham.calls) == calls
+    rig.timer.stop()
+    rig.timer = Timers(rig.store, rig.root, rig.timer.policy,
+                       adapter_factory=lambda _: rig.wham, now=rig.clock)
+    delay = retry_after or rig.timer.intervals['probe']
+    rig.clock.advance(delay - 1)
+    rig.timer.probe_cycle()
+    assert len(rig.wham.calls) == calls
+    assert rig.wham_readings(lane) == previous
+    assert all(r['label'] == 'stale-provider' for r in rig.row(lane)['readings']
+               if r['window'] in ('seven_day', 'five_hour'))
+    rig.clock.advance(1)
+    rig.timer.probe_cycle()
+    assert len(rig.wham.calls) == calls + 1

@@ -578,9 +578,9 @@ def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
         previous = latest.get(key)
         if previous is None or _time(row["observed_at"]) > _time(previous["observed_at"]):
             latest[key] = row
-    # A window already expired at its own observation was never usable. It is
-    # uncertain from the outset, even with clock skew, rather than becoming
-    # uncertain at a reset before its future observation (C-6.3).
+    # A window already expired at its own observation is unusable as soon as
+    # that observation enters the TTL guard. Future observations do not change
+    # present ranking; their observation time is a horizon (C-6.3).
     recent = [row for row in latest.values()
               if 0 <= (now - _time(row["observed_at"])).total_seconds() <= reading_ttl_s]
     renewed = any(row.get("resets_at") and _time(row["resets_at"]) <= max(now, _time(row["observed_at"]))

@@ -198,15 +198,18 @@ def test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane():
 def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
     """A reading observed after the view's clock (another host's clock ahead of
     this one) turns fresh at its `observed_at`, and can show the lane below the
-    floor; one that will not be fresh then (past its reset, or not a provider
-    reading) moves nothing."""
+    floor; a non-provider reading moves nothing."""
     row = {"reading_id": 1, "lane_id": "codex-1", "scope": "account", "window": "seven_day",
            "utilization": .99, "resets_at": None, "label": "provider", "source": "fixture",
            "observed_at": iso(T0 + timedelta(seconds=2))}
     view = {"now": iso(T0), "readings": [row], "closures": []}
     assert capacity.decision_horizon(view, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
-    for inert in ({**row, "label": "unknown"},):
-        assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
+    inert = {**row, "label": "unknown"}
+    assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
+    # An observation already past its reset cannot supply admission freshness,
+    # but begins ranking uncertainty when its observation time is reached.
+    expired = {**row, "resets_at": iso(T0 + timedelta(seconds=1))}
+    assert capacity.decision_horizon({**view, "readings": [expired]}, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
 
 
 def judgements(case: dict, instant: datetime) -> dict:
