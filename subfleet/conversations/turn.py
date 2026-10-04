@@ -65,6 +65,7 @@ class TurnSpec:
     unified_exec_off: bool = False     # Codex: C-23.6's switch, as exec launches carry it
     held_by: tuple[int, ...] = ()      # Claude: outside pids holding the session at launch (C-26.3)
     network: bool = False              # Codex: a writable turn's shell reaches the network (d260)
+    route_json: str | None = None      # Claude: the warm lane it left and why, as JSON (C-6.16)
 
 
 @dataclass(frozen=True)

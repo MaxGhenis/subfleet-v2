@@ -29,7 +29,8 @@ from typing import Any
 
 from .. import protocol
 from ..adapters.base import AdapterError
-from ..contracts import Exit
+from .. import scheduler
+from ..contracts import DEFAULT_CAPS, HEADROOM_FLOOR, READING_TTL_S, Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..salvage import SalvageError
@@ -2041,6 +2042,13 @@ class ConversationService:
         held = self._writer_check(turn, adir)
         if held:
             spec = dataclasses.replace(spec, held_by=tuple(held))
+        try:
+            route = self._route_check(turn, dict(attempt), adir)
+        except (sqlite3.Error, OSError, ValueError, KeyError, TypeError) as exc:   # never holds a turn up
+            self.log.warning("turn %s route not recorded: %s: %s", aid, type(exc).__name__, exc)
+            route = None
+        if route:
+            spec = dataclasses.replace(spec, route_json=json.dumps(route, sort_keys=True))
         # Read before the runner is registered: a runner registered and never
         # started would never be adopted again (C-30.4, D-17). A replay reads it
         # too: the hold decides how its turn settles (readmitted, not failed).
@@ -2081,6 +2089,43 @@ class ConversationService:
         except Exception as exc:                      # finalization records it again; a turn never waits on it
             self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
         return True
+
+    def _route_check(self, turn: dict, attempt: dict, adir: Path) -> dict | None:
+        """C-6.16, C-26.2: the warm lane a Claude turn left, decided once per
+        attempt from its admission decision and kept in `route.json`, so a replay
+        after a restart tells the same story (C-26.6). None when the turn stayed,
+        had no warm lane, or is not Claude's. The previous turn's last use, cache
+        lifetime and context size come from its attempt's measured usage
+        (C-12.10); unmeasured, they are null and never estimated."""
+        path = adir / "route.json"
+        recorded = _read_json(path)
+        if isinstance(recorded, dict):
+            return recorded.get("route")
+        if turn.get("provider") != "claude" or not turn.get("affinity_lane") or (adir / "stdin.jsonl").exists():
+            return None
+        row = self.daemon.store.one("SELECT decision_json FROM decisions WHERE attempt_id=? "
+                                    "ORDER BY decision_id DESC LIMIT 1", (attempt["attempt_id"],))
+        if row is None:
+            return None
+        decision = json.loads(row["decision_json"])
+        previous = self._previous_turn_attempt(turn["conversation_id"], attempt["job_id"], turn["affinity_lane"])
+        usage = ((json.loads(previous["evidence_json"] or "{}") if previous else {}).get("usage") or {})
+        caps = {**DEFAULT_CAPS, "reading_ttl_s": READING_TTL_S, **(self.daemon.policy.get("caps") or {})}
+        route = scheduler.turn_route(
+            decision, turn["affinity_lane"], floor=self.daemon.policy.get("headroom_floor", HEADROOM_FLOOR),
+            reading_ttl_s=caps["reading_ttl_s"], last_use=previous["finished_at"] if previous else None,
+            cache_ttl=usage.get("cache_ttl"), context_tokens=(usage.get("last_request") or {}).get("prompt"))
+        from ..guardian import atomic_publish          # a new file of its own, never a FIFO's open()
+        atomic_publish(path, (json.dumps({"route": route, "at": utcnow()}, sort_keys=True) + "\n").encode())
+        return route
+
+    def _previous_turn_attempt(self, conversation_id: str, job_id: str, lane_id: str) -> dict | None:
+        """The conversation's latest finished turn attempt on `lane_id` before job `job_id`."""
+        row = self.daemon.store.one(
+            "SELECT a.* FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' AND j.name=? "
+            "AND a.job_id<>? AND a.lane_id=? AND a.finished_at IS NOT NULL ORDER BY a.finished_at DESC LIMIT 1",
+            (f"turn-{conversation_id}", job_id, lane_id))
+        return dict(row) if row else None
 
     def _writer_check(self, turn: dict, adir: Path) -> list[int]:
         """C-26.3 at launch: dispatch looked before the job waited for admission,

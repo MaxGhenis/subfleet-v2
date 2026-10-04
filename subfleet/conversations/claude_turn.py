@@ -220,8 +220,11 @@ class ClaudeTurn(SteerTracking):
         self.phase = "initializing"
         request = {"type": "control_request", "request_id": INIT_REQUEST_ID,
                    "request": {"subtype": "initialize"}}
-        return Step(frames=[Frame("init", "write", _line(request))],
-                    events=[Event("status", {"phase": "starting-provider"}, "cmd:start")])
+        events = [Event("status", {"phase": "starting-provider"}, "cmd:start")]
+        if self.spec.route_json:
+            # C-6.16: the turn left the lane holding its prompt cache; say where, why and until when.
+            events.append(Event("route", json.loads(self.spec.route_json), "cmd:start"))
+        return Step(frames=[Frame("init", "write", _line(request))], events=events)
 
     def interrupt(self) -> Step:
         """A person asked to stop this turn (C-24.7)."""
