@@ -67,6 +67,8 @@ def world(tmp_path, monkeypatch):
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s, core.start_grace_s = .05, .3, .3, 10
     core._exit_settle, core._children, core._pending_launches, core._starting_deadlines = {}, {}, set(), {}
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, INTERVAL, set()
+    core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
+    core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
     core._salvage = lambda job, a: ([], None, {})
