@@ -492,7 +492,6 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            ProviderMark(provider: result.entry.provider).padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(highlightedText(result.entry.title, result.titleHighlights))
@@ -527,7 +526,7 @@ struct SearchResultRow: View {
     }
 
     private var background: Color {
-        selected ? Theme.surface.selected.color : hovered ? Theme.surface.hover.color : .clear
+        selected ? Theme.surface.selected.color : hovered ? Theme.surface.hover.color : Theme.clear
     }
 
     private var providerName: String { result.entry.provider == "codex" ? "Codex" : "Claude" }

@@ -16,13 +16,22 @@ struct AccountUsage: Equatable {
             if provider == "codex", let match = snapshot.codex.homes.first(where: {
                 lane != nil ? $0.lane_id == lane : served.account != nil && $0.email == served.account
             }) {
-                account = match.email ?? account ?? match.home
-                display = codexDisplay(match, snapshot: snapshot, now: now)
+                if let recorded = served.account, let current = match.email,
+                   recorded.caseInsensitiveCompare(current) != .orderedSame {
+                    account = recorded
+                } else {
+                    account = served.account ?? match.email ?? account ?? match.home
+                    display = codexDisplay(match, snapshot: snapshot, now: now)
+                }
             } else if provider == "claude", let match = snapshot.claude.accounts?.first(where: {
                 lane != nil ? $0.lane_id == lane : served.account != nil && $0.email == served.account
             }) {
-                account = match.email
-                display = claudeDisplay(match, snapshot: snapshot, now: now)
+                if let recorded = served.account, recorded.caseInsensitiveCompare(match.email) != .orderedSame {
+                    account = recorded
+                } else {
+                    account = served.account ?? match.email
+                    display = claudeDisplay(match, snapshot: snapshot, now: now)
+                }
             }
         }
         guard let account else { return nil }

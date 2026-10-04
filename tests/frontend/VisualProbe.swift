@@ -26,8 +26,12 @@ import Foundation
                                           now: snapshotDate(snapshot.generated_at)!.addingTimeInterval(601))!
             let other = AccountUsage.make(provider: "claude", served: Served(fields: ["lane_id": .string("other")]),
                                           laneID: nil, snapshot: snapshot)!
+            var changed = snapshot
+            changed.claude.accounts?[0].email = "new@example.com"
+            let mismatch = AccountUsage.make(provider: "claude", served: served, laneID: nil, snapshot: changed,
+                                             now: snapshotDate(snapshot.generated_at)!)!
             print(String(data: try JSONSerialization.data(withJSONObject: ["fresh": fresh.words, "stale": stale.words,
-                  "other": other.words]), encoding: .utf8)!)
+                  "other": other.words, "mismatch": mismatch.words]), encoding: .utf8)!)
             return
         }
         let events = try JSONDecoder().decode([ConversationEvent].self,

@@ -62,3 +62,4 @@ def test_account_usage_matches_serving_lane_and_hides_stale_or_unmatched_usage(v
     assert out["fresh"] == "max@example.com · 5h 37% · week 62%"
     assert out["stale"] == "max@example.com · 5h — · week —"
     assert out["other"] == "other · 5h — · week —"
+    assert out["mismatch"] == "max@example.com · 5h — · week —"

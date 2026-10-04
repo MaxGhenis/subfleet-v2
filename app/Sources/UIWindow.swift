@@ -179,7 +179,7 @@ struct SidebarView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease")
                 }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
-            }.windowFont(.heading).foregroundStyle(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
+            }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if !model.failedDrafts.isEmpty {
@@ -243,7 +243,7 @@ struct SidebarRow: View {
             }
             if entry.liveElsewhere {
                 Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.text.secondary.color)
-                    .help("Open in the Claude app or a terminal").accessibilityLabel("Open elsewhere")
+                    .help("Open in another app or terminal").accessibilityLabel("Open elsewhere")
             }
             if !entry.continuable {
                 Image(systemName: "lock").foregroundStyle(Theme.text.secondary.color)
@@ -470,7 +470,8 @@ struct ConversationView: View {
             }
             HStack(spacing: Theme.space.step) {
                 ProviderMark(provider: conversation.provider)
-                Text(modelDisplayName(conversation.settings.model)).windowFont(.control)
+                Text(modelDisplayName(conversation.settings.model, models: model.state.models[conversation.provider] ?? []))
+                    .windowFont(.control)
             }.foregroundStyle(Theme.text.secondary.color)
             AccountUsageChip(model: model, conversation: conversation)
         }
@@ -837,7 +838,7 @@ struct DiffLineRow: View {
         case .added: return Theme.state.added
         case .removed: return Theme.state.removed
         case .hunk: return Theme.state.changed
-        default: return .clear
+        default: return Theme.clear
         }
     }
 }
@@ -1049,7 +1050,7 @@ struct ToolRow: View {
                     case .failed: Image(systemName: "xmark.circle").foregroundStyle(Theme.state.error)
                     case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(Theme.text.tertiary.color)
                     }
-                    Text(activity.label).readingFont(.caption).lineLimit(1)
+                    Text(activity.label).readingFont(.caption, design: .monospaced).lineLimit(1)
                     Text(activity.name).readingFont(.footnote).foregroundStyle(Theme.text.tertiary.color)
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     Spacer(minLength: 0)

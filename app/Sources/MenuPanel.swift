@@ -123,7 +123,7 @@ func toneColor(_ tone: LaneTone) -> Color {
     case .good: return Theme.state.success
     case .warning: return Theme.state.attention
     case .error: return Theme.state.error
-    case .neutral: return .gray
+    case .neutral: return Theme.text.tertiary.color
     }
 }
 
@@ -135,7 +135,7 @@ struct UsageBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
+                Capsule().fill(Theme.surface.selected.color)
                 Capsule().fill(stale ? Theme.text.tertiary.color : pct >= 95 ? Theme.state.error : pct >= 75 ? Theme.state.attention : Theme.state.success)
                     .frame(width: max(3, geo.size.width * pct / 100))
             }

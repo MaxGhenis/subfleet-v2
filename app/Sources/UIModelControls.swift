@@ -1,7 +1,10 @@
 #if !SUBFLEET_MODEL_TEST
 import SwiftUI
 
-func modelDisplayName(_ value: String) -> String {
+func modelDisplayName(_ value: String, models: [ModelEntry] = []) -> String {
+    if let entry = models.first(where: { $0.id == value || $0.value == value || $0.values.contains(value) }) {
+        return entry.short.prefix(1).uppercased() + entry.short.dropFirst()
+    }
     if value.hasPrefix("claude-") {
         return value.dropFirst(7).replacingOccurrences(of: "-5-5", with: " 5.5")
             .replacingOccurrences(of: "-", with: " ").capitalized
@@ -13,6 +16,10 @@ struct ModelEffortControl: View {
     let provider: String
     @Binding var settings: ConversationSettings
     let options: ComposerOptions
+    private var name: String {
+        options.models.first(where: { $0.value == settings.model })?.label
+            ?? modelDisplayName(settings.model, models: options.models.map(\.model))
+    }
     var body: some View {
         HStack(spacing: Theme.space.step) {
         ProviderMark(provider: provider)
@@ -35,13 +42,14 @@ struct ModelEffortControl: View {
                 ForEach(options.efforts, id: \.self) { Text($0.capitalized).tag($0) }
             }
         } label: {
-            Text(modelDisplayName(settings.model) + " · " + (settings.effort ?? options.defaultEffort ?? "Default").capitalized)
+            Text(name + " · " + (settings.effort ?? options.defaultEffort ?? "Default").capitalized)
+                .foregroundColor(Theme.text.secondary.color)
         }
         .menuStyle(.borderlessButton).fixedSize().windowFont(.control)
-        .foregroundStyle(Theme.text.secondary.color)
+        .foregroundColor(Theme.text.secondary.color)
         .help("Choose the model and reasoning effort")
         .accessibilityLabel("Model and effort")
-        .accessibilityValue(modelDisplayName(settings.model) + " " + (settings.effort ?? "Default"))
+        .accessibilityValue(name + " " + (settings.effort ?? "Default"))
         }
     }
 }
@@ -50,6 +58,9 @@ struct PermissionControl: View {
     let value: String
     let options: ComposerOptions
     let select: (String) -> Void
+    private var labelColor: Color {
+        PermissionPolicy.widens(from: "ask", to: value) ? Theme.state.attention : Theme.text.secondary.color
+    }
     var body: some View {
         Menu {
             ForEach(options.permissions) { choice in
@@ -57,9 +68,10 @@ struct PermissionControl: View {
             }
         } label: {
             Label(PermissionPolicy(rawValue: value)?.label ?? value, systemImage: "slider.horizontal.3")
+                .foregroundColor(labelColor)
         }
         .menuStyle(.borderlessButton).fixedSize().windowFont(.control)
-        .foregroundStyle(PermissionPolicy.widens(from: "ask", to: value) ? Theme.state.attention : Theme.text.secondary.color)
+        .foregroundColor(labelColor)
         .help("What the agent may do without asking")
         .accessibilityLabel("Permission")
         .accessibilityValue(PermissionPolicy(rawValue: value)?.label ?? value)
