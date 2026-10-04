@@ -194,7 +194,9 @@ def test_the_hold_sees_pending_children_through_the_route_view(store_daemon):
     for candidate in (job, stranger):
         full, route = (scheduler.evaluate(policy, view, candidate) for view in views)
         assert dataclasses.asdict(route) == dataclasses.asdict(full)
-        assert route.chosen_lane is not None, "job-0 waits on a job that has not started, so it holds nothing"
+        assert not any(row.get("host_pressure") for row in route.evaluations), \
+            "job-0 waits on a job that has not started, so it holds nothing"
+        assert route.chosen_lane is not None
 
 
 def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daemon):

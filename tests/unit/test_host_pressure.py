@@ -346,8 +346,10 @@ def test_two_waiting_parents_hold_neither_child():
 @st.composite
 def forests(draw):
     """Running parents, each waiting on one or more children that have not started
-    (some also with started children that wait on pending grandchildren), and a
-    number of unrelated running jobs."""
+    (some also with started children that wait on pending grandchildren); unrelated
+    running jobs; and running parents whose children have all started or ended.
+    The last two count against every pending job, and `counted` is how many
+    attempts they have in flight."""
     jobs, attempts, serial = [], [], iter(range(10 ** 6))
 
     def running(name, parent=None):
@@ -363,42 +365,42 @@ def forests(draw):
         if draw(st.booleans()):                       # a started child that itself waits on a grandchild
             running(f"{name}-s", name)
             jobs.append({"job_id": f"{name}-s-g", "parent_job_id": f"{name}-s", "state": "queued"})
-    strangers = draw(st.integers(min_value=0, max_value=3))
-    for index in range(strangers):
+    counted = draw(st.integers(min_value=0, max_value=3))
+    for index in range(counted):
         running(f"x{index}")
     # Parents whose children have all started or ended wait on nothing that has
-    # not started, so they count like strangers (review of 79f75e25: a rule that
+    # not started, so they count like counted (review of 79f75e25: a rule that
     # left out any job with a child would otherwise pass).
     for index in range(draw(st.integers(min_value=0, max_value=2))):
         running(f"d{index}")
-        strangers += 1
+        counted += 1
         for child in range(draw(st.integers(min_value=1, max_value=2))):
             state = draw(st.sampled_from(["running", "succeeded", "failed"]))
             if state == "running":
                 running(f"d{index}-c{child}", f"d{index}")
-                strangers += 1
+                counted += 1
             else:
                 jobs.append({"job_id": f"d{index}-c{child}", "parent_job_id": f"d{index}", "state": state})
-    return jobs, attempts, strangers
+    return jobs, attempts, counted
 
 
 @settings(max_examples=300, deadline=None)
 @given(forest=forests(), gib=st.floats(min_value=0, max_value=512, allow_nan=False),
        limit=st.floats(min_value=.5, max_value=256, allow_nan=False))
-def test_attempts_waiting_on_pending_jobs_hold_none_and_strangers_hold_all(forest, gib, limit):
+def test_attempts_waiting_on_pending_jobs_hold_none_and_counted_hold_all(forest, gib, limit):
     """C-6.15 (review of 15cc9f7e): an attempt of an ancestor of a job that has not
     started never holds a pending job, so parents that wait on their children cannot
     deadlock on the hold; an unrelated attempt in flight holds every pending job
     while the reading is above the threshold, and none at or below it."""
-    jobs, attempts, strangers = forest
+    jobs, attempts, counted = forest
     policy = {**POLICY_ON, "host_pressure": {**POLICY_ON["host_pressure"], "compressor_max_gib": limit}}
     view = _view(attempts, compressor_gib=gib, jobs=jobs)
     above = int(gib * GIB) > limit * GIB
     for row in (row for row in jobs if row["state"] in ("queued", "waiting")):
         job = {**JOB, "job_id": row["job_id"], "parent_job_id": row["parent_job_id"]}
         count = in_flight_beside(view, job, view["in_flight"])
-        assert count == strangers
-        assert (host_pressure_hold(policy, view, count) is not None) == (above and strangers > 0)
+        assert count == counted
+        assert (host_pressure_hold(policy, view, count) is not None) == (above and counted > 0)
 
 
 def test_a_parents_cap_is_named_before_pressure():
