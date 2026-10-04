@@ -69,9 +69,10 @@ MUSTER_MARKER = "subfleet muster: roll call"
 #: `entrypoint` against this same set. A person can drive an SDK host (a Subfleet
 #: conversation is `sdk-cli`), which is why a conversation is identified by the
 #: daemon's records (C-26.13), never by this shape. Every other value
-#: (`claude-desktop`, `cli`, and the rest of Claude Code's list) is a session. Measured on 2026-10-03 across one machine's 18,575
-#: transcripts: `sdk-cli` (all 2,042 Claude lane runs in the ledger),
-#: `claude-desktop` and `cli`, nothing else.
+#: (`claude-desktop`, `cli`, and the rest of Claude Code's list) is a session.
+#: Measured on 2026-10-03 across one machine's 18,575 transcripts: `sdk-cli`
+#: (all 2,042 Claude lane runs in the ledger), `claude-desktop` and `cli`,
+#: nothing else.
 HEADLESS_ENTRYPOINTS = frozenset({"sdk-cli", "sdk-ts", "sdk-py"})
 
 #: v1 `lanes.HEADLESS_PROMPT_SOURCE`; a `claude -p` prompt arrives via the SDK.

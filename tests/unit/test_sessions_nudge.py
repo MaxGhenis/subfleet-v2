@@ -489,9 +489,9 @@ def turns_of(request):
 
 
 def test_a_conversations_session_is_never_nudged_by_a_sweep(home, policy, turns_of):
-    """C-26.13: a live, interrupted session a conversation binds looks like any
-    other after its third turn, and the sweep still leaves it alone: its next
-    message comes from the Subfleet app."""
+    """C-26.13: a live, interrupted session a conversation binds is left alone
+    by the sweep whatever its transcript's shape: its next message comes from
+    the Subfleet app."""
     live(home, CONVERSATION, entries=turns_of(turns=3))
     live(home, ALICE, entries=fx.interrupted(age_s=1800), started_at=2.0)
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
