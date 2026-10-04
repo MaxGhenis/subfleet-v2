@@ -425,13 +425,13 @@ def test_c6_3_an_override_that_ends_is_judged_on_its_lane_alone(policy):
 
 def test_c6_3_a_reading_past_its_reset_is_labelled_as_an_evaluation_now_labels_it(policy):
     """Review of d04b8b3 (P3): a `provider` reading already past its reset measures
-    nothing and gives no horizon. 119 s old at the early evaluation, it is past the
+    nothing, but its renewal uncertainty now gives a TTL horizon. 119 s old at the early evaluation, it is past the
     120 s TTL at the reservation, where an evaluation now labels it `stale-provider`;
     the check kept `provider`. It now gives every reading as a view built at its clock
     does (label and age), and `check` asserts the whole decision equal."""
     store = fleet(lanes=[dict(LANES[0])],
                   readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=119), resets_in=-1)])
-    assert capacity.lane_horizons(view_of(store, NOW), reading_ttl_s=120) == {}
+    assert capacity.lane_horizons(view_of(store, NOW), reading_ttl_s=120) == {"codex-1": NOW.replace(microsecond=0) + timedelta(seconds=1)}
     result = check(policy, store, JOB, store, 2)
     verdict, _, standing, full = result
     assert verdict is None and standing.chosen_lane == "codex-1"
