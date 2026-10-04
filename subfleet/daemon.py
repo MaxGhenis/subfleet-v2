@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, host_pressure, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .alerts import operator_session
@@ -119,7 +119,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job"})
+                            "probe-pending", "behind-older-job", "host-pressure"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
@@ -456,6 +456,8 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.15: the host's compressor occupancy, read on a worker of its own.
+        self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -884,6 +886,12 @@ class Daemon:
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
         view = self._capacity_view(desktop, route=True)
+        # C-6.15: the last reading, for admission and `why` only: the `pick` op's
+        # advice to a person's own session is not held. Nothing is read here,
+        # because this also runs inside the reserving transaction (C-3.3).
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
@@ -2168,6 +2176,13 @@ class Daemon:
                         self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
+                # C-6.15: one `vm_stat` per `sample_s` while the hold is on, on a
+                # worker of its own so that a slow one delays no admission pass.
+                # Also with nothing in flight, when it holds nothing: jobs that
+                # arrive together then meet a reading, not the lack of one.
+                pressure = host_pressure.settings(self.policy)
+                if pressure["enabled"] and self._host_pressure.due(pressure["sample_s"]):
+                    self._schedule("host-pressure", self._host_pressure.refresh, pressure["sample_s"], paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -3123,6 +3138,7 @@ class Daemon:
                         label = "fleet-full" if live >= cap else "slot-kept"
                     hold = {"reason": label,
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
+                            **(scheduler.host_pressure_evidence(decision) if label == "host-pressure" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     rechecks = self._capacity_wait(

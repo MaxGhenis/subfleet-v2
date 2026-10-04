@@ -115,9 +115,13 @@ candidates = st.fixed_dictionaries(
 
 @settings(max_examples=150, deadline=None, suppress_health_check=FIXTURE_HEALTH)
 @given(store=stores(), job=candidates, fleet=st.integers(min_value=1, max_value=6),
-       per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)))
-def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent):
-    """C-6.4, C-11: the route view's decision equals the full view's, for every store and job."""
+       per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)),
+       pressure=st.one_of(st.none(), st.sampled_from([10.0, 40.0, 66.1, 300.0])))
+def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent, pressure):
+    """C-6.4, C-11, C-6.15: the route view's decision equals the full view's, for every
+    store and job, with the host-pressure hold off or on at any reading (review of
+    17bbb2d6: the hold leaves out ancestors of pending jobs, which the route view
+    must still show it)."""
     service = store_daemon
     jobs, attempts = store
     lay(service, jobs, attempts)
@@ -127,6 +131,8 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     else:
         caps.pop("max_active_attempts_per_parent", None)
     policy = {**service.policy, "caps": caps}
+    if pressure is not None:
+        policy["host_pressure"] = {**policy["host_pressure"], "enabled": True, "compressor_max_gib": 40}
     job = dict(job)
     if "existing" in job and job["existing"] < len(jobs):
         job["job_id"] = f"job-{job['existing']}"
@@ -138,6 +144,8 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     full = service._capacity_view(None)
     route = service._capacity_view(None, route=True)
     assert route["now"] == full["now"]
+    if pressure is not None:
+        full["host_pressure"] = route["host_pressure"] = {"compressor_bytes": int(pressure * 1024 ** 3), "age_s": 1.0}
     assert sum(1 for lane in full["lanes"] if lane["measured"]) == len(LANES), "the measured branches run"
     try:
         expected = scheduler.evaluate(policy, full, job)
@@ -166,6 +174,29 @@ def test_a_parent_cap_counts_the_same_under_any_parent_value(store_daemon, odd):
     assert dataclasses.asdict(scheduler.evaluate(policy, route, job)) == dataclasses.asdict(held)
     blocked = any(str(block).startswith("parent:") for row in held.evaluations for block in row["capacity_blocks"])
     assert blocked == bool(odd), "a truthy parent is followed and its cap applies; an empty one is no parent"
+
+
+def test_the_hold_sees_pending_children_through_the_route_view(store_daemon):
+    """C-6.15 with C-11.2 (review of 17bbb2d6): a running parent waiting on a pending
+    child is left out of the child's count in the route view as in the full view,
+    which needs each job's `state` in `ROUTE_JOBS`. Without it the child would be
+    held behind its own parent under admission and placed under `daemon.status`."""
+    service = store_daemon
+    # job-0 runs and waits on job-1, which has not started.
+    lay(service, [(None, "running"), (0, "queued")], [(0, "codex-1", "running", 0)])
+    policy = {**service.policy, "host_pressure": {**service.policy["host_pressure"], "enabled": True,
+                                                    "compressor_max_gib": 40}}
+    job = {"task": "research", "tier": "hard", "sandbox": "read-only", "job_id": "job-1", "parent_job_id": "job-0"}
+    stranger = {"task": "research", "tier": "hard", "sandbox": "read-only", "job_id": "job-9"}
+    views = [service._capacity_view(None), service._capacity_view(None, route=True)]
+    for view in views:
+        view["host_pressure"] = {"compressor_bytes": 300 * 1024 ** 3, "age_s": 1.0}
+    for candidate in (job, stranger):
+        full, route = (scheduler.evaluate(policy, view, candidate) for view in views)
+        assert dataclasses.asdict(route) == dataclasses.asdict(full)
+        assert not any(row.get("host_pressure") for row in route.evaluations), \
+            "job-0 waits on a job that has not started, so it holds nothing"
+        assert route.chosen_lane is not None
 
 
 def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daemon):
