@@ -136,3 +136,35 @@ cases fail on the head and pass fixed. The focused PR/CLI slice is 9 passed;
 mutations restoring first-poll events and whole-batch rejection were killed
 (1 and 2 failing tests respectively). The property resets the persisted poll
 clock for each generated case so shrinking cannot be hidden by previous cases.
+
+Additional review fixes (final source line references are listed below):
+
+| Finding | Behavior after the fix | Regression on 7504f3b8 |
+| --- | --- | --- |
+| P2 dropped WAKE-ME requests | Accept empty target placeholders, bullets, bold markup and the standard close-out; validate each line separately; timers use turn creation; refusals become visible status notices; fenced/quoted/indented text stays excluded | requests suite: 10 failed, 6 security controls passed |
+| P2 empty run wake | A request for already-announced/acknowledged runs becomes `satisfied`, with no message or throttle charge; alternative kinds are consumed too | `test_already_announced_run_request_is_satisfied_without_a_wake`: failed, 2 messages instead of 1 |
+| P2 fan-out spends throttle | Pending all-of requests gather covered completions, then send one message and charge once | `test_all_of_fanout_has_one_wake_and_one_throttle_charge`: failed after the first completion |
+| P2 PR poll blocks dispatch | One bounded PR worker handles the network call; dispatch continues, polling state remains durable, shutdown joins the worker | `test_pr_poll_does_not_hold_person_dispatch`: failed while fake gh was held |
+| P2 tick cost grows | Repair queue is consumed in batches of 500; no historical write work on quiet ticks; index `notices_job(job_id,state)`; automatic completion scans at most once per second | quiet repair: 10 writes instead of 0; lookup plan: table scan; control loop: 100 scans instead of 1; all failed |
+| P2 native mid-turn markers | Only real Claude prompts end ownership groups; interrupts, summaries, task notifications and tool results keep their turn's source | 3 Python cases and 3 real Swift folding cases failed; answer shown twice on head |
+| P2 upgrade announces old runs | Persist activation timestamp once; automatic discovery excludes older jobs while explicit requests can still name them | old automatic case failed; explicit-old-run control passed |
+| P3 Codex session lost | A resumed Codex launch retains its own session marker while removing unrelated inherited provider markers | corrected launch regression failed with missing session key |
+| P3 conversation open queues | Opening/history use a separate bounded read pool, independent of diffs/worktrees; close joins it | saturated two-thread file-pool regression timed out |
+| P3 unpaced moot-block check | Catalog/live-writer reads are paced at five seconds per unchanged block; a new block timestamp bypasses the previous delay | 100 writer/catalog calls instead of 1; failed |
+| P3 wait repeats results | Terminal wait receipts include notices; CLI acknowledges only its own returned results, including failed jobs; automatic wakes then exclude them | two CLI cases and real-store wait-to-wake case failed |
+| P3 moot-block wording | The criterion is catalog transcript mtime strictly after `blocked_at`, plus fresh writer/lease/turn guards. It does not establish a count of gained turns. This report and the corrected local PR description state that criterion. | Documentation correction; existing differential test remains the behavioral check |
+
+The review's suggested increasing cooldown is a policy recommendation, not
+an identified correctness failure. The specified eight-wake/30-minute bound is
+retained; no-progress PR and empty-run loops are removed. No live policy or
+routing aliases are edited.
+
+Review regression checkpoints: the final focused Python 3.12 run passed 59
+tests in 195.92 seconds. The review mutation matrix has 27 killed mutants and
+no survivors, including the grammar forms, first-poll/no-change property,
+partial GraphQL errors, batching, repair cost, activation cutoff, latency,
+Codex marker, wait acknowledgement, native grouping and report wording.
+`app/build.sh` completed successfully within its 900-second foreground bound,
+validated the plist and signed the local bundle under `build/review/app`.
+The local corrected PR description is `2026-10-04-continuation-pr-body.md`;
+no GitHub body was changed or pushed.

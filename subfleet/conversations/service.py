@@ -73,7 +73,7 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff", "conversation.open"})
+                      "conversation.create", "conversation.handoff"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
                          "message.steer"})
 MAX_WAIT_S = 50.0
@@ -125,6 +125,8 @@ class ConversationService:
         self.wakes = WakeEngine(self)
         self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.history_reads = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-history")
+        self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
@@ -172,6 +174,8 @@ class ConversationService:
         # the pool takes none after. Each is bounded (a capped file read, git under
         # its caps), as the ops the daemon's own pools wait for are.
         self.files.shutdown(wait=True, cancel_futures=True)
+        self.history_reads.shutdown(wait=True, cancel_futures=True)
+        self.wakes.close()
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
         # returned made the removed root again. Each finishes that iteration here, within
@@ -197,6 +201,8 @@ class ConversationService:
     def pool_for(self, op: str):
         if op in POLL_OPS:
             return self.polls
+        if op in ("conversation.open", "conversation.history"):
+            return self.history_reads
         if op in FILE_OPS:
             return self.files
         return self.daemon.requests
@@ -1531,7 +1537,7 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self.wakes.tick, self._dispatch, self._adopt_runners,
+        for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self.wakes.control_tick, self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
@@ -1549,10 +1555,17 @@ class ConversationService:
 
     def _moot_blocks(self) -> None:
         from .catalog import external_writers, transcript_record
-        for c in self.store.query("SELECT * FROM conversations WHERE blocked_by IN "
-                                 "('unfinished-turn','delivery-unknown','quarantined-turn') AND native_session_id IS NOT NULL"):
+        blocked = self.store.query("SELECT * FROM conversations WHERE blocked_by IN "
+                                   "('unfinished-turn','delivery-unknown','quarantined-turn') AND native_session_id IS NOT NULL")
+        active = {c["conversation_id"] for c in blocked}
+        self._moot_next = {cid: value for cid, value in self._moot_next.items() if cid in active}
+        for c in blocked:
             if c["provider"] != "claude" or not c["blocked_at"]:
                 continue
+            previous = self._moot_next.get(c["conversation_id"])
+            if previous and previous[0] == c["blocked_at"] and self.clock() < previous[1]:
+                continue
+            self._moot_next[c["conversation_id"]] = (c["blocked_at"], self.clock() + EXTERNAL_WRITER_RECHECK_S)
             record = transcript_record(self.root, c["provider"], c["native_session_id"])
             if not record or record.get("mtime", 0) <= datetime.fromisoformat(c["blocked_at"].replace("Z", "+00:00")).timestamp():
                 continue

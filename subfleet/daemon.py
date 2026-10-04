@@ -2753,6 +2753,7 @@ class Daemon:
             for job in jobs:
                 job["attempt"] = self.store.one(
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
     def kill(self, args: protocol.KillArgs) -> dict:

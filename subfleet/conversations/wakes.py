@@ -5,6 +5,7 @@ and the unattended counter share the message transaction, including after restar
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import re
 import shlex
@@ -33,6 +34,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS wake_pending_kind ON wake_requests(conversatio
 CREATE TABLE IF NOT EXISTS wake_runs (
  conversation_id TEXT NOT NULL, job_id TEXT NOT NULL, message_id TEXT NOT NULL,
  PRIMARY KEY(conversation_id,job_id)
+);
+CREATE TABLE IF NOT EXISTS wake_notice_repairs (
+ job_id TEXT PRIMARY KEY, delivered_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS wake_meta (key TEXT PRIMARY KEY, value REAL NOT NULL);
 """
@@ -66,27 +70,59 @@ def normalize(*, runs=None, prs=None, at=None, note="", now=None) -> dict:
     return result
 
 
-def trailing_requests(text: str) -> list[dict]:
-    """Only consecutive trailing WAKE-ME lines; shell quoting for note values.
+def _wake_line(line: str) -> str | None:
+    if len(line) - len(line.lstrip()) >= 4:
+        return None
+    line = re.sub(r"^ {0,3}(?:[-*] )?", "", line)
+    if line.startswith("**WAKE-ME:"):
+        line = line[2:]
+        if line.endswith("**"):
+            line = line[:-2]
+        line = line.replace("WAKE-ME:**", "WAKE-ME:", 1)
+    return line if line.startswith("WAKE-ME:") else None
 
-    WAKE-ME: runs=ID[,ID...] prs=OWNER/REPO#N[,OWNER/REPO#N...] at=ISO note="TEXT"
-    Fields are optional, unique, whitespace separated; at least one trigger.
-    """
-    lines = []
-    for line in reversed(text.rstrip().splitlines()):
-        if not line.startswith("WAKE-ME:"):
+
+def _trailing_wake_lines(text: str) -> list[str]:
+    lines = text.rstrip().splitlines()
+    top_level = []
+    fence = None
+    for line in lines:
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        top_level.append(fence is None and marker is None)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+    if lines and top_level[-1] and re.fullmatch(r"(?:DONE|WAITING ON MAX(?: .*?)?|HANDED TO .+)", lines[-1]):
+        lines.pop()
+        top_level.pop()
+    result = []
+    for line, allowed in reversed(list(zip(lines, top_level))):
+        if not line.strip():
+            continue
+        normalized = _wake_line(line) if allowed else None
+        if normalized is None:
             break
-        lines.append(line)
+        result.append(normalized)
+    return list(reversed(result))
+
+
+def trailing_requests(text: str) -> list[dict]:
+    """Top-level trailing requests, with an optional standard close-out line."""
     requests = []
-    for line in reversed(lines):
+    for line in _trailing_wake_lines(text):
         fields = {}
         for token in shlex.split(line[len("WAKE-ME:"):]):
             key, sep, value = token.partition("=")
-            if not sep or key not in ("runs", "prs", "at", "note") or key in fields or not value:
+            if not sep or key not in ("runs", "prs", "at", "note") or key in fields:
                 raise ConversationError("bad-wake", "invalid WAKE-ME field")
             fields[key] = value
-        requests.append({"runs": fields["runs"].split(",") if "runs" in fields else None,
-                         "prs": fields["prs"].split(",") if "prs" in fields else None,
+        if not any(fields.get(k) for k in ("runs", "prs", "at")):
+            raise ConversationError("bad-wake", "name runs, PRs, or a time")
+        requests.append({"runs": fields["runs"].split(",") if fields.get("runs") else None,
+                         "prs": fields["prs"].split(",") if fields.get("prs") else None,
                          "at": fields.get("at"), "note": fields.get("note", "")})
     return requests
 
@@ -102,7 +138,7 @@ def eligible(tx, cid: str, now: float) -> bool:
                           (cid, *TERMINAL_STATES)).fetchone()
 
 
-def claim(tx, cid: str, mid: str, data: dict) -> None:
+def claim(tx, cid: str, mid: str, data: dict, *, accepted_at: str) -> None:
     """Called in submit_message's transaction. A racing person/block wins."""
     if not eligible(tx, cid, data["now"]):
         raise ConversationError("wake-deferred", "conversation is busy, held, or throttled")
@@ -119,6 +155,8 @@ def claim(tx, cid: str, mid: str, data: dict) -> None:
         tx.execute("UPDATE wake_requests SET state='fired',message_id=? WHERE conversation_id=? AND request_id=? AND state='pending'",
                    (mid, cid, request_id))
     tx.executemany("INSERT INTO wake_runs VALUES(?,?,?)", [(cid, job_id, mid) for job_id in data["runs"]])
+    tx.executemany("INSERT OR IGNORE INTO wake_notice_repairs VALUES(?,?)",
+                   [(job_id, accepted_at) for job_id in data["runs"]])
     tx.execute("UPDATE conversations SET wake_streak=wake_streak+1,last_wake_at=? WHERE conversation_id=?", (data["now"], cid))
 
 
@@ -127,6 +165,39 @@ class WakeEngine:
         self.service = service
         self.store = service.store
         self.now = time.time
+        self.poller = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="subfleet-pr-wakes")
+        self._poll_future = None
+        self._next_poll = 0.0
+        self._next_completions = 0.0
+        with self.store.transaction() as tx:
+            tx.execute("INSERT OR IGNORE INTO wake_meta VALUES('automatic-since',?)", (self.now(),))
+            if not tx.execute("SELECT 1 FROM wake_meta WHERE key='notice-queue-v1'").fetchone():
+                # One upgrade repair, not a repeated scan of historical wake ids.
+                tx.execute("INSERT OR IGNORE INTO wake_notice_repairs SELECT w.job_id,m.created_at "
+                           "FROM wake_runs w JOIN messages m USING(message_id)")
+                tx.execute("INSERT INTO wake_meta VALUES('notice-queue-v1',?)", (self.now(),))
+
+    def close(self) -> None:
+        # gh has a hard timeout. The worker must end before its stores close.
+        self.poller.shutdown(wait=True, cancel_futures=True)
+
+    def control_tick(self) -> None:
+        """Network polling never holds the dispatch/control-loop worker."""
+        if self._poll_future is not None and self._poll_future.done():
+            try:
+                self._poll_future.result()
+            except Exception as exc:
+                self.service.log.warning("PR wake worker failed: %s", exc)
+            self._poll_future = None
+        if self._poll_future is None and self.now() >= self._next_poll:
+            pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='pr' AND ready_json IS NULL")
+            if pending:
+                self._next_poll = self.now() + PR_INTERVAL_S
+                self._poll_future = self.poller.submit(self._poll_prs, pending)
+        scan_completions = self.now() >= self._next_completions
+        if scan_completions:
+            self._next_completions = self.now() + 1.0
+        self.tick(poll=False, scan_completions=scan_completions)
 
     def register(self, cid: str, request_id: str, spec: dict) -> dict:
         conversation = self.store.conversation(cid)
@@ -162,17 +233,27 @@ class WakeEngine:
         return {"request_id": request_id, "kinds": list(spec)}
 
     def from_final(self, cid: str, mid: str, text: str) -> None:
-        try:
-            for index, args in enumerate(trailing_requests(text)):
-                request_id = f"final:{mid}:{index}"
-                # Reconciliation can replay days later: don't revalidate an accepted timer.
-                if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id)):
-                    continue
-                self.register(cid, request_id, normalize(**args, now=self.now()))
-        except (ConversationError, ValueError) as exc:
-            self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
+        message = self.store.one("SELECT created_at,job_id FROM messages WHERE message_id=?", (mid,))
+        started = self.service.daemon.store.one("SELECT created_at FROM jobs WHERE job_id=?", (message["job_id"],)) if message and message["job_id"] else None
+        validation_time = datetime.fromisoformat((started or message)["created_at"].replace("Z", "+00:00")).timestamp() if message else self.now()
+        for index, line in enumerate(_trailing_wake_lines(text)):
+            request_id = f"final:{mid}:{index}"
+            if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id)):
+                continue
+            try:
+                args = trailing_requests(line)[0]
+                self.register(cid, request_id, normalize(**args, now=min(self.now(), validation_time)))
+            except (ConversationError, ValueError) as exc:
+                self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
+                if message:
+                    self.store.append_events(conversation_id=cid, message_id=mid, attempt_id=f"wake:{mid}",
+                        events=[("command", f"wake-refused:{index}", 0, "status",
+                                 {"phase": "wake-refused", "detail": f"Wake request refused: {exc}"})],
+                        stdout_offset=0, stdin_seq=0)
 
     def _completions(self) -> dict[str, list[dict]]:
+        since = self.store.one("SELECT value FROM wake_meta WHERE key='automatic-since'")["value"]
+        cutoff = datetime.fromtimestamp(since, UTC).isoformat()
         conversations = self.store.query("SELECT * FROM conversations")
         by_id = {c["conversation_id"]: c for c in conversations}
         by_session = {canonical_native(c["native_session_id"]): c for c in conversations if c["native_session_id"]}
@@ -181,9 +262,9 @@ class WakeEngine:
         for job in self.service.daemon.store.query(
                 "SELECT j.job_id,j.caller_session,j.state,j.out_path,j.accepted_attempt_id,j.created_at,p.name parent_name "
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
-                "AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
+                "AND j.created_at>=? AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
-                "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')"):
+                "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
             c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
             if not c or job["created_at"] < c["created_at"]:
                 continue
@@ -224,12 +305,17 @@ class WakeEngine:
                            "AND kind='pr' AND state='pending'", (json.dumps(observed), json.dumps(changed) if changed else None,
                                                                r["conversation_id"], r["request_id"]))
 
-    def tick(self) -> None:
+    def tick(self, *, poll: bool = True, scan_completions: bool = True) -> None:
         self._surface_notices()
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
-        self._poll_prs(pending)
+        if poll:
+            self._poll_prs(pending)
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
-        completions = self._completions()
+        completions = self._completions() if scan_completions else {}
+        covered = {r["conversation_id"]: set() for r in pending if r["kind"] == "runs"}
+        for r in pending:
+            if r["kind"] == "runs":
+                covered[r["conversation_id"]].update(json.loads(r["payload_json"])["targets"])
         grouped = {}
         for r in pending:
             grouped.setdefault(r["conversation_id"], []).append(r)
@@ -244,17 +330,28 @@ class WakeEngine:
                 continue
             if self.service.daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"conversation:{cid}",)):
                 continue
-            runs = {j["job_id"]: j for j in completions.get(cid, [])}
+            runs = {j["job_id"]: j for j in completions.get(cid, []) if j["job_id"] not in covered.get(cid, set())}
             ready, notes = [], []
-            for r in grouped.get(cid, []):
+            satisfied = set()
+            for r in sorted(grouped.get(cid, []), key=lambda r: r["kind"] != "runs"):
+                if r["request_id"] in satisfied:
+                    continue
                 payload = json.loads(r["payload_json"])
                 kind = r["kind"]
                 if kind == "runs":
                     jobs = [self.service.daemon.store.one("SELECT * FROM jobs WHERE job_id=?", (j,)) for j in payload["targets"]]
                     if not all(j and j["state"] in ('succeeded','failed','cancelled','lost','quarantined') for j in jobs):
                         continue
-                    runs.update({j["job_id"]: j for j in jobs if not self.store.one(
-                        "SELECT 1 FROM wake_runs WHERE conversation_id=? AND job_id=?", (cid, j["job_id"]))})
+                    undelivered = {j["job_id"]: j for j in jobs if not self._delivered(cid, j["job_id"])}
+                    if not undelivered:
+                        # This all-of request already has its answer. Consuming it
+                        # silently also consumes its alternative triggers.
+                        with self.store.transaction() as tx:
+                            tx.execute("UPDATE wake_requests SET state='satisfied' WHERE conversation_id=? "
+                                       "AND request_id=? AND state='pending'", (cid, r["request_id"]))
+                        satisfied.add(r["request_id"])
+                        continue
+                    runs.update(undelivered)
                 elif kind == "time":
                     if now < payload["at"]:
                         continue
@@ -296,17 +393,24 @@ class WakeEngine:
                 self._surface_notices()
                 self.service.daemon._notify()
 
+    def _delivered(self, cid: str, job_id: str) -> bool:
+        return bool(self.store.one("SELECT 1 FROM wake_runs WHERE conversation_id=? AND job_id=?", (cid, job_id)) or
+                    self.service.daemon.store.one("SELECT 1 FROM notices WHERE job_id=? AND state IN ('acknowledged','surfaced') "
+                                                  "AND COALESCE(transport,'')<>'conversation'", (job_id,)))
+
     def _surface_notices(self) -> None:
-        """A durable wake carries the notice, so hooks don't repeat its body.
-        Separate stores: a crash before this update is repaired on the next tick.
-        """
-        rows = self.store.query("SELECT w.job_id,m.created_at FROM wake_runs w JOIN messages m USING(message_id)")
-        for start in range(0, len(rows), 500):
-            chunk = rows[start:start + 500]
-            with self.service.daemon.store.transaction("conversation.wake-notices") as tx:
-                tx.executemany("UPDATE notices SET state='surfaced',transport='conversation',offered_at=? "
-                               "WHERE job_id=? AND state='pending' AND julianday(created_at)<=julianday(?)",
-                               [(utcnow(), r["job_id"], r["created_at"]) for r in chunk])
+        """Repair only outstanding deliveries, in bounded batches across stores."""
+        rows = self.store.query("SELECT job_id,delivered_at FROM wake_notice_repairs LIMIT 500")
+        if not rows:
+            return
+        with self.service.daemon.store.transaction("conversation.wake-notices") as tx:
+            tx.executemany("UPDATE notices SET state='surfaced',transport='conversation',offered_at=? "
+                           "WHERE job_id=? AND state='pending' AND julianday(created_at)<=julianday(?)",
+                           [(utcnow(), r["job_id"], r["delivered_at"]) for r in rows])
+        # If this deletion crashes, the next tick repeats an idempotent repair.
+        with self.store.transaction() as tx:
+            tx.executemany("DELETE FROM wake_notice_repairs WHERE job_id=? AND delivered_at=?",
+                           [(r["job_id"], r["delivered_at"]) for r in rows])
 
 
 def pr_changed(before: dict | None, after: dict) -> bool:

@@ -96,7 +96,7 @@ def codex_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, la
              "thread_id": spec.native_session_id, "workdir": spec.cwd}
     return Launch(
         argv=tuple(argv), env_add=env, env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_THREAD_ID",
-                                                     "CODEX_SESSION_ID", "SUBFLEET_SESSION_ID"),
+                                                     "CODEX_SESSION_ID", *(() if spec.native_session_id else ("SUBFLEET_SESSION_ID",))),
         cwd=spec.cwd, stdin_path=None, stdout_path=str(attempt_dir / "stdout"),
         stderr_path=str(attempt_dir / "stderr"), raw_stream_path=None, native_session_id=spec.native_session_id,
         lane_id=lane.lane_id, notes=notes)
