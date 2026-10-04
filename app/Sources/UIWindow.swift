@@ -12,13 +12,11 @@ struct MainWindow: View {
     /// C-29.13: every conversation text size follows this scale.
     @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
     @State private var selection: String?
-    @State private var search = ""
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(model: model, selection: $selection)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
-        } detail: {
+        HSplitView {
+            SidebarView(model: model, selection: $selection, search: { palette.toggle(model) })
+                .frame(minWidth: 240, idealWidth: 280, maxWidth: 420)
             VStack(spacing: 0) {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
@@ -34,32 +32,22 @@ struct MainWindow: View {
                 } else if let conversation = model.state.focusedConversation {
                     ConversationView(model: model, conversation: conversation)
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Choose a conversation or start a new one").readingFont(.body).foregroundStyle(.secondary)
-                        Text("Press ⌘K to search conversations and messages").readingFont(.caption).foregroundStyle(.tertiary)
-                        Button("New conversation") { model.openNewDraft() }.keyboardShortcut("n")
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    EmptyConversationView { model.openNewDraft() }
                 }
                 if let problem = model.problem {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        if !model.failedDrafts.isEmpty {
-                            Button(problem) { model.selectFailedDraft() }
-                                .buttonStyle(.link).readingFont(.secondary).lineLimit(2)
-                        } else {
-                            Text(problem).readingFont(.secondary).lineLimit(2)
+                    NoticeRow(symbol: "exclamationmark.triangle") {
+                        HStack {
+                            if !model.failedDrafts.isEmpty {
+                                Button(problem) { model.selectFailedDraft() }.buttonStyle(.link).readingFont(.secondary)
+                            } else { Text(problem).readingFont(.secondary) }
+                            Spacer()
+                            Button { model.problem = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.borderless).accessibilityLabel("Dismiss notice").help("Dismiss notice")
                         }
-                        Spacer()
-                        Button { model.problem = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
-                    }
-                    .padding(8)
-                    .background(.bar)
+                    }.padding(Theme.space.inset)
                 }
             }
         }
-        .searchable(text: $search, placement: .sidebar, prompt: "Search conversations")
-        .onChange(of: search) { _, value in model.setSearch(value) }
         .onChange(of: selection) { _, value in
             guard let value else { return }
             if value.hasPrefix("failed:") {
@@ -73,20 +61,10 @@ struct MainWindow: View {
             // conversation) moves the highlight, so clicking a row always selects.
             if let id, selection != "cv:" + id { selection = "cv:" + id }
         }
-        .toolbar {
-            ToolbarItemGroup {
-                Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "all" },
-                                                      set: { model.setProviderFilter($0 == "all" ? nil : $0) })) {
-                    Text("All").tag("all")
-                    Text("Claude").tag("claude")
-                    Text("Codex").tag("codex")
-                }.pickerStyle(.segmented)
-                Button { palette.toggle(model) } label: { Label("Search", systemImage: "magnifyingglass") }
-                    .help("Search conversations and messages (⌘K)")
-                Button { model.openNewDraft() } label: { Label("New", systemImage: "plus") }
-                    .keyboardShortcut("n")
-            }
-        }
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.conversation.color)
+        .tint(Theme.accent)
+        .toolbarBackground(Theme.surface.conversation.color, for: .windowToolbar)
         .onChange(of: model.newDraft.isPresented) { _, visible in if visible { selection = nil } }
         .onChange(of: model.selectedFailedDraftID) { _, id in
             if let id { selection = "failed:" + id }
@@ -116,10 +94,10 @@ struct LockedSessionView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock").font(.largeTitle).foregroundStyle(.secondary)
+            Image(systemName: "lock").font(.largeTitle).foregroundStyle(Theme.text.secondary.color)
             Text(entry.title).readingFont(.subheading).multilineTextAlignment(.center)
-            if !entry.subtitle.isEmpty { Text(entry.subtitle).readingFont(.caption).foregroundStyle(.secondary) }
-            Text(lockedWords(entry)).readingFont(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if !entry.subtitle.isEmpty { Text(entry.subtitle).readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
+            Text(lockedWords(entry)).readingFont(.body).foregroundStyle(Theme.text.secondary.color).multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
         }
         .padding(24)
@@ -148,18 +126,13 @@ struct StatusBanner: View {
     let title: String
     let detail: String
     let symbol: String
-
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).bold().readingFont(.body)
-                Text(detail).readingFont(.secondary).foregroundStyle(.secondary)
+        NoticeRow(symbol: symbol) {
+            VStack(alignment: .leading, spacing: Theme.space.step) {
+                Text(title).readingFont(.body)
+                Text(detail).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
             }
-            Spacer()
         }
-        .padding(10)
-        .background(Color.orange.opacity(0.12))
     }
 }
 
@@ -168,110 +141,116 @@ struct StatusBanner: View {
 struct SidebarView: View {
     @ObservedObject var model: UIModel
     @Binding var selection: String?
+    var search: () -> Void = {}
+
+    private var sections: [SidebarSection] {
+        let sections = model.state.sidebar()
+        guard model.state.grouping == .recency else { return sections }
+        let recent = sections.filter { ["Today", "Yesterday"].contains($0.title) }
+        let earlier = sections.filter { !["Today", "Yesterday"].contains($0.title) }.flatMap(\.entries)
+        return recent + (earlier.isEmpty ? [] : [SidebarSection(id: "earlier", title: "Earlier", entries: earlier)])
+    }
 
     var body: some View {
-        List(selection: $selection) {
-            if !model.failedDrafts.isEmpty {
-                Section("Drafts that need you") {
-                    ForEach(model.failedDrafts) { draft in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("Could not start", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                            Text(draft.failure.message).readingFont(.caption).lineLimit(2)
-                            if !draft.text.isEmpty { Text(draft.text).readingFont(.caption).lineLimit(2) }
-                            HStack {
-                                Button("Change folder and retry") { model.changeFailedDraftFolder(draft) }
-                                Button("Copy message") { model.copyFailedDraft(draft) }
-                                Button("Discard") { model.discardFailedDraft(draft.id) }
-                            }.buttonStyle(.borderless).font(.caption)
-                        }.tag("failed:" + draft.id)
-                    }
-                }
-            }
-            ForEach(model.state.sidebar()) { section in
-                Section(section.title) {
-                    ForEach(section.entries) { entry in
-                        SidebarRow(entry: entry) {
-                            // The hand badge opens the conversation at its oldest waiting card.
-                            if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
-                            selection = entry.id
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            Button { model.openNewDraft() } label: {
+                Label("New conversation", systemImage: "square.and.pencil")
+                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+            }.keyboardShortcut("n").buttonStyle(QuietButtonStyle()).windowFont(.sidebar)
+            Button(action: search) {
+                HStack {
+                    Label("Search", systemImage: "magnifyingglass")
+                    Spacer()
+                    Text("⌘K").foregroundStyle(Theme.text.tertiary.color)
+                }.frame(height: Theme.space.row)
+            }.buttonStyle(QuietButtonStyle()).windowFont(.sidebar).help("Search conversations and messages (⌘K)")
+            HStack {
+                Menu {
+                    Button("Recent") { model.setGrouping(.recency) }
+                    Button("Workspace") { model.setGrouping(.workspace) }
+                } label: {
+                    Text(model.state.grouping == .recency ? "Recent" : "Workspace")
+                }.menuStyle(.borderlessButton).fixedSize().help("Group conversations by date or workspace")
+                Spacer()
+                Menu {
+                    Button("All providers") { model.setProviderFilter(nil) }
+                    Button("Claude") { model.setProviderFilter("claude") }
+                    Button("Codex") { model.setProviderFilter("codex") }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
+            }.windowFont(.heading).foregroundStyle(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !model.failedDrafts.isEmpty {
+                        Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                        ForEach(model.failedDrafts) { draft in
+                            Button { model.selectFailedDraft(draft.id); selection = "failed:" + draft.id } label: {
+                                Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
+                                    .windowFont(.sidebar).lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+                            }.buttonStyle(QuietButtonStyle()).help(draft.failure.message)
                         }
-                        .tag(entry.id)
+                    }
+                    ForEach(sections) { section in
+                        Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                            .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
+                        ForEach(section.entries) { entry in
+                            Button { selection = entry.id } label: {
+                                SidebarRow(entry: entry) {
+                                    if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
+                                    selection = entry.id
+                                }
+                                .padding(.horizontal, Theme.space.inset)
+                                .background(RoundedRectangle(cornerRadius: Theme.radius.control)
+                                    .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
+                            }.buttonStyle(QuietButtonStyle()).help(entry.title + "\n" + entry.subtitle)
+                        }
                     }
                 }
             }
         }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            Picker("Group by", selection: Binding(get: { model.state.grouping }, set: { model.setGrouping($0) })) {
-                Text("Recent").tag(SidebarGrouping.recency)
-                Text("Workspace").tag(SidebarGrouping.workspace)
-            }
-            .pickerStyle(.segmented)
-            .padding(8)
-        }
+        .padding(Theme.space.inset)
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.sidebar.color)
     }
 }
 
 struct SidebarRow: View {
     let entry: SidebarEntry
-    /// The hand badge's action: show the conversation's waiting cards.
     let showApprovals: () -> Void
+    @Environment(\.textScale) private var scale
 
     var body: some View {
-        HStack(spacing: 8) {
-            ProviderBadge(provider: entry.provider)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(entry.title).readingFont(.body).lineLimit(1)
-                    if case .native = entry.target {
-                        Image(systemName: "arrow.uturn.right.circle").readingFont(.footnote).foregroundStyle(.secondary)
-                            .help("An existing \(entry.provider == "codex" ? "Codex" : "Claude") session; opening it continues it here")
-                    }
-                }
-                Text(entry.subtitle).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 4)
+        HStack(spacing: Theme.space.inset) {
+            Text(entry.title).windowFont(.sidebar).lineLimit(1)
+            Spacer(minLength: Theme.space.step)
             if entry.pendingApprovals > 0 {
                 Button(action: showApprovals) {
-                    Label("\(entry.pendingApprovals)", systemImage: "hand.raised.fill").labelStyle(.titleAndIcon)
-                        .font(.caption).foregroundStyle(.orange)
+                    Label("\(entry.pendingApprovals)", systemImage: "hand.raised")
+                        .windowFont(.heading).foregroundStyle(Theme.state.attention)
                 }
                 .buttonStyle(.borderless)
                 .help("Waiting for your approval; click to show it")
                 .accessibilityLabel(approvalsWaitingWords(entry.pendingApprovals))
             }
             if let words = entry.needsYouLabel {
-                Label(words, systemImage: "exclamationmark.octagon").font(.caption).foregroundStyle(.orange)
-                    .help("Needs your decision")
+                Image(systemName: "exclamationmark.octagon").foregroundStyle(Theme.state.attention)
+                    .help("Needs your decision: " + words).accessibilityLabel("Needs your decision: " + words)
             }
             if entry.active {
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(.mini).help("A turn is running").accessibilityLabel("Running")
             }
             if entry.liveElsewhere {
-                Image(systemName: "rectangle.on.rectangle").foregroundStyle(.secondary)
-                    .help("Also open in the Claude app or a terminal")
+                Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.text.secondary.color)
+                    .help("Open in the Claude app or a terminal").accessibilityLabel("Open elsewhere")
             }
             if !entry.continuable {
-                Image(systemName: "lock").foregroundStyle(.secondary).help(entry.continueBlocker ?? "Cannot continue here")
+                Image(systemName: "lock").foregroundStyle(Theme.text.secondary.color)
+                    .help(entry.continueBlocker ?? "Cannot continue here").accessibilityLabel("Cannot continue here")
             }
         }
-        .padding(.vertical, 2)
-    }
-}
-
-struct ProviderBadge: View {
-    let provider: String
-    @Environment(\.textScale) private var scale
-
-    var body: some View {
-        // 9 pt in a 22 × 16 badge at actual size, growing with the text (C-29.13).
-        let size = ReadingStyle.footnote.pointSize(scale: scale) * 0.75
-        Text(provider == "codex" ? "CX" : "CL")
-            .font(.system(size: size, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: ceil(size * 22 / 9), height: ceil(size * 16 / 9))
-            .background(RoundedRectangle(cornerRadius: 4).fill(provider == "codex" ? Color.teal : Color.orange))
-            .help(provider == "codex" ? "Codex" : "Claude")
+        .frame(height: Theme.space.row * max(1, scale))
     }
 }
 
@@ -288,6 +267,8 @@ struct ConversationView: View {
     @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
     @State private var approvals = ApprovalFollower()
+    /// Useful for previews of the same expansion users can open.
+    var initiallyExpandedWork = false
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
@@ -302,21 +283,25 @@ struct ConversationView: View {
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: Theme.space.reply) {
                         if let timeline, !timeline.historyComplete, timeline.historyPagesLoaded > 0 {
                             Button("Load earlier") {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline?.items ?? []) { item in
-                            TimelineRow(model: model, conversation: conversation, item: item, review: review)
-                                .id(item.id)
+                        ForEach(timeline.map(WorkPresentation.rows) ?? []) { row in
+                            switch row {
+                            case .item(let item):
+                                TimelineRow(model: model, conversation: conversation, item: item, review: review).id(item.id)
+                            case .work(let group):
+                                WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork).id(group.id)
+                            }
                         }
-                        Color.clear.frame(height: 1).id("bottom")
+                        Theme.clear.frame(height: 1).id("bottom")
                             .onAppear { atBottom = true }
                             .onDisappear { atBottom = false }
                     }
-                    .padding(16)
+                    .padding(Theme.space.column)
                     .conversationColumn(conversation.conversation_id, proxy: proxy)
                     .frame(maxWidth: .infinity)
                 }
@@ -358,25 +343,27 @@ struct ConversationView: View {
             }
             if conversation.live_elsewhere == true {
                 HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(.orange)
+                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.state.attention)
                     // No fixedSize here: outside the scroll view, a text sized to its ideal
                     // height at the narrowest width set the window's minimum height, and the
                     // window's content overflowed it (2.1.2 build 7).
                     Text("Open in the Claude app or a terminal. Close it there to continue here; "
                          + "a message you send waits until then.")
-                        .readingFont(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
             }
             if timeline?.pendingApprovalCards.contains(where: { $0.kind == "question" }) == true {
                 Text("The agent is waiting on you. Pick a reply in the question card or type your own there.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(Theme.text.secondary.color)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             ComposerView(model: model, conversation: conversation)
         }
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.conversation.color)
         .task(id: conversation.conversation_id) {
             // Sub-agents change outside this conversation's event log: look every 10 s.
             while !Task.isCancelled {
@@ -458,23 +445,22 @@ struct ConversationView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ProviderBadge(provider: conversation.provider)
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.state.conversationTitle(conversation)).readingFont(.subheading).lineLimit(1)
+                Text(model.state.conversationTitle(conversation)).windowFont(.title).lineLimit(1)
                     .contextMenu {
                         Button("Rename…") {
                             renamedTitle = model.state.conversationTitle(conversation)
                             renaming = true
                         }
                     }
-                Text(abbreviatedPath(conversation.workspace)).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(abbreviatedPath(conversation.workspace)).windowFont(.heading).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
             }
             Spacer()
             Button {
                 renamedTitle = model.state.conversationTitle(conversation)
                 renaming = true
             } label: { Image(systemName: "pencil") }
-                .buttonStyle(.borderless).help("Rename conversation")
+                .buttonStyle(.borderless).help("Rename conversation").accessibilityLabel("Rename conversation")
             if model.canShowChanges {
                 Button { model.showChanges(.conversation(conversation.conversation_id)) } label: {
                     Label("Changes", systemImage: "plus.forwardslash.minus")
@@ -482,16 +468,14 @@ struct ConversationView: View {
                 .buttonStyle(.borderless)
                 .help("What this conversation changed in its checkout since its first writable turn")
             }
-            Text(PermissionPolicy(rawValue: conversation.settings.permission)?.label ?? conversation.settings.permission)
-                .readingFont(.caption).padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                .help("Permission policy")
-            if conversation.origin == "native" || conversation.origin == "legacy" {
-                Text(conversation.origin == "legacy" ? "Imported" : "Continued").readingFont(.caption).foregroundStyle(.secondary)
-            }
+            HStack(spacing: Theme.space.step) {
+                ProviderMark(provider: conversation.provider)
+                Text(modelDisplayName(conversation.settings.model)).windowFont(.control)
+            }.foregroundStyle(Theme.text.secondary.color)
+            AccountUsageChip(model: model, conversation: conversation)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.surface.conversation.color)
     }
 }
 
@@ -508,7 +492,7 @@ struct TimelineRow: View {
                 PersonBubble(text: text, footer: nil)
             } else if let tool {
                 Label(tool + (text.isEmpty ? "" : ": " + text), systemImage: "wrench.and.screwdriver")
-                    .readingFont(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(2)
             } else {
                 MarkdownView(text: text)
             }
@@ -524,23 +508,19 @@ struct TimelineRow: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .text(let text, let final):
             MarkdownView(text: text, streaming: !final)
-        case .thinking(let text, let final):
-            DisclosureGroup {
-                Text(text).italic().readingFont(.secondary).foregroundStyle(.secondary).textSelection(.enabled)
-            } label: {
-                Label(final ? "Thought" : "Thinking…", systemImage: "brain").readingFont(.caption).foregroundStyle(.secondary)
-            }
+        case .thinking:
+            EmptyView() // Visible summaries live only inside WorkGroupView.
         case .tool(let activity):
             ToolRow(activity: activity)
         case .approval(let card):
             ApprovalCardView(model: model, conversationID: conversation.conversation_id, card: card,
                              review: { review(card) })
         case .error(let message, let kind, let willRetry):
-            Label((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""),
-                  systemImage: "exclamationmark.triangle")
-                .readingFont(.secondary).foregroundStyle(.red)
+            NoticeRow(symbol: "exclamationmark.triangle") {
+                Text((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""))
+            }
         case .notice(let words):
-            Text(words).readingFont(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+            NoticeRow(symbol: "info.circle") { Text(words) }
         case .taskNotification(let notice):
             TaskNotificationView(notice: notice)
         case .steered:
@@ -557,7 +537,7 @@ struct ReadMark: View {
             Image(systemName: "checkmark")
             Image(systemName: "checkmark").offset(x: 4)
         }
-        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        .font(.caption2.weight(.semibold)).foregroundStyle(Theme.text.secondary.color)
         .padding(.trailing, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Read")
@@ -572,10 +552,10 @@ struct PersonBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(text).readingFont(.body).textSelection(.enabled)
-            if let footer { Label(footer, systemImage: "photo").readingFont(.caption).foregroundStyle(.secondary) }
+            if let footer { Label(footer, systemImage: "photo").readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.14)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius.container).fill(Theme.surface.raised.color))
         .frame(maxWidth: ReadingStyle.bubbleWidth(scale: scale), alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -597,7 +577,7 @@ struct TurnStatusLine: View {
             // A steered message reads as Claude Code's does: unread, by what the turn is doing, then Read.
             Text(model.state.timelines[conversation.conversation_id]?.statusText(
                 of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
-                .readingFont(.caption).foregroundStyle(.secondary)
+                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
             }
@@ -645,7 +625,7 @@ struct ChangesPane: View {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).readingFont(.subheading).lineLimit(1)
-                    if let subtitle { Text(subtitle).readingFont(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                    if let subtitle { Text(subtitle).readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(2) }
                 }
                 Spacer()
                 if case .turn = scope {
@@ -653,9 +633,9 @@ struct ChangesPane: View {
                         .buttonStyle(.link).readingFont(.caption)
                 }
                 Button { Task { await model.loadChanges(scope) } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Compare again")
+                    .buttonStyle(.borderless).help("Compare again").accessibilityLabel("Compare again")
                 Button { model.changesScope = nil } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless).help("Close")
+                    .buttonStyle(.borderless).help("Close").accessibilityLabel("Close")
             }
             .padding(10)
             Divider()
@@ -699,7 +679,7 @@ struct ChangesPane: View {
                          symbol: notes.isEmpty ? "checkmark.circle" : "info.circle")
             } else {
                 ForEach(diffNotes(result), id: \.self) { note in
-                    Label(note, systemImage: "info.circle").readingFont(.caption).foregroundStyle(.secondary)
+                    Label(note, systemImage: "info.circle").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                         .padding(.horizontal, 10).padding(.top, 6)
                 }
                 List(selection: $selected) {
@@ -725,7 +705,7 @@ struct PaneNote: View {
 
     var body: some View {
         VStack {
-            Label(text, systemImage: symbol).readingFont(.secondary).foregroundStyle(.secondary).padding(14)
+            Label(text, systemImage: symbol).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color).padding(14)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -742,10 +722,10 @@ struct DiffFileRow: View {
             Text(file.from.map { "\($0) → \(file.path)" } ?? file.path).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
             if file.binary {
-                Text("binary").foregroundStyle(.secondary)
+                Text("binary").foregroundStyle(Theme.text.secondary.color)
             } else {
-                if let added = file.additions, added > 0 { Text("+\(added)").foregroundStyle(.green) }
-                if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(.red) }
+                if let added = file.additions, added > 0 { Text("+\(added)").foregroundStyle(Theme.state.success) }
+                if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(Theme.state.error) }
             }
         }
         .readingFont(.caption, design: .monospaced)
@@ -766,10 +746,10 @@ func diffStatusLetter(_ status: String) -> String {
 
 func diffStatusColor(_ status: String) -> Color {
     switch status {
-    case "added": return .green
-    case "deleted": return .red
-    case "renamed", "copied": return .blue
-    default: return .orange
+    case "added": return Theme.state.success
+    case "deleted": return Theme.state.error
+    case "renamed", "copied": return Theme.accent
+    default: return Theme.state.attention
     }
 }
 
@@ -799,10 +779,10 @@ struct DiffLinesView: View {
                         Text(section.path).readingFont(.caption, weight: .bold, design: .monospaced)
                             .padding(.horizontal, 8).padding(.vertical, 5)
                             .frame(minWidth: width, alignment: .leading)
-                            .background(Color.secondary.opacity(0.12))
+                            .background(Theme.surface.raised.color)
                         if section.lines.isEmpty {
                             Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
-                                .readingFont(.caption).foregroundStyle(.secondary).padding(8)
+                                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).padding(8)
                         }
                         ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: width) }
                     }
@@ -825,10 +805,10 @@ struct DiffLineRow: View {
         // Line numbers of five digits fit at every text size.
         let size = ReadingStyle.caption.pointSize(scale: scale)
         HStack(spacing: 0) {
-            Text(line.old.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(.tertiary)
-            Text(line.new.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(.tertiary)
+            Text(line.old.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(Theme.text.tertiary.color)
+            Text(line.new.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(Theme.text.tertiary.color)
             Text(marker).frame(width: ceil(size * 1.5)).foregroundStyle(markerColor)
-            Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Color.secondary : Color.primary)
+            Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Theme.text.secondary.color : Theme.text.primary.color)
         }
         .readingFont(.caption, design: .monospaced)
         .padding(.trailing, 12)
@@ -850,13 +830,13 @@ struct DiffLineRow: View {
         }
     }
 
-    private var markerColor: Color { line.kind == .added ? .green : line.kind == .removed ? .red : .secondary }
+    private var markerColor: Color { line.kind == .added ? Theme.state.success : line.kind == .removed ? Theme.state.error : Theme.text.secondary.color }
 
     private var background: Color {
         switch line.kind {
-        case .added: return Color.green.opacity(0.12)
-        case .removed: return Color.red.opacity(0.12)
-        case .hunk: return Color.blue.opacity(0.07)
+        case .added: return Theme.state.added
+        case .removed: return Theme.state.removed
+        case .hunk: return Theme.state.changed
         default: return .clear
         }
     }
@@ -877,19 +857,19 @@ struct LiveTurnStrip: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.mini)
+            ProgressView().controlSize(.mini).accessibilityLabel("Turn in progress")
             if let since = turn.statusSince {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("\(turn.statusText) · \(elapsedWords(from: since, to: context.date))")
-                        .readingFont(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).monospacedDigit()
                 }
             } else {
-                Text(turn.statusText).readingFont(.caption).foregroundStyle(.secondary)
+                Text(turn.statusText).readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
             }
             Spacer()
             if let label = reviewButtonLabel(pending: pendingApprovals) {
                 Button(action: review) { Label(label, systemImage: "hand.raised.fill") }
-                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+                    .buttonStyle(.bordered).tint(Theme.accent).controlSize(.small)
                     .help("Open the oldest request waiting for your approval")
             }
             if let stop { Button("Stop", action: stop).buttonStyle(.link).font(.caption) }
@@ -907,14 +887,14 @@ struct RunsStrip: View {
         let live = runs.filter(\.isLive)
         if !runs.isEmpty {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.text.secondary.color)
                 if live.isEmpty {
                     Text("\(runs.count) sub-agent run\(runs.count == 1 ? "" : "s"), none running")
-                        .readingFont(.caption).foregroundStyle(.secondary)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 } else {
                     Text(live.prefix(3).map(runLine).joined(separator: "   "))
                         .readingFont(.caption).lineLimit(1).truncationMode(.tail)
-                    if live.count > 3 { Text("+\(live.count - 3)").readingFont(.caption).foregroundStyle(.secondary) }
+                    if live.count > 3 { Text("+\(live.count - 3)").readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
                 }
                 Spacer()
                 Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).readingFont(.caption)
@@ -947,7 +927,7 @@ struct RunsList: View {
                     Text([run.task.map { t in run.tier.map { "\(t) · \($0)" } ?? t }, run.lane_id,
                           run.model_served ?? run.model_requested, run.state]
                         .compactMap { $0 }.joined(separator: "  ·  "))
-                        .readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
                 }
             }
             .help(run.job_id)
@@ -968,9 +948,9 @@ func runSymbol(_ state: String) -> String {
 
 func runColor(_ state: String) -> Color {
     switch state {
-    case "succeeded": return .green
-    case "failed", "lost": return .red
-    default: return .secondary
+    case "succeeded": return Theme.state.success
+    case "failed", "lost": return Theme.state.error
+    default: return Theme.text.secondary.color
     }
 }
 
@@ -997,47 +977,98 @@ struct ServedChipView: View {
         let parts = [chip.account, chip.model, chip.effort, chip.fast].compactMap { $0 }.filter { !$0.isEmpty }
         HStack(spacing: 4) {
             if !parts.isEmpty {
-                Text(parts.joined(separator: " · ")).readingFont(.footnote).foregroundStyle(.secondary)
+                Text(parts.joined(separator: " · ")).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
             }
             ForEach(chip.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle").readingFont(.footnote).foregroundStyle(.orange)
+                Label(warning, systemImage: "exclamationmark.triangle").readingFont(.footnote).foregroundStyle(Theme.state.attention)
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 1)
-        .background(Capsule().fill(Color.secondary.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.raised.color))
+    }
+}
+
+struct WorkGroupView: View {
+    let group: WorkGroup
+    @State private var expanded: Bool
+    init(group: WorkGroup, initiallyExpanded: Bool = false) {
+        self.group = group
+        _expanded = State(initialValue: initiallyExpanded)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space.inset) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: Theme.space.inset) {
+                    if group.running != nil && !group.completed { ProgressView().controlSize(.mini) }
+                    Text(group.label)
+                    if group.failed > 0 {
+                        Image(systemName: "xmark.circle").foregroundStyle(Theme.state.error)
+                        Text("\(group.failed) failed")
+                    }
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    if let running = group.running, !group.completed {
+                        Text(running.label).lineLimit(1).truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(QuietButtonStyle())
+            .help(expanded ? "Hide work details" : "Show work details")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            if expanded {
+                ForEach(group.items) { item in
+                    switch item.content {
+                    case .tool(let activity): ToolRow(activity: activity)
+                    case .thinking(let text, _):
+                        Text(text).italic().readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
+                            .textSelection(.enabled)
+                    default: EmptyView()
+                    }
+                }
+            }
+        }
+        .padding(.vertical, Theme.space.step)
+        .overlay(alignment: .bottom) {
+            if group.completed { Rectangle().fill(Theme.line.hairline).frame(height: 1).offset(y: Theme.space.inset) }
+        }
     }
 }
 
 struct ToolRow: View {
     let activity: ToolActivity
     @State private var expanded = false
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                switch activity.state {
-                case .running: ProgressView().controlSize(.mini)
-                case .succeeded: Image(systemName: "checkmark.circle").foregroundStyle(.green)
-                case .failed: Image(systemName: "xmark.circle").foregroundStyle(.red)
-                case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
-                }
-                Text(activity.name).readingFont(.caption, weight: .bold)
-                Text(activity.summary).readingFont(.caption, design: .monospaced).lineLimit(1).truncationMode(.middle)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if activity.preview != nil {
-                    Button { expanded.toggle() } label: { Image(systemName: expanded ? "chevron.up" : "chevron.down") }
-                        .buttonStyle(.borderless)
-                }
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: Theme.space.inset) {
+                    switch activity.state {
+                    case .running: ProgressView().controlSize(.mini)
+                    case .succeeded: Image(systemName: "checkmark").foregroundStyle(Theme.text.tertiary.color)
+                    case .failed: Image(systemName: "xmark.circle").foregroundStyle(Theme.state.error)
+                    case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(Theme.text.tertiary.color)
+                    }
+                    Text(activity.label).readingFont(.caption).lineLimit(1)
+                    Text(activity.name).readingFont(.footnote).foregroundStyle(Theme.text.tertiary.color)
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    Spacer(minLength: 0)
+                }.foregroundStyle(Theme.text.secondary.color).contentShape(Rectangle())
             }
-            if expanded, let preview = activity.preview {
-                Text(preview).readingFont(.caption, design: .monospaced).textSelection(.enabled)
-                    .padding(6).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.08)))
+            .buttonStyle(QuietButtonStyle()).help("\(activity.state.rawValue): \(activity.label). Show input and output")
+            .accessibilityValue(activity.state.rawValue)
+            if expanded && !activity.hidden {
+                Text(activity.summary).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                    .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.raised.color))
+                if let preview = activity.preview, !preview.isEmpty {
+                    Text(preview).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                        .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.raised.color))
+                }
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
+        .padding(.leading, Theme.space.inset)
     }
 }
 
