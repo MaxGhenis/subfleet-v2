@@ -7,6 +7,7 @@ import pytest
 from subfleet.status_json import build_status
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.swift import ROOT, compile_probe
+from tests.frontend import swift
 from tests.frontend.test_app_cutover_start import MESSAGE, input_for, refused_journal, route_codex_hard, world  # noqa: F401
 from tests.frontend.test_status_model import lane
 
@@ -15,9 +16,28 @@ pytestmark = needs_swift
 
 @pytest.fixture(scope="session")
 def review_probe(tmp_path_factory):
-    return compile_probe(tmp_path_factory.mktemp("review-fixes") / "probe",
-                         [ROOT / "tests/frontend/ReviewCutoverProbe.swift",
-                          ROOT / "tests/frontend/CutoverViewScenarios.swift"], "SUBFLEET_UI_MODEL_TEST")
+    folder = tmp_path_factory.mktemp("review-fixes")
+    # Same production code with access-only helpers in a same-file extension.
+    # The baseline archive receives this fixture, never a production logic edit.
+    source = ROOT / "app/Sources/UIModel.swift"
+    generated = folder / "UIModel.swift"
+    generated.write_text(source.read_text() + '''
+#if SUBFLEET_UI_MODEL_TEST
+extension UIModel {
+    func reviewSetAvailability(_ availability: DaemonAvailability) { state.availability = availability }
+    func reviewApplyModels(_ models: ModelsListResult, provider: String) { state.apply(models: models, provider: provider) }
+}
+#endif
+''')
+    original_sources = swift.app_sources
+    sources = original_sources()
+    swift.app_sources = lambda: [generated if path == source else path for path in sources]
+    try:
+        return compile_probe(folder / "probe",
+                             [ROOT / "tests/frontend/ReviewCutoverProbe.swift",
+                              ROOT / "tests/frontend/CutoverViewScenarios.swift"], "SUBFLEET_UI_MODEL_TEST")
+    finally:
+        swift.app_sources = original_sources
 
 
 def data_for(tmp_path, world, **extra):

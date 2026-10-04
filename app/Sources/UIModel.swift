@@ -537,11 +537,24 @@ final class UIModel: ObservableObject {
         let provider = newDraft.provider
         let permission = newDraft.settings.permission
         let recovery = failedDrafts.first { $0.id == failedDraftKey }?.create
-        let candidates = selectDefault && draftNeedsWorkspaceDefault ? recentWorkspaces() : []
-        let selectingDefault = selectDefault && draftNeedsWorkspaceDefault
+        let selectingDefault = draftNeedsWorkspaceDefault && (selectDefault || newDraft.workspace == nil)
+        let candidates = selectingDefault ? recentWorkspaces() : []
+        // Unknown readiness is not an old daemon. Keep the draft and explain
+        // why Start must wait for a capability handshake and folder validation.
+        guard let capabilities = state.availability.capabilities else {
+            if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
+            if let selected = newDraft.resolvedWorkspace {
+                let reason = state.availability.banner?.detail ?? "Waiting for the daemon to become ready."
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(reason)",
+                                                                 fix: "Try again when the daemon is available."),
+                                             workspace: selected, provider: provider, permission: permission, transient: true)
+            }
+            draftCheckInFlight = false
+            return
+        }
         // C-25.1: older daemons decide admission at create. Do not call an op
         // they have not advertised, either here or at Start.
-        guard state.availability.capabilities?.has("workspace.check.v1") == true else {
+        if !capabilities.has("workspace.check.v1") {
             if selectingDefault { newDraft.workspace = candidates.first; draftNeedsWorkspaceDefault = false }
             if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
             if let selected = newDraft.resolvedWorkspace {
@@ -612,6 +625,7 @@ final class UIModel: ObservableObject {
 
     func sendNewDraft(stayHere: Bool) {
         guard let engine, newDraft.canStart, let workspace = newDraft.resolvedWorkspace else { return }
+        guard state.availability.isReady else { validateNewDraftWorkspace(); return }
         let recovering = failedDraftKey
         if recovering == nil {
             if newDraft.requestID == nil { newDraft.requestID = "app-" + UUID().uuidString.lowercased() }
@@ -623,7 +637,7 @@ final class UIModel: ObservableObject {
         let token = navigation
         let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key
             ?? draft.messageID ?? Outbox.newMessageID()
-        let checkSupported = state.availability.capabilities?.has("workspace.check.v1") == true
+        let checkSupported = state.availability.capabilities.map { $0.has("workspace.check.v1") } ?? true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
         Task {
@@ -658,13 +672,14 @@ final class UIModel: ObservableObject {
                     if failedDraftKey == recovering { endFailedDraftEditing() }
                 } else if newDraft.messageID == messageID {
                     newDraft.journaled()
+                    if draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
                 } else if composerBeforeRetry?.messageID == messageID {
                     composerBeforeRetry?.journaled()
+                    if draft.workspace == nil { composerBeforeRetry?.scratchWorkspace = nil }
                 }
                 defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
-                if recovering == nil && draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
                 pump()
             } catch {
                 draftDestinations.removeValue(forKey: messageID)

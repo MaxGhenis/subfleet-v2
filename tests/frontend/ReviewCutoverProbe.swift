@@ -64,9 +64,22 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
         "failed": model.failedDrafts.map { ["id": $0.id, "text": $0.text, "messages": $0.messages.map(\.key)] as [String: Any] },
         "footer": model.problem as Any? ?? NSNull(), "saved_text": savedDraft?["text"] ?? NSNull(),
         "saved_workspace": savedDraft?["workspace"] ?? NSNull(),
+        "saved_model": (savedDraft?["settings"] as? [String: Any])?["model"] ?? NSNull(),
+        "scratch_workspace": model.newDraft.scratchWorkspace as Any? ?? NSNull(),
         "send_wait_ms": sendWaitMs,
         "check_calls": client.calls.filter { $0["op"] as? String == "workspace.check" }.count,
     ]
+}
+
+func reviewAvailability(_ name: String?, capabilities: Capabilities) -> DaemonAvailability {
+    switch name {
+    case "unknown": return .unknown
+    case "down": return .down("the daemon is restarting")
+    case "busy": return .busy("the daemon is serving its connection limit")
+    case "incompatible": return .incompatible("Install matching releases")
+    case "refused": return .refused("This endpoint is refused")
+    default: return .ready(capabilities)
+    }
 }
 
 @main struct ReviewCutoverProbe {
@@ -84,6 +97,9 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
             }
         }
         if let capabilities = input["availability"] { state.availability = .ready(try capabilities.decode(Capabilities.self)) }
+        if let name = input["initial_status"]?.string, let capabilities = state.availability.capabilities {
+            state.availability = reviewAvailability(name, capabilities: capabilities)
+        }
         let client = ReviewClient(input)
         var model = UIModel(paths: .rooted(at: root), client: client, defaults: defaults, state: state)
         var snapshots: [[String: Any]] = [reviewSnapshot(model, client, root: root)]
@@ -94,6 +110,25 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
             case "problem": model.problem = step["text"]?.string
             case "change-failure": model.changeFailedDraftFolder(model.failedDrafts.first { $0.id == step["id"]?.string }!)
             case "reconcile": model.reconcileNewDraft()
+            case "availability", "lose-ready":
+                let capabilities = try input["availability"]!.decode(Capabilities.self)
+                model.reviewSetAvailability(reviewAvailability(step["status"]?.string, capabilities: capabilities))
+                if step["action"]?.string == "availability" { model.validateNewDraftWorkspace() }
+            case "models":
+                for provider in ["claude", "codex"] {
+                    if let catalog = input["delayed_models"]?[provider] {
+                        model.reviewApplyModels(try catalog.decode(ModelsListResult.self), provider: provider)
+                    }
+                }
+                model.reconcileNewDraft()
+            case "wait": try await Task.sleep(nanoseconds: UInt64(step["ms"]?.int ?? 1000) * 1_000_000)
+            case "start-switch-retry":
+                let checks = client.calls.filter { $0["op"] as? String == "workspace.check" }.count
+                model.sendNewDraft(stayHere: true)
+                for _ in 0..<100 where client.calls.filter({ $0["op"] as? String == "workspace.check" }).count == checks {
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+                model.changeFailedDraftFolder(model.failedDrafts.first { $0.id == step["id"]?.string }!)
             case "folder":
                 model.newDraft.workspace = step["path"]!.string!
                 model.validateNewDraftWorkspace()
