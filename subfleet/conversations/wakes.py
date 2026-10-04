@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS wake_runs (
 CREATE TABLE IF NOT EXISTS wake_notice_repairs (
  job_id TEXT PRIMARY KEY, delivered_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS wake_historical_runs (job_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS wake_meta (key TEXT PRIMARY KEY, value REAL NOT NULL);
 """
 
@@ -170,8 +171,15 @@ class WakeEngine:
         self._poll_future = None
         self._next_poll = 0.0
         self._next_completions = 0.0
+        activation = self.now()
+        historical = self.service.daemon.store.query(
+            "SELECT job_id FROM jobs WHERE kind<>'turn' AND state IN "
+            "('succeeded','failed','cancelled','lost','quarantined')") if not self.store.one(
+                "SELECT 1 FROM wake_meta WHERE key='automatic-since'") else []
         with self.store.transaction() as tx:
-            tx.execute("INSERT OR IGNORE INTO wake_meta VALUES('automatic-since',?)", (self.now(),))
+            if tx.execute("INSERT OR IGNORE INTO wake_meta VALUES('automatic-since',?)", (activation,)).rowcount:
+                tx.executemany("INSERT OR IGNORE INTO wake_historical_runs VALUES(?)",
+                               [(row["job_id"],) for row in historical])
             if not tx.execute("SELECT 1 FROM wake_meta WHERE key='notice-queue-v1'").fetchone():
                 # One upgrade repair, not a repeated scan of historical wake ids.
                 tx.execute("INSERT OR IGNORE INTO wake_notice_repairs SELECT w.job_id,m.created_at "
@@ -268,7 +276,9 @@ class WakeEngine:
 
     def _completions(self) -> dict[str, list[dict]]:
         since = self.store.one("SELECT value FROM wake_meta WHERE key='automatic-since'")["value"]
-        cutoff = datetime.fromtimestamp(since, UTC).isoformat()
+        # Jobs use second-resolution timestamps. The initial snapshot excludes
+        # already-completed jobs; the rounded floor retains new same-second work.
+        cutoff = datetime.fromtimestamp(since, UTC).replace(microsecond=0).isoformat()
         conversations = self.store.query("SELECT * FROM conversations")
         by_id = {c["conversation_id"]: c for c in conversations}
         by_session = {canonical_native(c["native_session_id"]): c for c in conversations if c["native_session_id"]}
@@ -277,9 +287,11 @@ class WakeEngine:
         for job in self.service.daemon.store.query(
                 "SELECT j.job_id,j.caller_session,j.state,j.out_path,j.accepted_attempt_id,j.created_at,p.name parent_name "
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
-                "AND COALESCE(j.finished_at,j.created_at)>=? AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
+                "AND julianday(COALESCE(j.finished_at,j.created_at))>=julianday(?) AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
-                "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
+                                                  "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
+            if self.store.one("SELECT 1 FROM wake_historical_runs WHERE job_id=?", (job["job_id"],)):
+                continue
             c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
             if not c or job["created_at"] < c["created_at"]:
                 continue

@@ -159,3 +159,25 @@ def test_upgrade_keeps_runs_that_complete_after_activation(svc):
     assert len(rows(svc, cid)) == 1
     text = svc.store.message_text(svc.store.message(rows(svc, cid)[0]['message_id']))
     assert 'inflight finished' in text and 'historical finished' not in text
+
+
+def test_existing_completion_and_new_completion_in_one_second(svc, monkeypatch):
+    cid = bound(svc)
+    svc.store._db.execute("UPDATE conversations SET created_at='1970-01-01T00:05:00Z' WHERE conversation_id=?", (cid,))
+    finish(svc, cid, ['old', 'inflight'])
+    svc.daemon.store.update_job('old', created_at='1970-01-01T00:15:00Z', finished_at='1970-01-01T00:16:40Z')
+    svc.daemon.store.update_job('inflight', created_at='1970-01-01T00:15:00Z', finished_at=None, state='running')
+    svc.store._db.execute("DELETE FROM wake_meta WHERE key='automatic-since'")
+    monkeypatch.setattr(wakes.time, 'time', lambda: 1000.5)
+    engine = wakes.WakeEngine(svc)
+    try:
+        engine.tick()
+        assert rows(svc, cid) == []
+        svc.daemon.store.update_job('inflight', state='succeeded', finished_at='1970-01-01T00:16:40Z')
+        engine.tick()
+        assert len(rows(svc, cid)) == 1
+        text = svc.store.message_text(svc.store.message(rows(svc, cid)[0]['message_id']))
+        assert 'inflight finished' in text and 'old finished' not in text
+    finally:
+        if hasattr(engine, "close"):
+            engine.close()
