@@ -496,6 +496,71 @@ def mark_probe_leases(view: dict[str, Any], leases: Iterable[Any],
     return view
 
 
+#: C-6.14: the slot block a lane's pilot lays on it (`proving:<attempt id>`).
+PILOT_BLOCK = "proving:"
+
+
+def pilot_block(value: Any) -> bool:
+    """C-6.14: is this `unavailable_lanes` value a pilot's block, which holds detached
+    attempts only (a conversation turn is never held for a pilot)?"""
+    return isinstance(value, str) and value.startswith(PILOT_BLOCK)
+
+
+def pilot_marks(attempts: Iterable[Mapping[str, Any]], *, answered: Mapping[str, Any],
+                lane_answers: Mapping[str, float], now: float, idle_s: float | None,
+                wait_s: float | None = None) -> dict[str, str]:
+    """C-6.14: lane id -> `proving:<attempt id>` for each lane being proven.
+
+    A lane is being proven while no model has answered on it for `idle_s`
+    seconds before `now` (epoch seconds; `lane_answers` holds each lane's last
+    answer, and a lane it does not name has never answered) and a detached
+    attempt is in flight on it that has not answered yet (`answered` names the
+    attempts that have): that attempt is the lane's pilot, the least attempt id
+    when there are several. `attempts` are rows with `attempt_id`, `lane_id`,
+    `state` and `kind`, the job's (a `turn` attempt is never a pilot), and
+    `reserved_at`. With `idle_s` None (`admission.prove_idle_s` null) no lane is
+    held. An attempt reserved more than `wait_s` seconds before `now`
+    (`admission.prove_wait_s`; None, however long) that still has not answered is
+    a pilot no longer: its lane takes one more attempt, the next pilot, so a pilot
+    that hangs costs its lane one attempt per `wait_s`, not every attempt until
+    `max_wall_s`. A row with no `reserved_at`, or one that does not parse, is
+    taken as reserved now.
+
+    Pure, so the early view (`Daemon._capacity_view`) and the reservation's check
+    (`Daemon._route_rows`) lay the same marks over the same rows and clock (C-6.3).
+    """
+    if idle_s is None:
+        return {}
+    marks: dict[str, str] = {}
+    for row in sorted(attempts, key=lambda item: str(item["attempt_id"])):
+        if row.get("state") not in ACTIVE_ATTEMPT_STATES or row.get("kind") == "turn":
+            continue
+        lane_id = row["lane_id"]
+        if lane_id in marks or row["attempt_id"] in answered:
+            continue
+        if wait_s is not None and row.get("reserved_at"):
+            try:
+                if now - _time(row["reserved_at"]).timestamp() >= wait_s:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        last = lane_answers.get(lane_id)
+        if last is not None and now - last < idle_s:
+            continue
+        marks[lane_id] = PILOT_BLOCK + str(row["attempt_id"])
+    return marks
+
+
+def mark_pilots(view: dict[str, Any], marks: Mapping[str, str]) -> dict[str, Any]:
+    """C-6.14: lay pilot marks over a view's `unavailable_lanes`. A lane already
+    unavailable for another reason (a probe's lease, a latched credential) keeps
+    that reason: it holds a turn too, where a pilot does not."""
+    unavailable = view.setdefault("unavailable_lanes", {})
+    for lane_id, mark in marks.items():
+        unavailable.setdefault(lane_id, mark)
+    return view
+
+
 def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
     """C-6.11: the lanes that could take some job now, whatever its model.
 
