@@ -273,12 +273,16 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     clock alone may change how `scheduler.evaluate` judges that lane on the
     view's rows; a lane with no such instant is left out.
 
-    `evaluate` reads the clock only through `fresh_provider` and a closure's
-    `until_at`, and a lane's verdict and detail (`scheduler.judge_lane`) read
+    `evaluate` reads the clock through `fresh_provider`, a closure's
+    `until_at`, and C-11.3's renewed-window ranking guard; a lane's verdict
+    and detail (`scheduler.judge_lane`) read
     only that lane's readings and closures. So before its horizon a lane is
     judged as the view judged it: until one of its readings turns fresh (a
-    future `observed_at`) or stops being fresh (`fresh_until`), or one of its
-    closures ends (`until_at`). Either can close a lane, not only open one (a
+    future `observed_at`) or stops being fresh (`fresh_until`), a latest provider
+    window renews within its TTL or its renewal uncertainty ages out, or one
+    of its closures ends (`until_at`).
+    A window expired at its own observation is already unusable, so its reset
+    before that observation adds no clock. Either can close a lane, not only open one (a
     reported closure on a reserved model gives its lane slack behind a probe,
     C-11.7, that turns `unmeasured` when the closure ends; review of f48df54).
 
@@ -299,10 +303,19 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
             found[lane_id] = clock
     for item in view.get("readings", ()):
         row = _row(item)
-        note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
         observed = _time(row["observed_at"])
-        if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
-            note(row["lane_id"], observed)
+        note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
+        # C-11.3's renewal uncertainty and explanatory evidence both use the
+        # recent-reading set. Even a stale-labelled row with no reset can
+        # change reading_observed_at when it enters or leaves that set.
+        if row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None:
+            expiry = observed + timedelta(seconds=reading_ttl_s)
+            if observed > instant:
+                note(row["lane_id"], observed)
+            elif instant <= expiry:
+                note(row["lane_id"], expiry)
+            if row.get("resets_at") and max(instant, observed) < (reset := _time(row["resets_at"])) <= expiry:
+                note(row["lane_id"], reset)
     for item in view.get("closures", ()):
         row = _row(item)
         if not row.get("released_at") and (until := _time(row["until_at"])) > instant:
@@ -316,10 +329,11 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
     taken on the view's rows may change with no row changing; None when nothing
     in it waits on the clock.
 
-    `scheduler.evaluate` reads the clock only through `fresh_provider` and a
-    closure's `until_at`, so its decision on these rows is the same at every
+    `scheduler.evaluate` judges and ranks through `fresh_provider`, C-11.3's
+    renewed-window guard, and a closure's `until_at`, so its decision on these rows is the same at every
     instant before the earliest of: a reading turning fresh (its future
-    `observed_at`) or no longer fresh (`fresh_until`), a closure ending (its
+    `observed_at`) or no longer fresh (`fresh_until`), a provider window's reset
+    even after its TTL, a closure ending (its
     `until_at`), and each of `ends` (a confirmed override's `weekly_reset_at`,
     which puts the readings it held out back). Any of them can close a lane,
     not only open one: an override that ends shows a reading below the floor,

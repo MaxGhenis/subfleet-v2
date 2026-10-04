@@ -159,6 +159,8 @@
   },
   "admission": {
     "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": null,
     "pin_grace_s": 1800,

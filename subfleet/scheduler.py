@@ -556,6 +556,72 @@ def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
             and (not pin or selected and lane["lane_id"] == selected["lane_id"])]
 
 
+def ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
+                  reading_ttl_s: int, admission: Mapping[str, Any]) -> dict[str, Any]:
+    """C-11.3: observed usage for ranking, never a synthetic renewed reading.
+
+    The caller supplies only account and requested-model scopes. The binding
+    weekly window has the least headroom, and supplies BOTH headroom and reset.
+    Equal headrooms bind the earliest known reset, then scope, deterministically.
+    A missing reset sorts after known resets in the same reserve class. If any
+    latest applicable provider window read within the TTL has already reset,
+    rank the lane as unmeasured until a reading arrives or that evidence ages
+    out. A stopped window cannot demote the lane forever. Do not assume zero
+    utilization. This uncertainty changes ranking only, never probes or pick.
+    Admission's existing floors, slots and model reserve are judged separately.
+    """
+    latest: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for row in readings:
+        if row.get("label") not in ("provider", "stale-provider") or row.get("utilization") is None:
+            continue
+        key = (row["scope"], row["window"])
+        previous = latest.get(key)
+        if previous is None or _time(row["observed_at"]) > _time(previous["observed_at"]):
+            latest[key] = row
+    # A window already expired at its own observation is unusable as soon as
+    # that observation enters the TTL guard. Future observations do not change
+    # present ranking; their observation time is a horizon (C-6.3).
+    recent = [row for row in latest.values()
+              if 0 <= (now - _time(row["observed_at"])).total_seconds() <= reading_ttl_s]
+    renewed = any(row.get("resets_at") and _time(row["resets_at"]) <= max(now, _time(row["observed_at"]))
+                  for row in recent)
+    fresh = [] if renewed else [row for row in latest.values()
+        if fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)]
+    weekly = min((row for row in fresh if row["window"] == "seven_day"),
+                 key=lambda row: (1 - row["utilization"],
+                                  _iso(_time(row["resets_at"])) if row.get("resets_at") else "9999",
+                                  row["scope"]), default=None)
+    weekly_headroom = 1 - weekly["utilization"] if weekly else None
+    five_hour_headroom = min((1 - row["utilization"] for row in fresh
+                             if row["window"] == "five_hour"), default=None)
+    # Compare reported utilization with the complement of the reserve. Computing
+    # (1 - .9) < .10 would put exactly 10% remaining in the low class because
+    # binary floats represent that subtraction as .09999999999999998.
+    weekly_low = weekly is not None and weekly["utilization"] > 1 - admission["weekly_reserve"]
+    five_hour_low = any(row["utilization"] > 1 - admission["five_hour_reserve"]
+                        for row in fresh if row["window"] == "five_hour")
+    reserve_class = ("weekly+five-hour" if weekly_low and five_hour_low else
+                     "weekly" if weekly_low else "five-hour" if five_hour_low else
+                     "clear" if fresh else "unmeasured")
+    observed = min((_time(row["observed_at"]) for row in (fresh or recent or latest.values())), default=None)
+    return {"measured": bool(fresh), "weekly_headroom": weekly_headroom,
+            "five_hour_headroom": five_hour_headroom,
+            "seven_day_reset": _iso(_time(weekly["resets_at"])) if weekly and weekly.get("resets_at") else None,
+            "weekly_scope": weekly["scope"] if weekly else None,
+            "weekly_reserve": weekly_low, "five_hour_reserve": five_hour_low,
+            "reserve_class": reserve_class, "reading_observed_at": _iso(observed) if observed else None,
+            "reading_renewed": renewed}
+
+
+def ranking_reading_age(detail: Mapping[str, Any], now: str | datetime) -> float | None:
+    """C-11.5: derive explanatory age without putting a ticking value in judgement.
+
+    Older decision records carried the age directly; keep their explanations.
+    """
+    observed = detail.get("reading_observed_at")
+    return (_time(now) - _time(observed)).total_seconds() if observed else detail.get("reading_age_s")
+
+
 def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
                readings: Iterable[Mapping[str, Any]], closures: Iterable[Mapping[str, Any]], *,
                in_flight: int, unavailable: Mapping[str, Any]) -> tuple[list[str], dict[str, Any]]:
@@ -578,13 +644,14 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     lane_readings = [row for row in readings if row["scope"] in ("account", model["id"])]
     measured_readings = [row for row in lane_readings
                          if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
-    measured = bool(measured_readings)
     headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
-    resets = [_time(row["resets_at"]) for row in measured_readings
-              if row["window"] == "seven_day" and row.get("resets_at")]
-    detail = {"measured": measured, "headroom": headroom, "in_flight": in_flight,
-              "seven_day_reset": _iso(min(resets)) if resets else None,
-              "status": "eligible" if measured else "eligible but unmeasured"}
+    ranking = ranking_usage(lane_readings, now=now, reading_ttl_s=caps["reading_ttl_s"],
+                            admission=admission_settings(policy))
+    # C-11.3's uncertainty orders candidates only. C-11.4 probes and C-11.5
+    # pick keep the admission freshness predicate they used before this rule.
+    detail = {**ranking, "ranking_measured": ranking["measured"], "measured": bool(measured_readings),
+              "headroom": headroom, "in_flight": in_flight}
+    detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
     if model["provider"] == "claude":
         detail["stranded_scopes"] = sorted({row["scope"] for row in closures
             if row["scope"] in higher_scopes and _future_closure(row, now)})
@@ -819,22 +886,20 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
     affinity lane first (C-26.2), then the load band: attempts in flight in the
     job's pool divided by `admission.lane_spread`, so with no per-lane cap lanes
     fill evenly, that many at a time, instead of one lane taking every job
-    (C-11.3, 2026-09-27). Within a band the provider's comparator decides. Every
-    key ends with the lane id, so no two candidates tie."""
+    (C-11.3, 2026-09-27). Claude's stranded term retains its position before
+    measured status. Then both providers prefer measured lanes, lanes above
+    the weekly reserve, lanes above the five-hour reserve, the binding weekly
+    reset ascending (unknown last), weekly headroom descending, in-flight
+    ascending and lane id. The reserves are preferences, never exclusions.
+    C-11.7 still guards reserved model capacity but its slack is no longer a
+    comparator. Every key ends with lane id, so no two candidates tie."""
     job, provider = setup["job"], setup["policy"]["models"][short]["provider"]
     spread = setup.get("lane_spread")
     band = detail["in_flight"] // spread if spread else 0
-    if provider == "codex":
-        base = (band, not detail["measured"], detail["seven_day_reset"] or "9999", identity)
-    else:
-        reserve = detail.get("reserve") or {}
-        stranded = bool(detail.get("stranded_scopes"))
-        if reserve.get("slack") is not None:
-            # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-            base = (band, not stranded, not detail["measured"], -reserve["slack"], detail["in_flight"], identity)
-        else:
-            base = (band, not stranded, not detail["measured"], -(detail["headroom"] or 0), detail["in_flight"],
-                    identity)
+    prefix = (band, not bool(detail.get("stranded_scopes"))) if provider == "claude" else (band,)
+    base = (*prefix, not detail.get("ranking_measured", detail["measured"]), detail["weekly_reserve"], detail["five_hour_reserve"],
+            detail["seven_day_reset"] or "9999", -(detail["weekly_headroom"] or 0),
+            detail["in_flight"], identity)
     desktop = bool(detail.get("desktop"))
     affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
     if affinity is not None:
