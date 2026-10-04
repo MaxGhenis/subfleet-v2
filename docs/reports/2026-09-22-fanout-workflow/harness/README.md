@@ -14,7 +14,10 @@ bash "$H/step0.sh"; bash "$H/step1.sh"; bash "$H/step2.sh"; bash "$H/step2.sh"
 ```
 
 `SCENARIO` on the fake selects a failure: `refuse-b` (entry b refused, exit
-7), `submit-down` (exit 69 at submit), `wait-down-first` (exit 69 on the
-first wait), `lost-c` (job c ends `lost`, exit 125), `unknown-id` (exit 2),
-`no-name` (wait rows without `name`). The scenario matrix run on 2026-10-04
-is described in the report.
+7), `submit-down` (every entry `not-sent`, exit 69, on the first `run` call
+only), `unknown-c` (entry c `unknown` on the first call, `existing` on the
+next), `wait-down-first` (exit 69 on the first wait), `lost-c` (job c ends
+`lost`, exit 125), `failed-a` (job a ends `failed` with rc 1, exit 1),
+`unknown-id` (exit 2), `no-name` (wait rows without `name`). The fake refuses
+a `run` without `-d`. The scenario matrix run on 2026-10-04 is described in
+the report; the two review rounds' findings each have a scenario here.

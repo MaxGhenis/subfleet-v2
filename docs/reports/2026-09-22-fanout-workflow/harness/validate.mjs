@@ -16,9 +16,9 @@ const cases = [
   [{ items: [{ ...ok, model: 'gpt 6' }] }, 'bad model'],
 ]
 for (const [bad, why] of cases) { try { await run(bad, async () => null); console.log('NO THROW:', why) } catch (e) { console.log('throws (' + why + '):', e.message.slice(0, 110)) } }
-const r1 = await run({ items: [{ ...ok, dir: '/tmp/x' }], allowTmp: true, model: 'opus' }, async (prompt) => ({ setup_ok: true, already_submitted: false, submit_rc: 0, request_id: '', wait_loops: 0, last_wait_rc: 0, notes: '', jobs: [] }))
+const r1 = await run({ items: [{ ...ok, dir: '/tmp/x' }], allowTmp: true, model: 'opus' }, async (prompt) => ({ setup_ok: true, already_submitted: false, submit_calls: 1, submit_rc: 0, request_id: '', wait_loops: 0, last_wait_rc: 0, notes: '', jobs: [] }))
 console.log('allowTmp+model ok ->', JSON.stringify(r1.out.jobs[0]).slice(0, 160))
 const dead = await run({ items: [ok] }, async () => null); console.log('dead agent ->', JSON.stringify(dead.out), dead.logs)
-const full = await run({ items: [ok, { ...ok, name: 'b', outPath: '/o/b.md' }, { ...ok, name: 'c', outPath: '/o/c.md' }], requestId: 'rq-1' }, async () => ({ setup_ok: true, already_submitted: true, submit_rc: 0, request_id: 'rq-1', wait_loops: 3, last_wait_rc: 125, notes: '',
+const full = await run({ items: [ok, { ...ok, name: 'b', outPath: '/o/b.md' }, { ...ok, name: 'c', outPath: '/o/c.md' }], requestId: 'rq-1' }, async () => ({ setup_ok: true, already_submitted: true, submit_calls: 1, submit_rc: 0, request_id: 'rq-1', wait_loops: 3, last_wait_rc: 125, notes: '',
   jobs: [{ name: 'a', job_id: 'ja', state: 'succeeded', rc: 0, out_bytes: 9, notes: '' }, { name: 'c', job_id: 'jc', state: 'lost', rc: 125, out_bytes: 0, notes: '' }] }))
 console.log('shaping ->', JSON.stringify(full.out.summary), '| b:', JSON.stringify(full.out.jobs[1]), '| logs:', JSON.stringify(full.logs))

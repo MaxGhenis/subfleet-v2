@@ -9,11 +9,11 @@ const run = async (args, agentImpl) => {
   return { out, logs }
 }
 let captured = null
-const stub = { setup_ok: true, already_submitted: false, submit_rc: 0, request_id: 'r', wait_loops: 1, last_wait_rc: 0, notes: '', jobs: [] }
+const stub = { setup_ok: true, already_submitted: false, submit_calls: 1, submit_rc: 0, request_id: 'r', wait_loops: 1, last_wait_rc: 0, notes: '', jobs: [] }
 const { out, logs } = await run(JSON.parse(argsJson), async (prompt, o) => { captured = { prompt, o }; return stub })
 const p = captured.prompt
 const cut = (a, b) => p.split(a)[1].split(b)[0]
-writeFileSync(`${outDir}/step0.sh`, cut('prints SETUP_OK:\n', '\n\nSTEP 1.'))
-writeFileSync(`${outDir}/step1.sh`, cut('and JOBS lines:\n', '\n\nIf JOBS=0'))
+writeFileSync(`${outDir}/step0.sh`, cut('prints CHECKSUM_OK then SETUP_OK:\n', '\n\nIf it prints CHECKSUM_MISMATCH'))
+writeFileSync(`${outDir}/step1.sh`, cut('JOBS and UNSETTLED:\n', '\n\nRun step 1 again'))
 writeFileSync(`${outDir}/step2.sh`, cut('and PENDING_COUNT:\n', '\n\nRepeat step 2'))
 console.log('rendered; agent model', captured.o.model, '| logs:', JSON.stringify(logs), '| out summary:', JSON.stringify(out.summary))
