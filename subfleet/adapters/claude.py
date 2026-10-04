@@ -55,7 +55,7 @@ from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .base import Adapter, AdapterError
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    is_synthetic_api_error, parse_lines, parse_stream,
+    is_synthetic_api_error, model_answered, parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -546,6 +546,10 @@ class ClaudeAdapter(Adapter):
         # identity beside a reading was fetched in the same probe cycle. Keyed by
         # a digest of the token: the cache never holds the credential itself.
         self._profile_cache: dict[str, tuple[datetime, ProfileResult]] = {}
+
+    def model_answered(self, event: object) -> bool:
+        """C-6.14, C-4.5: `claude_stream.model_answered`."""
+        return model_answered(event)
 
     # --- credentials (C-10.5) ------------------------------------------------
 
@@ -1535,6 +1539,11 @@ class ClaudeAdapter(Adapter):
             "stream_bad_lines": summary.bad_lines,
             "stream_truncated_tail": summary.truncated_tail,
             "system_init": summary.has_init,
+            # C-4.5, C-6.14: whether the model answered at all, whatever the class;
+            # `system_init` is no such evidence (the CLI writes it before any request).
+            # None when no event was read: then nobody can say, and C-4.5 takes a
+            # writable attempt to have answered.
+            "model_answered": summary.answered if summary.lines_parsed else None,
             "error_kinds": list(summary.error_kinds),
             "unknown_event_types": list(summary.unknown_types),
         }
@@ -1581,12 +1590,15 @@ class ClaudeAdapter(Adapter):
                 answered={"cli": "version gate in the provider's own output"},
             )
 
-        # 1. Authentication (C-9.3).
-        match = ORG_BLOCK_RE.search(corpus)
+        # 1. Authentication (C-9.3), from what the CLI and the provider wrote only
+        #    (`cli_texts`): a model quoting these phrases is not the lane refusing,
+        #    and an `auth-dead` job moves on to the next lane, disabling this one (C-4.5).
+        cli_corpus = "\n".join([stderr, *summary.cli_texts()])
+        match = ORG_BLOCK_RE.search(cli_corpus)
         if match:
             return finish(
                 OutcomeClass.AUTH_DEAD,
-                f"auth-dead: {_first_line_containing(corpus, match)}",
+                f"auth-dead: {_first_line_containing(cli_corpus, match)}",
                 answered={"auth": "explicit organisation block"},
             )
         auth_kind = next(
@@ -1601,10 +1613,11 @@ class ClaudeAdapter(Adapter):
         auth_signature = AUTH_SIGNATURE_RE.search(corpus)
         auth_false_positive: str | None = None
         if auth_signature is not None:
-            if not summary.has_init:
+            cli_signature = AUTH_SIGNATURE_RE.search(cli_corpus)
+            if not summary.has_init and cli_signature is not None:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(corpus, auth_signature)}",
+                    f"auth-dead: {_first_line_containing(cli_corpus, cli_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.

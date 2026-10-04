@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked
+from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
@@ -682,7 +682,8 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     # C-6.4, C-26.9: None when the policy sets no per-lane cap for the job's pool.
     slot_cap = (turn_cap(setup["conversation_caps"], "turn_slots_per_lane") if setup["is_turn"] else
                 lane_slot_cap(caps, lane_measured))
-    if identity in unavailable:
+    if identity in unavailable and not (setup["is_turn"] and pilot_block(unavailable[identity])):
+        # C-6.14: a pilot's block holds detached attempts only; a turn is never held for one.
         detail["slot_block"] = unavailable[identity]
     if setup["capacity_blocks"] or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
         reasons.append("no-slot")
@@ -1186,7 +1187,13 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
     if room_only:
         if "fleet" in blocks:
             return "fleet-full"
-        return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"
+        if any(str(block).startswith("parent:") for block in blocks):
+            return "parent-cap"
+        slot_blocks = [row.get("slot_block") for evaluation in value.get("evaluations", ())
+                       for row in evaluation.get("rejections", ())
+                       if set(row.get("reasons") or [row.get("reason")]) == {"no-slot"}]
+        # C-6.14: every lane with room only for want of a slot is waiting on its pilot.
+        return "lane-proving" if slot_blocks and all(pilot_block(block) for block in slot_blocks) else "no-slot"
     if not counts:
         return "no-lanes"
     return max(sorted(counts), key=lambda label: counts[label])

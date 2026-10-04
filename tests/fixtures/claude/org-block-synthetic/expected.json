@@ -1,0 +1,33 @@
+{
+  "case": "org-block-synthetic",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": true,
+  "provenance": "The shape of the 37 streams of 2026-09-30 15:43Z on claude-5 (for one, ~/.subfleet/jobs/20260930-114330-salvage-r3-cont3/a1/stdout, read-only): SessionStart hook events, a system/init, Claude Code's placeholder frame (model <synthetic>, is_api_error_message, error oauth_org_not_allowed, every usage counter zero) and a `success` result marked is_error with api_error_status 403 and duration_api_ms 0. Ids and uuids are replaced; the sentence and field values are verbatim.",
+  "requested_model": "claude-opus-5-5",
+  "session_id": "55555555-5555-4555-8555-5555555555b9",
+  "class": "auth-dead",
+  "detail_contains": "organization has disabled",
+  "evidence": {
+    "auth": "organisation block, in the placeholder frame and the error result",
+    "admission": "not reached",
+    "quota": "not reached",
+    "model_answered": false
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}

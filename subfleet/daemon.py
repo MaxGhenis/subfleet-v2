@@ -112,7 +112,8 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job", "route-moved", "machine-busy"})
+                            "probe-pending", "behind-older-job", "route-moved", "machine-busy",
+                            "lane-proving"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -139,6 +140,15 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-6.14: the event that records a model answering on a lane (`_record_answer`),
+#: and how many of the newest a starting daemon reads to remember what was proven.
+ANSWER_EVENT = "lane.answered"
+ANSWER_SEED_ROWS = 5000
+#: C-6.14: a running attempt's stream is read for its model's first answer at most
+#: this often, this many bytes a look, holding at most this much of one line.
+ANSWER_READ_INTERVAL_S = 1.0
+ANSWER_READ_CHUNK = 256 * 1024
+ANSWER_LINE_MAX = 4 * 1024 * 1024
 
 
 def _skipped(paths: list[str]) -> dict:
@@ -152,6 +162,33 @@ def _left_out(skipped: dict) -> str:
     count, paths = skipped["count"], skipped["paths"]
     shown = ", ".join(f"'{path}'" for path in paths) + (", ..." if count > len(paths) else "")
     return f"{count} nested repositor{'y' if count == 1 else 'ies'} with no commit, kept only in the worktree: {shown}"
+
+
+def _lane_fault_of(evidence_json: str | None) -> dict | None:
+    """C-4.5: the lane fault an attempt's evidence records (`Daemon._lane_fault`), or None."""
+    try:
+        evidence = json.loads(evidence_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    fault = evidence.get("lane_fault") if isinstance(evidence, dict) else None
+    return fault if isinstance(fault, dict) else None
+
+
+def _evidence_key(evidence_json: str | None, key: str) -> Any:
+    """`key` of an attempt's evidence, or None when there is none or it does not parse."""
+    try:
+        evidence = json.loads(evidence_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    return evidence.get(key) if isinstance(evidence, dict) else None
+
+
+def _epoch(stamp: str | None) -> float | None:
+    """`stamp` (as `utcnow` writes one) in epoch seconds, or None when it does not parse."""
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
 
 
 def _held_event(data_json: str | None) -> dict | None:
@@ -571,6 +608,7 @@ class Daemon:
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
+        self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
@@ -614,6 +652,17 @@ class Daemon:
 
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
+        # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
+        # seconds of the last answer on it, and attempt id -> when an attempt in
+        # flight first answered (it is then no pilot): replaced whole under
+        # `_answer_lock`, and seeded from the `lane.answered` events once the store
+        # opens (`_load_answers`). Attempt id -> how far its stream has been read for
+        # that answer. `_answer_news` says an answer came since the detached pass looked.
+        self._answer_lock = threading.Lock()
+        self._lane_answers: dict[str, float] = {}
+        self._attempt_answers: dict[str, float] = {}
+        self._answer_reads: dict[str, dict] = {}
+        self._answer_news = False
         # C-6.10: job id -> the verdict a capacity wait keeps reaching, and how
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
@@ -1004,7 +1053,164 @@ class Daemon:
         view["desktop_in_use"] = desktop_in_use
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
-        return self.timers.enrich_view(view, rows["timers"])
+        view = self.timers.enrich_view(view, rows["timers"])
+        # C-6.14: then each lane's pilot, at the view's clock, as `_route_rows` lays them.
+        turns = {row["job_id"] for row in view.get("jobs", ()) if row.get("kind") == "turn"}
+        attempts = [{**row, "kind": "turn" if row.get("job_id") in turns else "detached"}
+                    for row in view.get("attempts", ()) if row.get("state") in capacity.ACTIVE_ATTEMPT_STATES]
+        return capacity.mark_pilots(view, self._pilot_marks(attempts, capacity._time(view["now"])))
+
+    # --- lane answers and pilots (C-6.14) --------------------------------------
+
+    def _pilot_marks(self, attempts, instant: datetime) -> dict[str, str]:
+        """C-6.14: `capacity.pilot_marks` over `attempts` (rows with `attempt_id`,
+        `lane_id`, `state` and `kind`) at `instant`, from what has answered by now."""
+        settings = admission_settings(self.policy)
+        return capacity.pilot_marks(attempts, answered=self._attempt_answers, lane_answers=self._lane_answers,
+                                    now=instant.timestamp(), idle_s=settings["prove_idle_s"],
+                                    wait_s=settings["prove_wait_s"])
+
+    def _load_answers(self) -> tuple[dict[str, float], dict[str, float]]:
+        """C-6.14: what the newest `lane.answered` events say: each lane's last answer,
+        and which attempts still in flight have answered. A restart keeps what was
+        proven, so it neither holds a lane that answered a minute ago nor takes an
+        attempt that answered before it for a pilot."""
+        lanes: dict[str, float] = {}
+        attempts: dict[str, float] = {}
+        live = {row["attempt_id"] for row in self.store.query(
+            "SELECT attempt_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")}
+        for row in self.store.query("SELECT ts,lane_id,attempt_id FROM events WHERE kind=? "
+                                    "ORDER BY event_id DESC LIMIT ?", (ANSWER_EVENT, ANSWER_SEED_ROWS)):
+            when = _epoch(row["ts"])
+            if when is None or not row["lane_id"]:
+                continue
+            lanes[row["lane_id"]] = max(lanes.get(row["lane_id"], when), when)
+            if row["attempt_id"] in live:
+                attempts.setdefault(row["attempt_id"], when)
+        return lanes, attempts
+
+    def _record_answer(self, lane_id: str, source: str, *, attempt: dict | None = None) -> None:
+        """C-6.14: a model answered on `lane_id`, so the lane is proven now, and an
+        attempt that answered is no pilot. Remembered first, then recorded as a
+        `lane.answered` event (`source`: the attempt's `stream`, its `finalization`,
+        an admission `probe`, a timer's `keepalive` or `heal`); an attempt's answer
+        is recorded once. A store error is logged, never raised: the memory is
+        what admission reads."""
+        now = datetime.now(timezone.utc).timestamp()           # the clock views are built on
+        attempt_id = attempt["attempt_id"] if attempt else None
+        idle = admission_settings(self.policy)["prove_idle_s"]
+        with self._answer_lock:
+            if attempt_id is not None and attempt_id in self._attempt_answers:
+                return
+            lanes = dict(self._lane_answers)
+            last = lanes.get(lane_id)
+            lanes[lane_id] = now if last is None else max(last, now)
+            self._lane_answers = lanes
+            if attempt_id is not None:
+                self._attempt_answers = {**self._attempt_answers, attempt_id: now}
+            # C-6.10: only an answer on a lane that was not proven can free one. A
+            # proven lane's every start answers too, and a look at every backed-off
+            # wait for each would be the cost C-6.10 keeps timer probes out of.
+            freed = idle is not None and (last is None or now - last >= idle)
+            self._answer_news = self._answer_news or freed
+        self._answer_reads.pop(attempt_id, None)
+        try:
+            self.store.add_event(ANSWER_EVENT, job_id=attempt["job_id"] if attempt else None,
+                                 attempt_id=attempt_id, lane_id=lane_id, data={"source": source})
+        except (sqlite3.Error, OSError) as exc:
+            self.log.warning("lane %s answered (%s) but the record could not be written: %s",
+                             lane_id, source, type(exc).__name__)
+        if freed:
+            self._notify()
+
+    def _take_answer_news(self) -> bool:
+        """C-6.10, C-6.14: whether a model answered since the detached pass last asked.
+        A pilot's answer frees its lane as a released lease frees a slot, so the
+        jobs waiting for it are looked at on the next pass, not on their backed-off
+        clocks."""
+        with self._answer_lock:
+            news, self._answer_news = self._answer_news, False
+        return news
+
+    def _read_answer(self, a: dict, adir: Path) -> None:
+        """C-6.14: read what a live detached attempt's stream added since the last look,
+        at most every `ANSWER_READ_INTERVAL_S` and `ANSWER_READ_CHUNK` bytes at a time,
+        and stop at the first event its adapter says shows the model answering
+        (`Adapter.model_answered`). Only the stream file, opened only as a regular
+        file; nothing here raises."""
+        aid = a["attempt_id"]
+        if aid in self._attempt_answers:
+            return
+        try:
+            state = self._answer_reads.get(aid)
+            now = time.monotonic()
+            if state is None:
+                lane = self.store.get_lane(a["lane_id"])
+                state = {"path": self._saved_launch(a).stdout_path, "offset": 0, "tail": b"", "skip": False,
+                         "next": 0.0, "adapter": get_adapter(lane.provider) if lane else None}
+                self._answer_reads[aid] = state
+            if state["adapter"] is None or now < state["next"]:
+                return
+            state["next"] = now + ANSWER_READ_INTERVAL_S
+            settings = admission_settings(self.policy)
+            wait, idle = settings["prove_wait_s"], settings["prove_idle_s"]
+            if wait is not None and idle is not None and not state.get("lapsed") and age(a["reserved_at"]) >= wait:
+                # C-6.14: said once per attempt, and only of a lane still unproven;
+                # `capacity.pilot_marks` is what lets the lane go.
+                state["lapsed"] = True
+                last = self._lane_answers.get(a["lane_id"])
+                if last is None or datetime.now(timezone.utc).timestamp() - last >= idle:
+                    self.log.warning("attempt %s on lane %s has shown no model answering for %d s; it no longer "
+                                     "holds the lane, which takes one more attempt (C-6.14)",
+                                     aid, a["lane_id"], wait)
+                    with self._answer_lock:                # the lane is free: the jobs held for it look now
+                        self._answer_news = True
+                    self._notify()
+            with open_regular(state["path"]) as stream:
+                size = os.fstat(stream.fileno()).st_size
+                if size <= state["offset"]:
+                    return
+                stream.seek(state["offset"])
+                data = stream.read(min(size - state["offset"], ANSWER_READ_CHUNK))
+            state["offset"] += len(data)
+            if state["skip"]:
+                # The rest of a line longer than `ANSWER_LINE_MAX`, which is no event read whole.
+                cut = data.find(b"\n")
+                if cut < 0:
+                    return
+                data, state["skip"] = data[cut + 1:], False
+            lines = (state["tail"] + data).split(b"\n")
+            state["tail"] = lines.pop()
+            if len(state["tail"]) > ANSWER_LINE_MAX:
+                state["tail"], state["skip"] = b"", True
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if state["adapter"].model_answered(event):
+                    self._record_answer(a["lane_id"], "stream", attempt=a)
+                    return
+        except (FileNotFoundError, NotRegularFile):
+            return                      # nothing written yet, or no stream to read
+        except Exception as exc:        # never the attempt's trouble: its finalization still decides
+            self.log.debug("attempt %s: its stream could not be read for an answer: %s", aid, type(exc).__name__)
+
+    def _forget_answers(self, live: set[str]) -> None:
+        """C-6.14: drop what was read and heard of attempts no longer in flight."""
+        for aid in [aid for aid in self._answer_reads.copy() if aid not in live]:
+            self._answer_reads.pop(aid, None)
+        with self._answer_lock:
+            if any(aid not in live for aid in self._attempt_answers):
+                self._attempt_answers = {aid: when for aid, when in self._attempt_answers.items() if aid in live}
+
+    @staticmethod
+    def _answered(outcome: Outcome, provider_class: str) -> bool:
+        """C-6.14: does a finished attempt's outcome show its model answering? Its
+        adapter's `model_answered`, or an adapter verdict of `ok`, which no adapter
+        reaches without an answer: a stream shape the predicate does not know must
+        not leave a lane that serves every attempt forever one attempt wide."""
+        return (outcome.evidence or {}).get("model_answered") is True or provider_class == OutcomeClass.OK.value
 
     def _session_rows(self) -> dict | None:
         """Claude Code's live-session registry, read at most every `REGISTRY_READ_TTL_S`.
@@ -1306,13 +1512,34 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
-    @staticmethod
-    def _needs_probe(decision, job: dict) -> bool:
-        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for admission."""
+    def _needs_probe(self, decision, job: dict) -> bool:
+        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for
+        admission; and C-4.5, C-6.14: a job that has moved on from an `auth-dead` lane is
+        never a pilot. On a lane not proven it waits for Subfleet's own probe (C-11.4),
+        which runs on the lane's credential with none of the job's settings, so its
+        `auth-dead` is the lane's (it disables the lane, C-23.44) and its answer proves
+        the lane. Then a second `auth-dead` on a proven lane points at the job."""
         try:
-            return scheduler.probe_required(decision, job)
+            if scheduler.probe_required(decision, job):
+                return True
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
+        return bool(decision.chosen_lane and job.get("kind") != "turn"
+                    and admission_settings(self.policy)["prove_idle_s"] is not None
+                    and not self._lane_proven(decision.chosen_lane)
+                    and self._moved_on_from(job["job_id"]))
+
+    def _lane_proven(self, lane_id: str) -> bool:
+        """C-6.14: has a model answered on `lane_id` within `admission.prove_idle_s`, now?"""
+        idle = admission_settings(self.policy)["prove_idle_s"]
+        last = self._lane_answers.get(lane_id)
+        return idle is None or (last is not None and datetime.now(timezone.utc).timestamp() - last < idle)
+
+    def _moved_on_from(self, job_id: str) -> int:
+        """C-4.5: how many lane faults the job has moved on from (at most one)."""
+        return sum(1 for row in self.store.query(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND outcome_class='auth-dead'", (job_id,))
+            if _lane_fault_of(row["evidence_json"]))
 
     def _retry_pin(self, job: dict) -> tuple[list[dict], tuple[str, ...], dict | None]:
         """C-4.5: a job's attempts, the lanes they exclude, and the one-time retry pin.
@@ -2810,7 +3037,7 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
-        text = render.notice_header(dict(row), self.root) + "\n" + summary
+        text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -2908,6 +3135,7 @@ class Daemon:
             try:
                 live = self.store.query(LIVE_ATTEMPTS)
                 self._forget_paced({a["attempt_id"] for a in live})
+                self._forget_answers({a["attempt_id"] for a in live})        # C-6.14
                 for a in live:
                     if imported_external(a):
                         continue                    # v1 still owns it (principle 3)
@@ -3137,6 +3365,8 @@ class Daemon:
             record.update(state="completed")
             self._save_probe(record)
             shutil.rmtree(directory, ignore_errors=True)
+        if outcome.cls == OutcomeClass.OK:
+            self._record_answer(lane.lane_id, purpose)              # C-6.14: a keepalive or heal turn answered
         return dataclasses.replace(outcome, evidence=evidence)
 
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
@@ -3481,6 +3711,8 @@ class Daemon:
             self._save_probe(record)
             self.store.release_leases(record["holder"])
             shutil.rmtree(record["directory"], ignore_errors=True)
+            if outcome.cls == OutcomeClass.OK:
+                self._record_answer(record["lane_id"], record["timer_kind"])     # C-6.14
             return
         with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
                                     data={"model": record["model_id"], "class": outcome.cls.value,
@@ -3504,6 +3736,8 @@ class Daemon:
             tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
                        (utcnow(), record["job_id"]))
         shutil.rmtree(record["directory"], ignore_errors=True)
+        if outcome.cls == OutcomeClass.OK:
+            self._record_answer(record["lane_id"], "probe")        # C-6.14: C-11.4's probe is a model turn
 
     def _recover_probes(self) -> None:
         """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
@@ -3611,7 +3845,10 @@ class Daemon:
             outcome = self._probe_candidate(job, decision, holder)
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
-            elif outcome.cls != OutcomeClass.LIMITED:
+            elif outcome.cls not in (OutcomeClass.LIMITED, OutcomeClass.AUTH_DEAD):
+                # A `limited` probe closed its lane and an `auth-dead` one disabled it
+                # (C-23.44), so the next evaluation goes elsewhere at once; anything
+                # else waits.
                 # C-6.10: this wait keeps its own 60 s clock and is never brought
                 # forward (a released lease must not re-probe the provider), but a
                 # probe that ends the same way adds no second decision row.
@@ -3813,6 +4050,8 @@ class Daemon:
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
             freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
+        if kind == "detached" and self._take_answer_news():
+            freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
         # C-6.9: who is waiting on each detached job, and C-6.13: how busy the
         # machine is, each read once for the pass. A turn is always `attended` and
@@ -4515,9 +4754,14 @@ class Daemon:
         probes = store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'")
         unavailable = {row["lease_key"].split(":")[1]: row["holder"] for row in probes}
         unavailable.update({lane["lane_id"]: "credential-latched" for lane in lanes if capacity.credential_latched(lane)})
-        attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,j.kind,j.parent_job_id "
+        attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        # C-6.14: each lane's pilot, from the attempts in flight now and what has
+        # answered by now, as `_capacity_view` lays them: an attempt placed or an
+        # answer heard since the early view changes the lane, which is judged again.
+        for lane_id, pilot in self._pilot_marks(attempts, capacity._time(capacity._iso(now))).items():
+            unavailable.setdefault(lane_id, pilot)
         # C-6.9's parent cap counts the attempts under each of the job's parents:
         # every job on those ancestries, from the snapshot or, if newer, by id.
         known = {row["job_id"]: row for row in rows["view"]["jobs"]}
@@ -5087,6 +5331,8 @@ class Daemon:
             self._starting_deadlines.pop(aid, None)
             self._boundary("running", a["job_id"], aid)
             a = self.store.get_attempt(aid)
+        if job["kind"] != "turn" and a["state"] in ("starting", "running"):
+            self._read_answer(a, adir)          # C-6.14: files only, paced; never raises
         if receipt:
             self._begin_finalizing(a, receipt)
             return
@@ -5339,7 +5585,7 @@ class Daemon:
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,finished_at=? WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["attempt_id"], job["job_id"]))
-            retry = not cancel and a["seq"] < job["max_attempts"]
+            retry = not cancel and self._attempts_left(tx, job, a)
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
@@ -5827,6 +6073,10 @@ class Daemon:
                        f"is not a finished deliverable")
         if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
+        if not lost and self._answered(outcome, provider_verdict["class"]):
+            # C-6.14: before the attempt leaves flight, so a pilot that answered and
+            # ended at once frees its lane rather than handing the hold to another.
+            self._record_answer(a["lane_id"], "finalization", attempt=a)
         artifacts = [x for x in [deliverable,
                      self._artifact(Path(launch.stdout_path), "stdout"),
                      self._artifact(Path(launch.stderr_path), "stderr"),
@@ -5860,10 +6110,20 @@ class Daemon:
                 ok = not lost and outcome.cls == OutcomeClass.OK
                 cancel = cancel and not ok
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
-            retry = (not cancel and a["seq"] < job["max_attempts"] and
+            # C-4.5: a lane fault (an `auth-dead` lane, on an unpinned job whose
+            # workspace it left as it found it) moves the job on to the next
+            # candidate as `limited` does, and `max_attempts` does not count it.
+            moved = self._uncharged(tx, job["job_id"], before=a["seq"])
+            fault = None if lost or cancel or moved else self._lane_fault(job, a, outcome, checkpoint,
+                                                                           salvage_artifacts, salvage_evidence)
+            # C-23.44: a job that already moved on from one auth-dead lane and meets
+            # another is itself the common factor. It ends, and this lane stays
+            # enabled for the next attempt there to judge.
+            again = not lost and outcome.cls == OutcomeClass.AUTH_DEAD and moved > 0
+            retry = (not cancel and (fault is not None or self._attempts_left(tx, job, a) and
                      ((lost and job["sandbox"] == "read-only") or
                       (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
-                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient))))
+                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
@@ -5873,12 +6133,16 @@ class Daemon:
                                                                      "end_tree", "skipped", "error")}
             if provider_verdict["class"] != outcome.cls.value:
                 evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
+            if fault is not None:
+                evidence["lane_fault"] = fault
+            if again:
+                evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
-            if outcome.cls == OutcomeClass.AUTH_DEAD:
+            if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
                 self.store.update_lane(a["lane_id"], enabled=0)
                 self.timers.record_auth_dead(a["lane_id"])
             self._record_identity(a["lane_id"], outcome)   # C-10.6
@@ -5918,12 +6182,86 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        if fault is not None:
+            self.log.warning("job %s: lane %s went auth-dead on attempt a%d (%s); the lane is disabled and the "
+                             "job moves on to the next lane, this attempt not counted (C-4.5)",
+                             job["job_id"], a["lane_id"], a["seq"], outcome.detail)
+        if again:
+            self.log.warning("job %s: attempt a%d met auth-dead on a second lane, %s (%s); two lanes refusing one "
+                             "job points at the job, so %s is left enabled and the job ends (C-23.44)",
+                             job["job_id"], a["seq"], a["lane_id"], outcome.detail, a["lane_id"])
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
             self._boundary("notice", a["job_id"], a["attempt_id"])
         if accepted:
             self._export(job["job_id"])
         self._notify()
+
+    @staticmethod
+    def _lane_fault(job: dict, a: dict, outcome: Outcome, checkpoint: str | None,
+                    salvage_artifacts: list[dict], salvage_evidence: dict) -> dict | None:
+        """C-4.5: what makes an attempt's `auth-dead` its lane's fault and not the
+        job's, as its evidence records it, or None.
+
+        The lane refused the credential (C-9.3: an organisation block, a revoked
+        token, an explicit refusal, all from the CLI's own words, never the
+        model's), so the next lane can run the job; the job pinned no lane, so it
+        may move; it is no conversation turn (its conversation decides its
+        failover, C-26.7); and the attempt changed nothing the next one would
+        start from: the job is read-only, or its salvage found the end tree equal
+        to the start snapshot (no ref written, none left out, no error) and HEAD
+        where it was, and its model never answered (`model_answered` False: nothing
+        ran, so nothing outside the worktree changed either). A job the lane could
+        have changed waits for reconciliation (C-13.3) as before. The caller gives a
+        job one lane fault: a second `auth-dead` ends it (`_finalize`). 2026-09-30: an organisation disabled claude-5's
+        Claude Code access, and 37 jobs from about 20 sessions failed there with
+        rc 5, after one attempt each, while other lanes were coming back.
+        """
+        if outcome.cls != OutcomeClass.AUTH_DEAD or job["pinned_lane"] or job["kind"] == "turn":
+            return None
+        answered = (outcome.evidence or {}).get("model_answered")
+        fault = {"class": outcome.cls.value, "lane_id": a["lane_id"], "seq": a["seq"], "model_answered": answered}
+        if job["sandbox"] == "read-only":
+            return {**fault, "workspace": "read-only"}
+        if answered is not False:
+            # A writable attempt whose model answered may have pushed, commented or
+            # written outside its worktree, which no tree shows; where the adapter
+            # cannot say, it is taken to have.
+            return None
+        baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
+        if salvage_artifacts or salvage_evidence or not checkpoint or checkpoint != baseline:
+            return None
+        return {**fault, "workspace": "unchanged", "head": checkpoint}
+
+    @staticmethod
+    def _uncharged(conn, job_id: str, *, before: int) -> int:
+        """C-4.5: the job's attempts before `before` that were lane faults (at most
+        one: a job moves on once), which `max_attempts` does not count."""
+        return sum(1 for (data,) in conn.execute(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND seq<? AND outcome_class='auth-dead'",
+            (job_id, before)) if _lane_fault_of(data))
+
+    def _attempts_left(self, conn, job: dict, a: dict) -> bool:
+        """C-4.5: may the job have an attempt after `a`, which is no lane fault?
+        `max_attempts` counts every attempt but the one lane fault a job may have
+        had before it: that attempt ran nothing (a writable job's), or only read."""
+        return a["seq"] - self._uncharged(conn, job["job_id"], before=a["seq"]) < job["max_attempts"]
+
+    @staticmethod
+    def _moved_on(conn, job_id: str) -> str:
+        """C-4.5, C-15.1: the notice's line for each lane fault the job moved on from."""
+        lines = ""
+        for seq, lane_id, detail, data in conn.execute(
+                "SELECT seq,lane_id,outcome_detail,evidence_json FROM attempts "
+                "WHERE job_id=? AND outcome_class='auth-dead' ORDER BY seq", (job_id,)).fetchall():
+            if _lane_fault_of(data):
+                lines += (f"\nattempt a{seq}: lane {lane_id} went auth-dead ({detail or '-'}); it is disabled until "
+                          f"`subfleet lanes enroll` rebinds its credential, and the job moved on to the next lane "
+                          f"without counting the attempt")
+            elif _evidence_key(data, "auth_dead_again"):
+                lines += (f"\nattempt a{seq}: lane {lane_id} answered auth-dead too; two lanes refusing one job "
+                          f"points at the job, so {lane_id} was left enabled")
+        return lines
 
     def _export(self, job_id: str) -> None:
         with self._busy_lock:

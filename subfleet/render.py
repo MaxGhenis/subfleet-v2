@@ -180,6 +180,9 @@ _HOLD_TEXT = {
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
     "probe-pending": "its lane is being probed before the job may start on it",
+    "lane-proving": "every lane that could take it has gone admission.prove_idle_s without a model's answer and "
+                    "is being proven by one attempt, its pilot; the job starts once a pilot shows its model "
+                    "answering, or goes elsewhere if another lane opens (C-6.14)",
     "attempt-live": "an earlier attempt of this job is still live or quarantined; the next waits for it",
     "approval": "waiting for an operator's approval",
     "uncertain": "a probe was quarantined; an operator must resolve it",
