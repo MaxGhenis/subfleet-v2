@@ -96,6 +96,7 @@ def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views)
     assert review_views["sidebar"]["arrow_changed_selection"]
     assert review_views["sidebar"]["badge_clicked"], review_views["sidebar"]
     assert review_views["sidebar"]["badge_hit_is_control"]
+    assert review_views["sidebar"]["badge_is_independent"]
     assert review_views["visible_windows"] == 0
 
 

@@ -5,6 +5,7 @@ pr124_verify; no app is installed and no live state is used.
 """
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,24 @@ TEST = "tests/frontend/test_visual_review_fixes.py"
 SNAPSHOT = "tests/frontend/test_visual_snapshots.py"
 
 
+def prepare_compiler():
+    """Create foreground compiler wrappers in this workspace on a fresh replay."""
+    directory = ROOT / "build/pr124-evidence/bin"
+    directory.mkdir(parents=True, exist_ok=True)
+    frontend = directory / "swift-frontend"
+    scripts = {
+        frontend: "#!/bin/sh\nexec " + shlex.quote(PYTHON) + " "
+            + shlex.quote(str(ROOT / "tools/foreground_swift_frontend.py")) + ' "$@"\n',
+        directory / "xcrun": '#!/bin/sh\nif [ "$1" = swiftc ]; then\n  shift\n'
+            + "  exec /usr/bin/xcrun swiftc -disable-sandbox -j 4 -driver-use-frontend-path "
+            + shlex.quote(str(frontend)) + ' "$@"\nfi\nexec /usr/bin/xcrun "$@"\n',
+    }
+    for path, script in scripts.items():
+        if not path.exists():
+            path.write_text(script)
+            path.chmod(0o755)
+
+
 def replace(folder, file, before, after):
     path = folder / file
     content = path.read_text()
@@ -25,6 +44,7 @@ def replace(folder, file, before, after):
 
 
 def test(name, folder, nodes):
+    prepare_compiler()
     result = run(name, 580, [PYTHON, "-m", "pytest", "-p", "tools.app_cutover_pytest", "-q", *nodes,
                            f"--junitxml={REPORT / (name + '.xml')}"], cwd=folder)
     # These paths were created by this foreground slice. Retain the binary
@@ -118,6 +138,11 @@ def mutate(name):
         old_a, old_b = original.index("struct SidebarView"), original.index("struct SidebarRow")
         (folder / "app/Sources/UIWindow.swift").write_text(current[:a] + original[old_a:old_b] + current[b:])
         nodes += ["-k", "sidebar or filter"]
+    elif name == "badge-control":
+        # Keep native selection and remove only the hand's independent action.
+        # A static marker inside a selectable row must not pass the control test.
+        replace(folder, "app/Sources/UIWindow.swift", "Button(action: showApprovals) {", "Group {")
+        nodes += ["-k", "sidebar"]
     elif name == "disabled":
         replace(folder, "app/Sources/Theme.swift", ".opacity(enabled ? 1 : 0.4)", ".opacity(1)")
         nodes += ["-k", "disabled_quiet"]

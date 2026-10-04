@@ -144,7 +144,7 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
         }
         let arrowChanged = selection != before
         let buttons = allViews(sidebarHost).compactMap { $0 as? NSButton }
-        var badgeClicked = false, badgeHit = false
+        var badgeClicked = false, badgeHit = false, badgeIndependent = false
         for button in buttons {
             // SwiftUI paints the badge's label itself inside a native List,
             // leaving the AppKit button title empty. Menus must never be opened.
@@ -160,6 +160,13 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
             if model.approvalReveal?.token != prior {
                 badgeClicked = true
                 badgeHit = hit === button || hit.map { allViews(button).contains($0) } == true
+                var ancestor = button.superview
+                var nested = false
+                while let view = ancestor, view !== sidebarHost {
+                    if view is NSButton { nested = true }
+                    ancestor = view.superview
+                }
+                badgeIndependent = !nested
             }
         }
         sidebarWindow.close()
@@ -184,6 +191,7 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
             "sidebar": ["native_selection": table != nil, "arrow_changed_selection": arrowChanged,
                         "focus_shortcut_handled": focusHandled, "focus_shortcut_reached_list": focusReachedList,
                         "badge_clicked": badgeClicked, "badge_hit_is_control": badgeHit,
+                        "badge_is_independent": badgeIndependent,
                         "buttons": buttons.map { ["title": $0.title, "label": $0.accessibilityLabel() ?? "", "type": String(describing: type(of: $0))] }],
             "filter": filter, "disabled_pixel_difference": Double(changed) / Double(count),
             "amber_contrast": amberContrast,
