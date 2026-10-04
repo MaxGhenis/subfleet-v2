@@ -34,7 +34,7 @@ def invoke(probe, folder, data):
 
 
 @seed(int(os.environ.get("PR124_PROPERTY_SEED", "124")))
-@settings(max_examples=6, deadline=None, database=None)
+@settings(max_examples=10, deadline=None, database=None)
 @example([("retry", 1, None), ("open", 0, None), ("send-composer", 0, None), ("relaunch", 0, None)])
 @example([("retry", 1, "conversation.create"), ("relaunch", 0, None), ("retry", 1, "message.submit"),
           ("crash", 0, None), ("relaunch", 0, None)])
@@ -103,11 +103,11 @@ def test_every_written_message_is_sent_once_or_remains_visibly_unsent(review_pro
                     if original in discarded:
                         assert matching[0]["state"] == "withdrawn"
                     elif not by_text.get(text):
-                        # Unsends remain on a refused row, or in the durable
-                        # outbox waiting for the unanswered create to reconcile.
-                        assert matching[0]["state"] in ("queued", "sending", "failed")
+                        # Unaccepted messages must be visible on their refused
+                        # row after relaunch, not merely present somewhere on disk.
+                        assert matching[0]["state"] in ("queued", "failed")
                         assert any(d["id"] == matching[0]["conversation"].removeprefix("draft:")
-                                   and original in d["messages"] for d in shot["failed"]) or matching[0]["state"] != "failed"
+                                   and original in d["messages"] for d in shot["failed"])
                 idea = [e for e in entries if e.get("message", {}).get("text") == "my unsent idea"]
                 assert len(idea) <= 1
                 assert idea or shot["saved_text"] == "my unsent idea"

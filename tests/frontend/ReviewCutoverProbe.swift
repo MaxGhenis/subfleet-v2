@@ -1,5 +1,5 @@
-// Review of #124 (not part of the PR): real UIModel paths the PR's probe does not drive.
-// Compiled with CutoverViewScenarios.swift for CutoverDefaults. No daemon, window or loop.
+// First-use review regressions through UIModel with isolated storage and clients.
+// Compiled with CutoverViewScenarios.swift for CutoverDefaults; no window or watch loop.
 import AppKit
 
 final class ReviewClient: DaemonCalling, @unchecked Sendable {
@@ -112,7 +112,22 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
             case "reload": model = UIModel(paths: .rooted(at: root), client: client, defaults: defaults, state: state)
             case "relaunch-pump":
                 model.pump()
-                try await Task.sleep(nanoseconds: 250_000_000)
+                // Wait for the real service's durable acknowledgements. Failed
+                // creates deliberately retain their visibly unsent messages.
+                for _ in 0..<300 {
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                    let journalURL = root.appendingPathComponent("support/outbox.json")
+                    let journal = try? JSONValue.parse(Data(contentsOf: journalURL))
+                    let entries = journal?["entries"]?.array ?? []
+                    let refused = Set(entries.filter { $0["kind"]?.string == "conversation.create"
+                        && $0["state"]?.string == "failed" }.compactMap { $0["key"]?.string }.map { "draft:" + $0 })
+                    let pending = entries.contains { entry in
+                        ["queued", "sending"].contains(entry["state"]?.string ?? "")
+                            && !refused.contains(entry["conversation"]?.string ?? "")
+                    }
+                    if !pending { break }
+                    model.pump()
+                }
             case "crash": _exit(73)
             default: break
             }
