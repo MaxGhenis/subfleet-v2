@@ -10,31 +10,31 @@
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      "sol"
     ],
     "research": [
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      "sol"
     ],
     "review": [
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      "sol"
     ],
     "build": [
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      "sol"
     ],
     "sweep": [
       "terra",
       "terra",
       "terra",
-      "astra"
+      "sol"
     ],
     "authored-prose": [
       "fable",
@@ -85,9 +85,9 @@
       "id": "claude-haiku-4-5-20251001",
       "priority": 1
     },
-    "astra": {
+    "sol": {
       "provider": "codex",
-      "id": "gpt-6-astra",
+      "id": "gpt-6.1-sol",
       "effort": "ultra"
     },
     "terra": {
@@ -96,7 +96,8 @@
     }
   },
   "retired": {
-    "sol": "astra",
+    "astra": "sol",
+    "gpt-6-astra": "sol",
     "claude-fable-5": "fable"
   },
   "desktop_login": "never",

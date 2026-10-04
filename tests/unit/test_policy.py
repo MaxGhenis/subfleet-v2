@@ -57,9 +57,9 @@ def test_missing_required_key_names_file_and_key(tmp_path, policy_data, key):
     ("chains", [], "chains"),
     ("chains", {}, "chains"),
     ("chains.research", ["opus"], "chains.research"),
-    ("chains.research", ["haiku", "sonnet", "typo", "astra"], "chains.research[2]"),
-    ("chains.research", ["haiku", "sonnet", [], "astra"], "chains.research[2]"),
-    ("chains.research", ["haiku", "sonnet", "sol", "astra"], "chains.research[2]"),
+    ("chains.research", ["haiku", "sonnet", "typo", "sol"], "chains.research[2]"),
+    ("chains.research", ["haiku", "sonnet", [], "sol"], "chains.research[2]"),
+    ("chains.research", ["haiku", "sonnet", "astra", "sol"], "chains.research[2]"),
     ("fallback", "downward", "fallback"),
     ("desktop_login", "sometimes", "desktop_login"),
     ("permissions", [], "permissions"),
@@ -67,9 +67,9 @@ def test_missing_required_key_names_file_and_key(tmp_path, policy_data, key):
     ("permissions.build", "danger-full-access", "permissions.build"),
     ("permissions.typo", "read-only", "permissions.typo"),
     ("retired", [], "retired"),
-    ("retired.sol", "typo", "retired.sol"),
-    ("retired.sol", [], "retired.sol"),
-    ("retired.opus", "astra", "retired.opus"),
+    ("retired.astra", "typo", "retired.astra"),
+    ("retired.astra", [], "retired.astra"),
+    ("retired.opus", "sol", "retired.opus"),
     ("caps", [], "caps"),
     ("caps.max_active_attempts", 0, "caps.max_active_attempts"),
     ("caps.max_active_attempts_per_parent", -1, "caps.max_active_attempts_per_parent"),
@@ -189,25 +189,25 @@ def test_serialized_metadata_cannot_override_file_hash(tmp_path, policy_data):
     assert loaded["_policy_path"] == str(path)
 
 
-def test_retired_sol_alias_resolves_to_astra_with_note(capsys):
-    """C-11.1: the retired sol alias resolves to Astra with a stderr note."""
+def test_retired_astra_alias_resolves_to_sol_with_note(capsys):
+    """C-11.1: the retired astra alias resolves to Sol with a stderr note."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    assert resolve_model(policy, "sol") == "astra"
+    assert resolve_model(policy, "astra") == "sol"
     captured = capsys.readouterr()
     assert not captured.out
     assert "retired" in captured.err and "sol" in captured.err and "astra" in captured.err
 
 
-@pytest.mark.parametrize("name", ["astra", "gpt-6-astra"])
+@pytest.mark.parametrize("name", ["sol", "gpt-6.1-sol"])
 def test_current_name_and_exact_id_resolve_without_note(name, capsys):
     """C-11.1, C-11.2: current names and exact ids preserve model pins silently."""
-    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), name) == "astra"
+    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), name) == "sol"
     assert not capsys.readouterr().err
 
 
 def test_retired_note_can_be_suppressed_for_repeat_evaluations(capsys):
     """C-11.1: reevaluation may suppress a retired alias note already emitted."""
-    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "astra"
+    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "astra", note=False) == "sol"
     assert not capsys.readouterr().err
 
 

@@ -539,6 +539,7 @@ def activity_times(root: Path) -> dict[tuple[str, str], float]:
     """
     catalog, _ = _load(Path(root) / "catalog.json")
     times = {}
+    latest = min(time.time(), 253402300799)
     items = catalog.get("items")
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict) or item.get("provider") not in PROVIDERS:
@@ -546,7 +547,7 @@ def activity_times(root: Path) -> dict[tuple[str, str], float]:
         native, mtime = item.get("native_session_id"), item.get("mtime")
         if not isinstance(native, str) or not native or not isinstance(mtime, (int, float)) or isinstance(mtime, bool):
             continue
-        if not 0 <= mtime <= 253402300799 or not math.isfinite(mtime):
+        if not 0 <= mtime <= latest or not math.isfinite(mtime):
             continue
         key = (item["provider"], canonical_native(native))
         times[key] = max(times.get(key, 0), mtime)
