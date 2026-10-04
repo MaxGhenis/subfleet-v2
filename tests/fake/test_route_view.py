@@ -104,8 +104,9 @@ def views(service):
 @settings(max_examples=150, deadline=None, suppress_health_check=FIXTURE_HEALTH)
 @given(store=stores(), job=candidates, fleet=st.integers(min_value=1, max_value=6),
        per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)),
-       turns=st.one_of(st.none(), st.integers(min_value=1, max_value=4)))
-def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent, turns):
+       turns=st.one_of(st.none(), st.integers(min_value=1, max_value=4)),
+       turn_slots=st.one_of(st.none(), st.integers(min_value=1, max_value=2)))
+def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent, turns, turn_slots):
     """C-6.4, C-11, C-26.9: the route view's decision equals the full view's, for
     every store and job, detached or a turn."""
     service = store_daemon
@@ -117,8 +118,10 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     else:
         caps.pop("max_active_attempts_per_parent", None)
     policy = {**service.policy, "caps": caps}
-    if turns is not None:
-        policy["conversations"] = {**(policy.get("conversations") or {}), "max_active_turns": turns}
+    if turns is not None or turn_slots is not None:
+        policy["conversations"] = {**(policy.get("conversations") or {}),
+                                   **({"max_active_turns": turns} if turns is not None else {}),
+                                   **({"turn_slots_per_lane": turn_slots} if turn_slots is not None else {})}
     job = dict(job)
     if "existing" in job and job["existing"] < len(jobs):
         job["job_id"] = f"job-{job['existing']}"
@@ -139,7 +142,42 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
     assert dataclasses.asdict(scheduler.evaluate(policy, route, job)) == dataclasses.asdict(expected)
     # What the route view leaves out it leaves out because it cannot matter.
     assert all(row["state"] in scheduler.ACTIVE_ATTEMPTS for row in route["attempts"])
+    active_jobs = {row["job_id"] for row in route["attempts"]}
+    assert all((row["parent_job_id"] or "") > "" or row["job_id"] in active_jobs for row in route["jobs"])
     assert route["in_flight"] == full["in_flight"] and route["in_flight_turns"] == full["in_flight_turns"]
+
+
+@settings(max_examples=80, deadline=None, suppress_health_check=FIXTURE_HEALTH)
+@given(store=stores(), existing=st.integers(min_value=0, max_value=11),
+       per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)))
+def test_the_reservation_recheck_reads_the_same_from_the_route_rows(store_daemon, store, existing, per_parent):
+    """C-6.3 with C-11.2 (port review of a4b10b83): the reserving transaction's recheck
+    (`_route_rows`, `_route_stands`) takes its known jobs from the rows `_pick` read.
+    From the route rows it finds the same jobs, reading the rest by id, and reaches
+    the same answer as from every row."""
+    service = store_daemon
+    jobs, attempts = store
+    lay(service, jobs, attempts)
+    index = existing % len(jobs)
+    if per_parent is not None:
+        service.policy = {**service.policy, "caps": {**service.policy["caps"],
+                                                     "max_active_attempts_per_parent": per_parent}}
+    job = {"task": "research", "tier": "hard", "sandbox": "read-only", "job_id": f"job-{index}",
+           "parent_job_id": _parent(jobs[index][0]), "kind": jobs[index][2]}
+    basis = {}
+    try:
+        decision = service._pick(job, basis=basis)
+    except (ValueError, scheduler.RouteError):
+        return
+    full = {**basis, "rows": service._capacity_rows()}
+    now = datetime.now(timezone.utc)
+    narrow_rows, full_rows = service._route_rows(basis, now), service._route_rows(full, now)
+    assert (narrow_rows is None) == (full_rows is None)
+    if narrow_rows is None:
+        return
+    key = lambda rows: {row["job_id"]: dict(row) for row in rows["jobs"]}          # noqa: E731
+    assert key(narrow_rows) == key(full_rows)
+    assert service._route_stands(basis, decision)[0] == service._route_stands(full, decision)[0]
 
 
 @pytest.mark.parametrize("odd", ODD_PARENTS)
@@ -173,6 +211,9 @@ def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daem
     assert "evidence_json" not in ROUTE_ATTEMPTS and "*" not in ROUTE_ATTEMPTS and "*" not in ROUTE_JOBS
     plan = " ".join(row["detail"] for row in store_daemon.store.query("EXPLAIN QUERY PLAN " + ROUTE_ATTEMPTS))
     assert "attempts_live" in plan
+    # Both halves of `ROUTE_JOBS` by index (a multi-index OR), never a scan of every job.
+    plan = " ".join(row["detail"] for row in store_daemon.store.query("EXPLAIN QUERY PLAN " + ROUTE_JOBS))
+    assert "jobs_parent" in plan and "attempts_live" in plan and "SCAN jobs" not in plan, plan
 
 
 def test_pick_reads_the_route_rows_and_status_every_row(store_daemon, monkeypatch):
@@ -191,5 +232,5 @@ def test_pick_reads_the_route_rows_and_status_every_row(store_daemon, monkeypatc
     monkeypatch.setattr(service, "_capacity_rows", spy)
     service._pick({"task": "research", "tier": "standard", "sandbox": "read-only"})
     status = service.dispatch("daemon.status", {})
-    assert seen[0] is True and False in seen[1:]
+    assert seen[0] is True and seen[1:] and not any(seen[1:]), seen
     assert {row["job_id"] for row in status["jobs"]} == {"job-0", "job-1"} and len(status["attempts"]) == 2
