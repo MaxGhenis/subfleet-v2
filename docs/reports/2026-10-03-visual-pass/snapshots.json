@@ -1,5 +1,5 @@
 {
-  "source_commit": "ccacf668ddc91b69aae44a5b66d35cfa624a2cc9",
+  "source_commit": "b51bdcea06b68da3d53787ee0458e3b9d6bda5f6",
   "baseline_commit": "75972d4a9506132ac066c2e7474d5a1b9ac20f10",
   "logical_points": [
     1440,
@@ -15,7 +15,7 @@
         2880,
         1800
       ],
-      "sha256": "89e0a9df322a14770e6b3aaf0f3edd39de4c74f2cb038a1eb4ed9e88a9f81218"
+      "sha256": "4b3e2ecd5789e09f06d381200e00ff3ff8e6cd91a77582e5d4a9f3372b6454ab"
     },
     {
       "file": "after/blocked-light.png",
@@ -23,7 +23,7 @@
         2880,
         1800
       ],
-      "sha256": "87dbab628b45d42c30fc8d4b4c73d4b71db7c90631e71d84e3cf6f93249c8db2"
+      "sha256": "ec3ffb7347b0d5e42dcf7ff8cc6286fa4820dcd33a2f01f8124a5068e5e7433b"
     },
     {
       "file": "after/empty-dark.png",
@@ -47,7 +47,7 @@
         2880,
         1800
       ],
-      "sha256": "8f702b621f3493a1725430da77fa52bfbfd618ccbc162bb0c18505f25f2cef2b"
+      "sha256": "ac40f420762f9474612f8d688eacab8b752d97f1bd97f04efcdfc6647b122aaf"
     },
     {
       "file": "after/finished-light.png",
@@ -55,7 +55,7 @@
         2880,
         1800
       ],
-      "sha256": "d966207a463e2914f4652395dfed27cf5100fe3f8bfdd65393483dff3595fc6c"
+      "sha256": "42558ce481acdfa4ffbbf243aedbf699a856c20f771a773b1a5d167b2f765395"
     },
     {
       "file": "after/live-dark.png",
@@ -63,7 +63,7 @@
         2880,
         1800
       ],
-      "sha256": "462756ae87924663d960f9110f8df10ffb02aa5a3df7df5aa4a09569a4403122"
+      "sha256": "2cee2a3e49bafb8bf0dd17aa942a235f6f8b9b168a1d3f625e4cefd70a141862"
     },
     {
       "file": "after/live-expanded-dark.png",
@@ -71,7 +71,7 @@
         2880,
         1800
       ],
-      "sha256": "a1b226ca5167af83440b9a344c44a81fd43a2f7de10182f50f4f1e22f0f1e1aa"
+      "sha256": "2ed442b6e39e07fbcbbaf2457bb22707d8e39f3699986c6cc4f44179a8322ea6"
     },
     {
       "file": "after/live-expanded-light.png",
@@ -79,7 +79,7 @@
         2880,
         1800
       ],
-      "sha256": "eb0d5aec476688ec4c4eb656c253939db5ece482483837240151ec7d1b422c09"
+      "sha256": "0aea42738655ce44d6e2f3eb5d27e5f9a3762849abf9009ca71b128642f479e4"
     },
     {
       "file": "after/live-light.png",
@@ -87,7 +87,7 @@
         2880,
         1800
       ],
-      "sha256": "d2e6888464fd9e29325544219c83330d75e17505ce0f95d816cc61bbe5a917d1"
+      "sha256": "4f37bbcbe08f8491fd3647c5a99aa71c3fe7c0a30b2212fcb2f21d581b980921"
     },
     {
       "file": "after/new-dark.png",
@@ -95,7 +95,7 @@
         2880,
         1800
       ],
-      "sha256": "1c240c00d3ad8ab67ed6887bd640c8758862002acac528ae8f8962161dc4b364"
+      "sha256": "278ff99abe9cd47db7fe701a106ce473ce1b042946270028e5ad0632995fd469"
     },
     {
       "file": "after/new-light.png",
@@ -103,7 +103,7 @@
         2880,
         1800
       ],
-      "sha256": "427f4745bec6a1cf199195195360ccf83d2e335999adf334550416e17150e4e9"
+      "sha256": "6b149398216de96f08a56f777c35eda6069a49643adf9acbc9aa6483c996021f"
     },
     {
       "file": "after/permission-dark.png",
@@ -111,7 +111,7 @@
         2880,
         1800
       ],
-      "sha256": "b238c0161223d68351433268f460f72f37d4c5532bddd7753d96d3a1cd1bd13a"
+      "sha256": "e99053d04dadd46e25404a7d6ee3513ae4aa1ebb5a07864914378aed1eea7601"
     },
     {
       "file": "after/permission-light.png",
@@ -119,7 +119,23 @@
         2880,
         1800
       ],
-      "sha256": "979abd05f2c303b497390ad27eb82ce2dae209d2111237d6d935bf71cad50e76"
+      "sha256": "b6eabb8166073704bbd2bac2414443b6b2b1731e99415dfc96cf2014760c40a6"
+    },
+    {
+      "file": "after/question-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "3f063b43eb1baa6dc3735eca67c6e59595c3efd1e4907c5aaa1b322c1bbc014e"
+    },
+    {
+      "file": "after/question-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "71ddd3c69dfb052069dfa4b0838f12c0d787ec16fbf61794dc45b3283b8a46da"
     },
     {
       "file": "after/refused-dark.png",
@@ -127,7 +143,7 @@
         2880,
         1800
       ],
-      "sha256": "d2e1e9157519d26970fce259eecd5f32fe10c0eaec39e2785483c59a1dd556d6"
+      "sha256": "e241f8d27315adc336bc9124c4045719868efc3b66cd52e9e7e62186ff9d3446"
     },
     {
       "file": "after/refused-light.png",
@@ -135,7 +151,7 @@
         2880,
         1800
       ],
-      "sha256": "6abbed2990d8b15648b9f820a10bd69d231f679286ba020fa6bcda1baeb792c6"
+      "sha256": "beeef8af95a3786396f99019e2666647d7eb26927c321172a9fd5b01d4f8e742"
     },
     {
       "file": "after/sidebar-dark.png",
@@ -143,7 +159,7 @@
         2880,
         1800
       ],
-      "sha256": "4cdd3634dce353c1b387c9882991d044f48be6519dcf76235780103040776764"
+      "sha256": "a4e7568c2aa8a23efa3bf344934746c33919e4fd49144d1efb2ecdef75ca3e31"
     },
     {
       "file": "after/sidebar-light.png",
@@ -151,7 +167,7 @@
         2880,
         1800
       ],
-      "sha256": "37cc23c002467408f6dec1257358ca91eef688dffcd08d10d4a627ca4199c5d0"
+      "sha256": "52fdb1daf8198386710a0f128f562a5734a5aa977e3a67733a40858110abd110"
     },
     {
       "file": "before/finished-dark.png",
@@ -184,6 +200,39 @@
         1800
       ],
       "sha256": "292cb307ebdd064b1d35ce9281e52ed80277dd343f886df19a695e76dd613cb2"
+    },
+    {
+      "file": "review-before/finished-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "8f702b621f3493a1725430da77fa52bfbfd618ccbc162bb0c18505f25f2cef2b"
+    },
+    {
+      "file": "review-before/finished-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d966207a463e2914f4652395dfed27cf5100fe3f8bfdd65393483dff3595fc6c"
+    },
+    {
+      "file": "review-before/live-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "462756ae87924663d960f9110f8df10ffb02aa5a3df7df5aa4a09569a4403122"
+    },
+    {
+      "file": "review-before/live-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d2e6888464fd9e29325544219c83330d75e17505ce0f95d816cc61bbe5a917d1"
     }
-  ]
+  ],
+  "review_base_commit": "a65ee8ea1238883bea0c6a72de54261253e894c7"
 }

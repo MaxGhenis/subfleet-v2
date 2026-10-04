@@ -1,8 +1,10 @@
 # Subfleet visual pass
 
+The [release-owner follow-up](REVIEW.md) records the latest approval/question, receipt, header and Rename corrections. All after images below now use that revision; the original baseline images and initial validation results remain preserved.
+
 The agent's prose carries live progress. Consecutive tools and visible thinking summaries fold into one quiet expandable row between messages. Empty thinking disappears. Finished turns collect their entire tool history into one duration-and-count row. Raw input and output remain available inside each expanded tool.
 
-The release-owner overrides take precedence for ledger rows 6, 7 and 16: sidebar names occupy one line in either grouping, paths remain in tooltips and the header, and provider marks appear beside model names only. The native-session circular arrow meant “existing session; opening continues it here”; it was removed as provenance rather than current state. Approval/blocked, running, open-elsewhere and non-continuable states keep distinct named marks and tooltips.
+The release-owner overrides take precedence for ledger rows 6, 7 and 16: sidebar names occupy one line in either grouping, paths remain in tooltips and the header, and provider marks appear beside the composer model name only. The native-session circular arrow meant “existing session; opening continues it here”; it was removed as provenance rather than current state. Approval/blocked, running, open-elsewhere and non-continuable states keep distinct named marks and tooltips.
 
 The snapshot fixture is a frozen, sanitized record assembled in the daemon's public event format: 15 Bash starts, six thinking blocks (four empty), three agent text messages, two failed tools and one running tool. It is a test replay rather than a capture from a live account; its [provenance](../../../tests/fixtures/visual/README.md) is documented. The finished replay settles the last call and turn at 3m 12s. Both versions use the same event fixture and real app views. No account, installed app, daemon or live Application Support directory participates.
 
@@ -40,7 +42,7 @@ Each image renders the real views at 1440×900 points and 2880×1800 pixels. An 
 
 ## Intentional differences and evidence
 
-SF Pro remains the native Mac face because the reference faces are not licensed. The Mac accent remains on focus and Send because Subfleet routes across providers. At actual text size the retained reading column is 896 points, wider than the roughly 740-point reference; ledger row 9 explicitly retains the existing reading-column width. Subfleet retains its serving-account usage chip, per-turn serving facts, approval/question forms, steer and stop controls, Changes, and explicit Continue/Leave recovery actions because they express its routing and review workflow.
+SF Pro remains the native Mac face because the reference faces are not licensed. The Mac accent remains on focus and Send because Subfleet routes across providers. At actual text size the retained reading column is 896 points, wider than the roughly 740-point reference; ledger row 9 explicitly retains the existing reading-column width. Subfleet retains its serving-account usage chip, per-turn serving facts in finished-work tooltips, approval/question forms, steer and stop controls, Changes, and explicit Continue/Leave recovery actions because they express its routing and review workflow.
 
 The new-conversation scene renders the app’s actual draft view in its existing detail-pane placement; changing it to a modal sheet would change navigation behavior. Native buttons in the offscreen, inactive AppKit context can appear gray. The baseline material uses an opaque native backing because there is no visible desktop to blur. The out-of-scope menu-bar popover, Changes rendering and ⌘K palette keep their existing layouts, with colors and radii moved to tokens.
 
@@ -64,7 +66,7 @@ Source links below use repository-relative paths and name the production views, 
 | 4 — Accent | Mac accent for Send and visible focus: `app/Sources/Theme.swift:80`, `app/Sources/UIComposer.swift:271`; native editor focus outline in `app/Sources/UIComposer.swift:33`. |
 | 5 — Sidebar top | New conversation first, Search second, connected to the existing ⌘K palette: `app/Sources/UIWindow.swift:154`. |
 | 6 — Sidebar rows | One-line names in both groupings, 32-point pitch, 14-point type, rounded selection; folder tooltip and named state marks: `app/Sources/UIWindow.swift:199`, `:219`. Release-owner override applied. |
-| 7 — Provider | No row badge. Simplified monochrome template provider marks beside header/composer model: `app/Sources/ProviderMark.swift:347`, `app/Sources/UIModelControls.swift:15`, `app/Sources/UIWindow.swift:471`. |
+| 7 — Provider | No row badge. Simplified monochrome template provider marks beside the composer model: `app/Sources/ProviderMark.swift:347`, `app/Sources/UIModelControls.swift:15`, `app/Sources/UIWindow.swift:471`. |
 | 8 — Grouping | Quiet list-header switch; Today/Yesterday/Earlier headings, or existing workspace headings: `app/Sources/UIWindow.swift:146`, `:170`. |
 | 9 — Column | Centered existing reading column, 24-point padding: `app/Sources/UIWindow.swift:305`, `app/Sources/TextScale.swift:116`. |
 | 10 — Person | Right-aligned neutral raised bubble, radius 16: `app/Sources/UIWindow.swift:548`. |
@@ -73,14 +75,14 @@ Source links below use repository-relative paths and name the production views, 
 | 13 — Composer | One raised radius-16 container, controls inside, round Send/Steer: `app/Sources/UIComposer.swift:160`, `:281`. |
 | 14 — Model/effort | One menu with existing model and effort choices and catalog display names: `app/Sources/UIModelControls.swift:15`. |
 | 15 — Permission | Quiet menu, amber when widened; existing confirmation retained: `app/Sources/UIModelControls.swift:57`, `app/Sources/UIComposer.swift:222`. |
-| 16 — Header | Regular 15-point title, folder, Changes, quiet model/provider and serving chip: `app/Sources/UIWindow.swift:446`. |
+| 16 — Header | Regular 15-point title, folder, Changes and serving chip: `app/Sources/UIWindow.swift:446`. |
 | 17 — Serving account | Existing serving facts matched to existing status usage, with stale/unmatched values withheld: `app/Sources/AccountUsage.swift:3`, `app/Sources/UIModel.swift:352`. |
 | 18 — Notices | Shared neutral notice style for limits, failures and app availability; failed-send footer remains a recovery button: `app/Sources/Theme.swift:125`, `app/Sources/UIWindow.swift:38`, `:520`, `app/Sources/UIFailedConversationDraft.swift:13`. |
 | 19 — Injected turns | Existing typed notice parsing already correct; notice rendering now uses the shared style: `app/Sources/UIWindow.swift:523`. |
 | 20 — Blocked | Same Continue/Leave actions in a neutral notice with separate visible controls: `app/Sources/UIConversationRecovery.swift:6`. |
 | 21 — Radii | Three role tokens replace numeric view radii: `app/Sources/Theme.swift:23`. |
 
-## Validation
+## Initial validation
 
 The full run of `tests/frontend` and `tests/unit/test_app_cutover_daemon.py` passed **340 tests**, with **one skip** (341 collected: 328 frontend, 13 app). Frontend: 327 passed, one skipped. App daemon regressions: 13 passed. This includes the four new contrast/progress/account tests. The skipped native process check needs sandbox-unavailable `ps`/sysctl boot identity. [JUnit results](tests.xml) preserve the exact cases. Wall time: 3822.75 seconds.
 
@@ -88,7 +90,7 @@ After the native color, monospace step and last token fixes, the real reading/me
 
 The final native permission label passed the five real reading/keyboard/palette tests again in **113.64 seconds** ([final view results](final-view-tests.xml)). The existing choice is still called “Bypass”; only its styling changed. The real widened-permission scene confirms amber text and the existing explicit confirmation.
 
-All **18 after images** and **four baseline images** were personally inspected against the references. The live scene shows three unfurled prose messages separated by three groups of five commands, with two failures and a named running spinner. Its expansion shows the two visible thinking summaries and borderless human-labelled tools. The finished scene shows one duration/count/failure row, all three prose messages, Markdown code/table and the person bubble. Sidebar rows have no paths or badges, and every state mark has a tooltip. Both refused-folder scenes show the reason, a scratch-folder action and disabled Start controls. Both new-draft scenes show a complete focus outline. Blocked scenes expose Continue/Leave, and empty scenes retain New conversation and ⌘K guidance. [Snapshot manifest](snapshots.json) verifies 22 PNGs at exactly 2880×1800 pixels; the renderer asserts that no window was visible.
+All **18 after images** and **four baseline images** were personally inspected against the references. The live scene shows three unfurled prose messages separated by three groups of five commands, with two failures and a named running spinner. Its expansion shows the two visible thinking summaries and borderless human-labelled tools. The finished scene shows one duration/count/failure row, all three prose messages, Markdown code/table and the person bubble. Sidebar rows have no paths or badges, and every state mark has a tooltip. Both refused-folder scenes show the reason, a scratch-folder action and disabled Start controls. Both new-draft scenes show a complete focus outline. Blocked scenes expose Continue/Leave, and empty scenes retain New conversation and ⌘K guidance. The initial inspection covered 22 PNGs; the updated [snapshot manifest](snapshots.json) verifies 28 PNGs (20 reviewed renders and eight comparison images) at exactly 2880×1800 pixels; the renderer asserts that no window was visible.
 
 The color/radius/material audit finds no inline blue/orange, opacity fills, numeric radii or window materials outside Theme. The sole `.opacity(0)` is the pre-existing invisible ⌘= shortcut button, not a fill; it stays to preserve text-size behavior.
 
@@ -109,7 +111,7 @@ codesign --verify --deep --strict build/visual-pass-product/Subfleet.app
 
 The baseline source comes from `git archive 75972d4a app/Sources`, extracted under the ignored `build/visual-baseline/Sources`. Render it with `SF_SNAPSHOT_SOURCE_ROOT="$PWD/build/visual-baseline/Sources" SF_SNAPSHOT_SCENES=live,finished tools/app_snapshots.sh docs/reports/2026-10-03-visual-pass/before`.
 
-## Delivery
+## Initial delivery
 
 The shared git metadata is outside the writable workspace. Coherent commits therefore live on **`feat/visual-pass`** in the ignored workspace-local **`.git-local`**, based on **`75972d4a9506132ac066c2e7474d5a1b9ac20f10`**. Implementation and renderer head: **`ccacf66`**; the final evidence commit adds this report, PNGs, fixture provenance, manifest and JUnit results. Every commit carries the requested coauthor.
 
