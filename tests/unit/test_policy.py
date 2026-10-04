@@ -426,11 +426,14 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
     assert admission_settings({})["lane_spread"] == 2
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
+    assert admission_settings({})["warm_wait_s"] == 3600       # C-6.16: the measured cache lifetime
     policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                "pin_grace_s": None, "pin_hold_far_s": 3600, "warm_wait_s": None}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                   "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                   "pin_grace_s": None, "pin_hold_far_s": 3600, "warm_wait_s": None}
+    policy_data["admission"] = {"warm_wait_s": 0}             # C-6.16: 0 never waits
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["warm_wait_s"] == 0
     policy_data["admission"] = {"pin_grace_s": 0}             # C-11.8: 0 fails such a job on the pass that finds it
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
@@ -452,6 +455,10 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"pin_hold_far_s": 0}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": None}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": float("inf")}, "admission.pin_hold_far_s"),
+    ({"warm_wait_s": -1}, "admission.warm_wait_s"),
+    ({"warm_wait_s": float("inf")}, "admission.warm_wait_s"),
+    ({"warm_wait_s": True}, "admission.warm_wait_s"),
+    ({"warm_wait_s": "3600"}, "admission.warm_wait_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),

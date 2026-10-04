@@ -168,6 +168,16 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
 #: closure must end to count as a hold rather than a wait (C-11.8): seven days
 #: is the longest usage window Subfleet reads (`seven_day`).
+#: `warm_wait_s` is the longest a detached Claude resume waits for the lane
+#: whose prompt cache holds its session when that lane is closed by a usage
+#: limit with a known reopen time (C-6.16); past it the resume moves to another
+#: lane that reads the same transcript. The wait also ends when the cache it
+#: waits for expires: last use plus the cache lifetime the stream measured. The
+#: default is that lifetime: every Claude attempt that wrote cache from
+#: 2026-09-19 to 2026-10-04 wrote one-hour entries only (2,004 of 2,004), and a
+#: turn that returned to its lane after more than an hour loaded cold anyway
+#: (`docs/reports/2026-10-04-cache-warm-lane-notes.md`). Null keeps every resume
+#: on its own lane, as before this setting existed.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
@@ -178,6 +188,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "machine_guard": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
+    "warm_wait_s": 3600,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -379,6 +390,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     far = settings["pin_hold_far_s"]
     if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
         fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    warm = settings["warm_wait_s"]
+    if warm is not None and (not isinstance(warm, (int, float)) or isinstance(warm, bool)
+                             or not math.isfinite(warm) or warm < 0):
+        fail("admission.warm_wait_s", "must be a nonnegative finite number of seconds, or null to keep "
+                                      "every resume on its own lane (C-6.16)")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)

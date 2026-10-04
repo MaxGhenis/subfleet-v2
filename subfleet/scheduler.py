@@ -843,6 +843,90 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
     return (desktop, *base)
 
 
+#: C-6.16: the cache lifetimes a Claude stream reports (`usage.cache_creation`),
+#: in seconds. A run that wrote both keeps the shorter, which a wait cannot outlast.
+CACHE_TTL_S = {"1h": 3600, "5m": 300, "mixed": 300}
+
+
+def warm_reopen(reasons: Iterable[str], lane_readings: Iterable[Mapping[str, Any]],
+                closures: Iterable[Mapping[str, Any]], *, now: datetime, floor: float,
+                reading_ttl_s: int) -> str | None:
+    """C-6.16: when a lane refused only by usage limits takes work again, or None.
+
+    `reasons` are what `judge_lane` refused the lane for. Each must end at an
+    instant the provider reported: a `closed:<scope>:<until>` whose closure row is
+    a `provider-limit` with clock `reported`, or `below-floor`, which ends when
+    every fresh window at or over the floor resets (its `resets_at`). Any other
+    reason (an exclusion, an operator hold, auth, a guessed clock, a slot, the
+    reserve, a window with no reset) has no known end, and the answer is None.
+    The answer is the latest of those instants: the lane is closed until all end."""
+    rows = {f"closed:{row['scope']}:{row['until_at']}": row for row in closures}
+    ends: list[datetime] = []
+    reasons = list(reasons)
+    if not reasons:
+        return None
+    for reason in reasons:
+        if reason in rows:
+            row = rows[reason]
+            if row.get("reason") != "provider-limit" or row.get("clock_source") != "reported":
+                return None
+            ends.append(_time(row["until_at"]))
+        elif reason == "below-floor":
+            over = [row for row in lane_readings
+                    if fresh_provider(row, now=now, reading_ttl_s=reading_ttl_s)
+                    and row["utilization"] >= 1 - floor]
+            if not over or any(not row.get("resets_at") for row in over):
+                return None
+            ends.extend(_time(row["resets_at"]) for row in over)
+        else:
+            return None
+    return _iso(max(ends))
+
+
+def warm_verdict(*, reopens_at: str | datetime | None, now: str | datetime,
+                 wait_since: str | datetime | None, warm_wait_s: float | None,
+                 cache_until: str | datetime | None) -> dict[str, Any]:
+    """C-6.16: wait for the lane whose prompt cache holds the session, or move.
+
+    Pure and deterministic. `reopens_at` is `warm_reopen`'s answer for the warm
+    lane, `wait_since` when this job began waiting for it (None: it has not),
+    `warm_wait_s` the policy bound (None: the feature is off and the caller keeps
+    its old rule), and `cache_until` the warm lane's last use of the session plus
+    the cache lifetime its stream reported (None: not measured; only the bound
+    applies). The deadline is the earlier of `wait_since + warm_wait_s` and
+    `cache_until`: past the cache's life the warm lane loads cold too.
+
+    Actions: `off`; `wait` (until `next_check_at`, never later than the deadline,
+    so the job is looked at again before the bound passes); `move` with `why`
+    (`no-known-reopen`, `cache-expires-first`, `past-bound`). Invariants (tests):
+    a `wait` has `now < deadline <= wait_since + warm_wait_s` (no job waits past
+    the bound); `next_check_at <= deadline`; the same inputs give the same verdict."""
+    if warm_wait_s is None:
+        return {"action": "off"}
+    instant = _time(now)
+    if reopens_at is None:
+        return {"action": "move", "why": "no-known-reopen", "reopens_at": None}
+    reopen = _time(reopens_at)
+    since = _time(wait_since) if wait_since is not None else instant
+    bound = since + timedelta(seconds=warm_wait_s)
+    cache = _time(cache_until) if cache_until is not None else None
+    deadline = min(bound, cache) if cache is not None else bound
+    record = {"reopens_at": _iso(reopen), "deadline": _iso(deadline), "wait_since": _iso(since),
+              "cache_until": _iso(cache) if cache is not None else None}
+    if reopen <= deadline and instant < deadline:
+        return {"action": "wait", "next_check_at": _iso(max(instant, min(reopen, deadline))), **record}
+    why = "cache-expires-first" if cache is not None and reopen > cache and cache <= bound else "past-bound"
+    return {"action": "move", "why": why, **record}
+
+
+def cache_until(last_use: str | datetime | None, cache_ttl: str | None) -> str | None:
+    """C-6.16: until when the warm lane's cache holds a session: its last use plus
+    the lifetime the stream reported (`CACHE_TTL_S`); None when either is unknown."""
+    if last_use is None or cache_ttl not in CACHE_TTL_S:
+        return None
+    return _iso(_time(last_use) + timedelta(seconds=CACHE_TTL_S[cache_ttl]))
+
+
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],
                  details: Mapping[str, Mapping[str, Any]]) -> str:
     """C-11.5: what one model of the chain came to, in words (`candidates` ranked)."""
