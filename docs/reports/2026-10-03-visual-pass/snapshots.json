@@ -1,0 +1,189 @@
+{
+  "source_commit": "ccacf668ddc91b69aae44a5b66d35cfa624a2cc9",
+  "baseline_commit": "75972d4a9506132ac066c2e7474d5a1b9ac20f10",
+  "logical_points": [
+    1440,
+    900
+  ],
+  "scale": 2,
+  "visible_windows": 0,
+  "fixture_sha256": "55409a902041851589a1674ab24bed0f05258d1e5a1bde79e068e7cc90ba59a6",
+  "artifacts": [
+    {
+      "file": "after/blocked-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "89e0a9df322a14770e6b3aaf0f3edd39de4c74f2cb038a1eb4ed9e88a9f81218"
+    },
+    {
+      "file": "after/blocked-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "87dbab628b45d42c30fc8d4b4c73d4b71db7c90631e71d84e3cf6f93249c8db2"
+    },
+    {
+      "file": "after/empty-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "7c0521320554a334bc7921ec2f8bb5eb741c4f5490cb59be3754237374ef2e42"
+    },
+    {
+      "file": "after/empty-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "cf054c5a171a422aede0b8b3218c894b2c5e5425718e1564cb5384bc42b006fa"
+    },
+    {
+      "file": "after/finished-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "8f702b621f3493a1725430da77fa52bfbfd618ccbc162bb0c18505f25f2cef2b"
+    },
+    {
+      "file": "after/finished-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d966207a463e2914f4652395dfed27cf5100fe3f8bfdd65393483dff3595fc6c"
+    },
+    {
+      "file": "after/live-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "462756ae87924663d960f9110f8df10ffb02aa5a3df7df5aa4a09569a4403122"
+    },
+    {
+      "file": "after/live-expanded-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "a1b226ca5167af83440b9a344c44a81fd43a2f7de10182f50f4f1e22f0f1e1aa"
+    },
+    {
+      "file": "after/live-expanded-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "eb0d5aec476688ec4c4eb656c253939db5ece482483837240151ec7d1b422c09"
+    },
+    {
+      "file": "after/live-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d2e6888464fd9e29325544219c83330d75e17505ce0f95d816cc61bbe5a917d1"
+    },
+    {
+      "file": "after/new-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "1c240c00d3ad8ab67ed6887bd640c8758862002acac528ae8f8962161dc4b364"
+    },
+    {
+      "file": "after/new-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "427f4745bec6a1cf199195195360ccf83d2e335999adf334550416e17150e4e9"
+    },
+    {
+      "file": "after/permission-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "b238c0161223d68351433268f460f72f37d4c5532bddd7753d96d3a1cd1bd13a"
+    },
+    {
+      "file": "after/permission-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "979abd05f2c303b497390ad27eb82ce2dae209d2111237d6d935bf71cad50e76"
+    },
+    {
+      "file": "after/refused-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d2e1e9157519d26970fce259eecd5f32fe10c0eaec39e2785483c59a1dd556d6"
+    },
+    {
+      "file": "after/refused-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "6abbed2990d8b15648b9f820a10bd69d231f679286ba020fa6bcda1baeb792c6"
+    },
+    {
+      "file": "after/sidebar-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "4cdd3634dce353c1b387c9882991d044f48be6519dcf76235780103040776764"
+    },
+    {
+      "file": "after/sidebar-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "37cc23c002467408f6dec1257358ca91eef688dffcd08d10d4a627ca4199c5d0"
+    },
+    {
+      "file": "before/finished-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "12c5f76d4c8bf6790ae881b4eed516d1f30f10c33b074fa15cbb680b30c6847c"
+    },
+    {
+      "file": "before/finished-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "7106f8049ad3ac38112f59a6762283599076cc5a0274905f39a64169149569bc"
+    },
+    {
+      "file": "before/live-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "ae9f7ad3fdc8722b8394ba8e91059ab9848fd067887226976be27adc61f4054d"
+    },
+    {
+      "file": "before/live-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "292cb307ebdd064b1d35ce9281e52ed80277dd343f886df19a695e76dd613cb2"
+    }
+  ]
+}
