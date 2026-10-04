@@ -305,21 +305,17 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
         row = _row(item)
         observed = _time(row["observed_at"])
         note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
-        # C-11.3's renewal uncertainty lasts only within the reading TTL.
-        # An already renewed row is not fresh_provider, but its TTL expiry
-        # can restore the ranking supplied by another, still-fresh window.
-        if (row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None
-                and row.get("resets_at")):
+        # C-11.3's renewal uncertainty and explanatory evidence both use the
+        # recent-reading set. Even a stale-labelled row with no reset can
+        # change reading_observed_at when it enters or leaves that set.
+        if row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None:
             expiry = observed + timedelta(seconds=reading_ttl_s)
-            reset = _time(row["resets_at"])
-            if observed <= instant <= expiry:
-                note(row["lane_id"], expiry)
-                if max(instant, observed) < reset <= expiry:
-                    note(row["lane_id"], reset)
-            elif observed > instant and reset <= observed:
+            if observed > instant:
                 note(row["lane_id"], observed)
-        if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
-            note(row["lane_id"], observed)
+            elif instant <= expiry:
+                note(row["lane_id"], expiry)
+            if row.get("resets_at") and max(instant, observed) < (reset := _time(row["resets_at"])) <= expiry:
+                note(row["lane_id"], reset)
     for item in view.get("closures", ()):
         row = _row(item)
         if not row.get("released_at") and (until := _time(row["until_at"])) > instant:

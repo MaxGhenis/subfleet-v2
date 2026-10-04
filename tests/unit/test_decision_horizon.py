@@ -69,7 +69,7 @@ def fleet(rng: random.Random) -> dict:
                 "reading_id": len(readings) + 1, "lane_id": lane_id, "scope": rng.choice(scopes),
                 "window": rng.choice(("seven_day", "seven_day", "five_hour")),
                 "utilization": rng.choice((.1, .5, .9, .96, .99, 1.0)),
-                "label": rng.choice(("provider", "provider", "provider", "unknown")),
+                "label": rng.choice(("provider", "provider", "provider", "stale-provider", "unknown")),
                 "source": rng.choice(("oauth-usage", "rate_limit_event", "fixture")),
                 "attempt_id": rng.choice((None, "a1")),
                 "observed_at": iso(T0 - timedelta(seconds=300 if quiet else rng.choice(
@@ -122,6 +122,7 @@ def clocks(case: dict, instant: datetime) -> tuple:
     """Every clock the evaluation reads, at `instant`."""
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]),
             tuple(window_not_renewed(row, instant) for row in case["readings"]),
+            tuple(recent_evidence(row, instant) for row in case["readings"]),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant for row in case["closures"]),
             tuple(end > instant for end in case["overrides"].values()))
 
@@ -132,6 +133,12 @@ def window_not_renewed(row: dict, instant: datetime) -> bool:
                     and row.get("utilization") is not None and row.get("resets_at")
                     and 0 <= (instant - capacity._time(row["observed_at"])).total_seconds() <= TTL
                     and capacity._time(row["resets_at"]) <= max(instant, capacity._time(row["observed_at"])))
+
+
+def recent_evidence(row: dict, instant: datetime) -> bool:
+    """The explanatory reading timestamp uses recent evidence, even without a reset."""
+    return bool(row.get('label') in ('provider', 'stale-provider') and row.get('utilization') is not None
+                and 0 <= (instant - capacity._time(row['observed_at'])).total_seconds() <= TTL)
 
 
 def test_the_clock_alone_changes_no_decision_before_its_horizon():
@@ -233,6 +240,7 @@ def lane_clocks(case: dict, lane_id: str, instant: datetime) -> tuple:
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]
                   if row["lane_id"] == lane_id),
             tuple(window_not_renewed(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
+            tuple(recent_evidence(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant
                   for row in case["closures"] if row["lane_id"] == lane_id))
 

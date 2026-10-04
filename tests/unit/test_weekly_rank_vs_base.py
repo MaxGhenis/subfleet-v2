@@ -304,3 +304,25 @@ def test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon():
     assert next_detail.get('ranking_measured', next_detail['measured'])
     assert next_detail['reading_renewed'] is False
     assert next_detail['weekly_headroom'] == 1
+
+
+@pytest.mark.parametrize('observed,expected_horizon', [(2, 2), (-119, 1)])
+def test_stale_labeled_reading_recency_has_a_judgement_horizon(observed, expected_horizon):
+    """Explanatory evidence can enter/leave the TTL set without a reset clock."""
+    rules = policy()
+    identity = 'codex-0'
+    lanes = [{'lane_id': identity, 'provider': 'codex', 'owner': 'v2', 'enabled': True,
+              'desktop': False, 'account_key': identity, 'home': '/lanes/' + identity}]
+    rows = [{'lane_id': identity, 'scope': scope, 'window': 'seven_day', 'utilization': .2,
+             'observed_at': iso(age), 'resets_at': None, 'label': 'stale-provider'}
+            for scope, age in [('account', -7 * 86400), (rules['models']['astra']['id'], observed)]]
+    def detail(at):
+        view = head_capacity.build_view(lanes, rows, [], [], [], now=iso(at), reading_ttl_s=TTL)
+        return view, head_scheduler.evaluate(rules, view, {'pinned_model': 'astra'}).evaluations[0]['candidate_details'][identity]
+    view, first = detail(0)
+    assert head_capacity.lane_horizons(view, reading_ttl_s=TTL) == {identity: NOW + timedelta(seconds=expected_horizon)}
+    _, before = detail(expected_horizon - .5)
+    assert before == first
+    _, after = detail(expected_horizon + 1)
+    assert after['reading_observed_at'] != first['reading_observed_at']
+    assert after['measured'] is False and after['ranking_measured'] is False
