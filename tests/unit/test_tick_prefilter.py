@@ -301,7 +301,11 @@ def drive(core, monkeypatch, ticks, each=None, keys=None):
                 keys.append([])
     monkeypatch.setattr(core.stopping, "wait", wait)
     core.stopping.clear()
-    core._control()
+    try:
+        core._control()
+    finally:
+        if keys is not None:
+            core._recovery_complete.clear()      # a later `drive` without `keys` runs no real admission
     return offered
 
 
@@ -374,6 +378,7 @@ def test_an_error_reading_ownership_gives_no_pass_and_ends_no_tick(core, monkeyp
     assert drive(core, monkeypatch, 5, keys=keys) == [[], [], [], [], []]
     assert exports == [1, 1, 1, 1, 1], "the rest of every tick still ran"
     assert keys == [["conversations", "admission", "admission:turns"]] * 5, "conversations and both admission passes too"
+    assert not core._recovery_complete.is_set(), "the next `drive` runs no real conversation or admission work"
     assert len(errors) == 3 and all("OperationalError" in line and "principle 3" in line for line in errors)
     monkeypatch.undo()
     drive(core, monkeypatch, 1)
