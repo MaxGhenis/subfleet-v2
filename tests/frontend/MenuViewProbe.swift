@@ -22,7 +22,9 @@ struct MenuViewProbe {
             "recent_groups": JobsView(jobs: store.snap?.jobs).recentGroups.map {
                 ["title": $0.title as Any? ?? NSNull(), "job_ids": $0.jobs.map(\.job_id)] as [String: Any]
             },
-            "initial_feedback": store.reloadMessage as Any? ?? NSNull()
+            "initial_feedback": store.reloadMessage as Any? ?? NSNull(),
+            "has_problem": store.hasProblem,
+            "alert_count": store.snap?.alerts?.count ?? 0
         ]
         if arguments.count > 2 {
             // A manual reload acknowledges an unchanged file without pretending

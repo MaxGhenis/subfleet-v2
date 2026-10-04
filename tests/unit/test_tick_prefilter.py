@@ -92,6 +92,15 @@ def forbid_action(core, monkeypatch):
 
 # --- the invariant: a no is always safe -------------------------------------------
 
+def snapshot(core):
+    """Everything a pass can change for one attempt: the store, and the daemon's own
+    per-attempt state (review of 0b1d8cdd: `_starting_deadlines` and `_children`
+    were not compared, so a withheld `starting` attempt's pass went unseen)."""
+    return (core.store.generation, dict(core._inspect_next), set(core._inspect_retry),
+            dict(core._starting_deadlines), dict(core._children), dict(core._worker_failures),
+            core.store.get_attempt(ATTEMPT), core.store.get_job(JOB))
+
+
 def test_a_pass_the_filter_withholds_would_have_done_nothing(core, monkeypatch):
     """C-5.11: in every situation of a live attempt (all 1,920 combinations of state,
     receipt, cancel request, wall limit, inspection clock and pending retry), when
@@ -109,15 +118,26 @@ def test_a_pass_the_filter_withholds_would_have_done_nothing(core, monkeypatch):
             continue                              # offered, as before this clause: nothing to prove
         withheld += 1
         situation = (state, receipt, cancelled, started, max_wall_s, inspect_in, retry, failed)
-        before = (core.store.generation, dict(core._inspect_next), set(core._inspect_retry),
-                  core.store.get_attempt(ATTEMPT), core.store.get_job(JOB))
+        before = snapshot(core)
         assert core._process_attempt(ATTEMPT) is None, situation
         assert reached == [], situation
-        assert before == (core.store.generation, dict(core._inspect_next), set(core._inspect_retry),
-                          core.store.get_attempt(ATTEMPT), core.store.get_job(JOB)), situation
+        assert before == snapshot(core), situation
     # Withheld is rare by construction, and not empty: a running attempt inside
     # its wall limit, not due, nothing pending, with nothing at exit.json.
     assert withheld == 2
+
+
+class FrozenTime:
+    """`time` inside `subfleet.daemon` only, stopped at one monotonic instant."""
+
+    def __init__(self, instant):
+        self.instant = instant
+
+    def monotonic(self):
+        return self.instant
+
+    def __getattr__(self, name):
+        return getattr(time, name)
 
 
 @settings(max_examples=300, deadline=None, suppress_health_check=FIXTURE_HEALTH)
@@ -130,6 +150,15 @@ def test_a_running_attempt_is_withheld_only_when_a_pass_would_do_nothing(core, m
     against every wall limit and every inspection clock around now."""
     started = (datetime.now(timezone.utc) - timedelta(seconds=age_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
     arrange(core, receipt=receipt, cancelled=cancelled, started=started, max_wall_s=max_wall_s, inspect_in=inspect_in)
+    # One instant for the filter and the pass: the filter answers for the tick it
+    # runs in, and a clock that moves between the two (under load, milliseconds)
+    # makes a due time that falls between them look like a missed inspection,
+    # which the next tick, 50 ms on, offers.
+    instant = time.monotonic()
+    frozen = datetime.now(timezone.utc)
+    monkeypatch.setattr(daemon_module, "time", FrozenTime(instant))
+    monkeypatch.setattr(daemon_module, "age", lambda timestamp: 0.0 if timestamp is None else (
+        frozen - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds())
     offered = core._has_work(tick_row(core))
     # A second of margin on each side of the two clocks the test and the filter both read.
     surely_quiet = (receipt is None and not cancelled and age_s < max_wall_s - 2
@@ -209,6 +238,24 @@ def test_the_ticks_statement_reads_no_evidence_and_finds_the_same_attempts(core)
 
 # --- the control loop -------------------------------------------------------------------
 
+def test_an_attempt_whose_job_row_is_missing_is_offered(core):
+    """C-5.11: the tick's `LEFT JOIN` gives no wall limit for a job row it cannot find,
+    which is a doubt, so a pass is given (and reports the missing job itself)."""
+    arrange(core)
+
+    class Undo(Exception):
+        """Rolls the deletion back: the store's foreign keys would refuse its commit."""
+    with pytest.raises(Undo):
+        with core.store.transaction("fixture.orphan") as tx:
+            tx.execute("PRAGMA defer_foreign_keys=ON")
+            tx.execute("DELETE FROM jobs WHERE job_id=?", (JOB,))
+            rows = [dict(row) for row in tx.execute(LIVE_TICK).fetchall() if row["attempt_id"] == ATTEMPT]
+            assert rows and rows[0]["max_wall_s"] is None and rows[0]["job_started_at"] is None
+            assert core._has_work(rows[0]) is True
+            raise Undo
+    assert core.store.get_job(JOB) is not None
+
+
 def drive(core, monkeypatch, ticks, each=None):
     """Run the control loop for `ticks` iterations; the attempts it gave the pool, per tick."""
     offered = [[]]
@@ -272,6 +319,23 @@ def test_a_run_v1_still_owns_is_never_offered_and_one_it_settled_is(core, monkey
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                            (json.dumps({"imported": True, "imported_external": False}), ATTEMPT))
     assert drive(core, monkeypatch, 4, each) == [[], [], [ATTEMPT], [ATTEMPT]]
+
+
+@pytest.mark.parametrize("where", ["_has_work", "_v1_owned"])
+def test_an_error_in_the_look_offers_the_attempt_and_ends_no_tick(core, monkeypatch, where):
+    """C-5.11, C-5.10 (review of 0b1d8cdd): every doubt is a yes, an error included.
+    Raised on the control thread, it would end the tick for every other key, unpaced;
+    offered, the pass raises it keyed to this attempt and C-5.10 paces it."""
+    arrange(core)
+    def broken(*args):
+        raise ValueError("a timestamp the filter cannot parse")
+    monkeypatch.setattr(core, where, broken)
+    exports = []
+    real_exports = core._pending_exports
+    monkeypatch.setattr(core, "_pending_exports", lambda: exports.append(1) or real_exports())
+    offered = drive(core, monkeypatch, 3)
+    assert offered == [[ATTEMPT], [ATTEMPT], [ATTEMPT]]
+    assert exports == [1, 1, 1], "the rest of every tick still ran"
 
 
 def test_an_attempt_of_this_daemons_own_has_its_evidence_read_once(core, monkeypatch):
