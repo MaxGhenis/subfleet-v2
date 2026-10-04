@@ -81,7 +81,7 @@ struct NewConversationDraft: Codable, Equatable {
             let picks = provider == "codex" ? [defaultModel] : [rememberedModel, defaultModel]
             let preferred = picks.compactMap { $0 }
                 .compactMap { pick in options.models.first { $0.value == pick || $0.model.id == pick }?.value }.first
-            settings.model = preferred ?? options.models.first?.value ?? ""
+            settings.model = preferred ?? options.models.first?.value ?? (models.isEmpty ? settings.model : "")
         }
         let selected = makeComposerOptions(provider: provider, settings: settings, models: active, capabilities: capabilities)
         if let effort = settings.effort, selected.effortsObserved, !selected.efforts.contains(effort) {
