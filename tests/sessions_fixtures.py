@@ -211,6 +211,13 @@ def conversation_turns(age_s: float = 1800, *, turns: int = 3) -> list[dict[str,
     return entries
 
 
+def app_conversation_turns(age_s: float = 1800, *, turns: int = 3) -> list[dict[str, Any]]:
+    """A conversation the Subfleet app started, as Claude Code stamps it: `sdk-cli`
+    throughout, so C-23.31 reads it as a lane run at any length (C-26.13 still
+    refuses it as a conversation's, first)."""
+    return stamped(conversation_turns(age_s, turns=turns), "sdk-cli")
+
+
 def stamped(entries: Sequence[dict[str, Any]], entrypoint: str) -> list[dict[str, Any]]:
     """Every entry as a process with this `entrypoint` writes it (C-23.31).
 
