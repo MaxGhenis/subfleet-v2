@@ -2,11 +2,11 @@
 &gt;   @example(skipped=True, present=True, archive="missing", data=b"private work")
                    ^^^
 
-tests/unit/test_retention_salvage_properties.py:17: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_retention_salvage_properties.py:17:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 .venv/lib/python3.14t/site-packages/hypothesis/core.py:1691: in _raise_to_user
     raise the_error_hypothesis_found
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 skipped = True, present = True, archive = 'missing', data = b'private work'
 
@@ -45,7 +45,7 @@ skipped = True, present = True, archive = 'missing', data = b'private work'
                     path.unlink()
                 before = snapshot(wt)
                 original = rarch._Builder._file
-    
+
                 def archive_file(self, entry, *args, **kwargs):
                     original(self, entry, *args, **kwargs)
                     if entry["p"] != rel:
@@ -56,7 +56,7 @@ skipped = True, present = True, archive = 'missing', data = b'private work'
                         copy = self.files / entry["store"]
                         # Same size: readback must check bytes, not just size.
                         copy.write_bytes(bytes([data[0] ^ 1]) + data[1:])
-    
+
                 patch.setattr(rarch._Builder, "_file", archive_file)
                 outcome = retention.maintenance(w.store, w.root, max_jobs=0, clock=Clock(),
                                                 holders=lambda watches, **_: {},
@@ -65,7 +65,7 @@ skipped = True, present = True, archive = 'missing', data = b'private work'
 &gt;               assert outcome["pruned"] == (["job"] if safe else []), outcome
 E               AssertionError: {'pruned': ['job'], 'errors': [], 'bytes_before': 44323, 'bytes_after': 0, ...}
 E               assert ['job'] == []
-E                 
+E
 E                 Left contains one more item: 'job'
 E                 Use -v to get more diff
 E               (note: 1 other explicit example also failed with this error; use Verbosity.verbose to view)

@@ -9,10 +9,10 @@ monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x26e95453fd0&gt;
         _salvage_beside_a_skipped_repository(owned)
         store, root, repository, worktree = owned
         before = snapshot(worktree)
-    
+
         def interrupt(self):
             raise rarch.Interrupted("restart before the final check")
-    
+
         with monkeypatch.context() as patch:
             patch.setattr(rarch.Retirement, "final_check", interrupt)
             first = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
@@ -24,16 +24,16 @@ monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x26e95453fd0&gt;
         entry = next(e for e in manifest["trees"]["worktree"]["entries"] if e["p"] == NESTED + "inside.txt")
         (retirement.building / "files" / entry.pop("store")).unlink()
         (retirement.building / "manifest.json").write_text(json.dumps(manifest))
-    
+
         def no_rebuild(*args, **kwargs):
             pytest.fail("recovery of an archived journal does not run the builder")
-    
+
         monkeypatch.setattr(rarch.Retirement, "archive", no_rebuild)
         outcome = retention.maintenance(store, root, max_jobs=0, clock=Clock(),
                                         salvage_referenced_elsewhere=lambda artifact: True)
 &gt;       assert outcome["pruned"] == [] and outcome["protected"] == ["job"]
 E       AssertionError: assert (['job'] == []
-E         
+E
 E         Left contains one more item: 'job'
 E         Use -v to get more diff)
 
