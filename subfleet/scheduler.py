@@ -927,6 +927,44 @@ def cache_until(last_use: str | datetime | None, cache_ttl: str | None) -> str |
     return _iso(_time(last_use) + timedelta(seconds=CACHE_TTL_S[cache_ttl]))
 
 
+def turn_route(decision: Decision | Mapping[str, Any], affinity_lane: str | None, *, floor: float,
+               reading_ttl_s: int, last_use: str | None = None, cache_ttl: str | None = None,
+               context_tokens: int | None = None) -> dict[str, Any] | None:
+    """C-6.16, C-26.2: what the person is told when a turn leaves its warm lane.
+
+    None when the turn has no affinity lane, no lane was chosen, or it runs on
+    its affinity lane. Otherwise the move: `from` (the warm lane), `to`, the warm
+    lane's `reasons` as the decision recorded them, `reopens_at` (`warm_reopen`;
+    None when not refused only by limits, or not walked), `cache_until` (the
+    previous turn's last use plus its measured cache lifetime; None unmeasured),
+    `context_tokens` (the previous turn's last request, as measured; None
+    unmeasured), and `cold`: True when the cache was still alive at the decision
+    (staying would have read it), False when it had expired (the move cost
+    nothing more), None when the lifetime is unknown. A turn never waits for
+    this (C-26.2): the record only says what happened."""
+    value = _row(decision)
+    chosen = value.get("chosen_lane")
+    if not affinity_lane or not chosen or chosen == affinity_lane:
+        return None
+    evaluation = next((row for row in value.get("evaluations", ()) if row.get("model") == value.get("chosen_model")),
+                      None) or {}
+    rejection = next((row for row in evaluation.get("rejections", ()) if row.get("lane_id") == affinity_lane), None)
+    now = _time(evaluation.get("evaluated_at")) if evaluation.get("evaluated_at") else None
+    reasons = list((rejection or {}).get("reasons") or ([rejection["reason"]] if rejection else []))
+    reopens = None
+    if rejection and now is not None:
+        reopens = warm_reopen(reasons, [row for row in evaluation.get("capacity_readings", ())
+                                        if row.get("lane_id") == affinity_lane
+                                        and row.get("scope") in ("account", evaluation.get("model_id"))],
+                              [row for row in evaluation.get("closures", ()) if row.get("lane_id") == affinity_lane],
+                              now=now, floor=floor, reading_ttl_s=reading_ttl_s)
+    until = cache_until(last_use, cache_ttl)
+    cold = None if until is None or now is None else _time(until) > now
+    return {"from": affinity_lane, "to": chosen, "reasons": reasons if rejection else ["not-walked"],
+            "reopens_at": reopens, "cache_until": until, "context_tokens": context_tokens, "cold": cold,
+            "decided_at": _iso(now) if now is not None else None}
+
+
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],
                  details: Mapping[str, Mapping[str, Any]]) -> str:
     """C-11.5: what one model of the chain came to, in words (`candidates` ranked)."""
