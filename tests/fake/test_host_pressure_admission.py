@@ -107,10 +107,14 @@ def test_two_parents_waiting_on_held_children_do_not_deadlock(fleet):  # noqa: F
     host.admit()
     assert states(service, children[0]) == ["reserved"]
     assert states(service, children[1]) == [] and service._holds[children[1]]["reason"] == "host-pressure"
-    for done in (children[0], parents[0]):                # the first child ends, then the parent that waited on it
-        end_attempt(service, done)
+    end_attempt(service, children[0])                     # the first child ends; its parent still runs
     service.store.update_job(children[1], next_check_at=after(3600))
-    host.admit()                                          # C-6.10: the freed leases bring it forward
+    host.admit()                                          # C-6.10: the freed lease brings it forward
+    assert states(service, children[1]) == [] and service._holds[children[1]]["reason"] == "host-pressure", \
+        "held behind the first parent, which now waits on nothing that has not started"
+    end_attempt(service, parents[0])                      # then that parent ends
+    service.store.update_job(children[1], next_check_at=after(3600))
+    host.admit()
     assert states(service, children[1]) == ["reserved"]
 
 

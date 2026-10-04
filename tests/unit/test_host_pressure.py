@@ -322,7 +322,7 @@ def test_the_count_leaves_out_every_ancestor_and_nothing_else():
     assert in_flight_beside({"in_flight": counts}, {"job_id": "child", "parent_job_id": "parent"}, counts) == 3
 
 
-def test_two_waiting_parents_hold_neither_childs():
+def test_two_waiting_parents_hold_neither_child():
     """C-6.15 (review of 15cc9f7e): with P1 and P2 running and each one's child
     pending, each child's count leaves out both parents; so does an unrelated job's,
     since both parents wait on jobs that have not started."""
@@ -366,6 +366,19 @@ def forests(draw):
     strangers = draw(st.integers(min_value=0, max_value=3))
     for index in range(strangers):
         running(f"x{index}")
+    # Parents whose children have all started or ended wait on nothing that has
+    # not started, so they count like strangers (review of 79f75e25: a rule that
+    # left out any job with a child would otherwise pass).
+    for index in range(draw(st.integers(min_value=0, max_value=2))):
+        running(f"d{index}")
+        strangers += 1
+        for child in range(draw(st.integers(min_value=1, max_value=2))):
+            state = draw(st.sampled_from(["running", "succeeded", "failed"]))
+            if state == "running":
+                running(f"d{index}-c{child}", f"d{index}")
+                strangers += 1
+            else:
+                jobs.append({"job_id": f"d{index}-c{child}", "parent_job_id": f"d{index}", "state": state})
     return jobs, attempts, strangers
 
 
