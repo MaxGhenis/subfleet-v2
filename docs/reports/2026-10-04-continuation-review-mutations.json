@@ -70,13 +70,6 @@
     "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_control_loop_paces_completion_scans ___________________\ntests/unit/test_review_pr127_service.py:139: in test_control_loop_paces_completion_scans\n    assert completions.call_count == 1\nE   AssertionError: assert 100 == 1\nE    +  where 100 = <Mock id='4414586416'>.call_count\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_service.py::test_control_loop_paces_completion_scans\n1 failed in 39.64s\n"
   },
   {
-    "mutation": "old-upgrade-completions",
-    "test": "tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions",
-    "killed": true,
-    "result": "1 failed, 1 passed in 11.57s",
-    "output": "F.                                                                       [100%]\n=================================== FAILURES ===================================\n_____ test_upgrade_does_not_automatically_announce_old_completions[False] ______\ntests/unit/test_review_pr127_fixes.py:94: in test_upgrade_does_not_automatically_announce_old_completions\n    assert len(rows(svc, cid)) == int(explicit)\nE   AssertionError: assert 1 == 0\nE    +  where 1 = len([{'message_id': '26d2012c-db0e-4945-99f8-80f545868422', 'conversation_id': 'cv-1791140069014-781ed72e3c29', 'seq': 1, 'after_message_id': None, ...}])\nE    +    where [{'message_id': '26d2012c-db0e-4945-99f8-80f545868422', 'conversation_id': 'cv-1791140069014-781ed72e3c29', 'seq': 1, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x1097b1f70>, 'cv-1791140069014-781ed72e3c29')\nE    +  and   0 = int(False)\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions[False]\n1 failed, 1 passed in 11.57s\n"
-  },
-  {
     "mutation": "blocking-pr-poll",
     "test": "tests/unit/test_review_pr127_service.py::test_pr_poll_does_not_hold_person_dispatch",
     "killed": true,
@@ -194,5 +187,19 @@
     "killed": true,
     "result": "1 failed in 12.33s",
     "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_expanded_grammar_replay_preserves_legacy_timer_identity _________\ntests/unit/test_review_pr127_requests.py:64: in test_expanded_grammar_replay_preserves_legacy_timer_identity\n    assert svc.store.query(\"SELECT * FROM wake_requests WHERE state='pending' AND kind='time'\") == []\nE   assert [{'conversati...\": \"\"}', ...}] == []\nE     \nE     Left contains one more item: {'conversation_id': 'cv-1791144327755-ddbc35fe5be1', 'request_id': 'final:e071c31c-2591-4233-8255-e7e02591c12b:1', 'kind': 'time', 'payload_json': '{\"at\": 1300.0, \"note\": \"\"}', ...}\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_requests.py::test_expanded_grammar_replay_preserves_legacy_timer_identity\n1 failed in 12.33s\n"
+  },
+  {
+    "mutation": "old-upgrade-completions",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions",
+    "killed": true,
+    "result": "1 failed, 1 passed in 4.26s",
+    "output": "F.                                                                       [100%]\n=================================== FAILURES ===================================\n_____ test_upgrade_does_not_automatically_announce_old_completions[False] ______\ntests/unit/test_review_pr127_fixes.py:94: in test_upgrade_does_not_automatically_announce_old_completions\n    assert len(rows(svc, cid)) == int(explicit)\nE   AssertionError: assert 1 == 0\nE    +  where 1 = len([{'message_id': '6a2089f4-15c1-411c-9229-06ce0c6d39b1', 'conversation_id': 'cv-1791146215389-5b51f835d077', 'seq': 1, 'after_message_id': None, ...}])\nE    +    where [{'message_id': '6a2089f4-15c1-411c-9229-06ce0c6d39b1', 'conversation_id': 'cv-1791146215389-5b51f835d077', 'seq': 1, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x109f1bc50>, 'cv-1791146215389-5b51f835d077')\nE    +  and   0 = int(False)\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_upgrade_does_not_automatically_announce_old_completions[False]\n1 failed, 1 passed in 4.26s\n"
+  },
+  {
+    "mutation": "upgrade-drops-inflight-result",
+    "test": "tests/unit/test_review_pr127_fixes.py::test_upgrade_keeps_runs_that_complete_after_activation",
+    "killed": true,
+    "result": "1 failed in 0.23s",
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n____________ test_upgrade_keeps_runs_that_complete_after_activation ____________\ntests/unit/test_review_pr127_fixes.py:159: in test_upgrade_keeps_runs_that_complete_after_activation\n    assert len(rows(svc, cid)) == 1\nE   AssertionError: assert 0 == 1\nE    +  where 0 = len([])\nE    +    where [] = rows(<subfleet.conversations.service.ConversationService object at 0x109eec140>, 'cv-1791146216871-8c9b6c3111cf')\n=========================== short test summary info ============================\nFAILED tests/unit/test_review_pr127_fixes.py::test_upgrade_keeps_runs_that_complete_after_activation\n1 failed in 0.23s\n"
   }
 ]

@@ -23,7 +23,7 @@ History uses a separate bounded read pool and exact known paths before catalog
 discovery. Interrupts, compaction summaries and task notifications within a
 Subfleet turn retain its ownership, so the native answer is displayed once.
 Notice repairs use a durable bounded queue and indexed job lookup; automatic
-completion scans are paced and exclude runs predating activation. Codex keeps
+completion scans are paced and exclude completions predating activation. Codex keeps
 its own resumed session id, and wait acknowledges returned terminal results.
 
 Validation and all review responses are in

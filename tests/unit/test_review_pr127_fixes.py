@@ -141,3 +141,21 @@ def test_satisfied_alternatives_do_not_hold_an_unrelated_result(svc):
     assert len(rows(svc, cid)) == 2
     assert "unrelated finished" in svc.store.message_text(svc.store.message(rows(svc, cid)[1]["message_id"]))
     assert all(r["state"] == "satisfied" for r in svc.store.query("SELECT state FROM wake_requests"))
+
+
+def test_upgrade_keeps_runs_that_complete_after_activation(svc):
+    from datetime import UTC, datetime
+    cid = bound(svc)
+    old = '2026-09-28T00:00:00+00:00'
+    svc.store._db.execute("UPDATE conversations SET created_at='2026-09-20T00:00:00+00:00' WHERE conversation_id=?", (cid,))
+    finish(svc, cid, ['historical', 'inflight'])
+    svc.daemon.store.update_job('historical', created_at=old, finished_at=old)
+    svc.daemon.store.update_job('inflight', created_at=old, finished_at=None, state='running')
+    svc.daemon.store.add_notice('historical', 'old result', svc.store.conversation(cid)['native_session_id'])
+    svc.wakes.tick()
+    assert rows(svc, cid) == []
+    svc.daemon.store.update_job('inflight', state='succeeded', finished_at=datetime.now(UTC).isoformat())
+    svc.wakes.tick()
+    assert len(rows(svc, cid)) == 1
+    text = svc.store.message_text(svc.store.message(rows(svc, cid)[0]['message_id']))
+    assert 'inflight finished' in text and 'historical finished' not in text

@@ -277,7 +277,7 @@ class WakeEngine:
         for job in self.service.daemon.store.query(
                 "SELECT j.job_id,j.caller_session,j.state,j.out_path,j.accepted_attempt_id,j.created_at,p.name parent_name "
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
-                "AND j.created_at>=? AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
+                "AND COALESCE(j.finished_at,j.created_at)>=? AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
                 "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
             c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
