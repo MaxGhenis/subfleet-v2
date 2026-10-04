@@ -48,17 +48,17 @@ def test_codex_default_follows_loaded_hard_tier_policy(svc, tmp_path, short, mod
         assert astra["id"] == "gpt-6-astra" and astra["retired"] is False
 
 
-def test_astra_default_requires_explicit_hard_tier_routing(svc):
+def test_codex_default_uses_first_active_unscoped_model_without_hard_routing(svc):
     svc.daemon.policy = load_policy(DEFAULT_POLICY_PATH)
     assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}
     for chain in svc.daemon.policy["chains"].values():
         chain[svc.daemon.policy["tiers"].index("hard")] = "opus"
-    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-5.6-terra"}
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}
 
 
-def test_astra_alone_without_hard_routing_has_no_published_default(svc):
+def test_active_astra_alone_without_hard_routing_is_the_published_default(svc):
     svc.daemon.policy = {"models": {"astra": {"provider": "codex", "id": "gpt-6-astra"}}}
-    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {}
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}
 
 
 def test_retired_astra_is_never_a_default_even_in_an_old_custom_policy(svc):
