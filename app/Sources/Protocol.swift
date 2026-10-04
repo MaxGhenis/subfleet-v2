@@ -407,6 +407,8 @@ struct ModelEntry: Codable, Equatable, Identifiable {
     var fast: ModelFast
     var image_input: Bool?
     var observed_at: String?
+    /// The loaded policy retires this alias or model id; older daemons omit it.
+    var retired: Bool?
 }
 
 struct ModelFast: Codable, Equatable {

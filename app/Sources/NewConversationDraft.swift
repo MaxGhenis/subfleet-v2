@@ -73,13 +73,15 @@ struct NewConversationDraft: Codable, Equatable {
     /// Refresh choices as catalogs arrive or the provider/model changes.
     mutating func reconcile(models: [ModelEntry], capabilities: Capabilities?, defaultModel: String? = nil,
                             rememberedModel: String? = nil) {
-        let active = models.filter { $0.id != "gpt-6-astra" && $0.value != "gpt-6-astra" }
-        if settings.model == "gpt-6-astra" { settings.model = "" }
+        let active = models.filter { $0.retired != true }
         let options = makeComposerOptions(provider: provider, settings: settings, models: active, capabilities: capabilities)
         if !options.models.contains(where: { $0.value == settings.model }) {
-            let preferred = [rememberedModel, defaultModel].compactMap { $0 }
+            // Codex starts with the daemon's live hard-tier choice. An existing
+            // draft's explicit model pick above remains selected while offered.
+            let picks = provider == "codex" ? [defaultModel] : [rememberedModel, defaultModel]
+            let preferred = picks.compactMap { $0 }
                 .compactMap { pick in options.models.first { $0.value == pick || $0.model.id == pick }?.value }.first
-            settings.model = preferred ?? options.models.first?.value ?? settings.model
+            settings.model = preferred ?? options.models.first?.value ?? ""
         }
         let selected = makeComposerOptions(provider: provider, settings: settings, models: active, capabilities: capabilities)
         if let effort = settings.effort, selected.effortsObserved, !selected.efforts.contains(effort) {

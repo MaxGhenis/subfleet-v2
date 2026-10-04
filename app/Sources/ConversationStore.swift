@@ -497,7 +497,7 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(models: ModelsListResult, provider: String) {
         self.models[provider] = models.models.filter { $0.provider == provider }
-        if let defaults = models.default_models { modelDefaults.merge(defaults) { _, new in new } }
+        modelDefaults[provider] = models.default_models?[provider]
     }
 
     mutating func upsert(_ conversation: Conversation) {

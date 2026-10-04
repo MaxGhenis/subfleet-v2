@@ -277,6 +277,7 @@ class ConversationService:
         provider = args.get("provider")
         policy = self.daemon.policy
         observed = self._catalog_cache()
+        retired = policy.get("retired") or {}
         models = []
         for short, entry in policy["models"].items():
             if provider and entry["provider"] != provider:
@@ -285,6 +286,7 @@ class ConversationService:
             # `default` is whatever one account's settings pick; a conversation names a model.
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
+                           "retired": short in retired or entry["id"] in retired,
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
@@ -299,11 +301,14 @@ class ConversationService:
         hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
                        if hard is not None and len(chain) > hard]
         for name in ("claude", "codex"):
-            offered = [m for m in models if m["provider"] == name and m["id"] != "gpt-6-astra"]
+            offered = [m for m in models if m["provider"] == name and not m["retired"]]
             preferred = ["opus"] if name == "claude" else hard_models
             default = next((m for short in preferred for m in offered if m["short"] == short), None)
-            if default is None and offered:
-                default = next((m for m in offered if not policy["models"][m["short"]].get("scope")), offered[0])
+            # Astra remains available for explicit pins and a policy that routes
+            # hard work to it, but is never an incidental catalog-order default.
+            fallback = [m for m in offered if name != "codex" or m["id"] != "gpt-6-astra"]
+            if default is None and fallback:
+                default = next((m for m in fallback if not policy["models"][m["short"]].get("scope")), fallback[0])
             if default:
                 defaults[name] = default["id"]
         return {"models": models, "default_models": defaults,

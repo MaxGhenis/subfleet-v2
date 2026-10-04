@@ -135,7 +135,7 @@ def test_d24_a_list_refresh_keeps_a_conversation_with_a_running_turn_active(core
 
 def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_path, harness):
     claude = harness.create()
-    codex = harness.create(provider="codex", settings={"model": "gpt-6.1-sol", "permission": "read-only"})
+    codex = harness.create(provider="codex", settings={"model": "gpt-6-astra", "permission": "read-only"})
     listed = harness.call("conversation.list")
     capabilities = harness.call("capabilities")
     unobserved = store(core_probe, tmp_path, [
@@ -151,7 +151,7 @@ def test_d19_composer_options_follow_models_and_capabilities(core_probe, tmp_pat
     assert [(p["policy"], p["enabled"], p["widens"]) for p in options["permissions"]] == [
         ("read-only", True, False), ("ask", True, False), ("accept-edits", True, True), ("bypass", True, True)]
     codex_options = unobserved["composer"][codex["conversation_id"]]
-    assert codex_options["selected"] == "sol" and codex_options["efforts"] == ["ultra"]
+    assert codex_options["selected"] == "astra" and codex_options["efforts"] == ["ultra"]
     assert codex_options["fast_note"] == "Draws on plan limits"
     assert [(p["policy"], p["enabled"]) for p in codex_options["permissions"]] == [
         ("read-only", True), ("ask", False), ("accept-edits", False), ("bypass", False)]

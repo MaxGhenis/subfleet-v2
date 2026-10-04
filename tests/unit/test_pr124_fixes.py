@@ -1,5 +1,6 @@
 """API edges and defaults from the PR 124 review, using public operations."""
 import copy
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -26,31 +27,48 @@ def test_missing_provider_check_and_create_use_claude(svc, tmp_path):
     assert (check["ok"], check["reason"], check["fix"]) == accepted(svc, args) == (True, None, None)
 
 
-def test_default_codex_policy_routes_hard_to_sol_and_retires_astra(svc):
-    policy = load_policy(DEFAULT_POLICY_PATH)
-    svc.daemon.policy = policy
-    hard = policy["tiers"].index("hard")
-    assert {policy["models"][chain[hard]]["id"] for chain in policy["chains"].values()
-            if policy["models"][chain[hard]]["provider"] == "codex"} == {"gpt-6.1-sol"}
-    assert "gpt-6-astra" not in {entry["id"] for entry in policy["models"].values()}
-    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6.1-sol"}
-
-
-def test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias(svc):
+@pytest.mark.parametrize("short,model_id", [("sol61", "gpt-6.1-sol"), ("custom-hard", "custom-codex-hard")])
+def test_codex_default_follows_loaded_hard_tier_policy(svc, tmp_path, short, model_id):
     policy = copy.deepcopy(load_policy(DEFAULT_POLICY_PATH))
-    policy["models"]["custom-hard"] = {"provider": "codex", "id": "custom-codex-hard"}
+    policy["models"][short] = {"provider": "codex", "id": model_id}
     hard = policy["tiers"].index("hard")
     for chain in policy["chains"].values():
         if policy["models"][chain[hard]]["provider"] == "codex":
-            chain[hard] = "custom-hard"
-    svc.daemon.policy = policy
-    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "custom-codex-hard"}
+            chain[hard] = short
+    path = tmp_path / "loaded-policy.json"
+    path.write_text(json.dumps(policy))
+    svc.daemon.policy = load_policy(path)
+    # Publishing must use what was loaded, even if the disk changes afterward.
+    path.write_text(DEFAULT_POLICY_PATH.read_text())
+    for args in ({}, {"provider": "codex"}):
+        result = svc.handle("models.list", args, None)
+        assert result["default_models"]["codex"] == model_id
+        assert result["default_models"]["codex"] != "gpt-6-astra"
+        astra = next(m for m in result["models"] if m["short"] == "astra")
+        assert astra["id"] == "gpt-6-astra" and astra["retired"] is False
+
+
+def test_astra_default_requires_explicit_hard_tier_routing(svc):
+    svc.daemon.policy = load_policy(DEFAULT_POLICY_PATH)
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}
+    for chain in svc.daemon.policy["chains"].values():
+        chain[svc.daemon.policy["tiers"].index("hard")] = "opus"
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-5.6-terra"}
+
+
+def test_astra_alone_without_hard_routing_has_no_published_default(svc):
+    svc.daemon.policy = {"models": {"astra": {"provider": "codex", "id": "gpt-6-astra"}}}
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {}
 
 
 def test_retired_astra_is_never_a_default_even_in_an_old_custom_policy(svc):
     svc.daemon.policy = {"models": {"old": {"provider": "codex", "id": "gpt-6-astra"},
-                                   "current": {"provider": "codex", "id": "custom-current"}}}
-    assert svc.handle("models.list", {}, None)["default_models"] == {"codex": "custom-current"}
+                                   "current": {"provider": "codex", "id": "custom-current"}},
+                         "tiers": ["hard"], "chains": {"build": ["old"]},
+                         "retired": {"gpt-6-astra": "current"}}
+    result = svc.handle("models.list", {}, None)
+    assert result["default_models"] == {"codex": "custom-current"}
+    assert result["models"][0]["retired"] is True
 
 
 def test_future_activity_cannot_pin_an_older_conversation(svc, monkeypatch):
