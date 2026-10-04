@@ -1,0 +1,343 @@
+{
+  "task_records": [
+    {
+      "file": "build/app-cutover-evidence/compiler-processes.jsonl",
+      "starts": 1787,
+      "finishes": 1787,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr128-wrapper-check/build/app-cutover-evidence/compiler-processes.jsonl",
+      "starts": 1,
+      "finishes": 1,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/baseline-models-children.jsonl",
+      "starts": 4,
+      "finishes": 4,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/baseline-snapshots-children.jsonl",
+      "starts": 7,
+      "finishes": 7,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/baseline-views-children.jsonl",
+      "starts": 12,
+      "finishes": 12,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/fixed-models-children.jsonl",
+      "starts": 5,
+      "finishes": 5,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/fixed-progress-children.jsonl",
+      "starts": 6,
+      "finishes": 6,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/fixed-protocol-children.jsonl",
+      "starts": 58,
+      "finishes": 58,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/fixed-snapshots-children.jsonl",
+      "starts": 6,
+      "finishes": 6,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/fixed-views-children.jsonl",
+      "starts": 17,
+      "finishes": 17,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-01-children.jsonl",
+      "starts": 27,
+      "finishes": 27,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-02-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-03-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-04-children.jsonl",
+      "starts": 14,
+      "finishes": 14,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-05-children.jsonl",
+      "starts": 16,
+      "finishes": 16,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-06-children.jsonl",
+      "starts": 693,
+      "finishes": 693,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-07-children.jsonl",
+      "starts": 43,
+      "finishes": 43,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-08-children.jsonl",
+      "starts": 177,
+      "finishes": 177,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-09-children.jsonl",
+      "starts": 8,
+      "finishes": 8,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-10-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-11-children.jsonl",
+      "starts": 1,
+      "finishes": 1,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-12-children.jsonl",
+      "starts": 45,
+      "finishes": 45,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-13-children.jsonl",
+      "starts": 27,
+      "finishes": 27,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-14-children.jsonl",
+      "starts": 65,
+      "finishes": 65,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-15-children.jsonl",
+      "starts": 10,
+      "finishes": 10,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-16-children.jsonl",
+      "starts": 743,
+      "finishes": 743,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-17-children.jsonl",
+      "starts": 117,
+      "finishes": 117,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-18-children.jsonl",
+      "starts": 150,
+      "finishes": 150,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-19-children.jsonl",
+      "starts": 60,
+      "finishes": 60,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-20-children.jsonl",
+      "starts": 32,
+      "finishes": 32,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-21-children.jsonl",
+      "starts": 225,
+      "finishes": 225,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-22-children.jsonl",
+      "starts": 36,
+      "finishes": 36,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-23-children.jsonl",
+      "starts": 4,
+      "finishes": 4,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-24-children.jsonl",
+      "starts": 9,
+      "finishes": 9,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-25-children.jsonl",
+      "starts": 37,
+      "finishes": 37,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-26-children.jsonl",
+      "starts": 154,
+      "finishes": 154,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-27-children.jsonl",
+      "starts": 6,
+      "finishes": 6,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-28-children.jsonl",
+      "starts": 32,
+      "finishes": 32,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-29-children.jsonl",
+      "starts": 5,
+      "finishes": 5,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-30-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-31-children.jsonl",
+      "starts": 1,
+      "finishes": 1,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/frontend-32-children.jsonl",
+      "starts": 4,
+      "finishes": 4,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-amber-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-badge-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-badge-control-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-command-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-disabled-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-grants-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-outcomes-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-serving-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-sidebar-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-snapshot-capability-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-snapshot-scale-children.jsonl",
+      "starts": 3,
+      "finishes": 3,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-tool-labels-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/mutation-work-outcome-children.jsonl",
+      "starts": 2,
+      "finishes": 2,
+      "unmatched_started_pids": []
+    },
+    {
+      "file": "build/pr124-evidence/pr-base-core-live-children.jsonl",
+      "starts": 3,
+      "finishes": 3,
+      "unmatched_started_pids": []
+    }
+  ],
+  "unmatched_started_pids": [],
+  "ps_available": false,
+  "method": "awaited foreground commands, pytest child records and compiler wrapper completion records; OCR children awaited by each probe"
+}

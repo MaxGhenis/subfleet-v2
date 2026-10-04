@@ -1,0 +1,17 @@
+F..                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_loaded_approval_retains_exact_masked_command[codex-command-rm -rf build && git clean -fdx] _
+
+review_models = {'failed_groups': ['Failed · 1 step'], 'approvals': [{'headline': 'Clean the build outputs', 'command': None, 'id': 'c...ue}, {'text': 'Completed', 'state': 'complete', 'reason': '', 'visible': True}], 'command_group': 'Ran 1 command', ...}
+id = 'codex-command', command = 'rm -rf build && git clean -fdx'
+
+    @pytest.mark.parametrize("id,command", [("codex-command", "rm -rf build && git clean -fdx"),
+        ("claude-bash", "echo [MASKED]"), ("flat-command", "git status")])
+    def test_loaded_approval_retains_exact_masked_command(review_models, id, command):
+>       assert next(a for a in review_models["approvals"] if a["id"] == id)["command"] == command
+E       AssertionError: assert None == 'rm -rf build && git clean -fdx'
+
+tests/frontend/test_visual_review_fixes.py:26: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_loaded_approval_retains_exact_masked_command[codex-command-rm -rf build && git clean -fdx]
+1 failed, 2 passed, 40 deselected in 23.90s

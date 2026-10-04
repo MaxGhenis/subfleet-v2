@@ -1,0 +1,16 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_failed_work_group_never_uses_the_success_label ______________
+
+review_models = {'approvals': [{'headline': 'Clean the build outputs', 'command': 'rm -rf build && git clean -fdx', 'id': 'codex-comma...oard navigation', 'Search src for TODO', 'Find files matching **/*.swift', 'Fetch https://example.com/docs', ...], ...}
+
+    def test_failed_work_group_never_uses_the_success_label(review_models):
+>       assert review_models["failed_groups"][0].startswith("Failed")
+E       AssertionError: assert False
+E        +  where False = <built-in method startswith of str object at 0x3c4a79ad0e0>('Failed')
+E        +    where <built-in method startswith of str object at 0x3c4a79ad0e0> = 'Worked · 1 step'.startswith
+
+tests/frontend/test_visual_review_fixes.py:51: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_failed_work_group_never_uses_the_success_label
+1 failed, 42 deselected in 15.11s

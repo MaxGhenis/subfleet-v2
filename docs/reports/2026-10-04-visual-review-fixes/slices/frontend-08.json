@@ -1,0 +1,29 @@
+{
+  "name": "frontend-08",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 1.76,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_diff.py::test_c26_14_diff_results_decode_without_losing_a_field",
+    "tests/frontend/test_core_diff.py::test_c26_14_the_pane_names_the_nested_repositories_a_live_diff_cannot_show",
+    "tests/frontend/test_core_diff.py::test_c26_14_the_pane_gives_every_listed_file_its_section",
+    "tests/frontend/test_core_diff.py::test_the_parser_reads_lines_that_look_like_headers_inside_a_hunk",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-08.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-ct_ue9xh"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    67277
+  ],
+  "tail": [
+    "....                                                                     [100%]",
+    "4 passed in 1.31s"
+  ]
+}

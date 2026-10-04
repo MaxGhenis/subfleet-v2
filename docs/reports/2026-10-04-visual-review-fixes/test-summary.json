@@ -1,0 +1,48 @@
+{
+  "source_commit": "ffa061abdd1a0f0de92f367c87cb59659eea330c",
+  "frontend": {
+    "tests": 395,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 394,
+    "slices": 32,
+    "seconds": 946.37,
+    "max_slice_seconds": 247.9,
+    "skip_cases": [
+      {
+        "test": "test_the_app_core_drives_a_development_daemon",
+        "reason": "the daemon's process checks need ps/sysctl: macOS boot identity is unavailable",
+        "classification": "same skip at PR base b11f766b",
+        "base_result": "pr-base-core-live.xml"
+      }
+    ]
+  },
+  "protocol": {
+    "tests": 28,
+    "passed": 28,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "required_unique_cases": 423,
+  "required_passed": 422,
+  "required_skipped": 1,
+  "baseline_regressions": {
+    "tests": 45,
+    "failures": 43,
+    "passed": 2,
+    "errors": 0
+  },
+  "mutations": {
+    "killed": 12,
+    "expected_failures": 39,
+    "passing_controls": 2,
+    "exploratory_nesting_survivor": 1
+  },
+  "app_build": {
+    "passed": true,
+    "seconds": 120.06,
+    "signature_verified": true
+  }
+}

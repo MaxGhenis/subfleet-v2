@@ -1,0 +1,43 @@
+{
+  "name": "frontend-07",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 18.46,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_client.py::test_c16_one_request_per_connection_with_a_unique_id",
+    "tests/frontend/test_core_client.py::test_design_12_a_silent_daemon_times_out",
+    "tests/frontend/test_core_client.py::test_c29_2_a_daemon_that_is_down_or_hangs_up_is_a_state",
+    "tests/frontend/test_core_client.py::test_c29_1_the_endpoint_is_subfleet_home_or_the_default",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[None]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.subfleet]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.subfleet/]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.Subfleet]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[{home}/./.subfleet]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[{link}]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~]",
+    "tests/frontend/test_core_client.py::test_c29_4_the_refused_development_build_never_connects",
+    "tests/frontend/test_core_client.py::test_c16_1_a_busy_answer_sent_before_the_request_is_read_still_arrives",
+    "tests/frontend/test_core_client.py::test_c29_2_a_busy_daemon_is_busy_not_incompatible",
+    "tests/frontend/test_core_client.py::test_c29_2_the_first_watch_after_a_failure_checks_again",
+    "tests/frontend/test_core_client.py::test_c29_2_scripted_busy_availability",
+    "tests/frontend/test_core_client.py::test_c29_2_scripted_watch_recovery_rechecks_availability",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-07.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-5v7kc5t1"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    67064
+  ],
+  "tail": [
+    "..................                                                       [100%]",
+    "18 passed in 16.51s"
+  ]
+}

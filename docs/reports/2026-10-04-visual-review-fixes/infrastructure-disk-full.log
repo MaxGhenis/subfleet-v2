@@ -1,0 +1,391 @@
+EEE                                                                      [100%]
+==================================== ERRORS ====================================
+__ ERROR at setup of test_snapshot_pixel_size_is_independent_of_display_scale __
+
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _trace=<.../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="session")
+    def snapshot_probe(tmp_path_factory):
+        folder = tmp_path_factory.mktemp("snapshots")
+        # Exercise the renderer with the natural capture sizes of both display
+        # scales, even on a host whose currently attached display is only 1x.
+        # Instrument only AppKit's capture factory; leave the renderer unchanged.
+        source = (ROOT / "tests/frontend/SnapshotProbe.swift").read_text()
+        assert "let host = NSHostingView(" in source
+        source = source.replace("let host = NSHostingView(", "let host = SnapshotTestHostingView(")
+        source += '''
+    final class SnapshotTestHostingView<Content: View>: NSHostingView<Content> {
+        override func bitmapImageRepForCachingDisplay(in rect: NSRect) -> NSBitmapImageRep? {
+            guard let value = ProcessInfo.processInfo.environment["SF_SNAPSHOT_BACKING_SCALE"],
+                  let scale = Int(value) else { return super.bitmapImageRepForCachingDisplay(in: rect) }
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(rect.width) * scale, pixelsHigh: Int(rect.height) * scale,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            rep.size = rect.size
+            return rep
+        }
+    }
+    '''
+        probe = folder / "SnapshotProbe.swift"
+        probe.write_text(source)
+>       return compile_probe(folder / "probe", probe, "SUBFLEET_VIEW_TEST")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/frontend/test_visual_snapshots.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/app_cutover_pytest.py:28: in cached_compile
+    original_compile(target, probe, flag, timeout=timeout)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+binary = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b')
+probe = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_/snapshots0/SnapshotProbe.swift')
+flag = 'SUBFLEET_VIEW_TEST', timeout = 900
+
+    def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout: int = 900) -> Path:
+        """Build `binary` from the app's sources and the probe file(s); the machine
+        may be loaded, so the timeout is generous."""
+        probes = probe if isinstance(probe, list) else [probe]
+        # Exercise UIModel with AppKit and notifications, while excluding SwiftUI
+        # view bodies. The full view probe retains SUBFLEET_VIEW_TEST separately.
+        flags = [flag] if flag != "SUBFLEET_UI_MODEL_TEST" else [flag, "SUBFLEET_MODEL_TEST", "SUBFLEET_VIEW_TEST"]
+        defines = [arg for name in flags for arg in ("-D", name)]
+        command = ["xcrun", "swiftc", *defines, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
+                   *map(str, app_sources()), *map(str, probes), "-o", str(binary)]
+        compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+>       assert compiled.returncode == 0, compiled.stderr[-20000:]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:193:31: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        191 |         guard let engine else { return }
+E        192 |         Thread.detachNewThread { [weak self] in
+E        193 |             WatchLoop(engine: engine,
+E            |                               `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        194 |                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
+E        195 |                       deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:262:36: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        260 |                 guard let cursor else { return }
+E        261 |                 do {
+E        262 |                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+E            |                                    `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        263 |                     failures = 0
+E        264 |                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:474:25: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        472 |         await loadHistoryPages(
+E        473 |             pages: Self.historyPagesFollowed, follow: follow,
+E        474 |             timeline: { await self.timeline(conversationID) },
+E            |                         `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        475 |             fetch: { before in
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:478:30: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E        477 |             },
+E        478 |             apply: { page in await self.applyHistory(page, conversationID) })
+E            |                              `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        479 |     }
+E        480 | 
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       [#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UISearchPalette.swift:284:54: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       282 |         return await withCheckedContinuation { continuation in
+E       283 |             DispatchQueue.global(qos: .userInitiated).async {
+E       284 |                 continuation.resume(returning: (try? engine.list(query: word, provider: nil, limit: limit))?.catalog?.items)
+E           |                                                      `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       285 |             }
+E       286 |         }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       error: link command failed with exit code 1 (use -v to see invocation)
+E       ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/lib/swift/macosx' not found
+E       ld: write() failed, errno=28 (No space left on device) for '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b'
+E       clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+tests/frontend/swift.py:37: AssertionError
+______ ERROR at setup of test_refused_folder_fixture_settles_and_renders _______
+
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _trace=<.../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="session")
+    def snapshot_probe(tmp_path_factory):
+        folder = tmp_path_factory.mktemp("snapshots")
+        # Exercise the renderer with the natural capture sizes of both display
+        # scales, even on a host whose currently attached display is only 1x.
+        # Instrument only AppKit's capture factory; leave the renderer unchanged.
+        source = (ROOT / "tests/frontend/SnapshotProbe.swift").read_text()
+        assert "let host = NSHostingView(" in source
+        source = source.replace("let host = NSHostingView(", "let host = SnapshotTestHostingView(")
+        source += '''
+    final class SnapshotTestHostingView<Content: View>: NSHostingView<Content> {
+        override func bitmapImageRepForCachingDisplay(in rect: NSRect) -> NSBitmapImageRep? {
+            guard let value = ProcessInfo.processInfo.environment["SF_SNAPSHOT_BACKING_SCALE"],
+                  let scale = Int(value) else { return super.bitmapImageRepForCachingDisplay(in: rect) }
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(rect.width) * scale, pixelsHigh: Int(rect.height) * scale,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            rep.size = rect.size
+            return rep
+        }
+    }
+    '''
+        probe = folder / "SnapshotProbe.swift"
+        probe.write_text(source)
+>       return compile_probe(folder / "probe", probe, "SUBFLEET_VIEW_TEST")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/frontend/test_visual_snapshots.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/app_cutover_pytest.py:28: in cached_compile
+    original_compile(target, probe, flag, timeout=timeout)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+binary = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b')
+probe = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_/snapshots0/SnapshotProbe.swift')
+flag = 'SUBFLEET_VIEW_TEST', timeout = 900
+
+    def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout: int = 900) -> Path:
+        """Build `binary` from the app's sources and the probe file(s); the machine
+        may be loaded, so the timeout is generous."""
+        probes = probe if isinstance(probe, list) else [probe]
+        # Exercise UIModel with AppKit and notifications, while excluding SwiftUI
+        # view bodies. The full view probe retains SUBFLEET_VIEW_TEST separately.
+        flags = [flag] if flag != "SUBFLEET_UI_MODEL_TEST" else [flag, "SUBFLEET_MODEL_TEST", "SUBFLEET_VIEW_TEST"]
+        defines = [arg for name in flags for arg in ("-D", name)]
+        command = ["xcrun", "swiftc", *defines, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
+                   *map(str, app_sources()), *map(str, probes), "-o", str(binary)]
+        compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+>       assert compiled.returncode == 0, compiled.stderr[-20000:]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:193:31: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        191 |         guard let engine else { return }
+E        192 |         Thread.detachNewThread { [weak self] in
+E        193 |             WatchLoop(engine: engine,
+E            |                               `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        194 |                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
+E        195 |                       deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:262:36: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        260 |                 guard let cursor else { return }
+E        261 |                 do {
+E        262 |                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+E            |                                    `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        263 |                     failures = 0
+E        264 |                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:474:25: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        472 |         await loadHistoryPages(
+E        473 |             pages: Self.historyPagesFollowed, follow: follow,
+E        474 |             timeline: { await self.timeline(conversationID) },
+E            |                         `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        475 |             fetch: { before in
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:478:30: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E        477 |             },
+E        478 |             apply: { page in await self.applyHistory(page, conversationID) })
+E            |                              `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        479 |     }
+E        480 | 
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       [#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UISearchPalette.swift:284:54: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       282 |         return await withCheckedContinuation { continuation in
+E       283 |             DispatchQueue.global(qos: .userInitiated).async {
+E       284 |                 continuation.resume(returning: (try? engine.list(query: word, provider: nil, limit: limit))?.catalog?.items)
+E           |                                                      `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       285 |             }
+E       286 |         }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       error: link command failed with exit code 1 (use -v to see invocation)
+E       ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/lib/swift/macosx' not found
+E       ld: write() failed, errno=28 (No space left on device) for '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b'
+E       clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+tests/frontend/swift.py:37: AssertionError
+___ ERROR at setup of test_rerender_all_scenes_including_codex_and_failures ____
+
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _trace=<.../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="session")
+    def snapshot_probe(tmp_path_factory):
+        folder = tmp_path_factory.mktemp("snapshots")
+        # Exercise the renderer with the natural capture sizes of both display
+        # scales, even on a host whose currently attached display is only 1x.
+        # Instrument only AppKit's capture factory; leave the renderer unchanged.
+        source = (ROOT / "tests/frontend/SnapshotProbe.swift").read_text()
+        assert "let host = NSHostingView(" in source
+        source = source.replace("let host = NSHostingView(", "let host = SnapshotTestHostingView(")
+        source += '''
+    final class SnapshotTestHostingView<Content: View>: NSHostingView<Content> {
+        override func bitmapImageRepForCachingDisplay(in rect: NSRect) -> NSBitmapImageRep? {
+            guard let value = ProcessInfo.processInfo.environment["SF_SNAPSHOT_BACKING_SCALE"],
+                  let scale = Int(value) else { return super.bitmapImageRepForCachingDisplay(in: rect) }
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(rect.width) * scale, pixelsHigh: Int(rect.height) * scale,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            rep.size = rect.size
+            return rep
+        }
+    }
+    '''
+        probe = folder / "SnapshotProbe.swift"
+        probe.write_text(source)
+>       return compile_probe(folder / "probe", probe, "SUBFLEET_VIEW_TEST")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/frontend/test_visual_snapshots.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/app_cutover_pytest.py:28: in cached_compile
+    original_compile(target, probe, flag, timeout=timeout)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+binary = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b')
+probe = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_/snapshots0/SnapshotProbe.swift')
+flag = 'SUBFLEET_VIEW_TEST', timeout = 900
+
+    def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout: int = 900) -> Path:
+        """Build `binary` from the app's sources and the probe file(s); the machine
+        may be loaded, so the timeout is generous."""
+        probes = probe if isinstance(probe, list) else [probe]
+        # Exercise UIModel with AppKit and notifications, while excluding SwiftUI
+        # view bodies. The full view probe retains SUBFLEET_VIEW_TEST separately.
+        flags = [flag] if flag != "SUBFLEET_UI_MODEL_TEST" else [flag, "SUBFLEET_MODEL_TEST", "SUBFLEET_VIEW_TEST"]
+        defines = [arg for name in flags for arg in ("-D", name)]
+        command = ["xcrun", "swiftc", *defines, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
+                   *map(str, app_sources()), *map(str, probes), "-o", str(binary)]
+        compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+>       assert compiled.returncode == 0, compiled.stderr[-20000:]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:193:31: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        191 |         guard let engine else { return }
+E        192 |         Thread.detachNewThread { [weak self] in
+E        193 |             WatchLoop(engine: engine,
+E            |                               `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        194 |                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
+E        195 |                       deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:262:36: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        260 |                 guard let cursor else { return }
+E        261 |                 do {
+E        262 |                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+E            |                                    `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E        263 |                     failures = 0
+E        264 |                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:474:25: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        472 |         await loadHistoryPages(
+E        473 |             pages: Self.historyPagesFollowed, follow: follow,
+E        474 |             timeline: { await self.timeline(conversationID) },
+E            |                         `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        475 |             fetch: { before in
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UIModel.swift:478:30: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+E        477 |             },
+E        478 |             apply: { page in await self.applyHistory(page, conversationID) })
+E            |                              `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+E        479 |     }
+E        480 | 
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       [#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/UISearchPalette.swift:284:54: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       282 |         return await withCheckedContinuation { continuation in
+E       283 |             DispatchQueue.global(qos: .userInitiated).async {
+E       284 |                 continuation.resume(returning: (try? engine.list(query: word, provider: nil, limit: limit))?.catalog?.items)
+E           |                                                      `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+E       285 |             }
+E       286 |         }
+E       
+E       /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+E        859 | /// (it owns the outbox).
+E        860 | final class ConversationEngine {
+E            |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+E        861 |     let client: DaemonCalling
+E        862 |     let outbox: Outbox
+E       
+E       [#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+E       error: link command failed with exit code 1 (use -v to see invocation)
+E       ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/lib/swift/macosx' not found
+E       ld: write() failed, errno=28 (No space left on device) for '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/d72516eeeae9529588c029ee29f437357ce6e55e8428d77599807eab69f43c1b'
+E       clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+tests/frontend/swift.py:37: AssertionError
+=========================== short test summary info ============================
+ERROR tests/frontend/test_visual_snapshots.py::test_snapshot_pixel_size_is_independent_of_display_scale
+ERROR tests/frontend/test_visual_snapshots.py::test_refused_folder_fixture_settles_and_renders
+ERROR tests/frontend/test_visual_snapshots.py::test_rerender_all_scenes_including_codex_and_failures
+3 errors in 25.29s

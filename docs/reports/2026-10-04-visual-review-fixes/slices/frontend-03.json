@@ -1,0 +1,31 @@
+{
+  "name": "frontend-03",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 39.71,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_conversation_view.py::test_c27_5_the_strip_shows_review_only_while_a_card_waits",
+    "tests/frontend/test_conversation_view.py::test_c27_5_the_strip_buttons_do_what_they_say",
+    "tests/frontend/test_conversation_view.py::test_c27_5_the_sidebar_hand_badge_is_a_button_that_shows_the_cards",
+    "tests/frontend/test_conversation_view.py::test_cutover_the_real_blocker_banner_buttons_and_sidebar_mark[unfinished-turn-actions0]",
+    "tests/frontend/test_conversation_view.py::test_cutover_the_real_blocker_banner_buttons_and_sidebar_mark[delivery-unknown-actions1]",
+    "tests/frontend/test_conversation_view.py::test_cutover_the_background_task_view_is_a_compact_system_notice",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-03.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-8akyimic"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    61688
+  ],
+  "tail": [
+    "......                                                                   [100%]",
+    "6 passed in 36.01s"
+  ]
+}

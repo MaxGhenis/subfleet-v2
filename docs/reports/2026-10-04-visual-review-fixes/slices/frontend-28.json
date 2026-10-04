@@ -1,0 +1,50 @@
+{
+  "name": "frontend-28",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 7.01,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_reads_live_provider_windows",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_never_invents_percentage_without_provider_evidence[unknown]",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_never_invents_percentage_without_provider_evidence[admission-observed]",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_never_invents_percentage_without_provider_evidence[local-backoff]",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_marks_cached_evidence_stale[stale-reading]",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_marks_cached_evidence_stale[stale-snapshot]",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_marks_cached_evidence_stale[offline]",
+    "tests/frontend/test_status_model.py::test_c10_frontend_does_not_present_v1_lanes_as_available",
+    "tests/frontend/test_status_model.py::test_c10_6_frontend_suppresses_mismatched_identity_percentages",
+    "tests/frontend/test_status_model.py::test_c2_1_frontend_resolves_custom_state_root",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_accepts_empty_fleet",
+    "tests/frontend/test_status_model.py::test_c9_1_frontend_handles_lanes_without_usage_windows",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_snapshot_clock_is_conservative[2026-09-19T12:00:00.123Z-False]",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_snapshot_clock_is_conservative[2026-09-19T11:50:00Z-False]",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_snapshot_clock_is_conservative[2026-09-19T11:49:59Z-True]",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_snapshot_clock_is_conservative[2026-09-19T12:01:01Z-True]",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_snapshot_clock_is_conservative[invalid-clock-True]",
+    "tests/frontend/test_status_model.py::test_c18_2_frontend_groups_a_batch_and_says_why_a_job_waits",
+    "tests/frontend/test_status_model.py::test_c18_2_frontend_reads_a_snapshot_from_a_daemon_without_jobs",
+    "tests/frontend/test_status_model.py::test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions",
+    "tests/frontend/test_status_model.py::test_auto_provider_follows_the_lanes_ready_now",
+    "tests/frontend/test_status_model.py::test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable",
+    "tests/frontend/test_status_model.py::test_c18_4_frontend_shows_each_alert_with_what_to_run",
+    "tests/frontend/test_status_model.py::test_c18_4_frontend_info_alone_needs_no_attention_and_none_is_quiet",
+    "tests/frontend/test_status_model.py::test_c18_4_frontend_reads_a_snapshot_from_a_daemon_without_alerts",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-28.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-pnxm7cuy"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    74014
+  ],
+  "tail": [
+    ".........................                                                [100%]",
+    "25 passed in 5.71s"
+  ]
+}

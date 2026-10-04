@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="22.522" timestamp="2026-10-04T16:37:50.808495-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[codex-command-rm -rf build &amp;&amp; git clean -fdx]" time="22.169"><failure message="AssertionError: assert None == 'rm -rf build &amp;&amp; git clean -fdx'">review_models = {'failed_groups': ['Failed · 1 step'], 'approvals': [{'headline': 'Clean the build outputs', 'command': None, 'id': 'c...ue}, {'text': 'Completed', 'state': 'complete', 'reason': '', 'visible': True}], 'command_group': 'Ran 1 command', ...}
+id = 'codex-command', command = 'rm -rf build &amp;&amp; git clean -fdx'
+
+    @pytest.mark.parametrize("id,command", [("codex-command", "rm -rf build &amp;&amp; git clean -fdx"),
+        ("claude-bash", "echo [MASKED]"), ("flat-command", "git status")])
+    def test_loaded_approval_retains_exact_masked_command(review_models, id, command):
+&gt;       assert next(a for a in review_models["approvals"] if a["id"] == id)["command"] == command
+E       AssertionError: assert None == 'rm -rf build &amp;&amp; git clean -fdx'
+
+tests/frontend/test_visual_review_fixes.py:26: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[claude-bash-echo [MASKED]]" time="0.002" /><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[flat-command-git status]" time="0.002" /></testsuite></testsuites>

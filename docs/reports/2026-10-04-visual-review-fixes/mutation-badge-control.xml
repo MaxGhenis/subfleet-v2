@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="72.975" timestamp="2026-10-04T16:58:04.062582-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_sidebar_uses_native_keyboard_selection_and_separate_badge" time="70.379"><failure message="AssertionError: {'focus_shortcut_reached_list': True, 'native_selection': True, 'badge_hit_is_control': False, 'focus_shortcut_handled': True, ...}&#10;assert False">review_views = {'approvals': {'claude-bash': {'card': 'W Run the build echo [MASKED] blocked_path: /private/cache command: secondary ...se, 'focus_shortcut_handled': True, ...}, 'disabled_pixel_difference': 0.013658854166666666, 'visible_windows': 0, ...}
+
+    def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views):
+        assert review_views["sidebar"]["native_selection"]
+        assert review_views["sidebar"]["focus_shortcut_handled"]
+        assert review_views["sidebar"]["focus_shortcut_reached_list"]
+        assert review_views["sidebar"]["arrow_changed_selection"]
+&gt;       assert review_views["sidebar"]["badge_clicked"], review_views["sidebar"]
+E       AssertionError: {'focus_shortcut_reached_list': True, 'native_selection': True, 'badge_hit_is_control': False, 'focus_shortcut_handled': True, ...}
+E       assert False
+
+tests/frontend/test_visual_review_fixes.py:97: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="18" skipped="0" tests="20" time="49.606" timestamp="2026-10-04T16:11:26.008276-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[codex-command-rm -rf build &amp;&amp; git clean -fdx]" time="47.424"><failure message="AssertionError: assert None == 'rm -rf build &amp;&amp; git clean -fdx'">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+id = 'codex-command', command = 'rm -rf build &amp;&amp; git clean -fdx'
+
+    @pytest.mark.parametrize("id,command", [("codex-command", "rm -rf build &amp;&amp; git clean -fdx"),
+        ("claude-bash", "echo [MASKED]"), ("flat-command", "git status")])
+    def test_loaded_approval_retains_exact_masked_command(review_models, id, command):
+&gt;       assert next(a for a in review_models["approvals"] if a["id"] == id)["command"] == command
+E       AssertionError: assert None == 'rm -rf build &amp;&amp; git clean -fdx'
+
+tests/frontend/test_visual_review_fixes.py:26: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[claude-bash-echo [MASKED]]" time="0.001" /><testcase classname="tests.frontend.test_visual_review_fixes" name="test_loaded_approval_retains_exact_masked_command[flat-command-git status]" time="0.001" /><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[failed-model-mismatch-Failed: model-mismatch]" time="0.003"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'failed', reason = 'model-mismatch', text = 'Failed: model-mismatch'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[failed-continued-elsewhere-Failed: continued-elsewhere]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'failed', reason = 'continued-elsewhere'
+text = 'Failed: continued-elsewhere'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[interrupted-person-stopped-Stopped]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'interrupted', reason = 'person-stopped', text = 'Stopped'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[cancelled-withdrawn-Withdrawn]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'cancelled', reason = 'withdrawn', text = 'Withdrawn'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[complete-stop-too-late-Completed before the stop took effect]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'complete', reason = 'stop-too-late'
+text = 'Completed before the stop took effect'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[complete--Completed]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+state = 'complete', reason = '', text = 'Completed'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[0-git status]" time="0.001"><failure message="AssertionError: assert 'command' == 'git status'&#10;  &#10;  - git status&#10;  + command">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 0, label = 'git status'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'command' == 'git status'
+E         
+E         - git status
+E         + command
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[1-python -m]" time="0.001"><failure message="AssertionError: assert 'command' == 'python -m'&#10;  &#10;  - python -m&#10;  + command">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 1, label = 'python -m'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'command' == 'python -m'
+E         
+E         - python -m
+E         + command
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[2-Search the web for SwiftUI keyboard navigation]" time="0.001"><failure message="AssertionError: assert 'web search' == 'Search the w...rd navigation'&#10;  &#10;  - Search the web for SwiftUI keyboard navigation&#10;  + web search">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 2, label = 'Search the web for SwiftUI keyboard navigation'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'web search' == 'Search the w...rd navigation'
+E         
+E         - Search the web for SwiftUI keyboard navigation
+E         + web search
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[3-Search src for TODO]" time="0.001"><failure message="AssertionError: assert 'Search files' == 'Search src for TODO'&#10;  &#10;  - Search src for TODO&#10;  + Search files">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 3, label = 'Search src for TODO'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Search files' == 'Search src for TODO'
+E         
+E         - Search src for TODO
+E         + Search files
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[4-Find files matching **/*.swift]" time="0.001"><failure message="AssertionError: assert 'Search files' == 'Find files m...ng **/*.swift'&#10;  &#10;  - Find files matching **/*.swift&#10;  + Search files">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 4, label = 'Find files matching **/*.swift'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Search files' == 'Find files m...ng **/*.swift'
+E         
+E         - Find files matching **/*.swift
+E         + Search files
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[5-Fetch https://example.com/docs]" time="0.001"><failure message="AssertionError: assert 'Search the web' == 'Fetch https:...mple.com/docs'&#10;  &#10;  - Fetch https://example.com/docs&#10;  + Search the web">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 5, label = 'Fetch https://example.com/docs'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Search the web' == 'Fetch https:...mple.com/docs'
+E         
+E         - Fetch https://example.com/docs
+E         + Search the web
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[6-Edit 2 files (a.swift, b.swift)]" time="0.001"><failure message="AssertionError: assert 'Edit b.swift' == 'Edit 2 files...ift, b.swift)'&#10;  &#10;  - Edit 2 files (a.swift, b.swift)&#10;  + Edit b.swift">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 6, label = 'Edit 2 files (a.swift, b.swift)'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Edit b.swift' == 'Edit 2 files...ift, b.swift)'
+E         
+E         - Edit 2 files (a.swift, b.swift)
+E         + Edit b.swift
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[7-Run a command]" time="0.001"><failure message="AssertionError: assert 'Wrong label' == 'Run a command'&#10;  &#10;  - Run a command&#10;  + Wrong label">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 7, label = 'Run a command'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Wrong label' == 'Run a command'
+E         
+E         - Run a command
+E         + Wrong label
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_tool_labels_keep_provider_and_input_detail[8-Write the notes]" time="0.001"><failure message="AssertionError: assert 'Wrong label' == 'Write the notes'&#10;  &#10;  - Write the notes&#10;  + Wrong label">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+index = 8, label = 'Write the notes'
+
+    @pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+        (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
+        (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
+        (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
+    def test_tool_labels_keep_provider_and_input_detail(review_models, index, label):
+&gt;       assert review_models["tools"][index] == label
+E       AssertionError: assert 'Wrong label' == 'Write the notes'
+E         
+E         - Write the notes
+E         + Wrong label
+
+tests/frontend/test_visual_review_fixes.py:43: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_codex_commands_are_grouped_as_commands" time="0.024"><failure message="AssertionError: assert 'Used 1 tool' == 'Ran 1 command'&#10;  &#10;  - Ran 1 command&#10;  + Used 1 tool">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+
+    def test_codex_commands_are_grouped_as_commands(review_models):
+&gt;       assert review_models["command_group"] == "Ran 1 command"
+E       AssertionError: assert 'Used 1 tool' == 'Ran 1 command'
+E         
+E         - Ran 1 command
+E         + Used 1 tool
+
+tests/frontend/test_visual_review_fixes.py:47: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_failed_work_group_never_uses_the_success_label" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;built-in method startswith of str object at 0x4a01e1ec360&gt;('Failed')&#10; +    where &lt;built-in method startswith of str object at 0x4a01e1ec360&gt; = 'Worked · 1 step'.startswith">review_models = {'tools': ['command', 'command', 'web search', 'Search files', 'Search files', 'Search the web', ...], 'approvals': [{...line': 'Choose the deployment scope'}, ...], 'command_group': 'Used 1 tool', 'failed_groups': ['Worked · 1 step'], ...}
+
+    def test_failed_work_group_never_uses_the_success_label(review_models):
+&gt;       assert review_models["failed_groups"][0].startswith("Failed")
+E       AssertionError: assert False
+E        +  where False = &lt;built-in method startswith of str object at 0x4a01e1ec360&gt;('Failed')
+E        +    where &lt;built-in method startswith of str object at 0x4a01e1ec360&gt; = 'Worked · 1 step'.startswith
+
+tests/frontend/test_visual_review_fixes.py:51: AssertionError</failure></testcase></testsuite></testsuites>

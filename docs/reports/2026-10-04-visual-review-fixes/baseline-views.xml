@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="23" skipped="0" tests="23" time="116.861" timestamp="2026-10-04T16:59:53.770461-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-command]" time="81.274"><failure message="AssertionError: ('card', 'codex-command', 'rm -rf build', 'Clean the build outputs Deny Allow Details')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'codex-command', 'kind': 'command', 'headline': 'Clean the build outputs', 'request': {'method': 'item/commandE...'/repo/project', 'kind': 'command', 'networkApprovalContext': {'host': 'example.com', 'protocol': 'https'}, ...}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-command', 'rm -rf build', 'Clean the build outputs Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-file-change]" time="2.470"><failure message="AssertionError: ('card', 'codex-file-change', 'grantRoot: /', 'Write the release notes Deny Allow Details')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'codex-file-change', 'kind': 'file-change', 'headline': 'Write the release notes', 'request': {'method': 'item/...roval', 'params': {'grantRoot': '/', 'reason': 'Write release notes', 'changes': [{'path': '/repo/release.md'}]}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-file-change', 'grantRoot: /', 'Write the release notes Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-permissions]" time="0.376"><failure message="AssertionError: ('card', 'codex-permissions', '/repo/project', 'W Grant additional permissions Deny Allow Details')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'codex-permissions', 'kind': 'permissions', 'headline': 'Grant additional permissions', 'request': {'method': '...read': ['/private/data'], 'write': ['/repo/output']}}, 'permissions.fileSystem.write[0]': '/literal/grant/root'}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-permissions', '/repo/project', 'W Grant additional permissions Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-bash]" time="3.790"><failure message="AssertionError: ('card', 'claude-bash', 'echo [MASKED]', '')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'claude-bash', 'kind': 'tool', 'headline': 'Run the build', 'request': {'subtype': 'can_use_tool', 'tool_name':...h', 'input': {'command': 'echo [MASKED]', 'description': 'Run the build'}, 'blocked_path': '/private/cache', ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-bash', 'echo [MASKED]', '')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-write]" time="5.603"><failure message="AssertionError: ('card', 'claude-write', '/etc/hosts', '')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'claude-write', 'kind': 'tool', 'headline': 'Write the hosts file', 'request': {'subtype': 'can_use_tool', 'too... 'Write', 'input': {'file_path': '/etc/hosts', 'content': '127.0.0.1 example.test'}, 'blocked_path': '/etc', ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-write', '/etc/hosts', '')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-question]" time="1.991"><failure message="AssertionError: ('card', 'claude-question', '/deployment/root', '© Choose the deployment scope 0 of 1 questions answered 1/1 Scope Whe... Local Only this checkout © Other Use number keys 1-9 while the choices are focused. Back Skip Submit answers Details')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'claude-question', 'kind': 'question', 'headline': 'Choose the deployment scope', 'request': {'subtype': 'can_u... run?', 'header': 'Scope', 'options': [{...}]}], 'grant_root': '/deployment/root'}, 'blocked_path': '/protected'}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-question', '/deployment/root', '© Choose the deployment scope 0 of 1 questions answered 1/1 Scope Whe... Local Only this checkout © Other Use number keys 1-9 while the choices are focused. Back Skip Submit answers Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_loaded_grant_field_is_visible_on_card_and_sheet[flat-command]" time="0.007"><failure message="AssertionError: ('card', 'flat-command', 'git status', '')&#10;assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+fixture = {'id': 'flat-command', 'kind': 'command', 'headline': 'Run the legacy command', 'request': {'command': 'git status', 'cwd': '/legacy/root', 'grant_root': '/grant/root', 'permissions': {'network': False}, ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+&gt;               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'flat-command', 'git status', '')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[complete]" time="0.453"><failure message="AssertionError: ('complete', 'max@example.com', 'Please review')&#10;assert 'max@example.com' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'complete'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('complete', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[running]" time="0.007"><failure message="AssertionError: ('running', 'max@example.com', 'Please review')&#10;assert 'max@example.com' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'running'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('running', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[failed]" time="0.254"><failure message="AssertionError: ('failed', 'max@example.com', 'Please review')&#10;assert 'max@example.com' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'failed'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('failed', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[interrupted]" time="0.009"><failure message="AssertionError: ('interrupted', 'max@example.com', 'Please review')&#10;assert 'max@example.com' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'interrupted'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('interrupted', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[cancelled]" time="1.008"><failure message="AssertionError: ('cancelled', 'max@example.com', 'Please review')&#10;assert 'max@example.com' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'cancelled'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('cancelled', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[failover]" time="0.039"><failure message="AssertionError: ('failover', 'gpt-6-astra', '@ Continued after a usage limit on max@example.com')&#10;assert 'gpt-6-astra' in '@ Continued after a usage limit on max@example.com'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'failover'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('failover', 'gpt-6-astra', '@ Continued after a usage limit on max@example.com')
+E           assert 'gpt-6-astra' in '@ Continued after a usage limit on max@example.com'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_every_turn_has_visible_serving_facts_and_fast_warning[unblock-note]" time="3.613"><failure message="AssertionError: ('unblock-note', 'max@example.com', '@ The stopped turn was left; the next turn starts without resuming it')&#10;assert 'max@example.com' in '@ The stopped turn was left; the next turn starts without resuming it'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'unblock-note'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+&gt;           assert value in text, (state, value, text)
+E           AssertionError: ('unblock-note', 'max@example.com', '@ The stopped turn was left; the next turn starts without resuming it')
+E           assert 'max@example.com' in '@ The stopped turn was left; the next turn starts without resuming it'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_real_settled_turn_shows_outcome_without_an_error_event[complete-Completed]" time="0.078"><failure message="AssertionError: assert 'Completed' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'complete', text = 'Completed'
+
+    @pytest.mark.parametrize("state,text", [("complete", "Completed"), ("failed", "Failed: model-mismatch"),
+        ("interrupted", "Stopped"), ("cancelled", "Withdrawn"), ("stop-too-late", "Completed before the stop took effect")])
+    def test_real_settled_turn_shows_outcome_without_an_error_event(review_views, state, text):
+&gt;       assert text in review_views["turns"][state]
+E       AssertionError: assert 'Completed' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:89: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_real_settled_turn_shows_outcome_without_an_error_event[failed-Failed: model-mismatch]" time="6.790"><failure message="AssertionError: assert 'Failed: model-mismatch' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'failed', text = 'Failed: model-mismatch'
+
+    @pytest.mark.parametrize("state,text", [("complete", "Completed"), ("failed", "Failed: model-mismatch"),
+        ("interrupted", "Stopped"), ("cancelled", "Withdrawn"), ("stop-too-late", "Completed before the stop took effect")])
+    def test_real_settled_turn_shows_outcome_without_an_error_event(review_views, state, text):
+&gt;       assert text in review_views["turns"][state]
+E       AssertionError: assert 'Failed: model-mismatch' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:89: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_real_settled_turn_shows_outcome_without_an_error_event[interrupted-Stopped]" time="3.491"><failure message="AssertionError: assert 'Stopped' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'interrupted', text = 'Stopped'
+
+    @pytest.mark.parametrize("state,text", [("complete", "Completed"), ("failed", "Failed: model-mismatch"),
+        ("interrupted", "Stopped"), ("cancelled", "Withdrawn"), ("stop-too-late", "Completed before the stop took effect")])
+    def test_real_settled_turn_shows_outcome_without_an_error_event(review_views, state, text):
+&gt;       assert text in review_views["turns"][state]
+E       AssertionError: assert 'Stopped' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:89: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_real_settled_turn_shows_outcome_without_an_error_event[cancelled-Withdrawn]" time="0.107"><failure message="AssertionError: assert 'Withdrawn' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'cancelled', text = 'Withdrawn'
+
+    @pytest.mark.parametrize("state,text", [("complete", "Completed"), ("failed", "Failed: model-mismatch"),
+        ("interrupted", "Stopped"), ("cancelled", "Withdrawn"), ("stop-too-late", "Completed before the stop took effect")])
+    def test_real_settled_turn_shows_outcome_without_an_error_event(review_views, state, text):
+&gt;       assert text in review_views["turns"][state]
+E       AssertionError: assert 'Withdrawn' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:89: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_real_settled_turn_shows_outcome_without_an_error_event[stop-too-late-Completed before the stop took effect]" time="0.388"><failure message="AssertionError: assert 'Completed before the stop took effect' in 'Please review'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+state = 'stop-too-late', text = 'Completed before the stop took effect'
+
+    @pytest.mark.parametrize("state,text", [("complete", "Completed"), ("failed", "Failed: model-mismatch"),
+        ("interrupted", "Stopped"), ("cancelled", "Withdrawn"), ("stop-too-late", "Completed before the stop took effect")])
+    def test_real_settled_turn_shows_outcome_without_an_error_event(review_views, state, text):
+&gt;       assert text in review_views["turns"][state]
+E       AssertionError: assert 'Completed before the stop took effect' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:89: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_sidebar_uses_native_keyboard_selection_and_separate_badge" time="0.463"><failure message="assert False">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+
+    def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views):
+&gt;       assert review_views["sidebar"]["native_selection"]
+E       assert False
+
+tests/frontend/test_visual_review_fixes.py:93: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_active_provider_filter_is_visible" time="0.298"><failure message="AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation &amp; 2 Second conversation &amp; 2'">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+
+    def test_active_provider_filter_is_visible(review_views):
+&gt;       assert "Codex" in review_views["filter"]
+E       AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation &amp; 2 Second conversation &amp; 2'
+
+tests/frontend/test_visual_review_fixes.py:104: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_disabled_quiet_send_looks_disabled" time="0.347"><failure message="assert 0 &gt; 0.001">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+
+    def test_disabled_quiet_send_looks_disabled(review_views):
+&gt;       assert review_views["disabled_pixel_difference"] &gt; 0.001
+E       assert 0 &gt; 0.001
+
+tests/frontend/test_visual_review_fixes.py:108: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_permission_amber_has_text_contrast_in_both_modes" time="0.433"><failure message="assert 2.0085451883174485 &gt;= 4.5&#10; +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])">review_views = {'approvals': {'codex-command': {'card': 'Clean the build outputs Deny Allow Details', 'sheet': 'Clean the build outpu... Today First conversation &amp; 2 Second conversation &amp; 2', 'amber_contrast': [2.0085451883174485, 7.132481921648224], ...}
+
+    def test_permission_amber_has_text_contrast_in_both_modes(review_views):
+&gt;       assert min(review_views["amber_contrast"]) &gt;= 4.5
+E       assert 2.0085451883174485 &gt;= 4.5
+E        +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])
+
+tests/frontend/test_visual_review_fixes.py:112: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,130 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+__ test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-command] ___
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'codex-command', 'kind': 'command', 'headline': 'Clean the build outputs', 'request': {'method': 'item/commandE...'/repo/project', 'kind': 'command', 'networkApprovalContext': {'host': 'example.com', 'protocol': 'https'}, ...}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-command', 'rm -rf build', 'W Clean the build outputs Add a note Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+_ test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-file-change] _
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'codex-file-change', 'kind': 'file-change', 'headline': 'Write the release notes', 'request': {'method': 'item/...roval', 'params': {'grantRoot': '/', 'reason': 'Write release notes', 'changes': [{'path': '/repo/release.md'}]}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-file-change', 'grantRoot: /', 'W Write the release notes Add a note Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+_ test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-permissions] _
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'codex-permissions', 'kind': 'permissions', 'headline': 'Grant additional permissions', 'request': {'method': '...read': ['/private/data'], 'write': ['/repo/output']}}, 'permissions.fileSystem.write[0]': '/literal/grant/root'}}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'codex-permissions', '/repo/project', 'W Grant additional permissions Add a note Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+___ test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-bash] ____
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'claude-bash', 'kind': 'tool', 'headline': 'Run the build', 'request': {'subtype': 'can_use_tool', 'tool_name':...h', 'input': {'command': 'echo [MASKED]', 'description': 'Run the build'}, 'blocked_path': '/private/cache', ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-bash', 'echo [MASKED]', '')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+___ test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-write] ___
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'claude-write', 'kind': 'tool', 'headline': 'Write the hosts file', 'request': {'subtype': 'can_use_tool', 'too... 'Write', 'input': {'file_path': '/etc/hosts', 'content': '127.0.0.1 example.test'}, 'blocked_path': '/etc', ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-write', '/etc/hosts', 'W Write the hosts file Add a note Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+_ test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-question] __
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'claude-question', 'kind': 'question', 'headline': 'Choose the deployment scope', 'request': {'subtype': 'can_u... run?', 'header': 'Scope', 'options': [{...}]}], 'grant_root': '/deployment/root'}, 'blocked_path': '/protected'}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'claude-question', '/deployment/root', '®@ Choose the deployment scope 0 of 1 questions answered 1/1 Scope Wh... Local Only this checkout © Other Use number keys 1-9 while the choices are focused. Back Skip Submit answers Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+___ test_every_loaded_grant_field_is_visible_on_card_and_sheet[flat-command] ___
+
+review_views = {'sidebar': {'arrow_changed_selection': True, 'badge_clicked': True, 'focus_shortcut_handled': True, 'buttons': [{'tit...tion ® 2 Second conversation ® 2', 'visible_windows': 0, 'amber_contrast': [5.747302592639494, 8.632638266591103], ...}
+fixture = {'id': 'flat-command', 'kind': 'command', 'headline': 'Run the legacy command', 'request': {'command': 'git status', 'cwd': '/legacy/root', 'grant_root': '/grant/root', 'permissions': {'network': False}, ...}, ...}
+
+    @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
+    def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
+        for surface in ("card", "sheet"):
+            text = review_views["approvals"][fixture["id"]][surface]
+            for value in fixture["visible"]:
+                # Wrapped paths can acquire OCR whitespace after a slash.
+                shown = value.replace(" ", "") in text.replace(" ", "") if value.startswith("/") else value in text
+>               assert shown, (surface, fixture["id"], value, text)
+E               AssertionError: ('card', 'flat-command', 'git status', 'W Run the legacy command Add a note Deny Allow Details')
+E               assert False
+
+tests/frontend/test_visual_review_fixes.py:75: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-command]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-file-change]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-permissions]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-bash]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-write]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-question]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[flat-command]
+7 failed, 36 deselected in 135.16s (0:02:15)

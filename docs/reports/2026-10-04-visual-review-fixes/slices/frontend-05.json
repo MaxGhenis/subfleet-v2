@@ -1,0 +1,35 @@
+{
+  "name": "frontend-05",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 9.72,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_approval_notification.py::test_allow_once_uses_fresh_nonce_for_the_same_request",
+    "tests/frontend/test_core_approval_notification.py::test_question_masked_finished_and_broad_permissions_have_no_allow_once[state-answered]",
+    "tests/frontend/test_core_approval_notification.py::test_question_masked_finished_and_broad_permissions_have_no_allow_once[kind-question]",
+    "tests/frontend/test_core_approval_notification.py::test_question_masked_finished_and_broad_permissions_have_no_allow_once[options-value2]",
+    "tests/frontend/test_core_approval_notification.py::test_question_masked_finished_and_broad_permissions_have_no_allow_once[masked-value3]",
+    "tests/frontend/test_core_approval_notification.py::test_notification_action_does_not_follow_a_replacement_request[approval_id]",
+    "tests/frontend/test_core_approval_notification.py::test_notification_action_does_not_follow_a_replacement_request[message_id]",
+    "tests/frontend/test_core_approval_notification.py::test_notification_action_does_not_follow_a_replacement_request[conversation_id]",
+    "tests/frontend/test_core_approval_notification.py::test_notification_action_does_not_follow_a_replacement_request[request_sha256]",
+    "tests/frontend/test_core_approval_notification.py::test_ambiguous_pending_requests_do_not_offer_a_notification_action",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-05.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-hn4lbqwx"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    63364
+  ],
+  "tail": [
+    "..........                                                               [100%]",
+    "10 passed in 5.59s"
+  ]
+}

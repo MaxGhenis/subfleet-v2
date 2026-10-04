@@ -1,0 +1,9 @@
+{
+  "fresh_wrapper_shell_syntax": "passed",
+  "sdk_query": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk",
+  "swift_query": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0",
+  "exit_codes": [
+    0,
+    0
+  ]
+}

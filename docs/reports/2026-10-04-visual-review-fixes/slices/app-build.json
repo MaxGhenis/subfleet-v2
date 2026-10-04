@@ -1,0 +1,24 @@
+{
+  "name": "app-build",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 120.06,
+  "command": [
+    "app/build.sh",
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/visual-review-fixes-product"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    78365
+  ],
+  "tail": [
+    " 861 |     let client: DaemonCalling",
+    " 862 |     let outbox: Outbox",
+    "",
+    "[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>",
+    "ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/lib/swift/macosx' not found",
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/visual-review-fixes-product/.subfleet-build.B9Nuc0/Subfleet.app/Contents/Info.plist: OK",
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/visual-review-fixes-product/.subfleet-build.B9Nuc0/Subfleet.app: replacing existing signature",
+    "Built: /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/visual-review-fixes-product/Subfleet.app (org.maxghenis.subfleet)"
+  ]
+}

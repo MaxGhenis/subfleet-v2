@@ -1,0 +1,30 @@
+{
+  "name": "frontend-29",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 0.63,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_progress.py::test_every_text_token_meets_contrast_on_every_surface",
+    "tests/frontend/test_visual_progress.py::test_recorded_stream_groups_live_tools_between_prose_and_hides_empty_thinking",
+    "tests/frontend/test_visual_progress.py::test_finished_history_collapses_once_and_keeps_all_prose",
+    "tests/frontend/test_visual_progress.py::test_account_usage_matches_serving_lane_and_hides_stale_or_unmatched_usage",
+    "tests/frontend/test_visual_progress.py::test_review_presentation_keeps_masked_command_and_serving_facts_in_their_place",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-29.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-loawkra0"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    74273
+  ],
+  "tail": [
+    ".....                                                                    [100%]",
+    "5 passed in 0.37s"
+  ]
+}

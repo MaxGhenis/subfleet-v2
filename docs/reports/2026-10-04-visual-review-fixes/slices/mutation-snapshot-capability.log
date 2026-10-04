@@ -1,0 +1,37 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_refused_folder_fixture_settles_and_renders ________________
+
+snapshot_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/e0b6d63e979b29517d0458cd62f627a6b77b21655b3ca5b19f6b6821d83e9acd')
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-2wkzhesd/test_refused_folder_fixture_se0')
+
+    def test_refused_folder_fixture_settles_and_renders(snapshot_probe, tmp_path):
+>       snapshots(snapshot_probe, tmp_path, "refused", capture_scale=1)
+
+tests/frontend/test_visual_snapshots.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/e0b6d63e979b29517d0458cd62f627a6b77b21655b3ca5b19f6b6821d83e9acd')
+out = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-2wkzhesd/test_refused_folder_fixture_se0')
+scenes = 'refused', capture_scale = 1
+
+    def snapshots(probe, out, scenes, capture_scale=None):
+        out.mkdir(parents=True, exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SUBFLEET_")}
+        env.update(SUBFLEET_HOME=str(out / ".home"), SF_SNAPSHOT_SCENES=scenes)
+        if capture_scale is not None:
+            env["SF_SNAPSHOT_BACKING_SCALE"] = str(capture_scale)
+        else:
+            env.pop("SF_SNAPSHOT_BACKING_SCALE", None)
+        result = subprocess.run([str(probe), str(out), str(ROOT / "tests/fixtures/visual/progress.json"),
+            str(ROOT / "tests/fixtures/visual/approvals.json")], env=env, capture_output=True, text=True, timeout=180)
+>       assert result.returncode == 0, (result.stdout, result.stderr[-2000:])
+E       AssertionError: ('', '2026-10-04 16:51:53.104 e0b6d63e979b29517d0458cd62f627a6b77b21655b3ca5b19f6b6821d83e9acd[28745:121728484] Connec...58cd62f627a6b77b21655b3ca5b19f6b6821d83e9acd.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))
+E         ')
+E       assert -5 == 0
+E        +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...58cd62f627a6b77b21655b3ca5b19f6b6821d83e9acd.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))\n').returncode
+
+tests/frontend/test_visual_snapshots.py:53: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_snapshots.py::test_refused_folder_fixture_settles_and_renders
+1 failed, 2 deselected in 90.85s (0:01:30)

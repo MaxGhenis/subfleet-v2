@@ -1,0 +1,45 @@
+{
+  "name": "frontend-16",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 8.84,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_search.py::test_c29_12_exact_title_first_then_recent_activity",
+    "tests/frontend/test_core_search.py::test_c29_12_title_before_workspace_and_provider_before_messages",
+    "tests/frontend/test_core_search.py::test_c29_12_fuzzy_titles_come_last",
+    "tests/frontend/test_core_search.py::test_c29_12_a_long_line_costs_no_more_than_a_short_one",
+    "tests/frontend/test_core_search.py::test_c29_12_every_word_must_match_across_fields",
+    "tests/frontend/test_core_search.py::test_c29_12_case_diacritics_and_width_are_ignored",
+    "tests/frontend/test_core_search.py::test_c29_12_message_match_snippet_comes_from_the_best_newest_message",
+    "tests/frontend/test_core_search.py::test_c29_12_snippet_is_a_cut_on_one_line_marked_where_it_was_cut",
+    "tests/frontend/test_core_search.py::test_c29_12_snippet_finds_the_match_after_non_ascii_lines",
+    "tests/frontend/test_core_search.py::test_c29_12_empty_query_lists_everything_by_recent_activity",
+    "tests/frontend/test_core_search.py::test_c29_12_results_are_limited_and_the_rest_counted",
+    "tests/frontend/test_core_search.py::test_c29_12_words_past_twelve_are_counted_not_searched",
+    "tests/frontend/test_core_search.py::test_c29_12_fold_cache_gives_the_same_answers_and_keeps_only_what_it_used",
+    "tests/frontend/test_core_search.py::test_c29_12_duplicate_candidates_keep_the_first",
+    "tests/frontend/test_core_search.py::test_c29_12_candidates_come_from_every_conversation_and_session",
+    "tests/frontend/test_core_search.py::test_c29_12_search_properties",
+    "tests/frontend/test_core_search.py::test_c29_12_ascii_fold_is_foundations_fold",
+    "tests/frontend/test_core_search.py::test_c29_12_folding_is_the_reference_folding",
+    "tests/frontend/test_core_search.py::test_c29_12_containment_is_foundations_where_folding_keeps_characters_one",
+    "tests/frontend/test_core_search.py::test_c29_12_expansions_match_by_folding_not_by_foundation",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-16.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-ar01y0i1"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    68081
+  ],
+  "tail": [
+    "....................                                                     [100%]",
+    "20 passed in 8.47s"
+  ]
+}

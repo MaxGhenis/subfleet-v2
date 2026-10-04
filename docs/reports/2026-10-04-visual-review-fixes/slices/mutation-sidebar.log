@@ -1,0 +1,24 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_sidebar_uses_native_keyboard_selection_and_separate_badge ________
+
+review_views = {'disabled_pixel_difference': 0.013658854166666666, 'turns': {'cancelled': 'Please review Withdrawn max@example.com - ...ontrol': True, 'arrow_changed_selection': False, 'focus_shortcut_reached_list': False, ...}, 'visible_windows': 0, ...}
+
+    def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views):
+>       assert review_views["sidebar"]["native_selection"]
+E       assert False
+
+tests/frontend/test_visual_review_fixes.py:93: AssertionError
+____________________ test_active_provider_filter_is_visible ____________________
+
+review_views = {'disabled_pixel_difference': 0.013658854166666666, 'turns': {'cancelled': 'Please review Withdrawn max@example.com - ...ontrol': True, 'arrow_changed_selection': False, 'focus_shortcut_reached_list': False, ...}, 'visible_windows': 0, ...}
+
+    def test_active_provider_filter_is_visible(review_views):
+>       assert "Codex" in review_views["filter"]
+E       AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation & 2 Second conversation & 2'
+
+tests/frontend/test_visual_review_fixes.py:103: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_sidebar_uses_native_keyboard_selection_and_separate_badge
+FAILED tests/frontend/test_visual_review_fixes.py::test_active_provider_filter_is_visible
+2 failed, 41 deselected in 92.75s (0:01:32)

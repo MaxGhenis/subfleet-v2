@@ -1,0 +1,28 @@
+{
+  "name": "fixed-protocol",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 396.4,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/unit/test_app_cutover_daemon.py",
+    "tests/unit/test_pr124_fixes.py",
+    "tests/unit/test_approval_commit.py",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/fixed-protocol.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-bdibgwun"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    51655
+  ],
+  "tail": [
+    "............................                                             [100%]",
+    "28 passed in 364.53s (0:06:04)"
+  ]
+}

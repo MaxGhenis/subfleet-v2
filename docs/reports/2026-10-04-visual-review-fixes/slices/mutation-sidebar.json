@@ -1,0 +1,34 @@
+{
+  "name": "mutation-sidebar",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 98.84,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py",
+    "-k",
+    "sidebar or filter",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/mutation-sidebar.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-lpar85ci"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-mutants/sidebar",
+  "pids": [
+    268
+  ],
+  "tail": [
+    ">       assert \"Codex\" in review_views[\"filter\"]",
+    "E       AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation & 2 Second conversation & 2'",
+    "",
+    "tests/frontend/test_visual_review_fixes.py:103: AssertionError",
+    "=========================== short test summary info ============================",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_sidebar_uses_native_keyboard_selection_and_separate_badge",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_active_provider_filter_is_visible",
+    "2 failed, 41 deselected in 92.75s (0:01:32)"
+  ]
+}

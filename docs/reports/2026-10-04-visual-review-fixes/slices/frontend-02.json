@@ -1,0 +1,26 @@
+{
+  "name": "frontend-02",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 78.97,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_app_cutover_start.py::test_retry_preserves_ids_and_sends_the_first_message_after_fixed_create",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-02.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-2h6yh224"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    60781
+  ],
+  "tail": [
+    ".                                                                        [100%]",
+    "1 passed in 74.34s (0:01:14)"
+  ]
+}

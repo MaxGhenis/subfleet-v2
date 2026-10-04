@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="15.016" timestamp="2026-10-04T16:41:36.437434-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_failed_work_group_never_uses_the_success_label" time="14.895"><failure message="AssertionError: assert False&#10; +  where False = &lt;built-in method startswith of str object at 0x3c4a79ad0e0&gt;('Failed')&#10; +    where &lt;built-in method startswith of str object at 0x3c4a79ad0e0&gt; = 'Worked · 1 step'.startswith">review_models = {'approvals': [{'headline': 'Clean the build outputs', 'command': 'rm -rf build &amp;&amp; git clean -fdx', 'id': 'codex-comma...oard navigation', 'Search src for TODO', 'Find files matching **/*.swift', 'Fetch https://example.com/docs', ...], ...}
+
+    def test_failed_work_group_never_uses_the_success_label(review_models):
+&gt;       assert review_models["failed_groups"][0].startswith("Failed")
+E       AssertionError: assert False
+E        +  where False = &lt;built-in method startswith of str object at 0x3c4a79ad0e0&gt;('Failed')
+E        +    where &lt;built-in method startswith of str object at 0x3c4a79ad0e0&gt; = 'Worked · 1 step'.startswith
+
+tests/frontend/test_visual_review_fixes.py:51: AssertionError</failure></testcase></testsuite></testsuites>

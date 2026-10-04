@@ -1,0 +1,43 @@
+{
+  "name": "frontend-22",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 0.97,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_timeline.py::test_design_12_real_block_framing_shows_each_block_once_and_says_where_the_turn_is",
+    "tests/frontend/test_core_timeline.py::test_design_5_a_delta_streams_and_the_full_text_replaces_it",
+    "tests/frontend/test_core_timeline.py::test_design_5_tool_calls_are_activity_rows",
+    "tests/frontend/test_core_timeline.py::test_c27_1_an_approval_card_appears_joins_its_id_and_resolves",
+    "tests/frontend/test_core_timeline.py::test_c27_1_an_approval_known_before_its_event_is_one_card",
+    "tests/frontend/test_core_timeline.py::test_replacement_approval_with_identical_display_cannot_take_the_stale_cards_id",
+    "tests/frontend/test_core_timeline.py::test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card[False]",
+    "tests/frontend/test_core_timeline.py::test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card[True]",
+    "tests/frontend/test_core_timeline.py::test_c27_3_a_turn_that_ends_withdraws_its_pending_card",
+    "tests/frontend/test_core_timeline.py::test_c25_4_a_reset_reads_the_log_again_from_zero",
+    "tests/frontend/test_core_timeline.py::test_c25_4_a_reset_keeps_the_approval_id_of_a_pending_card",
+    "tests/frontend/test_core_timeline.py::test_c29_9_a_superseded_poll_changes_nothing",
+    "tests/frontend/test_core_timeline.py::test_design_5_codex_reasoning_parts_complete_as_one_block",
+    "tests/frontend/test_core_timeline.py::test_c29_8_history_shows_only_what_came_before_subfleet",
+    "tests/frontend/test_core_timeline.py::test_design_12_messages_order_by_sequence_with_labels",
+    "tests/frontend/test_core_timeline.py::test_c26_3_a_held_turn_says_where_the_session_is_open_and_a_stop_reads_stopping",
+    "tests/frontend/test_core_timeline.py::test_c29_8_load_earlier_follows_pages_that_add_nothing",
+    "tests/frontend/test_core_timeline.py::test_c29_8_load_earlier_follows_up_to_its_cap_and_opening_follows_none",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-22.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-a7tkgfct"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    70606
+  ],
+  "tail": [
+    "..................                                                       [100%]",
+    "18 passed in 0.56s"
+  ]
+}

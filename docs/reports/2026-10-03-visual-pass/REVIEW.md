@@ -1,5 +1,7 @@
 # Release-owner snapshot review
 
+The REQUEST CHANGES findings on `b6c5e9af` are addressed in the [review-fix report](../2026-10-04-visual-review-fixes/README.md), with new regression and mutation evidence and all scenes rendered again. That report supersedes the presentation decisions and renders below.
+
 The four requested display corrections retain the original prose/tool grouping, name-only sidebar, composer container and finished-work summary.
 
 1. Approval cards lead with the description, show the command in one selectable monospace block, and retain Deny/Allow. Full request JSON and the note action are behind **Details**. Question cards show their description, question and choices normally; full request JSON is also behind **Details**. The review sheet follows the same presentation. Commands use the person-only masked request when available, rather than replacing it with provider input. Masked-value review, nonce/hash validation and response handlers are unchanged.

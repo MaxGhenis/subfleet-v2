@@ -1,0 +1,15 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_permission_amber_has_text_contrast_in_both_modes _____________
+
+review_views = {'sidebar': {'focus_shortcut_reached_list': True, 'badge_clicked': True, 'buttons': [{'label': 'Recent', 'type': 'Swif...ssions.fileSystem.write[@]"]: /literal/ grant/root Details Note to the agent (optional) Cancel Deny Allow'}, ...}, ...}
+
+    def test_permission_amber_has_text_contrast_in_both_modes(review_views):
+>       assert min(review_views["amber_contrast"]) >= 4.5
+E       assert 2.0085451883174485 >= 4.5
+E        +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])
+
+tests/frontend/test_visual_review_fixes.py:112: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_permission_amber_has_text_contrast_in_both_modes
+1 failed, 42 deselected in 80.88s (0:01:20)

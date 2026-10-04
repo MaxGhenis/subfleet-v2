@@ -1,0 +1,48 @@
+{
+  "name": "frontend-31",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 35.97,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-command]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-file-change]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-permissions]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-bash]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-write]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-question]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[flat-command]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[complete]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[running]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[failed]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[interrupted]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[cancelled]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[failover]",
+    "tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[unblock-note]",
+    "tests/frontend/test_visual_review_fixes.py::test_real_settled_turn_shows_outcome_without_an_error_event[complete-Completed]",
+    "tests/frontend/test_visual_review_fixes.py::test_real_settled_turn_shows_outcome_without_an_error_event[failed-Failed: model-mismatch]",
+    "tests/frontend/test_visual_review_fixes.py::test_real_settled_turn_shows_outcome_without_an_error_event[interrupted-Stopped]",
+    "tests/frontend/test_visual_review_fixes.py::test_real_settled_turn_shows_outcome_without_an_error_event[cancelled-Withdrawn]",
+    "tests/frontend/test_visual_review_fixes.py::test_real_settled_turn_shows_outcome_without_an_error_event[stop-too-late-Completed before the stop took effect]",
+    "tests/frontend/test_visual_review_fixes.py::test_sidebar_uses_native_keyboard_selection_and_separate_badge",
+    "tests/frontend/test_visual_review_fixes.py::test_active_provider_filter_is_visible",
+    "tests/frontend/test_visual_review_fixes.py::test_disabled_quiet_send_looks_disabled",
+    "tests/frontend/test_visual_review_fixes.py::test_permission_amber_has_text_contrast_in_both_modes",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-31.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-ks3wb19x"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    74528
+  ],
+  "tail": [
+    ".......................                                                  [100%]",
+    "23 passed in 35.47s"
+  ]
+}

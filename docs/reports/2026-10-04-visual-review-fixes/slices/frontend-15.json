@@ -1,0 +1,35 @@
+{
+  "name": "frontend-15",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 0.39,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_question_card.py::test_options_keep_descriptions_previews_and_multi_select",
+    "tests/frontend/test_core_question_card.py::test_single_select_replaces_the_choice_and_other_preserves_draft",
+    "tests/frontend/test_core_question_card.py::test_number_shortcuts_stop_at_nine_and_do_not_toggle_single_choices",
+    "tests/frontend/test_core_question_card.py::test_multi_select_toggles_and_combines_in_option_order",
+    "tests/frontend/test_core_question_card.py::test_blank_other_must_be_completed_or_deselected",
+    "tests/frontend/test_core_question_card.py::test_steps_keep_answers_and_back_navigation_edits_combined_reply",
+    "tests/frontend/test_core_question_card.py::test_skip_omits_only_that_question_and_can_be_answered_after_going_back",
+    "tests/frontend/test_core_question_card.py::test_skip_every_question_declines_without_a_cancel_turn",
+    "tests/frontend/test_core_question_card.py::test_question_without_options_accepts_free_text",
+    "tests/frontend/test_core_question_card.py::test_empty_questions_do_not_advance_or_submit",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-15.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-ow030piy"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    68061
+  ],
+  "tail": [
+    "..........                                                               [100%]",
+    "10 passed in 0.21s"
+  ]
+}

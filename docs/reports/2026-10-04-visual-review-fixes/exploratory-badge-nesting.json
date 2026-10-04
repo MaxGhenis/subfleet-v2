@@ -1,0 +1,28 @@
+{
+  "name": "mutation-badge",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 124.63,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py",
+    "-k",
+    "sidebar",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/mutation-badge.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-0ye91owt"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-mutants/badge",
+  "pids": [
+    33989
+  ],
+  "tail": [
+    ".                                                                        [100%]",
+    "1 passed, 42 deselected in 116.78s (0:01:56)"
+  ]
+}

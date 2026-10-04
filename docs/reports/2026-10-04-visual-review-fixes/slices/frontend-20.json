@@ -1,0 +1,35 @@
+{
+  "name": "frontend-20",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 1.06,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_store.py::test_design_12_sidebar_groups_searches_and_filters",
+    "tests/frontend/test_core_store.py::test_d24_the_watch_feed_notifies_for_unfocused_conversations",
+    "tests/frontend/test_core_store.py::test_d24_a_list_refresh_keeps_a_conversation_with_a_running_turn_active",
+    "tests/frontend/test_core_store.py::test_d19_composer_options_follow_models_and_capabilities",
+    "tests/frontend/test_core_store.py::test_c24_8_blocked_conversations_offer_the_persons_choices",
+    "tests/frontend/test_core_store.py::test_c26_8_the_served_chip_shows_what_served_the_turn",
+    "tests/frontend/test_core_store.py::test_c26_8_an_effort_the_provider_did_not_confirm_is_labelled_so",
+    "tests/frontend/test_core_store.py::test_c26_8_a_codex_chip_names_the_lane_account_from_status",
+    "tests/frontend/test_core_store.py::test_design_9_staged_images_and_drafts_are_private",
+    "tests/frontend/test_core_store.py::test_c26_3_a_hold_reaches_the_live_strip_through_the_change_feed",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-20.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-wczaag7j"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    70331
+  ],
+  "tail": [
+    "..........                                                               [100%]",
+    "10 passed in 0.53s"
+  ]
+}

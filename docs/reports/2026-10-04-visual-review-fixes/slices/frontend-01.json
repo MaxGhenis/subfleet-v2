@@ -1,0 +1,37 @@
+{
+  "name": "frontend-01",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 116.25,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_app_cutover_start.py::test_codex_draft_uses_the_loaded_policy_default[sol61-gpt-6.1-sol]",
+    "tests/frontend/test_app_cutover_start.py::test_codex_draft_uses_the_loaded_policy_default[other-hard-custom-codex-hard]",
+    "tests/frontend/test_app_cutover_start.py::test_default_skips_refused_recent_folders_and_does_not_remember_home",
+    "tests/frontend/test_app_cutover_start.py::test_no_recent_folder_reserves_scratch_without_creating_it",
+    "tests/frontend/test_app_cutover_start.py::test_start_creates_and_checks_scratch_before_journaling",
+    "tests/frontend/test_app_cutover_start.py::test_folder_refusal_disables_start_and_scratch_recovers",
+    "tests/frontend/test_app_cutover_start.py::test_model_uses_provider_memory_or_daemon_opus_default[None]",
+    "tests/frontend/test_app_cutover_start.py::test_model_uses_provider_memory_or_daemon_opus_default[claude-sonnet-5]",
+    "tests/frontend/test_app_cutover_start.py::test_daemon_default_selects_its_observed_model_value",
+    "tests/frontend/test_app_cutover_start.py::test_model_used_in_existing_conversation_becomes_new_conversation_default",
+    "tests/frontend/test_app_cutover_start.py::test_migration_exposes_both_failed_creates_and_footer_selects_the_saved_message",
+    "tests/frontend/test_app_cutover_start.py::test_discard_withdraws_only_the_selected_draft_and_queued_message",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-01.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-cy35ymkj"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    59346
+  ],
+  "tail": [
+    "............                                                             [100%]",
+    "12 passed in 107.70s (0:01:47)"
+  ]
+}

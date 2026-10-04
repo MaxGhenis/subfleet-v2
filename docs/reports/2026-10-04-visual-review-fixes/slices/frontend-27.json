@@ -1,0 +1,30 @@
+{
+  "name": "frontend-27",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 64.38,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_reading_view.py::test_c29_13_conversation_views_grow_with_the_text_scale",
+    "tests/frontend/test_reading_view.py::test_c29_13_command_equals_is_bigger_too",
+    "tests/frontend/test_reading_view.py::test_c29_12_palette_keys_selection_and_opening",
+    "tests/frontend/test_reading_view.py::test_c29_12_palette_layout_fits_its_results",
+    "tests/frontend/test_reading_view.py::test_c29_12_the_palette_is_modal",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-27.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-npx4wiom"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    72426
+  ],
+  "tail": [
+    ".....                                                                    [100%]",
+    "5 passed in 56.19s"
+  ]
+}

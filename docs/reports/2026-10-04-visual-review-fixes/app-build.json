@@ -1,0 +1,46 @@
+{
+  "source_commit": "ffa061abdd1a0f0de92f367c87cb59659eea330c",
+  "result": "passed",
+  "seconds": 120.06,
+  "foreground_limit_seconds": 900,
+  "output": "build/visual-review-fixes-product/Subfleet.app",
+  "bundle_identifier": "org.maxghenis.subfleet",
+  "codesign_verify_exit_code": 0,
+  "executable_sha256": "f014fa647c8432b3cc37ee23fe680141724b809a0abbaea80df3a98b35acdd54",
+  "swift_warning_diagnostics": [
+    {
+      "file": "app/Sources/UIModel.swift",
+      "line": 193,
+      "message": "capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]",
+      "classification": "warning statement unchanged from PR base"
+    },
+    {
+      "file": "app/Sources/UIModel.swift",
+      "line": 262,
+      "message": "capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]",
+      "classification": "warning statement unchanged from PR base"
+    },
+    {
+      "file": "app/Sources/UIModel.swift",
+      "line": 474,
+      "message": "no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]",
+      "classification": "warning statement unchanged from PR base"
+    },
+    {
+      "file": "app/Sources/UIModel.swift",
+      "line": 478,
+      "message": "no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]",
+      "classification": "warning statement unchanged from PR base"
+    },
+    {
+      "file": "app/Sources/UISearchPalette.swift",
+      "line": 284,
+      "message": "capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]",
+      "classification": "warning statement unchanged from PR base"
+    }
+  ],
+  "linker_warning": "verification wrapper search path does not contain lib/swift/macosx; inherited from the existing wrapper route",
+  "warning_tagged_lines": 11,
+  "installed": false,
+  "launched": false
+}

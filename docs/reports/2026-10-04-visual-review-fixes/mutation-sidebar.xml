@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="89.726" timestamp="2026-10-04T16:43:13.904296-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_sidebar_uses_native_keyboard_selection_and_separate_badge" time="87.854"><failure message="assert False">review_views = {'disabled_pixel_difference': 0.013658854166666666, 'turns': {'cancelled': 'Please review Withdrawn max@example.com - ...ontrol': True, 'arrow_changed_selection': False, 'focus_shortcut_reached_list': False, ...}, 'visible_windows': 0, ...}
+
+    def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views):
+&gt;       assert review_views["sidebar"]["native_selection"]
+E       assert False
+
+tests/frontend/test_visual_review_fixes.py:93: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_active_provider_filter_is_visible" time="0.004"><failure message="AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation &amp; 2 Second conversation &amp; 2'">review_views = {'disabled_pixel_difference': 0.013658854166666666, 'turns': {'cancelled': 'Please review Withdrawn max@example.com - ...ontrol': True, 'arrow_changed_selection': False, 'focus_shortcut_reached_list': False, ...}, 'visible_windows': 0, ...}
+
+    def test_active_provider_filter_is_visible(review_views):
+&gt;       assert "Codex" in review_views["filter"]
+E       AssertionError: assert 'Codex' in '(@ New conversation Q. Search 3K Recent ~ =v Today First conversation &amp; 2 Second conversation &amp; 2'
+
+tests/frontend/test_visual_review_fixes.py:103: AssertionError</failure></testcase></testsuite></testsuites>

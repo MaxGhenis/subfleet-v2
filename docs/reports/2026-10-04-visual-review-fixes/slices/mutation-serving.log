@@ -1,0 +1,109 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+_____ test_every_turn_has_visible_serving_facts_and_fast_warning[complete] _____
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'complete'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('complete', 'max@example.com', 'Please review Completed')
+E           assert 'max@example.com' in 'Please review Completed'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+_____ test_every_turn_has_visible_serving_facts_and_fast_warning[running] ______
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'running'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('running', 'max@example.com', 'Please review')
+E           assert 'max@example.com' in 'Please review'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+______ test_every_turn_has_visible_serving_facts_and_fast_warning[failed] ______
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'failed'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('failed', 'max@example.com', 'Please review Failed: model-mismatch')
+E           assert 'max@example.com' in 'Please review Failed: model-mismatch'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+___ test_every_turn_has_visible_serving_facts_and_fast_warning[interrupted] ____
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'interrupted'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('interrupted', 'max@example.com', 'Please review Stopped')
+E           assert 'max@example.com' in 'Please review Stopped'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+____ test_every_turn_has_visible_serving_facts_and_fast_warning[cancelled] _____
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'cancelled'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('cancelled', 'max@example.com', 'Please review Withdrawn')
+E           assert 'max@example.com' in 'Please review Withdrawn'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+_____ test_every_turn_has_visible_serving_facts_and_fast_warning[failover] _____
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'failover'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('failover', 'gpt-6-astra', '@ Continued after a usage limit on max@example.com Completed')
+E           assert 'gpt-6-astra' in '@ Continued after a usage limit on max@example.com Completed'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+___ test_every_turn_has_visible_serving_facts_and_fast_warning[unblock-note] ___
+
+review_views = {'turns': {'interrupted': 'Please review Stopped', 'cancelled': 'Please review Withdrawn', 'failed': 'Please review Fa...n_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details'}, ...}, ...}
+state = 'unblock-note'
+
+    @pytest.mark.parametrize("state", ["complete", "running", "failed", "interrupted", "cancelled", "failover", "unblock-note"])
+    def test_every_turn_has_visible_serving_facts_and_fast_warning(review_views, state):
+        text = review_views["turns"][state]
+        for value in ("max@example.com", "gpt-6-astra", "high", "Fast was asked for", "standard speed"):
+>           assert value in text, (state, value, text)
+E           AssertionError: ('unblock-note', 'max@example.com', '@ The stopped turn was left; the next turn starts without resuming it Completed')
+E           assert 'max@example.com' in '@ The stopped turn was left; the next turn starts without resuming it Completed'
+
+tests/frontend/test_visual_review_fixes.py:83: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[complete]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[running]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[failed]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[interrupted]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[cancelled]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[failover]
+FAILED tests/frontend/test_visual_review_fixes.py::test_every_turn_has_visible_serving_facts_and_fast_warning[unblock-note]
+7 failed, 36 deselected in 52.43s

@@ -1,0 +1,38 @@
+{
+  "name": "frontend-13",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 1.58,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_outbox.py::test_c28_3_sends_are_journaled_and_chained_in_order",
+    "tests/frontend/test_core_outbox.py::test_d22_a_lost_answer_is_retried_with_the_same_key",
+    "tests/frontend/test_core_outbox.py::test_c28_3_a_restart_resends_what_was_under_way",
+    "tests/frontend/test_core_outbox.py::test_c24_2_out_of_order_rereads_the_conversation_and_resends",
+    "tests/frontend/test_core_outbox.py::test_c24_2_a_refused_message_holds_the_next_until_the_person_decides",
+    "tests/frontend/test_core_outbox.py::test_d22_withdraw_only_after_the_daemon_says_it_never_had_it",
+    "tests/frontend/test_core_outbox.py::test_d22_a_conversation_withdrawn_before_it_was_sent_takes_its_messages",
+    "tests/frontend/test_core_outbox.py::test_d22_a_message_waits_for_its_conversation",
+    "tests/frontend/test_core_outbox.py::test_d22_pruning_keeps_open_entries_and_the_chain",
+    "tests/frontend/test_core_outbox.py::test_d22_pruning_keeps_the_newest_closed_entries",
+    "tests/frontend/test_core_outbox.py::test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved",
+    "tests/frontend/test_core_outbox.py::test_c16_1_a_busy_answer_leaves_the_send_queued",
+    "tests/frontend/test_core_outbox.py::test_c16_1_scripted_busy_send_retries_after_backoff",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-13.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-yw_6o61b"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    67943
+  ],
+  "tail": [
+    ".............                                                            [100%]",
+    "13 passed in 1.30s"
+  ]
+}

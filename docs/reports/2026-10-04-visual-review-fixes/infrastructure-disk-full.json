@@ -1,0 +1,32 @@
+{
+  "name": "fixed-snapshots",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 25.91,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_snapshots.py",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/fixed-snapshots.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-kzc8kow_"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    54350
+  ],
+  "tail": [
+    "E       clang: error: linker command failed with exit code 1 (use -v to see invocation)",
+    "",
+    "tests/frontend/swift.py:37: AssertionError",
+    "=========================== short test summary info ============================",
+    "ERROR tests/frontend/test_visual_snapshots.py::test_snapshot_pixel_size_is_independent_of_display_scale",
+    "ERROR tests/frontend/test_visual_snapshots.py::test_refused_folder_fixture_settles_and_renders",
+    "ERROR tests/frontend/test_visual_snapshots.py::test_rerender_all_scenes_including_codex_and_failures",
+    "3 errors in 25.29s"
+  ]
+}

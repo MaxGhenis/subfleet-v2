@@ -1,0 +1,34 @@
+{
+  "name": "frontend-14",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 1.08,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_protocol.py::test_c25_2_the_app_knows_every_conversation_op",
+    "tests/frontend/test_core_protocol.py::test_c25_2_every_result_decodes_without_losing_a_field",
+    "tests/frontend/test_core_protocol.py::test_c25_2_requests_the_app_encodes_are_the_daemons_requests",
+    "tests/frontend/test_core_protocol.py::test_c25_2_refusals_decode_with_their_reason",
+    "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.events-args0-40]",
+    "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.watch-args1-40]",
+    "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.events-args2-15]",
+    "tests/frontend/test_core_protocol.py::test_design_12_timeouts[message.submit-args3-15]",
+    "tests/frontend/test_core_protocol.py::test_c25_1_capabilities_decide_whether_conversation_ops_are_sent",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-14.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-4cgq754_"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    67983
+  ],
+  "tail": [
+    ".........                                                                [100%]",
+    "9 passed in 0.82s"
+  ]
+}

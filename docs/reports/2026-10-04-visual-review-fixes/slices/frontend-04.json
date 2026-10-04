@@ -1,0 +1,38 @@
+{
+  "name": "frontend-04",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 79.9,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_core_app_cutover_reading.py::test_native_activity_moves_an_old_conversation_into_today",
+    "tests/frontend/test_core_app_cutover_reading.py::test_open_keeps_catalog_activity_until_next_list_and_uses_newer_row_activity",
+    "tests/frontend/test_core_app_cutover_reading.py::test_blocked_rows_need_you_and_open_with_the_correct_choices[unfinished-turn]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_blocked_rows_need_you_and_open_with_the_correct_choices[delivery-unknown]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_claude_task_completion_is_a_system_notice_with_summary_status_and_exit",
+    "tests/frontend/test_core_app_cutover_reading.py::test_task_notice_reads_explicit_exit_and_unescaped_command_text[exit-code]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_task_notice_reads_explicit_exit_and_unescaped_command_text[exit_code]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[Please explain this: <task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification>-user-claude]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[<task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification>\\nThis is my question-user-claude]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[<task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification><task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification>-user-claude]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[<task-notification><summary>truncated</summary>-user-claude]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[<task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification>-assistant-claude]",
+    "tests/frontend/test_core_app_cutover_reading.py::test_only_a_complete_claude_user_task_block_changes_its_presentation[<task-notification>\\n<task-id>123</task-id>\\n<output-file>/tmp/task.output</output-file>\\n<status>completed</status>\\n<summary>Background command &quot;pytest&quot; completed (exit code 0)</summary>\\n</task-notification>-user-codex]",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-04.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-rwy1fwdo"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    62420
+  ],
+  "tail": [
+    ".............                                                            [100%]",
+    "13 passed in 77.05s (0:01:17)"
+  ]
+}

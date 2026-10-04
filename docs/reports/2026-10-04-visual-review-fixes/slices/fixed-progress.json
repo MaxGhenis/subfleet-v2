@@ -1,0 +1,26 @@
+{
+  "name": "fixed-progress",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 52.17,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_progress.py",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/fixed-progress.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-mls49x12"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    52102
+  ],
+  "tail": [
+    ".....                                                                    [100%]",
+    "5 passed in 48.73s"
+  ]
+}

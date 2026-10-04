@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________________ test_disabled_quiet_send_looks_disabled ____________________
+
+review_views = {'turns': {'failed': 'Please review Failed: model-mismatch max@example.com - gpt-6-astra - high - Fast off & Fast was ...KitButton'}], 'focus_shortcut_handled': True, 'focus_shortcut_reached_list': True, 'native_selection': True, ...}, ...}
+
+    def test_disabled_quiet_send_looks_disabled(review_views):
+>       assert review_views["disabled_pixel_difference"] > 0.001
+E       assert 0 > 0.001
+
+tests/frontend/test_visual_review_fixes.py:107: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_review_fixes.py::test_disabled_quiet_send_looks_disabled
+1 failed, 42 deselected in 104.67s (0:01:44)

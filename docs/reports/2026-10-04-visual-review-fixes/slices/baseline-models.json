@@ -1,0 +1,34 @@
+{
+  "name": "baseline-models",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 59.14,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py",
+    "-k",
+    "not visible_on_card and not serving_facts and not sidebar and not filter and not disabled and not amber and not real_settled",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/baseline-models.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-e0hpg94g"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-baseline",
+  "pids": [
+    25259
+  ],
+  "tail": [
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[4-Find files matching **/*.swift]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[5-Fetch https://example.com/docs]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[6-Edit 2 files (a.swift, b.swift)]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[7-Run a command]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[8-Write the notes]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_codex_commands_are_grouped_as_commands",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_failed_work_group_never_uses_the_success_label",
+    "18 failed, 2 passed, 23 deselected in 52.13s"
+  ]
+}

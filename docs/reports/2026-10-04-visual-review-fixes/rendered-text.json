@@ -1,0 +1,80 @@
+{
+  "approvals": {
+    "codex-command": {
+      "card": "W Clean the build outputs rm -rf build && git clean -fdx method: item/commandExecution/requestApproval params.cwd: /repo/project params. futureGrant.root: /future/root params.kind: command params.networkApprovalContext.host: example.com params.networkApprovalContext.protocol: https params. proposedExecpolicyAmendment[@]: git params. proposedExecpolicyAmendment[1]: clean params. proposedNetworkPolicyAmendments[@].action: allow params. proposedNetworkPolicyAmendments[@].host: example.com Add a note Deny Allow Details",
+      "sheet": "Clean the build outputs rm -rf build && git clean -fdx method: item/commandExecution/requestApproval params.cwd: /repo/project params. futureGrant.root: /future/root params.kind: command params.networkApprovalContext.host: example.com params.networkApprovalContext.protocol: https params. proposedExecpolicyAmendment[@]: git params. proposedExecpolicyAmendment[1]: clean params. proposedNetworkPolicyAmendments[@].action: allow params. proposedNetworkPolicyAmendments[@].host: example.com Details Note to the agent (optional) Cancel Deny Allow"
+    },
+    "codex-permissions": {
+      "card": "W Grant additional permissions method: item/permissions/requestApproval params.cwd: /repo/project params.permissions.fileSystem.read[@]: /private/data params.permissions.fileSystem.write[@]: /repo/output params.permissions.network.enabled: true params[\"permissions.fileSystem.write[@]\"]: /literal/grant/root Add a note Deny Allow Details",
+      "sheet": "Grant additional permissions method: item/permissions/requestApproval params.cwd: /repo/project params.permissions.fileSystem.read[@]: /private/data params.permissions.fileSystem.write[@]: /repo/output params.permissions.network.enabled: true params[\"permissions.fileSystem.write[@]\"]: /literal/ grant/root Details Note to the agent (optional) Cancel Deny Allow"
+    },
+    "claude-write": {
+      "sheet": "Write the hosts file blocked_path: /etc input.content: 127.@.0.1 example.test input.file_path: /etc/hosts permissions.write: true subtype: can_use_tool tool_name: Write Details Note to the agent (optional) Cancel Deny Allow",
+      "card": "W Write the hosts file blocked_path: /etc input.content: 127.@.0.1 example.test input.file_path: /etc/hosts permissions.write: true subtype: can_use_tool tool_name: Write Add a note Deny Allow Details"
+    },
+    "flat-command": {
+      "card": "W Run the legacy command git status cwd: /legacy/root execpolicy_amendment[@]: git execpolicy_amendment[1]: status grant_root: /grant/root network_amendments[@].action: deny network_amendments[@].host: legacy.test permissions.network: false Add a note Deny Allow Details",
+      "sheet": "Run the legacy command git status cwd: /legacy/root execpolicy_amendment[@]: git execpolicy_amendment[1]: status grant_root: /grant/root network_amendments[@].action: deny network_amendments[@].host: legacy.test permissions.network: false Details Note to the agent (optional) Cancel Deny Allow"
+    },
+    "codex-file-change": {
+      "card": "W Write the release notes method: item/fileChange/requestApproval params.changes[@].path: /repo/release.md params.grantRoot: / params.reason: Write release notes Add a note Deny Allow Details",
+      "sheet": "Write the release notes method: item/fileChange/requestApproval params.changes[@].path: /repo/release.md params.grantRoot: / params.reason: Write release notes Details Note to the agent (optional) Cancel Deny Allow"
+    },
+    "claude-question": {
+      "sheet": "Choose the deployment scope blocked_path: /protected input.grant_root: /deployment/root input.questions[@].header: Scope input.questions[@].options[@].description: Only this checkout input.questions[@].options[@].label: Local input.questions[@].question: Where should this run? subtype: can_use_tool tool_name: AskUserQuestion Details Note to the agent (optional) Cancel Deny Answer",
+      "card": "\u00ae@ Choose the deployment scope blocked_path: /protected input.grant_root: /deployment/root input.questions[@].header: Scope input.questions[@].options[@].description: Only this checkout input.questions[@].options[@].label: Local input.questions[@].question: Where should this run? subtype: can_use_tool tool_name: AskUserQuestion 0 of 1 questions answered 1/1 Scope Where should this run? Choose one \u00a9 1 Local Only this checkout \u00a9 Other Use number keys 1-9 while the choices are focused. Back Skip Submit answe Details"
+    },
+    "claude-bash": {
+      "card": "W Run the build echo [MASKED] blocked_path: /private/cache command: secondary scoped command input.description: Run the build permission_suggestions[@].destination: session permission_suggestions[@].directories[@]: /grant/root permission_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Add a note Deny Allow Details",
+      "sheet": "Run the build echo [MASKED] blocked_path: /private/cache command: secondary scoped command input.description: Run the build permission_suggestions[@].destination: session permission_suggestions[@].directories[@]: /grant/root permission_suggestions[@].type: addDirectories subtype: can_use_tool tool_name: Bash Details Note to the agent (optional) Cancel Deny Allow"
+    }
+  },
+  "turns": {
+    "cancelled": "Please review Withdrawn max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "unblock-note": "@ The stopped turn was left; the next turn starts without resuming it Completed max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "interrupted": "Please review Stopped max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "stop-too-late": "Please review Completed before the stop took effect max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "running": "Please review max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "failed": "Please review Failed: model-mismatch max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "complete": "Please review Completed max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed",
+    "failover": "@ Continued after a usage limit on max@example.com Completed max@example.com - gpt-6-astra - high - Fast off & Fast was asked for; this turn ran at standard speed"
+  },
+  "disabled_pixel_difference": 0.013658854166666666,
+  "sidebar": {
+    "badge_hit_is_control": true,
+    "focus_shortcut_handled": true,
+    "badge_clicked": true,
+    "arrow_changed_selection": true,
+    "focus_shortcut_reached_list": true,
+    "native_selection": true,
+    "buttons": [
+      {
+        "label": "Recent",
+        "title": "Recent",
+        "type": "SwiftUIPopupButton"
+      },
+      {
+        "title": "Codex",
+        "type": "SwiftUIPopupButton",
+        "label": "Codex"
+      },
+      {
+        "title": "",
+        "label": "",
+        "type": "SwiftUIAppKitButton"
+      },
+      {
+        "title": "",
+        "type": "SwiftUIAppKitButton",
+        "label": ""
+      }
+    ],
+    "badge_is_independent": true
+  },
+  "amber_contrast": [
+    5.747302592639494,
+    8.632638266591103
+  ],
+  "visible_windows": 0,
+  "filter": "(@ New conversation Q. Search 3K Recent ~ = Codex v Today First conversation \u00ae 2 Second conversation \u00ae 2"
+}

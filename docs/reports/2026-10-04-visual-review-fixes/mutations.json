@@ -1,0 +1,91 @@
+{
+  "killed": 12,
+  "runtime_assertions_only": true,
+  "cases": [
+    {
+      "mutation": "command",
+      "tests": 3,
+      "failures": 1,
+      "passed": 2,
+      "seconds": 28.06
+    },
+    {
+      "mutation": "grants",
+      "tests": 7,
+      "failures": 7,
+      "passed": 0,
+      "seconds": 135.76
+    },
+    {
+      "mutation": "outcomes",
+      "tests": 6,
+      "failures": 6,
+      "passed": 0,
+      "seconds": 45.88
+    },
+    {
+      "mutation": "work-outcome",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 16.67
+    },
+    {
+      "mutation": "tool-labels",
+      "tests": 10,
+      "failures": 10,
+      "passed": 0,
+      "seconds": 8.63
+    },
+    {
+      "mutation": "serving",
+      "tests": 7,
+      "failures": 7,
+      "passed": 0,
+      "seconds": 53.04
+    },
+    {
+      "mutation": "sidebar",
+      "tests": 2,
+      "failures": 2,
+      "passed": 0,
+      "seconds": 98.84
+    },
+    {
+      "mutation": "badge-control",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 95.54
+    },
+    {
+      "mutation": "disabled",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 111.5
+    },
+    {
+      "mutation": "amber",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 90.96
+    },
+    {
+      "mutation": "snapshot-scale",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 68.63
+    },
+    {
+      "mutation": "snapshot-capability",
+      "tests": 1,
+      "failures": 1,
+      "passed": 0,
+      "seconds": 95.71
+    }
+  ],
+  "exploratory_survivor": "exploratory-badge-nesting.xml"
+}

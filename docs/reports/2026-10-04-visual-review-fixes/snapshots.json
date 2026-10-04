@@ -1,0 +1,248 @@
+{
+  "source_commit": "ffa061abdd1a0f0de92f367c87cb59659eea330c",
+  "scenes": 20,
+  "captures": 40,
+  "visible_windows": 0,
+  "images": [
+    {
+      "file": "after/blocked-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "41e04c27d658d0344107faa0c2b30a4247e1fb5ec5d0504f5bf8e93395e7767d"
+    },
+    {
+      "file": "after/blocked-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "cdd1de989db6f62db8092b920ce8486669c9740bf83e52fe5345237bb1cb3884"
+    },
+    {
+      "file": "after/claude-write-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "b7ebab0bd92dad5e6570ebb4fccd1397de619bd9c11eb55f3c127f51f50140e2"
+    },
+    {
+      "file": "after/claude-write-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "6357d7301783174d4b5def9d740562fe3a790eb3040a04223735be97beb714c2"
+    },
+    {
+      "file": "after/codex-command-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "4e7df5a791ba39ad9eb1962fafd8e04a5a79b4bce2fdac39a3c930494ab507cd"
+    },
+    {
+      "file": "after/codex-command-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "227cd4e4f56b7157344b7ca359c6a324d35e4e218e62f6c93770e95c083e267f"
+    },
+    {
+      "file": "after/codex-file-change-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "65364867fc8de2ffa789090a1aad6b33d20542121a0a5fc7a698b0304a0c2f99"
+    },
+    {
+      "file": "after/codex-file-change-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "df66027b89f918092b6b37f2b622f19b16a6a9f78bacdec83cca430c427225d8"
+    },
+    {
+      "file": "after/codex-permissions-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "07e13b7d47d8210fdfecfc5e996e35d43863ec0c8548d00a13e638cced509fca"
+    },
+    {
+      "file": "after/codex-permissions-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "05901c2de7854c924bd6dced7422b1cd2476810c71a4448e1ec534675faca356"
+    },
+    {
+      "file": "after/codex-progress-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "1605d64aa226f0134867ab5b2ebbb1dcd0dbc29297e7263a1bf254931a8fc4c8"
+    },
+    {
+      "file": "after/codex-progress-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "729775beb77520038ef8ab764eb98d484fd0c4181b267a5359ee9e1bf4c34bf7"
+    },
+    {
+      "file": "after/empty-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "d68fbb1ffe4da25f346abeee1db5e66e266009ca913488d8dde12de959496f2e"
+    },
+    {
+      "file": "after/empty-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "84e00d38e1ce6ade2777e853cd3e6e12741419e8c79deee197f2994fb0c74a4c"
+    },
+    {
+      "file": "after/failed-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "76ad827747f0ccc4593878f06c2a688d4d91a49f2d6cb8abe0fb40980790930f"
+    },
+    {
+      "file": "after/failed-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "75212253d36a0d0f5f1995512fdce19e08870530610ac46ee6c808879b92fed2"
+    },
+    {
+      "file": "after/finished-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "b14577dd303bfce25038c1029153f04478a604760af523d285779cf4b6d747f0"
+    },
+    {
+      "file": "after/finished-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "cfb99335cf3d5c15f25cd3659de4e9e028dfe9df3da400c0657a7fd4ab03e7aa"
+    },
+    {
+      "file": "after/live-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "0b3f176addced2fb26b1e599e41d5187937fb1dc5e3e3afef1363121f55279d3"
+    },
+    {
+      "file": "after/live-expanded-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "99676556ec88ea26982c19983b9c0321db5990646c5f45df352b6fa5d957cc1f"
+    },
+    {
+      "file": "after/live-expanded-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "9907b2225a1b8d6c2a7977ebb9b6cd3885d31dfd7df2c251a05d2021a7db615c"
+    },
+    {
+      "file": "after/live-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "dc86bcf47ceb699a9cb5f49e3029ebb980f9c874a30d5eb1a0fc3a275436c0c3"
+    },
+    {
+      "file": "after/new-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "4f20e8d3a2e25ae3aa25047bdd395a7ed298abcb4dcf90becede4e819014dadf"
+    },
+    {
+      "file": "after/new-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "23be3db799297b342ac9d0b5a2caf6404726b53e95bd4575060f1cba8858b783"
+    },
+    {
+      "file": "after/permission-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "c3852c582b7d9175147b64738e1edbaae7d4a177ab02173868642be7d4c56c17"
+    },
+    {
+      "file": "after/permission-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "23731407d266b1d568d8de370cb97b82582b6e3029b283aef0dbdeaefe8a2648"
+    },
+    {
+      "file": "after/question-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "f9d66dd355e33cf4ac04ad6207d6c0613a376a99839329041fb248a67819bfff"
+    },
+    {
+      "file": "after/question-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "3fa25d237070f82b81e03af57f6f86dfda9d6b402268fb4e6db2dd5cbaa518ec"
+    },
+    {
+      "file": "after/refused-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "e8a5bbc7ddd1e06db370d7038e5485b1beae0a1e8aff090899eb1fa04ffef263"
+    },
+    {
+      "file": "after/refused-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "d8e293374920c959fb25062faf532a8a2fcef8747fe8e7a1a936474f41182404"
+    },
+    {
+      "file": "after/sidebar-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "be6a027131b5d732fd62104d58ae1d50882aa203fbe3fd9a86e5ca2409d5ce1b"
+    },
+    {
+      "file": "after/sidebar-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "48a200cb812643ce47f63396c8c1c7a53c0e2a91f2c0eb4b05fb47c4d829c06a"
+    },
+    {
+      "file": "after/stop-too-late-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "9e9ce54a9ef7ee7633f6ad30442e8a114bee9844bf952d134f93b22331017b4b"
+    },
+    {
+      "file": "after/stop-too-late-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "7be6967227426650fcd4034298ce8ea2640c7592e1413b8fb4d2d91c854dec90"
+    },
+    {
+      "file": "after/stopped-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "9b8d7dd30420986819f4da50419a578b1a45f3bc07e030bc7a33a17f7eaccde4"
+    },
+    {
+      "file": "after/stopped-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "c2a44f0261583ee7c3e3f01bbf2b786260c7ecb39d01d2ebba3cf5dff8a074e6"
+    },
+    {
+      "file": "after/text-only-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "3e7d969a9eac0f3519e7fd6fc3d4a38d5bc68d8e8d9ad88b26c2e2f6fbac5ce5"
+    },
+    {
+      "file": "after/text-only-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "d73a158bd63db7d802801d030796d227d47c4d64ccf041a3e1e2d422b76fe48a"
+    },
+    {
+      "file": "after/withdrawn-dark.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "ac73aeffd892551e5b41afe6bc636fdd9de49bcaac2df91d397c24515c70e147"
+    },
+    {
+      "file": "after/withdrawn-light.png",
+      "width": 2880,
+      "height": 1800,
+      "sha256": "f7eabd85436f2d846e9df7ba3acc10a51fb380ecec8bb70d4c749478c93d769a"
+    }
+  ]
+}

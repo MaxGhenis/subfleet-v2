@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="77.976" timestamp="2026-10-04T16:47:23.032501-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_permission_amber_has_text_contrast_in_both_modes" time="75.949"><failure message="assert 2.0085451883174485 &gt;= 4.5&#10; +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])">review_views = {'sidebar': {'focus_shortcut_reached_list': True, 'badge_clicked': True, 'buttons': [{'label': 'Recent', 'type': 'Swif...ssions.fileSystem.write[@]"]: /literal/ grant/root Details Note to the agent (optional) Cancel Deny Allow'}, ...}, ...}
+
+    def test_permission_amber_has_text_contrast_in_both_modes(review_views):
+&gt;       assert min(review_views["amber_contrast"]) &gt;= 4.5
+E       assert 2.0085451883174485 &gt;= 4.5
+E        +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])
+
+tests/frontend/test_visual_review_fixes.py:112: AssertionError</failure></testcase></testsuite></testsuites>

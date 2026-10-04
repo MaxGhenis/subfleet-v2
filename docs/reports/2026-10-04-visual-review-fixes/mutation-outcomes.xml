@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="6" time="42.290" timestamp="2026-10-04T16:40:51.264824-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[failed-model-mismatch-Failed: model-mismatch]" time="41.251"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'failed', reason = 'model-mismatch', text = 'Failed: model-mismatch'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[failed-continued-elsewhere-Failed: continued-elsewhere]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'failed', reason = 'continued-elsewhere'
+text = 'Failed: continued-elsewhere'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[interrupted-person-stopped-Stopped]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'interrupted', reason = 'person-stopped', text = 'Stopped'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[cancelled-withdrawn-Withdrawn]" time="0.000"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'cancelled', reason = 'withdrawn', text = 'Withdrawn'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[complete-stop-too-late-Completed before the stop took effect]" time="0.001"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'complete', reason = 'stop-too-late'
+text = 'Completed before the stop took effect'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_review_fixes" name="test_settled_turn_keeps_its_outcome[complete--Completed]" time="0.000"><failure message="assert (False)">review_models = {'tools': ['git status', 'python -m', 'Search the web for SwiftUI keyboard navigation', 'Search src for TODO', 'Find f...: 'stop-too-late', 'visible': False}, {'state': 'complete', 'text': 'Completed', 'reason': '', 'visible': False}], ...}
+state = 'complete', reason = '', text = 'Completed'
+
+    @pytest.mark.parametrize("state,reason,text", [("failed", "model-mismatch", "Failed: model-mismatch"),
+        ("failed", "continued-elsewhere", "Failed: continued-elsewhere"), ("interrupted", "person-stopped", "Stopped"),
+        ("cancelled", "withdrawn", "Withdrawn"), ("complete", "stop-too-late", "Completed before the stop took effect"),
+        ("complete", "", "Completed")])
+    def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
+        row = next(o for o in review_models["outcomes"] if (o["state"], o["reason"]) == (state, reason))
+&gt;       assert row["visible"] and row["text"] == text
+E       assert (False)
+
+tests/frontend/test_visual_review_fixes.py:35: AssertionError</failure></testcase></testsuite></testsuites>

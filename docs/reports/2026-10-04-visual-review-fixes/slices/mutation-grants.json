@@ -1,0 +1,34 @@
+{
+  "name": "mutation-grants",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 135.76,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py",
+    "-k",
+    "visible_on_card",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/mutation-grants.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-jecw2xi_"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-mutants/grants",
+  "pids": [
+    75190
+  ],
+  "tail": [
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-command]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-file-change]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[codex-permissions]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-bash]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-write]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[claude-question]",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_every_loaded_grant_field_is_visible_on_card_and_sheet[flat-command]",
+    "7 failed, 36 deselected in 135.16s (0:02:15)"
+  ]
+}

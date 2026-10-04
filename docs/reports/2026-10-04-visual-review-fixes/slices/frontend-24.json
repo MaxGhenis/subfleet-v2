@@ -1,0 +1,33 @@
+{
+  "name": "frontend-24",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 20.79,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_menu_view.py::test_menu_minimum_proposal_keeps_accounts_visible[True]",
+    "tests/frontend/test_menu_view.py::test_menu_minimum_proposal_keeps_accounts_visible[False]",
+    "tests/frontend/test_menu_view.py::test_menu_missing_snapshot_still_fits_error_and_controls",
+    "tests/frontend/test_menu_view.py::test_c18_2_menu_shows_eight_recent_jobs_with_completed_batches[False]",
+    "tests/frontend/test_menu_view.py::test_c18_2_menu_shows_eight_recent_jobs_with_completed_batches[True]",
+    "tests/frontend/test_menu_view.py::test_manual_reload_acknowledges_read_and_loads_replacement",
+    "tests/frontend/test_menu_view.py::test_changes_pane_rows_fill_the_pane_without_scrolling_sideways",
+    "tests/frontend/test_menu_view.py::test_c18_4_menu_lays_out_alerts_and_marks_the_problem",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-24.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-ine2z2zn"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    70659
+  ],
+  "tail": [
+    "........                                                                 [100%]",
+    "8 passed in 20.62s"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "baseline-snapshots",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 43.87,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_snapshots.py",
+    "-k",
+    "not rerender",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/baseline-snapshots.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-q8796zr1"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-baseline",
+  "pids": [
+    63554
+  ],
+  "tail": [
+    "E       assert -5 == 0",
+    "E        +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...2b77129cb7b694d7952e0e32c1f89a923bc52712ca07.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))\\n').returncode",
+    "",
+    "tests/frontend/test_visual_snapshots.py:53: AssertionError",
+    "=========================== short test summary info ============================",
+    "FAILED tests/frontend/test_visual_snapshots.py::test_snapshot_pixel_size_is_independent_of_display_scale",
+    "FAILED tests/frontend/test_visual_snapshots.py::test_refused_folder_fixture_settles_and_renders",
+    "2 failed, 1 deselected in 40.61s"
+  ]
+}

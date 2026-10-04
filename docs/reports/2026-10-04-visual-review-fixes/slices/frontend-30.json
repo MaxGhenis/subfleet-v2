@@ -1,0 +1,45 @@
+{
+  "name": "frontend-30",
+  "exit_code": 0,
+  "timeout": false,
+  "seconds": 5.82,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py::test_loaded_approval_retains_exact_masked_command[codex-command-rm -rf build && git clean -fdx]",
+    "tests/frontend/test_visual_review_fixes.py::test_loaded_approval_retains_exact_masked_command[claude-bash-echo [MASKED]]",
+    "tests/frontend/test_visual_review_fixes.py::test_loaded_approval_retains_exact_masked_command[flat-command-git status]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[failed-model-mismatch-Failed: model-mismatch]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[failed-continued-elsewhere-Failed: continued-elsewhere]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[interrupted-person-stopped-Stopped]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[cancelled-withdrawn-Withdrawn]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[complete-stop-too-late-Completed before the stop took effect]",
+    "tests/frontend/test_visual_review_fixes.py::test_settled_turn_keeps_its_outcome[complete--Completed]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[0-git status]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[1-python -m]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[2-Search the web for SwiftUI keyboard navigation]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[3-Search src for TODO]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[4-Find files matching **/*.swift]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[5-Fetch https://example.com/docs]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[6-Edit 2 files (a.swift, b.swift)]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[7-Run a command]",
+    "tests/frontend/test_visual_review_fixes.py::test_tool_labels_keep_provider_and_input_detail[8-Write the notes]",
+    "tests/frontend/test_visual_review_fixes.py::test_codex_commands_are_grouped_as_commands",
+    "tests/frontend/test_visual_review_fixes.py::test_failed_work_group_never_uses_the_success_label",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/frontend-30.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-i9pbvw5h"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review",
+  "pids": [
+    74282
+  ],
+  "tail": [
+    "....................                                                     [100%]",
+    "20 passed in 5.61s"
+  ]
+}

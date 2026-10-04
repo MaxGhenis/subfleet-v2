@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="39.060" timestamp="2026-10-04T16:33:56.875601-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_snapshots" name="test_snapshot_pixel_size_is_independent_of_display_scale" time="37.931"><failure message="AssertionError: ('', 'a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07/SnapshotProbe.swift:203: Precondition failed&#10;  ')&#10;assert -5 == 0&#10; +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...derr='a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07/SnapshotProbe.swift:203: Precondition failed\n').returncode">snapshot_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07')
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-q8796zr1/test_snapshot_pixel_size_is_in0')
+
+    def test_snapshot_pixel_size_is_independent_of_display_scale(snapshot_probe, tmp_path):
+        for scale in (1, 2):
+&gt;           snapshots(snapshot_probe, tmp_path / str(scale), "finished", capture_scale=scale)
+
+tests/frontend/test_visual_snapshots.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07')
+out = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-q8796zr1/test_snapshot_pixel_size_is_in0/2')
+scenes = 'finished', capture_scale = 2
+
+    def snapshots(probe, out, scenes, capture_scale=None):
+        out.mkdir(parents=True, exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SUBFLEET_")}
+        env.update(SUBFLEET_HOME=str(out / ".home"), SF_SNAPSHOT_SCENES=scenes)
+        if capture_scale is not None:
+            env["SF_SNAPSHOT_BACKING_SCALE"] = str(capture_scale)
+        else:
+            env.pop("SF_SNAPSHOT_BACKING_SCALE", None)
+        result = subprocess.run([str(probe), str(out), str(ROOT / "tests/fixtures/visual/progress.json"),
+            str(ROOT / "tests/fixtures/visual/approvals.json")], env=env, capture_output=True, text=True, timeout=180)
+&gt;       assert result.returncode == 0, (result.stdout, result.stderr[-2000:])
+E       AssertionError: ('', 'a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07/SnapshotProbe.swift:203: Precondition failed
+E         ')
+E       assert -5 == 0
+E        +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...derr='a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07/SnapshotProbe.swift:203: Precondition failed\n').returncode
+
+tests/frontend/test_visual_snapshots.py:53: AssertionError</failure></testcase><testcase classname="tests.frontend.test_visual_snapshots" name="test_refused_folder_fixture_settles_and_renders" time="0.874"><failure message="AssertionError: ('', '2026-10-04 16:34:35.569 a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07[65503:121531485] Connec...2b77129cb7b694d7952e0e32c1f89a923bc52712ca07.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))&#10;  ')&#10;assert -5 == 0&#10; +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...2b77129cb7b694d7952e0e32c1f89a923bc52712ca07.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))\n').returncode">snapshot_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07')
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-q8796zr1/test_refused_folder_fixture_se0')
+
+    def test_refused_folder_fixture_settles_and_renders(snapshot_probe, tmp_path):
+&gt;       snapshots(snapshot_probe, tmp_path, "refused", capture_scale=1)
+
+tests/frontend/test_visual_snapshots.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/probes/a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07')
+out = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-q8796zr1/test_refused_folder_fixture_se0')
+scenes = 'refused', capture_scale = 1
+
+    def snapshots(probe, out, scenes, capture_scale=None):
+        out.mkdir(parents=True, exist_ok=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SUBFLEET_")}
+        env.update(SUBFLEET_HOME=str(out / ".home"), SF_SNAPSHOT_SCENES=scenes)
+        if capture_scale is not None:
+            env["SF_SNAPSHOT_BACKING_SCALE"] = str(capture_scale)
+        else:
+            env.pop("SF_SNAPSHOT_BACKING_SCALE", None)
+        result = subprocess.run([str(probe), str(out), str(ROOT / "tests/fixtures/visual/progress.json"),
+            str(ROOT / "tests/fixtures/visual/approvals.json")], env=env, capture_output=True, text=True, timeout=180)
+&gt;       assert result.returncode == 0, (result.stdout, result.stderr[-2000:])
+E       AssertionError: ('', '2026-10-04 16:34:35.569 a21c7040a4a3846305ce2b77129cb7b694d7952e0e32c1f89a923bc52712ca07[65503:121531485] Connec...2b77129cb7b694d7952e0e32c1f89a923bc52712ca07.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))
+E         ')
+E       assert -5 == 0
+E        +  where -5 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr124-evidence/pro...2b77129cb7b694d7952e0e32c1f89a923bc52712ca07.WorkspaceCheckResult(ok: true, reason: nil, fix: nil, workspace: nil))\n').returncode
+
+tests/frontend/test_visual_snapshots.py:53: AssertionError</failure></testcase></testsuite></testsuites>

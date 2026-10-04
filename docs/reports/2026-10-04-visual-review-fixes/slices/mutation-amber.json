@@ -1,0 +1,34 @@
+{
+  "name": "mutation-amber",
+  "exit_code": 1,
+  "timeout": false,
+  "seconds": 90.96,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-p",
+    "tools.app_cutover_pytest",
+    "-q",
+    "tests/frontend/test_visual_review_fixes.py",
+    "-k",
+    "permission_amber",
+    "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/docs/reports/2026-10-04-visual-review-fixes/mutation-amber.xml",
+    "--basetemp",
+    "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-47h40_pr"
+  ],
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr128-fix-review/build/pr128-mutants/amber",
+  "pids": [
+    16722
+  ],
+  "tail": [
+    ">       assert min(review_views[\"amber_contrast\"]) >= 4.5",
+    "E       assert 2.0085451883174485 >= 4.5",
+    "E        +  where 2.0085451883174485 = min([2.0085451883174485, 7.132481921648224])",
+    "",
+    "tests/frontend/test_visual_review_fixes.py:112: AssertionError",
+    "=========================== short test summary info ============================",
+    "FAILED tests/frontend/test_visual_review_fixes.py::test_permission_amber_has_text_contrast_in_both_modes",
+    "1 failed, 42 deselected in 80.88s (0:01:20)"
+  ]
+}

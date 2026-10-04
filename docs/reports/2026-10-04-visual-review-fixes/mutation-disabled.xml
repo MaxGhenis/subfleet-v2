@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="102.866" timestamp="2026-10-04T16:45:13.667477-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.frontend.test_visual_review_fixes" name="test_disabled_quiet_send_looks_disabled" time="101.809"><failure message="assert 0 &gt; 0.001">review_views = {'turns': {'failed': 'Please review Failed: model-mismatch max@example.com - gpt-6-astra - high - Fast off &amp; Fast was ...KitButton'}], 'focus_shortcut_handled': True, 'focus_shortcut_reached_list': True, 'native_selection': True, ...}, ...}
+
+    def test_disabled_quiet_send_looks_disabled(review_views):
+&gt;       assert review_views["disabled_pixel_difference"] &gt; 0.001
+E       assert 0 &gt; 0.001
+
+tests/frontend/test_visual_review_fixes.py:107: AssertionError</failure></testcase></testsuite></testsuites>
