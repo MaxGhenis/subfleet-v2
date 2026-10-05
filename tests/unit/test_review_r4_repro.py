@@ -118,7 +118,7 @@ def test_removed_target_readded_starts_a_new_window(svc, tmp_path, monkeypatch):
     assert wake_rows(svc, cid) == []
 
 
-@pytest.mark.parametrize("event", ["merged", "checks", "review"])
+@pytest.mark.parametrize("event", ["merged", "closed", "checks", "review"])
 def test_event_after_refusal_is_delivered_when_access_returns(svc, tmp_path, monkeypatch, event):
     cid = bound(svc)
     clock = [T0]
@@ -135,14 +135,36 @@ def test_event_after_refusal_is_delivered_when_access_returns(svc, tmp_path, mon
     poll_now(svc)  # still inaccessible; the persisted refusal suppresses a second notification
     assert len(wake_rows(svc, cid)) == 1
     kwargs = {"state": "MERGED", "merged_at": iso(T0 + 150)} if event == "merged" else (
+        {"state": "CLOSED", "closed_at": iso(T0 + 150)} if event == "closed" else (
         {"checks": (("COMPLETED", "FAILURE", iso(T0 + 150)),)} if event == "checks" else
-        {"reviews": (("review-new", iso(T0 + 150)),), "checks": (("IN_PROGRESS", None, None),)})
+        {"reviews": (("review-new", iso(T0 + 150)),), "checks": (("IN_PROGRESS", None, None),)}))
     fake_gh(tmp_path, monkeypatch, {"data": {"p0": pr_node(**kwargs)}})
     poll_and_settle(svc, cid, clock)
     refusals = svc.store.query("SELECT * FROM wake_pr_refusals WHERE conversation_id=?", (cid,))
     print(f"R4 resolved {event}: gh={calls_of(calls)} wakes={wake_texts(svc,cid)} refusals={refusals}")
     assert refusals == []
     assert len(wake_rows(svc, cid)) == 2, "a real event newer than registration vanished at the first good read"
+
+
+def test_refusal_recovery_keeps_event_window_through_a_later_rearm(svc, tmp_path, monkeypatch):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    arm(svc, cid, prs=["o/r#1"])
+    fake_gh(tmp_path, monkeypatch, {"data": {"p0": {"pullRequest": None}}})
+    clock[0] = T0 + 61
+    svc.wakes.tick()
+    settle_wakes(svc, cid)
+    clock[0] = T0 + 70
+    arm(svc, cid, prs=["o/r#1"])
+    clock[0] = T0 + 122
+    poll_now(svc)
+    clock[0] = T0 + 170
+    arm(svc, cid, prs=["o/r#1"])
+    fake_gh(tmp_path, monkeypatch, {"data": {"p0": pr_node(state="MERGED", merged_at=iso(T0 + 150))}})
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 2
+    assert "PR state changed: o/r#1" in wake_texts(svc, cid)[1]
 
 
 def test_unannounced_refusal_survives_rearm(svc, tmp_path, monkeypatch):

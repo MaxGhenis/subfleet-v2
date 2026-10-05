@@ -421,7 +421,7 @@ class WakeEngine:
                 "SELECT target FROM wake_pr_refusals WHERE conversation_id=?", (r["conversation_id"],))}
             changed = [p for p in watched if p in snapshots and (
                 (snapshots[p].get("error") and p not in refused) or pr_changed(before.get(p), snapshots[p]) or
-                (p not in before and not snapshots[p].get("error") and
+                ((p not in before or before[p].get("error")) and not snapshots[p].get("error") and
                  pr_event_since(snapshots[p], windows.get(p, r["created_at"]))))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
@@ -573,7 +573,7 @@ def pr_changed(before: dict | None, after: dict) -> bool:
 
 
 def pr_event_since(snapshot: dict, created_at: str) -> bool:
-    """Events between registration and the first poll also count, if dated."""
+    """Dated events in an unobserved window count, including after a refusal."""
     threshold = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     stamps = list(snapshot.get("review_times", {}).values())
     checks = snapshot.get("checks", [])
