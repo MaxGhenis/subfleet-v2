@@ -271,6 +271,10 @@ class WakeEngine:
                 tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at,observed_json) VALUES(?,?,?,?,?,?)",
                            (cid, request_id, kind, encoded, datetime.fromtimestamp(threshold, UTC).isoformat(),
                             json.dumps(observed) if observed else None))
+        if "pr" in spec:
+            # A new watch is checked on the next tick rather than up to a minute
+            # later; the `pr-polled` mark still holds gh to one query a minute.
+            self._next_poll = min(self._next_poll, self.now())
         return {"request_id": request_id, "kinds": list(spec)}
 
     def from_final(self, cid: str, mid: str, text: str) -> None:
