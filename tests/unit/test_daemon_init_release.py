@@ -30,15 +30,18 @@ def test_a_failed_construction_releases_its_log_store_and_lock(monkeypatch):
         for _ in range(20):
             with pytest.raises((PolicyError, ValueError)):
                 Daemon(root)
-        assert open_descriptors() == before
+        # Nothing may rise. A construction may also lower both: it lets go a handler a
+        # collected daemon left on a logger whose id()-based name it reuses (C-3.6),
+        # and that handler's stream with it (review of 36d1a1d, P3).
+        assert open_descriptors() <= before
         after = sum(len(logging.getLogger(name).handlers)
                     for name in list(logging.root.manager.loggerDict) if name.startswith("subfleet.daemon."))
-        assert after == handlers
+        assert after <= handlers
         # The lock was released too: a good policy now constructs and closes cleanly.
         (root / "policy.json").unlink()
         service = Daemon(root)
         service.close()
-        assert open_descriptors() == before
+        assert open_descriptors() <= before
 
 
 def test_a_failing_release_step_does_not_hide_why_construction_failed(monkeypatch):
