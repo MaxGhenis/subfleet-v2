@@ -64,7 +64,8 @@ def test_design_12_sidebar_groups_searches_and_filters(core_probe, tmp_path, har
     assert blocked["continuable"] is False and blocked["continue_blocker"].startswith("codex-app thread")
     assert all(e["target"]["conversation"] for e in sections["Today"])
 
-    searched = store(core_probe, tmp_path, [{"list": listed}, {"search": "FIX"}], now)
+    # Search includes workspace paths, which may contain "fix" in this checkout.
+    searched = store(core_probe, tmp_path, [{"list": listed}, {"search": "FIX THE"}], now)
     titles = [e["title"] for s in searched["sidebar"] for e in s["entries"]]
     assert titles == ["Fix the parser", "fix the build on main"]
     codex_only = store(core_probe, tmp_path, [{"list": listed}, {"provider_filter": "codex"}], now)

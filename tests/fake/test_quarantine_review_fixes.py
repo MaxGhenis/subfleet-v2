@@ -66,6 +66,26 @@ def test_a_recycled_descendant_pid_is_not_removed_from_an_owned_writers_walk(sta
     assert daemon.store.list_leases()
 
 
+@pytest.mark.parametrize('operator', [False, True])
+def test_recycled_group_member_keeps_every_lease_in_both_resolvers(state_daemon, monkeypatch, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness, owned={'200': ident(200, 'old')})
+    for key, holder in ((f'worktree:{harness.workdir}', a['job_id']),
+                        ('native:review', a['job_id']), ('native-session:review', a['attempt_id']),
+                        ('conversation:review', a['job_id'])):
+        daemon.store.acquire_lease(key, holder)
+    before = daemon.store.list_leases()
+    script_table(monkeypatch, {200: (1, 100, 'S', 'new')})
+    if operator:
+        assert confirm_dead(daemon, a) == 'quarantined'
+    else:
+        clock.advance()
+        daemon._recheck_quarantines()
+    assert daemon.store.get_attempt(a['attempt_id'])['state'] == 'quarantined'
+    assert daemon.store.list_leases() == before
+
+
 def test_corrupt_owned_evidence_cannot_establish_death(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     a = quarantine(daemon, harness)
