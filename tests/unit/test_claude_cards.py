@@ -1069,3 +1069,68 @@ def test_heal_turn_kills_its_group_however_the_turn_ends(tmp_path, monkeypatch):
 def test_lapsed_is_the_contracts_rule(org, status, gone):
     """C-9.10: "`claude_free` or `canceled` is `lapsed`": either one, each on its own."""
     assert cc.lapsed({"organization_type": org, "subscription_status": status}) is gone
+
+
+_OTHER = "11111111-1111-4111-8111-111111111111"
+_CLAIM_ENDS = {"a": "2026-11-05T07:59:00Z", "b": "2026-11-20T07:59:00Z"}
+_USAGE_ENDS = "2026-12-31T00:00:00Z"
+_READS = st.lists(st.tuples(st.sampled_from("ab"),
+                            st.sampled_from(["unused", "used", "ineligible", "missing", "fails"]),
+                            st.booleans()), min_size=1, max_size=8)
+
+
+def _cedar(kind):
+    cedar = json.loads(json.dumps(fixture("usage_unused_card_at_limit")["cedar_ember"]))
+    if kind == "used":
+        cedar["grants"][0]["resets_left"] = 0
+    return {"eligible": False, "ineligible_reason": "surface", "grants": []} if kind == "ineligible" else cedar
+
+
+@given(_READS)
+@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_kept_cards_and_claims_never_cross_accounts(tmp_path, reads):
+    """C-9.10 invariants over any run of reads, by a model of the rules:
+    * the cards shown are the last listing read's for the account the folder now holds, and a read
+      that lists none (missing, ineligible, failed) never erases them;
+    * `cards_unlisted` is set exactly when an `ok` read listed none while listed cards are kept;
+    * the cloud credit's expiry is this account's own claim's, else its usage block's, never another
+      account's; nothing is recorded lost while no card or credit has ended."""
+    login, snapshot = Login(expires_in_s=90 * 86400), None
+    who = cards = claim_ends = credit_ends = None
+    unlisted = False
+    for step, (account_id, usage, claim_ok) in enumerate(reads):
+        profile = json.loads(json.dumps(fixture("profile_active")))
+        if account_id == "b":
+            profile["account"]["uuid"] = _OTHER
+        payload = _usage_with(credit_resets=_USAGE_ENDS)
+        payload.pop("cedar_ember")
+        if usage not in ("missing", "fails"):
+            payload["cedar_ember"] = _cedar(usage)
+        claim = {**fixture("promo_cloud_credit_active"), "expires_at": _CLAIM_ENDS[account_id]}
+        answers = {cc.PROFILE_URL: [(200, profile, None)],
+                   cc.CARDS_USAGE_URL: [(OSError("down"), None, None) if usage == "fails" else (200, payload, None)],
+                   cc.CLOUD_CREDIT_STATUS_URL: [(200, claim, None) if claim_ok else
+                                                (urllib.error.HTTPError(cc.CLOUD_CREDIT_STATUS_URL, 503, "x", {}, None),
+                                                 None, None)]}
+        snapshot = _pass(login, Wire(answers), NOW + timedelta(hours=6 * step), snapshot, tmp_path)
+        row = snapshot["accounts"][0]
+        # The model.
+        if who is not None and who != account_id:
+            cards, unlisted, claim_ends, credit_ends = None, False, None, None
+        who = account_id
+        if usage != "fails":
+            block = cc.parse_cards(payload.get("cedar_ember"))
+            if block is not None and block["eligible"]:
+                cards, unlisted = block, False
+            elif cards is not None and cards["eligible"]:
+                unlisted = True
+            else:
+                cards, unlisted = block, False
+            if claim_ok:
+                claim_ends = _CLAIM_ENDS[account_id]
+            credit_ends = claim_ends or _USAGE_ENDS
+        assert row["status"] == ("unavailable" if usage == "fails" else "ok")
+        assert row["cards"] == cards and bool(row.get("cards_unlisted")) is unlisted
+        assert [credit["expires_at"] for credit in row["credits"]] == ([credit_ends] if credit_ends else [])
+        assert (row["cloud_credit_claim"] or {}).get("expires_at") in (None, _CLAIM_ENDS[account_id])
+        assert "lost" not in row
