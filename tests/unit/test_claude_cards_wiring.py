@@ -144,11 +144,28 @@ def test_alert_conditions_and_text():
     assert all(c["recover"] is False for c in conditions)
     assert "in 2.7 days" in conditions[0]["body"] and "$250.00" in conditions[2]["body"]
     assert card_condition({"kind": "something-else"}, at) is None
-    lost = card_condition({"kind": "card-lost", "key": "a:lost:t", "login": "a", "lanes": [], "grants": ["g"],
+    lost = card_condition({"kind": "card-lost", "key": "a:lost:g", "login": "a", "lanes": [], "grants": ["g"],
                            "at": "2026-10-19T00:00:00Z", "reason": "lapse"}, at)
     assert lost["once"] is True and "daily" not in lost and "lost with its plan" in lost["subject"]
+    credit = card_condition({"kind": "credit-lost", "key": "a:credit-lost:c", "login": "a", "lanes": [],
+                             "credits": [{"key": "c", "label": "cloud-session credit", "remaining_dollars": 250.0}],
+                             "at": "2026-10-19T00:00:00Z", "reason": "lapse"}, at)
+    assert "plan lapsed with promotional credit unspent" in credit["subject"] and "is gone" not in credit["body"]
     found = evaluate_conditions({"lanes": [], "claude_cards": {"warnings": warnings}}, now=at)
     assert len([row for row in found if row["key"].startswith("claude-")]) == 5
+
+
+def test_watch_preview_includes_card_conditions(rig, tmp_path):
+    """C-9.10: `watch --dry-run` previews the card and credit conditions the next cycle would raise."""
+    timer, store, clock, adapter, enroll = rig
+    ends = (clock() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cc.write_snapshot(tmp_path / cc.SNAPSHOT_FILE, {"version": 1, "read_at": "2026-09-05T11:00:00Z", "accounts": [
+        {"login": "a", "lanes": [], "status": "ok", "read_at": "2026-09-05T11:00:00Z",
+         "cards": {"eligible": True, "grants": [{"id": "g", "resets_left": 1, "ends_at": ends}]}, "credits": []}]})
+    service = SimpleNamespace(store=store, timers=timer, _cached_desktop_identity=lambda: None,
+                              _capacity_view=lambda desktop: timer.snapshot())
+    result = operations.dispatch(service, protocol.OperationsArgs("watch", dry_run=True))
+    assert "claude-card-expiring:a:g" in [row["key"] for row in result["conditions"]]
 
 
 def test_status_text_lists_every_login():

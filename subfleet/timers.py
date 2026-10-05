@@ -437,7 +437,7 @@ class Timers:
             logins=claude_cards.discover_logins(claude_cards.logins_folder(self.root, self.policy)),
             lanes=self._card_lanes(), previous=previous, heal=bool(config['heal']),
             heal_after_s=float(config['heal_interval_min']) * 60, pace=self._pace_usage,
-            stop=self.cancel.is_set)
+            stop=self.cancel.is_set, checkpoint=lambda partial: claude_cards.write_snapshot(path, partial))
         claude_cards.write_snapshot(path, snapshot)
         summary = {'read_at': snapshot['read_at'],
                    'accounts': {row['login']: {'status': row.get('status'), 'lanes': row.get('lanes', []),

@@ -410,11 +410,9 @@ def _money(value: Any) -> str:
 
 def _holds_something(account: Mapping[str, Any], warned: set[str]) -> bool:
     """An unused card, money on a credit, a claimable credit, a forfeit, or a warning."""
-    claim = account.get("cloud_credit_claim") or {}
     return bool(account.get("unused_cards")
                 or any((credit.get("remaining_dollars") or 0) > 0 for credit in account.get("credits") or [])
-                or claim.get("eligible") and not claim.get("claimed")
-                or (account.get("lost") or {}).get("grants") or (account.get("lost") or {}).get("credits")
+                or account.get("claimable") or account.get("recently_lost")
                 or account.get("login") in warned)
 
 
@@ -482,18 +480,18 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
             for credit in account.get("credits") or []:
                 parts.append(f"{credit.get('label')} {_money(credit.get('remaining_dollars'))} of "
                              f"{_money(credit.get('limit_dollars'))} left, expires {credit.get('expires_at') or 'unknown'}")
-            claim = account.get("cloud_credit_claim") or {}
-            if claim.get("eligible") and not claim.get("claimed"):
+            if account.get("claimable"):
                 parts.append("cloud-session credit claimable, not claimed")
         if account.get("plan_ends_at"):
             parts.append(f"plan ends {account['plan_ends_at']} (declared)")
-        lost = account.get("lost") or {}
-        why = "with the plan" if lost.get("reason") == "lapse" else "unused at its end"
-        if lost.get("grants"):
-            parts.append(f"reset card lost {why} ({', '.join(lost['grants'])}, seen {lost.get('at')})")
-        for credit in lost.get("credits") or []:
-            parts.append(f"{credit.get('label')} lost {why} ({_money(credit.get('remaining_dollars'))} left at "
-                         f"the last read, seen {lost.get('at')})")
+        for item in account.get("recently_lost") or []:
+            if item.get("grant"):
+                why = "with the plan" if item.get("reason") == "lapse" else "unused at its end"
+                parts.append(f"reset card lost {why} ({item['grant']}, seen {item.get('at')})")
+            else:
+                why = "plan lapsed" if item.get("reason") == "lapse" else "unspent at its end"
+                parts.append(f"{item.get('label')}: {why} with {_money(item.get('remaining_dollars'))} left at "
+                             f"the last read (seen {item.get('at')})")
         lines.append(head + ": " + ("; ".join(parts) or status))
     lines.extend(others)
     for warning in view.get("warnings") or ():

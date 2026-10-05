@@ -36,20 +36,20 @@ in the desktop app's HTTP cache, and live reads, 2026-10-05):
   `active`, `expired`, `claimed_elsewhere` once normalised as the CLI does.
 * `GET /api/oauth/profile`: `organization.{organization_type, rate_limit_tier,
   subscription_status, billing_type}`. A lapsed account reads `canceled` and
-  `claude_free`. A cancellation or downgrade scheduled for the end of a billing
-  period is not visible to an OAuth login (claude.ai's `subscription_details`
-  has it and refuses OAuth tokens): the operator declares it in
+  `claude_free`. None of the reads here showed a cancellation or downgrade
+  scheduled for the end of a billing period; claude.ai's `subscription_details`,
+  which does, refuses OAuth tokens. The operator declares one in
   `<state root>/claude-plan-ends.json`.
 
 All of them need a full Claude Code login (scope `user:profile`). A lane's setup
 token is inference-only and gets 403 (C-9.9's `no-scope`), so the sensor reads
 with the per-account logins under `<state root>/logins/` instead. A login is
-bound to the lanes whose recorded identity its profile returns (C-10.6), else,
-for lanes that recorded none, to those whose label is its folder name
-(`associate`). The name binding is a display association (C-1.4): it decides
-whether a heal may be spent and whether a hold covers the login, which lanes are
-shown beside it, and which lane ids a declared plan end may be filed under. It
-never records an identity.
+bound to the lanes whose recorded identity its profile returns (C-10.6) and to
+the lanes that recorded none whose label is its folder name (`associate`). The
+label is a display name (C-1.4), so the name binding never records an identity;
+it does decide whether a heal may be spent and whether a hold covers the login,
+which lanes are shown beside it, and which lane ids a declared plan end may be
+filed under.
 """
 
 from __future__ import annotations
@@ -253,6 +253,20 @@ def parse_claim(payload: Any) -> dict[str, Any] | None:
     }
 
 
+CLAIM_STALE_S = 2 * 86400
+
+
+def claimable(claim: Mapping[str, Any] | None, now: datetime) -> bool:
+    """Claude Code's test (eligible, not claimed), on a claim status that has not
+    expired and was read within the last two days."""
+    if not claim or not claim.get("eligible") or claim.get("claimed") or claim.get("state") == "expired":
+        return False
+    ends, checked = parse_time(claim.get("expires_at")), parse_time(claim.get("checked_at"))
+    if ends is not None and ends <= now:
+        return False
+    return checked is None or recent(now, checked, CLAIM_STALE_S)
+
+
 def parse_plan(payload: Any) -> dict[str, Any] | None:
     """The profile's identity and plan; None unless it names an account and an org."""
     account = payload.get("account") if isinstance(payload, dict) else None
@@ -396,60 +410,71 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
                             "at": iso_utc(declared) if declared else None,
                             "remaining_dollars": remaining, "reasons": reasons})
         claim = account.get("cloud_credit_claim") or {}
-        claim_ends = parse_time(claim.get("expires_at"))
-        if (claim.get("eligible") and not claim.get("claimed") and claim.get("state") != "expired"
-                and (claim_ends is None or claim_ends > now)):
+        if claimable(claim, now):
             out.append({**base, "kind": "credit-claimable", "key": f"{label}:cloud_credit:claim",
                         "credit": "cloud_credit", "at": claim.get("expires_at")})
-        lost = account.get("lost") or {}
-        seen = parse_time(lost.get("at"))
-        if seen is not None and timedelta(0) <= now - seen <= timedelta(days=warn_days):
-            if lost.get("grants"):
-                out.append({**base, "kind": "card-lost", "key": f"{label}:lost:{lost['at']}",
-                            "grants": list(lost["grants"]), "at": lost["at"], "reason": lost.get("reason")})
-            if lost.get("credits"):
-                out.append({**base, "kind": "credit-lost", "key": f"{label}:credit-lost:{lost['at']}",
-                            "credits": list(lost["credits"]), "at": lost["at"], "reason": lost.get("reason")})
+        for item in lost_items(account):
+            seen = parse_time(item.get("at"))
+            if seen is None or not timedelta(0) <= now - seen <= timedelta(days=warn_days):
+                continue
+            if item.get("grant"):
+                out.append({**base, "kind": "card-lost", "key": f"{label}:lost:{item['grant']}",
+                            "grants": [item["grant"]], "at": item["at"], "reason": item.get("reason")})
+            else:
+                out.append({**base, "kind": "credit-lost", "key": f"{label}:credit-lost:{item['credit']}",
+                            "credits": [{"key": item["credit"], "label": item.get("label"),
+                                         "remaining_dollars": item.get("remaining_dollars")}],
+                            "at": item["at"], "reason": item.get("reason")})
     return out
 
 
-def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
-               now: datetime) -> dict[str, Any] | None:
-    """What the last good read held that is now gone without being used.
+def lost_items(account: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The loss record: one entry per card (`grant`) or credit (`credit`), each
+    with when it was seen lost (`at`) and why (`reason`)."""
+    lost = account.get("lost")
+    return [item for item in lost if isinstance(item, dict)] if isinstance(lost, list) else []
 
-    `lapse`: the plan lapsed since that read; every card it held unused and every
-    credit with money left goes with it (two lapses on 2026-09-30 and 2026-10-04
-    took the credit off the usage payload). `expired`: a card it held unused, or
-    a credit with money left, has passed its end and no later read shows it
-    spent. Things already recorded as lost are not recorded again.
+
+def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
+               now: datetime) -> list[dict[str, Any]]:
+    """What the last good read held that a read now shows gone without being used.
+
+    `lapse`: the profile read now says the plan lapsed. Every card the last good
+    read held unused, and every credit with money left, is recorded: the lapsed
+    plan's usage cannot be read, and when two of these accounts' plans ended
+    (2026-09-30, 2026-10-04) their usage stopped showing the credit. `expired`: an
+    `ok` read now, after a card's or credit's end, still shows the card unused or
+    no longer lists it, or shows the credit with money left or no longer lists it.
+    A read that is not `ok` says nothing about use, so it records no expiry. A
+    thing already in the loss record is never recorded again.
     """
     if not previous:
-        return None
+        return []
     then = parse_time(previous.get("read_at"))
     if then is None:
-        return None
-    already = previous.get("lost") or {}
-    known_grants = set(already.get("grants") or ())
-    known_credits = {row.get("key") for row in already.get("credits") or () if isinstance(row, dict)}
-    held = [grant for grant in unused_cards(previous, then) if grant["id"] not in known_grants]
+        return []
+    known = {item.get("grant") or item.get("credit") for item in lost_items(previous)}
+    held = [grant for grant in unused_cards(previous, then) if grant["id"] not in known]
     money = [credit for credit in previous.get("credits") or []
-             if (credit.get("remaining_dollars") or 0) > 0 and credit.get("key") not in known_credits
+             if (credit.get("remaining_dollars") or 0) > 0 and credit.get("key") not in known
              and (parse_time(credit.get("expires_at")) is None or parse_time(credit.get("expires_at")) > then)]
+    at = iso_utc(now)
     if lapsed(current.get("plan")) and not lapsed(previous.get("plan")):
-        reason, grants, credits = "lapse", held, money
-    else:
-        spent = {grant["id"] for grant in ((current.get("cards") or {}).get("grants") or [])
-                 if grant.get("resets_left", 0) == 0} if current.get("status") == OK else set()
-        grants = [grant for grant in held if grant["id"] not in spent
-                  and (parse_time(grant.get("ends_at")) or now) < now]
-        credits = [credit for credit in money if parse_time(credit.get("expires_at")) is not None
-                   and parse_time(credit.get("expires_at")) <= now]
+        reason = "lapse"
+    elif current.get("status") == OK:
         reason = "expired"
-    if not grants and not credits:
-        return None
-    return {"at": iso_utc(now), "reason": reason, "grants": [grant["id"] for grant in grants],
-            "credits": [{"key": credit["key"], "label": credit.get("label"),
-                         "remaining_dollars": credit.get("remaining_dollars")} for credit in credits]}
+        grants_now = {grant["id"]: grant for grant in ((current.get("cards") or {}).get("grants") or [])}
+        credits_now = {credit["key"]: credit for credit in current.get("credits") or []}
+        held = [grant for grant in held if (parse_time(grant.get("ends_at")) or now) < now
+                and grants_now.get(grant["id"], {}).get("resets_left", grant["resets_left"]) > 0]
+        money = [credit for credit in money if parse_time(credit.get("expires_at")) is not None
+                 and parse_time(credit.get("expires_at")) <= now
+                 and (credits_now.get(credit["key"], {}).get("remaining_dollars", credit["remaining_dollars"]) or 0) > 0]
+    else:
+        return []
+    return ([{"grant": grant["id"], "at": at, "reason": reason} for grant in held]
+            + [{"credit": credit["key"], "label": credit.get("label"), "at": at, "reason": reason,
+                "remaining_dollars": credit.get("remaining_dollars")} for credit in money])
 
 
 # --- the sensor (I/O) ---------------------------------------------------------
@@ -550,7 +575,7 @@ def cli_version(claude_bin: str, runner: Callable[..., Any] = subprocess.run) ->
 
 #: Heals that never reached the login: a timeout, a CLI that could not start, a stop.
 TRANSIENT_HEAL_RC = frozenset({124, 127, 130})
-HEAL_FAILURES = {124: "timed out", 127: "the claude CLI could not start", 130: "cancelled by a stop"}
+HEAL_FAILURES = {124: "timed out", 127: "the claude CLI could not start or raised", 130: "cancelled by a stop"}
 #: What Claude Code prints when it cannot renew a login (observed 2026-10-05:
 #: "Failed to authenticate: OAuth session expired and could not be refreshed").
 DEAD_LOGIN = re.compile(r"could not be refreshed|failed to authenticate|invalid_grant|refresh token", re.I)
@@ -682,7 +707,10 @@ class Sensor:
                     return done(UNAVAILABLE, f"the last heal could not run ({last.get('why')}); next heal after {next_at}")
                 return done(LOGIN_EXPIRED, f"access token expired again since the heal at {last.get('at')}; "
                                            f"next heal after {next_at}")
-            rc, out, err = self._heal(home)
+            try:
+                rc, out, err = self._heal(home)
+            except Exception as error:              # noqa: BLE001 - a heal that raised never reached the login
+                rc, out, err = 127, "", type(error).__name__
             token, expired, renewed = self.login_state(home)
             refreshed = bool(token) and not expired
             account["login_expires_ms"] = renewed
@@ -733,8 +761,9 @@ class Sensor:
             "anthropic-version": ANTHROPIC_VERSION, "x-organization-uuid": plan["org_uuid"]})
         parsed = parse_claim(claim) if status == 200 else None
         if parsed is not None:
-            account["cloud_credit_claim"] = parsed
-        # A claim status that could not be read keeps the last one read.
+            account["cloud_credit_claim"] = {**parsed, "checked_at": iso_utc(now)}
+        # A claim status that could not be read keeps the last one read, with its
+        # `checked_at`; past two days it no longer raises `credit-claimable`.
         account["read_at"] = iso_utc(now)
         return done(OK)
 
@@ -761,8 +790,8 @@ def associate(lanes: Iterable[Mapping[str, Any]], identity: str | None, login: s
               ) -> tuple[list[Mapping[str, Any]], str | None]:
     """The lanes a login backs, and how that is known.
 
-    By identity (C-10.6) when a lane recorded the one this login's profile
-    returned. Otherwise by name, against lanes that recorded no identity: a
+    By identity (C-10.6), every lane that recorded the one this login's profile
+    returned; and by name, every lane that recorded no identity: a
     setup-token lane cannot ask the profile endpoint, so on such a fleet the
     folder name, which is the lane's display label, is all that connects them.
     Before the login's own identity is known (its token expired before any
@@ -770,19 +799,18 @@ def associate(lanes: Iterable[Mapping[str, Any]], identity: str | None, login: s
     identity-bearing lane can be healed once and then bound by identity.
     """
     lanes = list(lanes)
-    if identity:
-        bound = [lane for lane in lanes if lane.get("identity") == identity]
-        if bound:
-            return bound, "identity"
-    named = [lane for lane in lanes if (identity is None or not lane.get("identity"))
+    bound = [lane for lane in lanes if identity and lane.get("identity") == identity]
+    named = [lane for lane in lanes if lane not in bound and (identity is None or not lane.get("identity"))
              and lane_label(lane) == login]
-    return named, "label" if named else None
+    how = "identity" if bound and not named else "identity+label" if bound else "label" if named else None
+    return bound + named, how
 
 
 def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[str, Any]],
             previous: Mapping[str, Any] | None, heal: bool, heal_after_s: float,
             pace: Callable[[], None] | None = None,
-            stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
+            stop: Callable[[], bool] = lambda: False,
+            checkpoint: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """One pass over every login: the next snapshot.
 
     `lanes` are the Claude lanes, each with `lane_id`, `identity`, `label`,
@@ -791,16 +819,19 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
     one lane (enabled or not: a disabled lane's account may still be paid for and
     hold a card) and no lane it backs is held (a hold means spend nothing there).
     A pass that is stopped, or a login whose read raises, keeps that login's
-    last snapshot.
+    last snapshot. `checkpoint` receives the snapshot as it stands after each
+    login read, every other login at its last state, so a heal is on disk before
+    the next login is read and a pass that dies cannot spend it again.
     """
     lanes = [dict(lane) for lane in lanes]
     before = {row.get("login"): row for row in (previous or {}).get("accounts") or [] if isinstance(row, dict)}
     accounts = []
-    for home in logins:
+    homes = list(logins)
+    for index, home in enumerate(homes):
         prior = before.get(home.name)
         if stop():
             if prior:
-                accounts.append(dict(prior))
+                accounts.append({**prior, "healed": False})
             continue
         try:
             account = _refresh_one(sensor, home, prior, lanes, heal=heal, heal_after_s=heal_after_s, pace=pace)
@@ -809,6 +840,10 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
                        "status": UNAVAILABLE, "detail": f"read failed: {type(error).__name__}",
                        "observed_at": iso_utc(sensor.now()), "healed": False}
         accounts.append(account)
+        if checkpoint is not None and account.get("healed"):
+            rest = [{**before[later.name], "healed": False} for later in homes[index + 1:] if later.name in before]
+            checkpoint({"version": SNAPSHOT_VERSION, "read_at": (previous or {}).get("read_at"),
+                        "accounts": accounts + rest})
     return {"version": SNAPSHOT_VERSION, "read_at": iso_utc(sensor.now()), "accounts": accounts}
 
 
@@ -831,13 +866,12 @@ def _refresh_one(sensor: Sensor, home: Path, prior: Mapping[str, Any] | None,
             account["status"], account["detail"] = HELD, "an operator hold covers this account; no turn is spent on it"
     backed, how = associate(lanes, account.get("identity"), home.name)
     account["lanes"], account["lanes_by"] = sorted(lane["lane_id"] for lane in backed), how
-    lost = lost_since(prior, account, sensor.now())
-    if lost:
-        if lost["reason"] == "lapse":
-            account.update(cards=None, credits=[])
-        account["lost"] = lost
-    elif prior and prior.get("lost"):
-        account["lost"] = prior["lost"]
+    found = lost_since(prior, account, sensor.now())
+    if any(item["reason"] == "lapse" for item in found):
+        account.update(cards=None, credits=[])
+    record = lost_items(prior or {}) + found
+    if record:
+        account["lost"] = record
     return account
 
 
@@ -853,6 +887,10 @@ def view(snapshot: Mapping[str, Any] | None, now: datetime, *, warn_days: float,
         account["unused_cards"] = sum(grant["resets_left"] for grant in unused_cards(account, now))
         declared = plan_end_for(account, plan_ends)
         account["plan_ends_at"] = iso_utc(declared) if declared else None
+        account["claimable"] = claimable(account.get("cloud_credit_claim"), now)
+        account["recently_lost"] = [item for item in lost_items(account)
+                                    if (seen := parse_time(item.get("at"))) is not None
+                                    and timedelta(0) <= now - seen <= timedelta(days=warn_days)]
     return {"read_at": (snapshot or {}).get("read_at"), "warn_days": warn_days, "accounts": accounts,
             "warnings": warnings(accounts, now, warn_days=warn_days, plan_ends=plan_ends)}
 
@@ -886,7 +924,7 @@ def read_snapshot(path: Path) -> dict[str, Any]:
 
 
 def write_snapshot(path: Path, snapshot: Mapping[str, Any]) -> None:
-    """Atomic: a reader sees the old snapshot or the new one, never half."""
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(snapshot, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    """C-8.1: temp file, fsync, rename, directory fsync, mode 0600; a reader sees
+    the old snapshot or the new one, never half."""
+    from .guardian import atomic_publish
+    atomic_publish(path, (json.dumps(snapshot, indent=1, sort_keys=True) + "\n").encode("utf-8"))

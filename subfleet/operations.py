@@ -150,6 +150,7 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
     if args.dry_run:
         if args.command == 'watch':
             from .alerts import evaluate_conditions
+            view['claude_cards'] = service.timers.cards_view()      # C-9.10: the next cycle raises these too
             return {'status': 'preview', 'dry_run': True, 'cached': True,
                     'conditions': evaluate_conditions(view, now=service.timers.now()),
                     'detail': 'Cached conditions only; no probes, alerts, or reset actions were run.'}

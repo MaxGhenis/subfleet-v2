@@ -485,8 +485,27 @@ def test_refresh_binds_heals_and_holds(tmp_path):
     assert rows["max@pe.example+team"]["lanes"] == []
     # `fresh@example` reads the fixture profile, whose identity claude-30 recorded.
     assert rows["fresh@example"]["lanes"] == ["claude-30"] and rows["fresh@example"]["lanes_by"] == "identity"
-    # After its read, max@ax.example's identity is claude-30's; the identity binding wins.
-    assert rows["max@ax.example"]["lanes"] == ["claude-30"]
+    # After its read, max@ax.example's identity is claude-30's; the lanes that recorded no identity
+    # stay bound by name beside it, so their holds and declared ends still apply.
+    assert rows["max@ax.example"]["lanes"] == ["claude-11", "claude-18", "claude-30"]
+    assert rows["max@ax.example"]["lanes_by"] == "identity+label"
+
+
+def test_a_held_same_named_lane_still_holds_once_identity_is_known(tmp_path):
+    """C-9.10: a lane with no recorded identity, bound by name and held, keeps its hold over the
+    login after the login's identity is known and matches another lane."""
+    lanes = [{"lane_id": "claude-30", "identity": "00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-0000000000aa",
+              "label": "x", "account_key": "claude:x", "held": False},
+             {"lane_id": "claude-31", "identity": None, "label": "who@example", "account_key": "claude:who@example",
+              "held": True}]
+    previous = {"version": 1, "accounts": [{"login": "who@example", "status": "ok", "lanes": [],
+                                            "identity": lanes[0]["identity"]}]}
+    login = Login(expires_in_s=-60)
+    snap = cc.refresh(cc.Sensor(login_reader=login.read, heal=login.heal, version=lambda: "2", opener=Wire(healthy()),
+                                now=lambda: NOW),
+                      logins=[tmp_path / "who@example"], lanes=lanes, previous=previous, heal=True, heal_after_s=1)
+    [row] = snap["accounts"]
+    assert row["status"] == "held" and login.heals == [] and row["lanes"] == ["claude-30", "claude-31"]
 
 
 def test_identity_lane_login_first_seen_expired_can_heal_and_bind(tmp_path):
@@ -543,7 +562,7 @@ def test_stopped_pass_keeps_unread_logins(tmp_path):
 
 def test_lapse_records_lost_cards_and_credits_once(tmp_path):
     """C-9.10: the read that first sees a lapse records what the last good read held (an unused card,
-    money on a credit) as lost with the plan, alerts once, and does not record it again."""
+    money on a credit), one entry each, alerts once per item, and records nothing again."""
     login = Login(expires_in_s=30 * 86400)
     good = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW),
                       logins=[tmp_path / "a"], lanes=[], previous=None, heal=False, heal_after_s=1)
@@ -552,8 +571,8 @@ def test_lapse_records_lost_cards_and_credits_once(tmp_path):
                                  now=lambda: NOW + timedelta(days=1)),
                        logins=[tmp_path / "a"], lanes=[], previous=good, heal=False, heal_after_s=1)
     lost = later["accounts"][0]["lost"]
-    assert lost["reason"] == "lapse" and lost["grants"] == [CARD]
-    assert [credit["key"] for credit in lost["credits"]] == ["iguana_necktie"]
+    assert [(item.get("grant") or item.get("credit"), item["reason"]) for item in lost] == [
+        (CARD, "lapse"), ("iguana_necktie", "lapse")]
     shown = cc.view(later, NOW + timedelta(days=1), warn_days=5)
     assert kinds(shown["warnings"]) == ["card-lost", "credit-lost"]
     again = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=lapsed_wire,
@@ -564,21 +583,89 @@ def test_lapse_records_lost_cards_and_credits_once(tmp_path):
 
 
 def test_card_unused_at_its_end_is_lost_and_a_used_one_is_not(tmp_path):
-    """C-9.10: a card the last good read held unused that passes its end unspent is recorded lost;
-    one a later read shows used is not."""
+    """C-9.10: an `ok` read after a card's end that still shows it unused records it lost; one that
+    shows it used does not."""
     login = Login(expires_in_s=60 * 86400)
     good = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW),
                       logins=[tmp_path / "a"], lanes=[], previous=None, heal=False, heal_after_s=1)
     after_end = NOW + timedelta(days=18)                            # the card ends 2026-10-22T16:00Z
-    still = Wire(healthy())                                         # still unused when it ended
-    expired = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=still, now=lambda: after_end),
+    expired = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(healthy()),
+                                   now=lambda: after_end),
                          logins=[tmp_path / "a"], lanes=[], previous=good, heal=False, heal_after_s=1)
-    assert expired["accounts"][0]["lost"]["reason"] == "expired" and expired["accounts"][0]["lost"]["grants"] == [CARD]
+    assert expired["accounts"][0]["lost"] == [{"grant": CARD, "at": cc.iso_utc(after_end), "reason": "expired"}]
     used = healthy()
     used[cc.CARDS_USAGE_URL] = [(200, fixture("usage_used_card"), None)]
     spent = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(used), now=lambda: after_end),
                        logins=[tmp_path / "a"], lanes=[], previous=good, heal=False, heal_after_s=1)
     assert "lost" not in spent["accounts"][0]
+
+
+def test_a_stale_snapshot_never_asserts_a_loss_or_repeats_one(tmp_path):
+    """C-9.10: an account no read can see (here: expired, no lane, no heal) is never said to have lost
+    a card or credit at its end, however long it stays stale; and once a loss is recorded, two
+    things ending on different days are each told once, never again."""
+    login = Login(expires_in_s=3600)
+    good = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW),
+                      logins=[tmp_path / "a"], lanes=[], previous=None, heal=False, heal_after_s=1)
+    snap, alerts = good, set()
+    for step in range(0, 45 * 4):                                   # 45 days of 6-hourly passes
+        when = NOW + timedelta(hours=6 * (step + 1))
+        snap = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=Wire(healthy()),
+                                    now=lambda: when),
+                          logins=[tmp_path / "a"], lanes=[], previous=snap, heal=False, heal_after_s=1)
+        assert snap["accounts"][0]["status"] == "login-expired"
+        alerts |= {row["key"] for row in cc.view(snap, when, warn_days=5)["warnings"] if row["kind"].endswith("-lost")}
+    assert "lost" not in snap["accounts"][0] and alerts == set()
+    # Fresh reads after each end: one card-lost and one credit-lost, each told once.
+    login.expires_ms = (NOW + timedelta(days=90)).timestamp() * 1000
+    gone = healthy()
+    gone[cc.CARDS_USAGE_URL] = [(200, {**fixture("usage_unused_card_at_limit"), "iguana_necktie": None}, None)]
+    snap, keys = good, []
+    for when in (NOW + timedelta(days=18), NOW + timedelta(days=32), NOW + timedelta(days=33), NOW + timedelta(days=40)):
+        opener = Wire(gone if when > NOW + timedelta(days=30) else healthy())
+        snap = cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=opener, now=lambda: when),
+                          logins=[tmp_path / "a"], lanes=[], previous=snap, heal=False, heal_after_s=1)
+        keys += [row["key"] for row in cc.view(snap, when, warn_days=5)["warnings"] if row["kind"].endswith("-lost")]
+    assert sorted(set(keys)) == ["a:credit-lost:iguana_necktie", "a:lost:" + CARD]
+    assert [item.get("grant") or item.get("credit") for item in snap["accounts"][0]["lost"]] == [CARD, "iguana_necktie"]
+
+
+def test_stopped_pass_reports_no_heal(tmp_path):
+    """C-9.10: a login a stopped pass did not reach is not reported as healed in that pass."""
+    previous = {"version": 1, "accounts": [{"login": "a", "status": "ok", "healed": True, "lanes": []}]}
+    snap = cc.refresh(cc.Sensor(login_reader=Login().read, heal=None, version=lambda: "2", opener=Wire(healthy()),
+                                now=lambda: NOW),
+                      logins=[tmp_path / "a"], lanes=[], previous=previous, heal=False, heal_after_s=1, stop=lambda: True)
+    assert snap["accounts"][0]["healed"] is False
+
+
+def test_heal_is_checkpointed_before_the_next_login(tmp_path):
+    """C-9.10: after a heal the snapshot is written before the next login is read, so a pass that dies
+    later cannot spend the same turn again."""
+    logins = {"a": Login(expires_in_s=-60), "b": Login()}
+    many = Many(logins)
+    written = []
+    cc.refresh(cc.Sensor(login_reader=many.read, heal=many.heal, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW),
+               logins=[tmp_path / "a", tmp_path / "b"],
+               lanes=[{"lane_id": "claude-1", "identity": None, "label": "a", "account_key": "claude:a", "held": False}],
+               previous=None, heal=True, heal_after_s=1, checkpoint=written.append)
+    assert len(written) == 1 and [row["login"] for row in written[0]["accounts"]] == ["a"]
+    assert written[0]["accounts"][0]["heal"]["refreshed"] is True
+
+
+def test_claim_status_goes_stale(tmp_path):
+    """C-9.10: a claim status not read for two days no longer says claimable."""
+    claim = {"eligible": True, "claimed": False, "state": "not_claimed", "checked_at": cc.iso_utc(NOW)}
+    assert cc.claimable(claim, NOW + timedelta(days=1))
+    assert not cc.claimable(claim, NOW + timedelta(days=3))
+    assert not cc.claimable({**claim, "state": "expired"}, NOW)
+
+
+def test_snapshot_is_private(tmp_path):
+    """C-8.1, C-9.10: the snapshot is published mode 0600 by temp, fsync and rename."""
+    path = tmp_path / cc.SNAPSHOT_FILE
+    cc.write_snapshot(path, {"version": 1, "accounts": []})
+    assert (path.stat().st_mode & 0o777) == 0o600 and cc.read_snapshot(path) == {"version": 1, "accounts": []}
 
 
 def test_snapshot_round_trip_and_view(tmp_path):

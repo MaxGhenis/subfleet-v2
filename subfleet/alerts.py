@@ -166,11 +166,16 @@ def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] 
         body = (f"{who} held {', '.join(warning.get('grants') or ())} unused at the last read; it was lost "
                 f"{why} (seen {warning.get('at')}).")
     elif kind == "credit-lost":
-        why = "with its plan" if warning.get("reason") == "lapse" else "unspent at its end"
         credits = ", ".join(f"{row.get('label')} (${(row.get('remaining_dollars') or 0):.2f})"
                             for row in warning.get("credits") or ())
-        subject = f"claude: a promotional credit on {login} was lost {why}"
-        body = f"{who} had {credits} at the last read; it is gone {why} (seen {warning.get('at')})."
+        if warning.get("reason") == "lapse":
+            subject = f"claude: {login}'s plan lapsed with promotional credit unspent"
+            body = (f"{who} had {credits} left at the last read and its plan has lapsed (seen "
+                    f"{warning.get('at')}). When two of these accounts' plans ended (2026-09-30, 2026-10-04) "
+                    f"their usage stopped showing the credit.")
+        else:
+            subject = f"claude: a promotional credit on {login} ended unspent"
+            body = f"{who} had {credits} left at the last read; a read after its end shows it unspent or gone (seen {warning.get('at')})."
     elif kind == "credit-claimable":
         subject = f"claude: {login} has an unclaimed promotional credit"
         body = (f"{who} is eligible for the cloud-session credit and has not claimed it. Claim it in the Claude "

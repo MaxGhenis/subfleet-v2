@@ -275,7 +275,7 @@ def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
 #: C-9.10: what `status.json` says of each account's cards and credits. No
 #: identity, token or path: the menu needs what is at risk and when.
 CARD_ACCOUNT_FIELDS = ("login", "lanes", "lanes_by", "status", "detail", "read_at", "unused_cards", "plan",
-                       "plan_ends_at", "credits", "cloud_credit_claim", "lost")
+                       "plan_ends_at", "credits", "cloud_credit_claim", "claimable", "recently_lost")
 
 
 def _cards(snapshot: Mapping[str, Any]) -> dict[str, Any]:

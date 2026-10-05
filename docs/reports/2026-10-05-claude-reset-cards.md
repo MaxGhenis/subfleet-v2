@@ -6,9 +6,10 @@ tracks Codex `rate_limit_reset_credits`? Answer: yes, with two conditions, a ful
 (scope `user:profile`) and Claude Code's own User-Agent. Nothing was redeemed or claimed. Every read
 was a GET, and the only other requests were the heal turns described under "The census".
 
-Evidence lives in `~/reviews/claude-reset-cards-2026-10-05/`:
+Evidence lives in `~/reviews/claude-reset-cards-2026-10-05/`, and its `README.md` gives each file's provenance:
 
 - `live/` holds the first reads, and `census/` the fleet census and its raw bodies.
+- `dry-run/` holds the sensor's own snapshot from a dry run against the live logins.
 - `tools/` holds the scripts that made them.
 - `claude-ai-cache/` holds decoded claude.ai responses and frontend chunks from the desktop app's HTTP cache.
 
@@ -62,14 +63,16 @@ appears.
   - That matches the 403 `no-scope` history in PR 120's notes.
   - The per-account logins under `~/.subfleet/logins/<email>/` carry `user:profile`.
 - `GET /api/oauth/usage?cedar_ember=1&skip_spend=1`, with a full login, compared across two User-Agents:
-  - With User-Agent `claude-code/2.1.286` (`live/max@maxghenis.com.cedar_ember.json`) the answer is
+  - With User-Agent `claude-code/2.1.286` (`live/max@maxghenis.com.cedar_ember.json`, written by the
+    first version of `tools/read_usage.py`, which hard-coded that User-Agent) the answer is
     `cedar_ember: {eligible: false, ineligible_reason: "surface", grants: []}`.
   - The same request with `claude-cli/2.1.286 (external, cli)`
     (`live/max@maxghenis.com.cedar_ember.cliua.json`) answers `eligible: true` with the grant
     `opus55-launch-promax-20260921`. Its label is "Claude Opus 5.5 launch: one usage-limit reset for
     Pro and Max", with `resets_total 1`, `starts_at 2026-09-22T16:00Z`, `ends_at 2026-10-22T16:00Z`, and
     it clears `five_hour`, `seven_day` and `seven_day_overage_included`.
-  - The sensor's own reads with 2.1.284 got the same answer.
+  - The sensor's own reads with 2.1.284 got the same answer. This is one comparison on one account,
+    not a survey of the server's rule.
 - The same payload carries `iguana_necktie: {limit_dollars: 250, used_dollars: 0, remaining_dollars: 250,
   resets_at: 2026-11-05T07:59Z}`.
   - `GET /v1/code/promo/cloud_credit` on the same accounts returns `{claimed: true, state: "active",
@@ -92,7 +95,10 @@ The claude.ai frontend learns of a scheduled cancellation or downgrade from
   accept OAuth access tokens" (`oauth_token_not_accepted`).
 - The `/api/oauth/organizations/...` spelling is 404.
 
-So the sensor cannot see a scheduled end, and the operator declares it.
+None of the reads made here showed a scheduled end. Only claude.ai's `subscription_details` did, and
+it refuses OAuth tokens. No OAuth read was made on an account during a pending cancellation (the one
+such account, max@axiom-foundation.org, had a dead login), so this is what was seen, not a proof that
+no OAuth endpoint ever shows one. The sensor relies on the operator declaring a scheduled end.
 
 The cache shows the credit going with the plan:
 
@@ -112,8 +118,10 @@ does cards, and records it as lost when the lapse is seen.
 
 The census script (`tools/census.py`) predates the sensor and was more liberal than the sensor's gate.
 
-- It ran a heal turn on every login whose token had expired, except the two PE logins. That was 13
-  turns, six of them on accounts under operator holds: claude-5, -12, -13, -14, -16 and -17.
+- It ran a heal turn on every login whose token had expired, except the two PE logins: 13 turns at
+  15:13–15:14Z.
+- Every one of them ran under an operator hold. Lapsed lanes (claude-5, -12, -13, -14, -16, -17) had
+  long holds. Every other Claude lane had a fleet-wide hold set at 14:00–14:03Z until 15:22:21Z.
 - None of the 13 completed a model turn:
   - The five lapsed accounts' turns were refused ("organization has disabled Claude subscription
     access").
@@ -124,8 +132,10 @@ The census script (`tools/census.py`) predates the sensor and was more liberal t
 - One earlier heal, run by hand on max@maxghenis.com before the census, ran a Haiku turn to
   completion.
 
-The sensor's gate skips held accounts. A dry run of `refresh` against the live store, with a recording
-heal, would have healed only the five lane-backed, unheld logins whose tokens had expired.
+The sensor's gate skips held accounts. A dry run of the sensor's own `refresh` against the live
+logins and the live store's lanes at 15:29–15:31Z, after the fleet-wide hold had ended, with a recording
+heal, would have healed only the five lane-backed, unheld logins whose tokens had expired
+(`dry-run/`).
 
 What it found:
 
@@ -137,7 +147,7 @@ What it found:
 - **Lapsed** (`claude_free`, `canceled`): logpile, openmessage, policybench, rules.foundation,
   mghenis@gmail.
 - **Login could not be renewed** (sign in again to read): max.ghenis@gmail, axiom-foundation, farness,
-  optiqal, rulesatlas.
+  optiqal, rulesatlas, rulesfoundation.
 - **No login folder holds a login:** thesisinstitute, ubicenter.
 - **PE.** The PE personal and PE Team logins were not healed, and were not read.
 
@@ -159,8 +169,8 @@ A login's access token lasts about eight hours, and only the CLI renews it, from
 
 ## Not covered
 
-- A cancellation or downgrade scheduled for the end of a billing period is invisible to every endpoint
-  an OAuth login can read.
+- A cancellation or downgrade scheduled for the end of a billing period was not visible to any read
+  made here (see above).
   - It forfeits an unused card.
   - The operator declares it in `<state root>/claude-plan-ends.json`
     (`{"<login or lane id>": "YYYY-MM-DD"}`), and the sensor warns from that.
