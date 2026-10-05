@@ -6016,7 +6016,13 @@ class Daemon:
     def _quarantine_turn_notice(self, a: dict) -> None:
         turn = (self._read_json(self.root / "jobs" / a["job_id"] / "manifest.json") or {}).get("turn")
         if not turn:
-            raise RuntimeError("released turn has no conversation manifest")
+            # No conversation to tell (a legacy turn, or a manifest lost to a crash):
+            # as `_turn_trees` does, skip the line. Raising here, after the release
+            # committed, would leave the notice pending and its retention pin for ever.
+            with self.store.transaction("quarantine.turn_notice_skipped", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                        data={"reason": "no conversation manifest"}) as tx:
+                tx.execute("UPDATE attempts SET quarantine_notice_pending=0 WHERE attempt_id=?", (a["attempt_id"],))
+            return
         release = self.store.one("SELECT data_json FROM events WHERE attempt_id=? AND kind IN "
                                  "('quarantine.self_resolved','quarantine.confirmed_dead','quarantine.force_release') "
                                  "ORDER BY event_id DESC LIMIT 1", (a["attempt_id"],))

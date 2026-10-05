@@ -254,6 +254,32 @@ def test_turn_release_records_end_snapshot_and_one_system_line_even_after_restar
         restarted.close()
 
 
+def test_turn_without_a_conversation_manifest_is_released_and_never_left_pending(state_daemon, monkeypatch):
+    """C-5.7: a quarantined turn whose manifest names no conversation (a legacy turn,
+    or a manifest lost to a crash) is released like any other. Its notice step has no
+    one to tell, so it clears the pending mark instead of raising after the release
+    committed, which would leave the job pinned from retention for ever."""
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    repository(daemon, harness)
+    cid, mid, job = new_turn(daemon, harness)
+    daemon._admit_turns()
+    [a] = daemon.store.list_attempts(job)
+    (daemon.root / "jobs" / job / "a1").mkdir(exist_ok=True)
+    daemon._quarantine(a, LIVE, "writers remain after exit receipt")
+    manifest = daemon.root / "jobs" / job / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data.pop("turn", None)
+    manifest.write_text(json.dumps(data))
+    clock.advance()
+    daemon._recheck_quarantines()
+    assert_released(daemon, a)
+    assert daemon.store.get_attempt(a["attempt_id"])["quarantine_notice_pending"] == 0
+    assert daemon.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='quarantine.turn_notice_skipped'",
+                            (a["attempt_id"],))
+    assert not daemon.store.one("SELECT 1 FROM attempts WHERE job_id=? AND quarantine_notice_pending=1", (job,))
+
+
 def test_300_quarantines_have_bounded_pass_and_tick_cost(state_daemon, monkeypatch, capsys):
     daemon, harness = state_daemon
     Clock(monkeypatch, daemon)
