@@ -34,14 +34,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, host_pressure, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
+from .alerts import operator_session
 from .contracts import (
-    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, KILL_SETTLE_S,
-    LIVENESS_INTERVAL_S, OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S,
-    TERM_GRACE_S, WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S,
-    Attestation, ClockSource, Closure, ClosureReason, Credential,
+    EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
@@ -53,7 +53,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store
+from .store import Store, _json, notice_fingerprint, notice_rows
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -62,8 +62,43 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-5.11: what a tick reads of every live attempt, in one statement: where its
+#: receipts are, its state, and its job's cancel request and wall limit. It
+#: names no column SQLite keeps on overflow pages: `evidence_json` averaged
+#: 8.4 KB for a running attempt on 2026-10-02, and `SELECT *` read it for every
+#: live attempt twenty times a second.
+LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
+             "j.started_at AS job_started_at,j.max_wall_s "
+             "FROM attempts a LEFT JOIN jobs j USING(job_id) "
+             "WHERE a.state IN ('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap, and only
+#: a job with a parent extends an ancestry (`scheduler._parent_blocks`). Every
+#: other attempt and job the store keeps changes no route: on 2026-10-02 the
+#: live store held 2,722 attempts (23 MB, most of it `evidence_json`) and 2,625
+#: jobs, read and turned into dicts on every evaluation, against 38 active
+#: attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+#: `state` is carried for C-6.15's host-pressure hold (#106), which leaves out the
+#: attempts of any ancestor of a job that has not started; every such job has a
+#: parent, so the rows here are all it needs.
+ROUTE_JOBS = "SELECT job_id,parent_job_id,state FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
+#: C-5.7a: a holder's newest probe record, newest first: the newest payload
+#: json_valid accepts that names it (`hit`, one step of `events_probe_holder`),
+#: and every probe.state payload json_valid refuses (`events_not_json`, normally
+#: none), which `_probe_record` parses as the old walk did. A NaN or an Infinity
+#: is one such payload: json.dumps writes it, json.loads reads it, json_valid
+#: refuses it (json_extract would read it, as JSON5). The release line's C-3.7
+#: query, character for character.
+PROBE_RECORD = (
+    "SELECT event_id,hit,data_json FROM (SELECT event_id,1 AS hit,data_json FROM events "
+    "WHERE kind='probe.state' AND json_valid(data_json) AND json_extract(data_json,'$.holder')=? "
+    "ORDER BY event_id DESC LIMIT 1) "
+    "UNION ALL SELECT event_id,0,data_json FROM events WHERE kind='probe.state' AND NOT json_valid(data_json) "
+    "ORDER BY event_id DESC")
 
 #: C-16.6: `accept` failures that say the process or the system is short of
 #: something for now, not that the socket is gone. The daemon waits and accepts
@@ -84,10 +119,18 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job"})
+                            "probe-pending", "behind-older-job", "host-pressure"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
+#: C-5.7a: a probe a look left quarantined is looked at again this long after,
+#: doubling per consecutive such look to the ceiling.
+PROBE_RECHECK_BASE_S = 1
+PROBE_RECHECK_CEILING_S = 60
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -100,6 +143,11 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+#: C-23.26: how old a delivered service notice is before retention prunes it.
+SERVICE_NOTICE_RETENTION_S = 14 * 86400
+#: C-15.3's delivery ladder, lowest first. The session hooks surface `pending`
+#: and `offered` rows; `surfaced` and `acknowledged` have reached the session.
+NOTICE_LADDER = ("pending", "offered", "surfaced", "acknowledged")
 
 
 class Unroutable(Exception):
@@ -164,9 +212,39 @@ HEADLESS_PREAMBLE = (
 )
 
 
+# A retry that could not repeat a raised inspection is neither recovery nor
+# another failure (C-5.10 with C-5.11/C-5.12).
+DEFERRED = object()
+
+
 def worker_retry_delay(failures: int) -> float:
     """C-5.10: seconds before a worker that has raised `failures` times in a row is tried again."""
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
+
+
+def probe_recheck_delay(looks: int) -> float:
+    """C-5.7a: seconds from the `looks`-th consecutive look that left a probe quarantined to the next."""
+    return min(PROBE_RECHECK_CEILING_S, PROBE_RECHECK_BASE_S * 2 ** min(max(looks, 1) - 1, 16))
+
+
+def probe_evidence(record: dict | None) -> str | None:
+    """C-5.7a: a probe record as a recheck compares it with the last one kept.
+
+    All of it except each live pid's run state (`ps` `stat`, C-5.5): a busy
+    survivor reads `R` on one look and `S` on the next, and neither says
+    anything about whether the probe is contained. Everything else a census
+    records (which pids are live, in which source, their identities, parents
+    and groups, whether it could look at all and what failed) is evidence.
+    """
+    if record is None:
+        return None
+    value = json.loads(_json(record))
+    containment = value.get("containment")
+    shapes = containment.get("shapes") if isinstance(containment, dict) else None
+    for shape in (shapes.values() if isinstance(shapes, dict) else ()):
+        if isinstance(shape, dict):
+            shape.pop("stat", None)
+    return _json(value)
 
 
 def utcnow() -> str:
@@ -214,7 +292,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
-                 liveness_interval_s: float = LIVENESS_INTERVAL_S,
+                 inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
@@ -227,7 +305,7 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
-        self.liveness_interval_s = liveness_interval_s
+        self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
@@ -254,9 +332,28 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
-        self._census_next: dict[str, float] = {}
-        # Attempt id -> when its guardian may next be inspected (LIVENESS_INTERVAL_S).
-        self._liveness_next: dict[str, float] = {}
+        # C-5.12: attempt id -> when its processes are next inspected, and the
+        # one process table those inspections share.
+        self._inspect_next: dict[str, float] = {}
+        # C-5.11: live attempts known to be this daemon's own. An attempt is
+        # recorded `imported_external` when it is imported or never, so "not
+        # imported" is read once; one that is imported is read again each tick,
+        # because the importer clears the flag when it settles the run.
+        self._native: set[str] = set()
+        # Consecutive ticks on which an attempt's ownership could not be read.
+        self._v1_unread: dict[str, int] = {}
+        # Raised inspections stay pending until an inspection runs to its end.
+        self._inspect_retry: set[str] = set()
+        # The last table read (None if the read failed) and when it expires,
+        # replaced whole; the lock is held while `ps` runs.
+        self._table: tuple[procs.ProcessTable | None, float] = (None, 0.0)
+        self._table_lock = threading.Lock()
+        # C-5.7a: probe holder -> (consecutive looks that left it quarantined,
+        # the monotonic time the next is due). Replaced whole, never updated in
+        # place: a timer turn or an enrollment can quarantine a probe on its own
+        # thread. In memory as C-6.10's records are: a restart looks at every
+        # quarantined probe once, and that look writes nothing it already said.
+        self._probe_rechecks: dict[str, tuple[int, float]] = {}
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -359,6 +456,8 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.15: the host's compressor occupancy, read on a worker of its own.
+        self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -655,11 +754,20 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop=None):
+    def _capacity_view(self, desktop=None, *, route: bool = False):
+        """The capacity view (C-6.4, C-9.1). `route` is for a route evaluation
+        (`_pick`): it reads only the attempts and jobs a route can depend on
+        (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`), and `scheduler.evaluate` reaches the same
+        decision over them as over every row (a differential property test).
+        Status and the operator's views read every row."""
+        if route:
+            attempts, jobs = self.store.query(ROUTE_ATTEMPTS), self.store.query(ROUTE_JOBS)
+        else:
+            attempts = self.store.list_attempts()
+            jobs = self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")
         view = capacity.build_view(
             self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
-            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            attempts, jobs, reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
@@ -777,7 +885,13 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        view = self._capacity_view(desktop)
+        view = self._capacity_view(desktop, route=True)
+        # C-6.15: the last reading, for admission and `why` only: the `pick` op's
+        # advice to a person's own session is not held. Nothing is read here,
+        # because this also runs inside the reserving transaction (C-3.3).
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
@@ -1522,43 +1636,91 @@ class Daemon:
                 return self._why_job(self._job(a.job_id))
             decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision)}
+        if op == "notice.list":
+            a = protocol.coerce_args(protocol.NoticeListArgs, args)
+            return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
+        if op == "notice.withdraw":
+            return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
+            # C-15.3: a negated id is a service notice, on every op that takes
+            # ids back (`protocol.notice_row`), and `acknowledged` is terminal
+            # in both tables: a notice is acknowledged once.
+            targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                unique: dict = {}                       # a repeated id: once, with its first fingerprint
+                for index, notice_id in enumerate(a.notice_ids):
+                    unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            tx.execute("UPDATE service_notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=?",
-                                       (utcnow(), -notice_id, a.session_id))
-                            continue
-                        tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
+                    for notice_id, fingerprint in unique.items():
+                        table, row_id = protocol.notice_row(notice_id)
+                        if fingerprint is not None:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint({"text": row[0], "created_at": row[1]}) != fingerprint:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(notice_id)
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in unique if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
-                # bytes) and `surfaced` (a hook printed it). Neither may overwrite
-                # `acknowledged`, which is terminal.
+                # bytes) and `surfaced` (a hook printed it). A mark never moves
+                # a notice down `NOTICE_LADDER`: `acknowledged` is terminal, and
+                # an offer read before a hook surfaced the notice cannot put it
+                # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
                     raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
+                movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
                 with self.store.transaction("notice." + a.state) as tx:
-                    for notice_id in a.notice_ids:
+                    for table, row_id in targets:
                         tx.execute(
-                            "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
+                            f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                            "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                            (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
+                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})",
+                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable))
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
-            notices += [{**row, "notice_id": -row["notice_id"], "job_id": None} for row in
+            notices += [protocol.service_notice_on_wire(row) for row in
                         self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
-            return {"notices": notices}
+            return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text", "")
-            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            text = args.get("text")
+            text = "" if text is None else text
+            if not isinstance(text, str):
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+            # C-15.8: a notice goes to the session named, else to the configured
+            # operator session; there is no default inbox nobody reads. A blank
+            # or non-string session names none, and whitespace is no text.
+            named = args.get("session_id")
+            named = named.strip() if isinstance(named, str) and named.strip() else None
+            session = named or operator_session(self.policy)
             notice_id = None
-            if text:
+            if text.strip():
+                if not session:
+                    raise protocol.ProtocolError(
+                        "ping: no session named, and alerts.operator_session is not set; "
+                        "a notice addressed to no session is never read (C-15.8)",
+                        fix="name the session: subfleet ping --session <id> TEXT")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -1570,7 +1732,8 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
         raise protocol.ProtocolError(f"unknown op {op}")
 
@@ -1857,9 +2020,10 @@ class Daemon:
         future = self.workers.submit(fn, *args)
         def done(f):
             try:
-                f.result()
+                deferred = f.result() is DEFERRED
                 with self._busy_lock:
-                    self._worker_failures.pop(key, None)
+                    if not deferred:
+                        self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
                 # Provider/keychain errors can contain secrets; log the error
@@ -1915,9 +2079,70 @@ class Daemon:
         itself raises "dictionary changed size during iteration" whenever a
         worker adds an entry mid-walk. Popping is safe.
         """
-        for pacing in (self._liveness_next, self._census_next):
+        for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
+        for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
+            self._inspect_retry.discard(aid)
+        self._native &= live
+        for aid in [aid for aid in self._v1_unread.copy() if aid not in live]:
+            self._v1_unread.pop(aid, None)
+
+    def _note_ownership_unread(self, aid: str, exc: BaseException) -> None:
+        """Log an attempt whose v1 ownership could not be read, on the 1st, 2nd,
+        4th, ... consecutive tick (as C-5.10 logs a failing worker), type only."""
+        count = self._v1_unread[aid] = self._v1_unread.get(aid, 0) + 1
+        if count & (count - 1) == 0:
+            self.log.error("attempt %s: whether v1 owns it could not be read: %s (%d ticks in a row); "
+                           "no pass is given until it can (principle 3)", aid, type(exc).__name__, count)
+
+    def _v1_owned(self, aid: str) -> bool:
+        """Whether v1 still executes this live attempt (`imported_external`), read
+        from its row until the answer is no (C-5.11)."""
+        if aid in self._native:
+            return False
+        row = self.store.one("SELECT evidence_json FROM attempts WHERE attempt_id=?", (aid,))
+        if row is not None and imported_external(row):
+            return True
+        self._native.add(aid)
+        return False
+
+    def _has_work(self, a: dict) -> bool:
+        """C-5.11: whether a pass over this live attempt could do anything this tick.
+
+        `_process_attempt` on a running attempt reads its exit receipt, its job's
+        cancel request and its wall limit, and then inspects its processes if an
+        inspection is due (C-5.12). When there is no receipt, no cancel request,
+        the wall limit is not reached and no inspection is due, it returns having
+        done nothing. That is what this answers, from the tick's one statement
+        and one `stat`, so that only an attempt with something to do costs a
+        worker. It decides nothing: the pass reads everything again for itself.
+        Every doubt is a yes.
+
+        `_worker_failures` is a yes for the pacing, not for any action: a pass
+        whose last run raised may act on nothing, but its success is what clears
+        C-5.10's count, and withheld, a stale count would back the next real
+        failure off longer than it should.
+        """
+        aid = a["attempt_id"]
+        if a["state"] != "running" or a["max_wall_s"] is None:
+            return True                     # launching, starting, finalizing; or a job row to miss
+        if aid in self._inspect_retry or aid in self._worker_failures:
+            return True                     # C-5.10: a pass that raised is repeated on its clock
+        if time.monotonic() >= self._inspect_next.get(aid, 0):
+            return True                     # C-5.12: an inspection is due
+        if a["cancel_requested_at"] or age(a["job_started_at"]) >= a["max_wall_s"]:
+            return True
+        child = self._children.get(aid)
+        if child is not None and child.poll() is not None:
+            return True                     # the guardian ended: the pass lets go of it
+        try:
+            os.stat(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            pass                            # unreadable is the pass's to report
+        return True
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -1925,43 +2150,171 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                live = self.store.query(LIVE_ATTEMPTS)
+                live = self.store.query(LIVE_TICK)
                 self._forget_paced({a["attempt_id"] for a in live})
                 for a in live:
-                    if imported_external(a):
+                    # Migration principle 3: a doubt about whether v1 still owns
+                    # the run is a no. No pass is given; it is asked again next
+                    # tick, and an error never ends the tick for other keys.
+                    try:
+                        owned = self._v1_owned(a["attempt_id"])
+                    except Exception as exc:        # noqa: BLE001 - logged, bounded
+                        self._note_ownership_unread(a["attempt_id"], exc)
+                        continue
+                    self._v1_unread.pop(a["attempt_id"], None)
+                    if owned:
                         continue                    # v1 still owns it (principle 3)
-                    self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
+                    # C-5.11: every live attempt is looked at each tick; the pool
+                    # is given those a pass could do something for. Every doubt
+                    # about what a pass would do is a yes, an error in the look
+                    # included: the pass raises it, keyed to this attempt, and
+                    # C-5.10 paces it. Raised here, it would end the tick for
+                    # every other key.
+                    try:
+                        offer = self._has_work(a)
+                    except Exception:               # noqa: BLE001 - the pass reports it
+                        offer = True
+                    if offer:
+                        self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
+                # C-6.15: one `vm_stat` per `sample_s` while the hold is on, on a
+                # worker of its own so that a slow one delays no admission pass.
+                # Also with nothing in flight, when it holds nothing: jobs that
+                # arrive together then meet a reading, not the lack of one.
+                pressure = host_pressure.settings(self.policy)
+                if pressure["enabled"] and self._host_pressure.due(pressure["sample_s"]):
+                    self._schedule("host-pressure", self._host_pressure.refresh, pressure["sample_s"], paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
 
     def _timer_notice(self, notice: dict) -> bool:
-        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+        """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+        one is set. With none it is delivered by being shown: `status` and
+        `status.json` list every alert in force (C-18.4), and no inbox parks it."""
+        session = operator_session(self.policy)
+        if session is None:
+            return True
+        result = self.dispatch("ping", {"session_id": session,
                                        "text": notice["subject"] + "\n" + notice["body"]})
         return result.get("notice_id") is not None
 
+    def _withdraw_notices(self, a: protocol.NoticeWithdrawArgs) -> dict:
+        """C-15.8, C-23.26: an operator withdraws a session's undelivered service notices.
+
+        Only the rows named, only that session's, and only while still `pending`
+        or `offered`: a notice a hook printed or a session acknowledged is not
+        withdrawn, and a job's notice (a positive id) is its terminal record and
+        is refused. The rows are deleted in one transaction with one
+        `notice.withdrawn` event naming each id, the session, the reason, the
+        creation span and how many of each subject went, so the withdrawal
+        claims no delivery and loses no record of what was withdrawn."""
+        jobs = sorted(notice_id for notice_id in a.notice_ids if notice_id >= 0)
+        if jobs:
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
+                "terminal record and is acknowledged, never withdrawn (C-15.8)",
+                fix=f"subfleet notices --session {a.session_id} --ack")
+        if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                "give one per id, or none")
+        if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+        listed: dict = {}
+        for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
+            if a.fingerprints:
+                listed.setdefault(-notice_id, a.fingerprints[index])
+        wanted = sorted({-notice_id for notice_id in a.notice_ids})
+        record: dict = {"session_id": a.session_id,
+                        "reason": a.reason if a.reason is not None else "withdrawn by the operator",
+                        "service_notice_ids": [], "count": 0, "first_created_at": None,
+                        "last_created_at": None, "subjects": {}}
+        with self.store.transaction("notice.withdrawn", data=record) as tx:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
+                rows = [row for row in tx.execute(
+                            f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                            "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                        if not listed or listed.get(row[0]) == notice_fingerprint(
+                            {"text": row[1], "created_at": row[2]})]
+                if rows:                            # at most one chunk's worth
+                    tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
+                               [row[0] for row in rows])
+                for notice_id, text, created_at in rows:
+                    record["service_notice_ids"].append(notice_id)
+                    subject = str(text).split("\n", 1)[0]
+                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+            record["count"] = len(record["service_notice_ids"])
+        withdrawn = set(record["service_notice_ids"])
+        return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
+                "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
+
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        # C-23.26, C-8.4: first, and on its own: it used to follow a completed
+        # pass only, so a store too large to finish a pass never shed its old
+        # service notices. One that fails is logged and holds retention up no
+        # longer than this line.
+        try:
+            self._prune_service_notices()
+        except sqlite3.Error as exc:
+            self.log.warning("retention: old service notices were not pruned this pass: %s", type(exc).__name__)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel,
+                             deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+            pruned = len(result.get("pruned") or ())
+            if pruned:
+                # It pruned before its time ran out, so the store is smaller and
+                # the next pass gets further: retried on C-5.10's clock, as a pass
+                # that raises is. A retry that prunes nothing waits the hour
+                # (below), so the retries end.
+                self.log.warning("retention: the pass reached its %g s deadline after pruning %d jobs; it is "
+                                 "retried on the worker clock (C-8.4, C-5.10)", RETENTION_PASS_S, pruned)
+                raise TimeoutError("retention deadline reached")
+            # C-8.4: it ran out of time before it pruned a job. The next pass
+            # sizes every job again from the first, so one offered 60 s later
+            # meets the same deadline: retried on C-5.10's clock, a store too
+            # large to size in one pass kept a worker in `lstat` half of every
+            # two minutes for as long as the daemon ran. It is due again when a
+            # completed pass would be.
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline before it pruned a job (%d jobs in "
+                             "the store); the next pass is due in %g s (C-8.4)",
+                             RETENTION_PASS_S, result.get("jobs_after") or 0, RETENTION_INTERVAL_S)
+            self._last_maintenance = time.monotonic()
+            return
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+        # A raising pass remains due so the worker retry clock can re-offer it,
+        # and so does one whose own bookkeeping above raised, or that pruned
+        # before its time ran out. A pass that ran to its end, or out of time
+        # before it pruned anything, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
+
+    def _prune_service_notices(self) -> int:
+        """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
+
+        Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
+        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        """
+        with self.store.transaction("service-notice.retention") as tx:
+            return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
+                              (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.
@@ -2131,22 +2484,57 @@ class Daemon:
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
-        rows = self.store.query("SELECT data_json FROM events WHERE kind='probe.state' ORDER BY event_id DESC")
-        for row in rows:
-            record = json.loads(row["data_json"])
-            if record.get("holder") == holder:
+        # C-5.7a: the newest record for this holder, found by SQLite; every
+        # probe.state event (thousands, never pruned) used to be fetched and
+        # parsed in Python, on every admission pass for every probe lease and
+        # in every capacity view. The release line's C-3.7 lookup.
+        # The holder is checked in Python for the index's hit too: a payload
+        # with the key twice, which no writer makes (every one is json.dumps of
+        # a dict), is indexed under SQLite's first value and read by Python
+        # under the last, and must never be returned as another holder's. Being
+        # the newest indexed row under that first value, it also hides that
+        # holder's older records (the hit is LIMIT 1); C-5.7a names this.
+        for row in self.store.query(PROBE_RECORD, (holder,)):
+            try:
+                record = json.loads(row["data_json"])
+            except (TypeError, ValueError):
+                continue        # not JSON at all; no writer makes one (the old walk raised here)
+            if isinstance(record, dict) and record.get("holder") == holder:
                 return record
         return None
 
-    def _save_probe(self, record: dict) -> None:
+    def _save_probe(self, record: dict) -> bool:
+        """C-8.4: append the record as a `probe.state` event, and say whether it did.
+
+        C-5.7a: a record that is exactly the newest its holder already has is not
+        appended again; `_probe_record` would return the same thing either way.
+        """
+        latest = self._probe_record(record["holder"])
+        if latest is not None and _json(latest) == _json(record):
+            return False
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
+        return True
+
+    def _pace_probe(self, holder: str, contained: bool) -> None:
+        """C-5.7a: a look that left the probe quarantined backs its clock off; a contained probe has none."""
+        if contained:
+            self._probe_rechecks.pop(holder, None)
+            return
+        looks = self._probe_rechecks.get(holder, (0, 0.0))[0] + 1
+        self._probe_rechecks[holder] = (looks, time.monotonic() + probe_recheck_delay(looks))
 
     def _probe_census(self, record: dict):
         return procs.containment(record.get("pgid"), record.get("guardian_pid"),
                                  record.get("child_pid"), record["holder"], root=str(self.root))
 
     def _contain_probe(self, record: dict) -> bool:
-        """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
+        """C-5.4–7: terminate only recorded identities and retain uncertain leases.
+
+        C-5.7a: whatever it finds starts or backs off the probe's recheck clock
+        when it is not verified empty, and it writes only what changes: a
+        quarantined probe found as it was, with its job held, adds no row and
+        commits no transaction.
+        """
         census = self._probe_census(record)
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -2177,13 +2565,29 @@ class Daemon:
                 census = self._probe_census(record)
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
-        self._save_probe(record)
-        if not census.verified_empty:
-            with self.store.transaction("probe.quarantined", job_id=record["job_id"],
-                                        lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                           (after(60), record["job_id"]))
-        return census.verified_empty
+        self._pace_probe(record["holder"], census.verified_empty)
+        changed = probe_evidence(record) != probe_evidence(self._probe_record(record["holder"]))
+        if census.verified_empty:
+            if changed:
+                self._save_probe(record)
+            return True
+        if not changed and not (record["job_id"] and self.store.one(
+                "SELECT 1 FROM jobs WHERE job_id=? AND state IN ('queued','waiting') "
+                "AND wait_reason IS NOT 'uncertain'", (record["job_id"],))):
+            # C-5.7a: nothing the record says has changed and its job is held,
+            # so neither does the store: no probe.state row, no transaction,
+            # nothing for a waiter to wake on.
+            return False
+        # The record and the job's hold commit together, so neither is kept
+        # without the other; a look that finds the record current but its job
+        # not held (a store an older daemon left half-written) holds the job.
+        with self.store.transaction("probe.quarantined", job_id=record["job_id"],
+                                    lane_id=record["lane_id"], data={"containment": census.to_dict()}) as tx:
+            if changed:
+                self._save_probe(record)
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='uncertain',next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
+                       (after(60), record["job_id"]))
+        return False
 
     def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
         """Re-adopt the same gated guardian, bounded by its durable deadline."""
@@ -2210,7 +2614,7 @@ class Daemon:
             # most every liveness interval, and the owned-member record reads
             # the group source alone. The full census decides containment.
             if time.monotonic() >= next_liveness:
-                next_liveness = time.monotonic() + self.liveness_interval_s
+                next_liveness = time.monotonic() + self.inspect_interval_s
                 if not procs.same_process(record["guardian_pid"], record["boot_id"], record["proc_start"]):
                     break
                 if time.monotonic() >= next_census:
@@ -2344,10 +2748,21 @@ class Daemon:
         shutil.rmtree(record["directory"], ignore_errors=True)
 
     def _recover_probes(self) -> None:
-        """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
-        for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'"):
+        """C-5.3–7, C-8.4: recover each durable probe before admitting more work.
+
+        C-5.7a: every admission pass runs this, up to twenty a second. A probe
+        the last look left quarantined keeps its lease and is looked at again
+        only when its own clock is due, since a look is a full census (C-5.5,
+        which reads every process's environment) and a guardian identity check.
+        """
+        leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+        for gone in set(self._probe_rechecks) - {lease["holder"] for lease in leases}:
+            self._probe_rechecks.pop(gone, None)          # released: nothing left to look at
+        for lease in leases:
             if lease["holder"] in self.timers.active_holders:
                 continue
+            if time.monotonic() < self._probe_rechecks.get(lease["holder"], (0, 0.0))[1]:
+                continue                                  # quarantined, and not yet due
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
@@ -2725,6 +3140,7 @@ class Daemon:
                         label = "fleet-full" if live >= cap else "slot-kept"
                     hold = {"reason": label,
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
+                            **(scheduler.host_pressure_evidence(decision) if label == "host-pressure" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     rechecks = self._capacity_wait(
@@ -3088,7 +3504,13 @@ class Daemon:
             os.close(read_fd)
             if write_fd >= 0:
                 os.close(write_fd)
-        self._starting_deadlines[a["attempt_id"]] = time.monotonic() + self.start_grace_s
+        now = time.monotonic()
+        self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
+        # C-5.12: first inspected with a table read after its guardian started,
+        # which shows the guardian. Due as it first asked, it was usually given
+        # a table another attempt had read before the guardian existed, and paid
+        # for a fresh `liveness` and a table of its own to record its group.
+        self._inspect_next[a["attempt_id"]] = now + self.inspect_interval_s
         self._boundary("starting", a["job_id"], a["attempt_id"])
 
     def _launch_failure(self, a: dict, detail: str, *, rc: int = 127) -> None:
@@ -3105,12 +3527,15 @@ class Daemon:
         except FileNotFoundError:
             return None
 
-    def _process_attempt(self, aid: str) -> None:
+    def _process_attempt(self, aid: str) -> object:
+        """One attempt pass; DEFERRED when a raised inspection still cannot repeat."""
         a = self.store.get_attempt(aid)
         if not a or a["state"] not in LIVE:
-            self._liveness_next.pop(aid, None)
-            self._census_next.pop(aid, None)
-            return
+            self._inspect_next.pop(aid, None)
+            self._inspect_retry.discard(aid)
+            return None
+        if imported_external(a):
+            return None                     # v1 still owns it (principle 3): the loop's check, again
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
@@ -3150,59 +3575,114 @@ class Daemon:
             if time.monotonic() < deadline:
                 return
             census = self._contain(a)
+            # The guardian writes start.json, runs the provider, writes exit.json
+            # and exits, so the receipts can land while the census runs, and a
+            # census that then finds nothing is an attempt that finished. Read
+            # before them, it released a provider that had exited 0 to run again
+            # (C-4.2). The next tick takes them from the top, and takes only a
+            # receipt that reads as a value (as above): one that merely exists,
+            # holding `{}` or `null`, left the attempt here, taking a census on
+            # every tick.
+            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
+                return
             if census.verified_empty:
                 self._unlaunched(a, "starting-no-receipt")
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        # The receipt, the cancel request and the wall limit above are read on
-        # every tick; asking `ps` about the guardian is paced. Each question is
-        # several subprocesses from a large, many-threaded process, and asking
-        # it up to twenty times a second per running attempt stretched every
-        # store-lock hold behind the daemon's requests (C-5.11, 2026-09-24).
-        # A guardian that dies without a receipt is noticed at the first
-        # inspection due one interval after the last, once a worker takes
-        # this attempt; an `unknown` answer decides nothing (C-4.2).
+        # C-5.12: everything above is files and rows, read on every pass the
+        # control loop offers (C-5.11 says which: every tick it has work). What
+        # follows asks the operating system, so a healthy attempt is inspected
+        # once per interval, from one process table shared by every attempt.
+        # It falls due again when the table it was given expires, which is when
+        # a new one may be read: timed from before the read, the next inspection
+        # fell just short of that and took the same table again.
         now = time.monotonic()
-        if now < self._liveness_next.get(aid, 0):
-            return
-        self._liveness_next[aid] = now + self.liveness_interval_s
+        due = self._inspect_next.get(aid, now)
+        retry = aid in self._inspect_retry
+        if now < due:
+            return DEFERRED if retry else None
         try:
-            self._inspect_running(a, adir)
+            inspected = self._inspect_running(a, adir, due)
         except BaseException:
             # A pass that raised must be retried in full, not skipped at the
             # gate: a skipped pass returns normally, and C-5.10 would count it
-            # as recovery and start its backoff over.
-            self._liveness_next.pop(aid, None)
+            # as recovery and start its backoff over. The retry is given the
+            # same table while that has not expired, so a table is still read
+            # at most once per interval.
+            self._inspect_next.pop(aid, None)
+            self._inspect_retry.add(aid)
             raise
+        if inspected:
+            self._inspect_retry.discard(aid)
+            return None
+        return DEFERRED if retry else None
 
-    def _inspect_running(self, a: dict, adir: Path) -> None:
-        """The paced half of `_process_attempt`: is the guardian still ours?"""
+    def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
+        """The paced inspection (C-5.12); False when it could not inspect.
+
+        A retry that cannot read a table, boot identity or guardian is no
+        recovery: C-5.10 keeps its failure count until inspection completes.
+        """
         aid = a["attempt_id"]
+        shared = self._process_table(due)
+        if shared is None:
+            # Another attempt's read (`ps`, then `sysctl`) is running: ask again
+            # next tick, still due from when it fell due (a recovered attempt,
+            # from now), so that it may be given that read.
+            self._inspect_next.setdefault(aid, due)
+            return False
+        table, self._inspect_next[aid] = shared
+        if table is None:
+            # This interval's read failed. Asking about the guardian singly would
+            # cost a capped read per running attempt, which is the outage cost
+            # the shared read exists to ration, and a guardian that cannot be
+            # inspected decides nothing anyway (C-4.2, C-5.5).
+            self.log.debug("process table unreadable; %s not inspected this interval", aid)
+            return False
+        try:
+            # C-5.3's legacy match too: a guardian recorded with `kern.boottime`
+            # seconds (its UUID `sysctl` failed once at start) is shown alive when
+            # the table's one read of those seconds matches, as `liveness` would
+            # say, and is recorded from this table, not asked about singly.
+            shown = table.is_process(a["guardian_pid"], a["boot_id"], a["proc_start"], legacy=True)
+        except procs.InspectionError:
+            # The table's boot identity (or the seconds a legacy record needs)
+            # could not be read, once for every attempt that asks; asked singly,
+            # the guardian would need the same read.
+            self.log.debug("boot identity unreadable; %s not inspected this interval", aid)
+            return False
+        if shown:
+            self._record_owned(a, table)
+            return True  # Re-adopted solely by receipt identity, not parentage.
+        # A shared table can say "alive" and nothing else: a guardian it does
+        # not show is asked about afresh before anything is decided from it.
         alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if alive == "alive":
-            if time.monotonic() >= self._census_next.get(aid, 0):
-                self._record_owned(a)
-                self._census_next[aid] = time.monotonic() + OWNED_CENSUS_INTERVAL_S
-            return  # Re-adopted solely by receipt identity, not parentage.
+            try:
+                self._record_owned(a, procs.snapshot())
+            except procs.InspectionError:
+                return False
+            return True
         if alive == "unknown":
             # ps failed or timed out (load, or an inspection outage). A guardian
             # that cannot be inspected is neither dead nor an escape; nothing is
             # decided from it this tick (C-4.2, C-5.5).
             self.log.debug("guardian liveness of %s unknown this tick", aid)
-            return
+            return False
         # The guardian writes exit.json and then exits, so a receipt can appear
         # between the read above and the liveness check: a dead guardian with a
         # receipt is the normal end of an attempt, not a loss (C-4.2).
         receipt = self._read_json(adir / "exit.json")
         if receipt:
             self._begin_finalizing(a, receipt)
-            return
+            return True
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
         else:
             self._lost(a)
+        return True
 
     def _contain(self, a: dict):
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
@@ -3238,23 +3718,76 @@ class Daemon:
                 fresh[str(pid)] = dataclasses.asdict(ident)
         return fresh
 
-    def _record_owned(self, a: dict) -> None:
-        """Record the group members a live attempt owns (C-5.4 signal targets).
+    def _process_table(self, due: float) -> tuple[procs.ProcessTable | None, float] | None:
+        """C-5.12: a table for an inspection that fell due at `due`, and when that
+        table expires (the table is None if its read failed); None when another
+        inspection's read is running and no table is new enough, in which case
+        the caller asks again on its next tick.
 
-        Only group members are ever recorded, so this reads C-5.5's group
-        source alone: the marker scan reads every process's environment
-        (`ps -axEww`, megabytes) and its pids were discarded here. A member
-        already recorded under the same start and the current boot identity is
-        not asked again; a pid a new process has taken, and a member recorded
-        under another boot identity, are recorded afresh, as the full census
-        did (`_new_group_identities`).
+        An inspection is given the last table if it expires after the inspection
+        fell due: for an attempt already inspected, one read after the table it
+        was last given; for one this daemon launched, one read after its guardian
+        started (it falls due an interval after its launch gate opened); and for
+        one it recovered, one read less than an interval before it first asked.
+        Otherwise it reads a table, and that is the only time a read begins, so
+        reads begin at least `inspect_interval_s` apart however many attempts ask
+        and however long `ps` takes. A read is `ps` and then the table's boot
+        identity (`sysctl`, unless the module remembers the UUID). Only the
+        inspection that reads waits for them: one that finds a read running
+        returns at once, so a slow or hung `ps` or `sysctl` holds one worker of
+        the pool, not one per running attempt, and every other attempt's
+        receipts, cancel and clock are still read each tick. A read that failed
+        is rationed like one that worked.
         """
+        if due < self._table[1]:
+            return self._table
+        if not self._table_lock.acquire(blocking=False):
+            return None
+        try:
+            if due < self._table[1]:                 # another read ended while this one asked
+                return self._table
+            began = time.monotonic()
+            try:
+                table = procs.snapshot()
+            except procs.InspectionError:
+                table = None
+            try:
+                if table is not None:
+                    # The reader waits for `sysctl` too, before any attempt is
+                    # given the table: an attempt that read it lazily held every
+                    # other attempt given the table on its lock for as long.
+                    table.boot()
+            except procs.InspectionError:
+                pass                             # kept by the table: each attempt sees it
+            finally:
+                # Published however the boot read ends: anything else it raises
+                # is kept by the table and fails the passes of the attempts
+                # given it (C-5.10 retries them, on this table while it lasts),
+                # and never costs a second `ps` or `sysctl` this interval.
+                self._table = (table, began + self.inspect_interval_s)
+            return self._table
+        finally:
+            self._table_lock.release()
+
+    def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
+        """C-5.6: remember the group's members while the recorded guardian leads it.
+
+        Both facts come from the one table, so the leader is known to be ours at
+        the instant its members were listed. Only group members are recorded,
+        which is why the marker scan of a full census is not run here. The
+        leader is ours by C-5.3's rule, the one `same_process` applies before
+        the kill protocol records members, so a legacy boot timestamp that
+        matches counts.
+        """
+        guardian = a["guardian_pid"]
+        if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
+                or table.rows[guardian][1] != a["pgid"]):
+            return
+        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
-        fresh = self._new_group_identities(a.get("pgid"), before)
-        if not fresh or not procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"]):
-            return
-        owned = {**before, **fresh}
+        owned = dict(before)
+        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
         if owned != before:
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

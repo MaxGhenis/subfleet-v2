@@ -16,6 +16,7 @@ from typing import Any
 from .capacity import fresh_provider, identity_blocked
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
+from . import host_pressure
 from .policy import PolicyError, resolve_model
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -249,9 +250,9 @@ def _future_closure(closure: Mapping[str, Any], now: datetime) -> bool:
 def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
     """C-23.37: stronger models come from policy, never provider name guesses.
 
-    Explicit priorities compare models across separate task chains (Fable's
-    writing chain and the general-work chain). Older policies still express
-    ordering within their upward-only chains.
+    Explicit priorities compare models across separate task chains (a writing
+    chain and the general-work chain; until 2026-09-27 Fable's). Older policies
+    still express ordering within their upward-only chains.
     """
     model = policy["models"][short]
     higher = set()
@@ -293,6 +294,74 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
            for key in ("pinned_lane", "pinned_model")):
         raise RouteError("unmeasured_reserve_reason: explicit pinned_lane and pinned_model are required")
     return reason.strip()
+
+
+#: C-6.15: a job in one of these states has not started, so an attempt of any of
+#: its ancestors may be waiting for it.
+PENDING_JOBS = frozenset({"queued", "waiting"})
+
+
+def in_flight_beside(view: Mapping[str, Any], job: Mapping[str, Any], in_flight: Mapping[str, int]) -> int:
+    """C-6.15: the attempts in flight that a job held for host pressure would wait for.
+
+    Not those of an ancestor of a job that has not started, this job or any other:
+    a parent that submits a child and waits for it (`subfleet run --parent`, then
+    `subfleet wait`) ends only when the child has. Held behind its own parent, the
+    child would wait until the parent's wall limit killed it; and two such parents
+    would hold each other's children (review of 15cc9f7e), which leaving out only
+    the job's own ancestors did not prevent. A parent that does not wait for its
+    child is left out too, which can only start more. A view that carries only
+    per-lane counts cannot tell whose an attempt is, and counts them all.
+    """
+    attempts = view.get("attempts")
+    if attempts is None:
+        return sum(in_flight.values())
+    rows = [_row(item) for item in view.get("jobs", ())]
+    parents = {row["job_id"]: row.get("parent_job_id") for row in rows}
+
+    def ancestors(parent: Any, into: set[str]) -> None:
+        while parent and parent not in into:
+            into.add(parent)
+            parent = parents.get(parent)
+
+    waited_on: set[str] = set()
+    ancestors(job.get("parent_job_id"), waited_on)
+    for row in rows:
+        if row.get("state") in PENDING_JOBS:
+            ancestors(row.get("parent_job_id"), waited_on)
+    return sum(1 for attempt in map(_row, attempts)
+               if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("job_id") not in waited_on)
+
+
+def host_pressure_hold(policy: Mapping[str, Any], view: Mapping[str, Any], active: int) -> dict[str, Any] | None:
+    """C-6.15: what holds a new attempt while the host's memory is under pressure, or None.
+
+    Only a policy that switches `host_pressure.enabled` on holds anything, only
+    on a reading the view carries, and only while `active` attempts are in
+    flight beside the job (`in_flight_beside`): with none, nothing it could wait
+    for will end, so the job starts whatever the host holds. A host that cannot
+    be read holds nothing.
+    """
+    settings = host_pressure.settings(policy)
+    reading = view.get("host_pressure")
+    if not settings["enabled"] or active <= 0 or not reading:
+        return None
+    occupied = reading.get("compressor_bytes")
+    limit = settings["compressor_max_gib"]
+    if occupied is None or occupied <= limit * host_pressure.GIB:
+        return None
+    return {"compressor_gib": round(occupied / host_pressure.GIB, 1), "compressor_max_gib": limit,
+            "active_attempts": active}
+
+
+def host_pressure_evidence(decision: Decision | Mapping[str, Any] | None) -> dict[str, Any]:
+    """C-6.11: the reading a `host-pressure` hold reports, from the decision that met it."""
+    if decision is None:
+        return {}
+    for evaluation in _row(decision).get("evaluations", ()):
+        if evaluation.get("host_pressure"):
+            return {key: evaluation["host_pressure"][key] for key in ("compressor_gib", "compressor_max_gib")}
+    return {}
 
 
 def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
@@ -341,7 +410,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
-    # Repeated tiers on Fable and Terra do not create another admission chance.
+    # Repeated tiers (the one-model writing chains, Terra) do not create another
+    # admission chance.
     chain = list(dict.fromkeys(chain))
     in_flight = dict(view.get("in_flight", {}))
     if "in_flight" not in view:
@@ -353,6 +423,11 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     capacity_blocks = _parent_blocks(policy, view, job)
     if sum(in_flight.values()) + view.get("reserved_probes", 0) >= caps["max_active_attempts"]:
         capacity_blocks.append("fleet")
+    pressure = None
+    if host_pressure.settings(policy)["enabled"] and view.get("host_pressure"):
+        pressure = host_pressure_hold(policy, view, in_flight_beside(view, job, in_flight))
+    if pressure:
+        capacity_blocks.append("host-pressure")
     evaluations: list[dict[str, Any]] = []
     messages: list[str] = []
     chosen_lane = chosen_model = None
@@ -458,6 +533,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "readings": scoped_readings,
                             "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
                             "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
+                            **({"host_pressure": pressure} if pressure else {}),
                             "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
@@ -638,7 +714,8 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
 
     A lane rejected only for `no-slot` would take the job if it had room, so
     room is the cause: `fleet-full` when the fleet cap made it so, `parent-cap`
-    for a parent's, else `no-slot`. When every lane has a standing reason the
+    for a parent's, `host-pressure` when only the host's memory holds it
+    (C-6.15), else `no-slot`. When every lane has a standing reason the
     label is the commonest of those, and the cap is beside the point: a probe's
     reservation counts toward the fleet cap, so a job that no lane admits anyway
     would otherwise read `fleet-full` for the second each probe runs.
@@ -663,7 +740,9 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
     if room_only:
         if "fleet" in blocks:
             return "fleet-full"
-        return "parent-cap" if any(str(block).startswith("parent:") for block in blocks) else "no-slot"
+        if any(str(block).startswith("parent:") for block in blocks):
+            return "parent-cap"
+        return "host-pressure" if "host-pressure" in blocks else "no-slot"
     if not counts:
         return "no-lanes"
     return max(sorted(counts), key=lambda label: counts[label])

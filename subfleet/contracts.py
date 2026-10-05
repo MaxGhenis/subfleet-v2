@@ -213,14 +213,13 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
-# C-5.11 (C-5.3): how often a running attempt's guardian is asked by `ps` whether
-# it is still the recorded process. The exit receipt, the cancel request and the
-# wall limit are still read every tick; only the process inspection is paced.
-# On 2026-09-24 the per-tick inspection (three subprocesses per running attempt,
-# up to twenty times a second) was one of the loads that wedged the daemon.
-LIVENESS_INTERVAL_S = 1.0
-# C-5.11: how often a running attempt re-records the group members it owns
-# (C-5.4); it runs inside the paced liveness pass, so at most that often too.
+# C-5.12: how often a healthy running attempt's processes are inspected, and the
+# oldest process table that inspection may share. The receipt, a cancel and the
+# wall clock are still read every tick; a death verdict is never taken from a
+# shared table.
+INSPECT_INTERVAL_S = 1.0
+# C-5.11: a probe records owned group members inside its paced liveness pass,
+# no more often than this even when its inspection interval is shorter.
 OWNED_CENSUS_INTERVAL_S = 0.5
 # C-5.11: `wait` re-reads the store when a transaction has committed since its
 # last look, and at least this often regardless.
@@ -238,6 +237,10 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-6.15: the host-pressure hold is off as shipped. Switched on, it holds at
+#: the occupancy where the 2026-10-01 study saw decompressions rise a
+#: thousandfold on a 128 GiB host, on a reading at most `sample_s` old.
+HOST_PRESSURE_DEFAULTS: dict[str, Any] = {"enabled": False, "compressor_max_gib": 40, "sample_s": 15}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300

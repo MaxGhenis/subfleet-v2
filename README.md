@@ -32,7 +32,8 @@ bin/sf2 --help
 
 The default suite uses temporary stores and fake providers. Real-provider tests
 require explicit opt-in. GitHub Actions runs the suite on macOS with Python 3.12
-and 3.14; process containment is tested on the same operating system as deployment.
+and 3.14, each job in parallel across the runner's cores (`pytest -n auto`); process
+containment is tested on the same operating system as deployment.
 `bin/sf2` uses this checkout's environment and ignores inherited Python paths from
 v1. Keep it separate from the installed `subfleet` command during validation.
 
@@ -124,7 +125,17 @@ It refuses unavailable native sessions and active or quarantined source jobs.
 For new work, routing only promotes along the task's configured chain. Claude
 lanes limited on a stronger model are preferred for eligible cheaper work;
 `models.<name>.priority` defines strength across separate task chains. Reserved
-Fable capacity, account closures, exclusions, and ownership still control eligibility.
+capacity (`reserve.models`; the shipped policy reserves none), account closures,
+exclusions, and ownership still control eligibility.
+
+The writing tasks (`authored-prose`, `strategy`, `adjudication`) run on Opus at
+every tier. Retired models stay accepted wherever a model is named: `fable` uses
+Opus (retired 2026-09-27) and `sol` uses Astra, with a note on stderr, for
+`run -m` and `-t`, batch manifests, `why -m`, `pick --model`, `sessions handoff
+--to`, `sessions revive --model`, and `gate --peer`. The shipped policy's `retired` map does the same for pins that
+arrive another way (queued jobs, retries, and revives of a session last served on
+Fable). Claude accounts still report Fable's own weekly window; it is recorded
+under its own id and routes nothing.
 
 To hand several briefs to lanes in one call, list them in a TOML or JSON manifest.
 Paths are relative to the manifest; an entry overrides `[defaults]`, which
@@ -135,7 +146,7 @@ override the other flags on the command line:
 label = "codex handoff"
 
 [defaults]
-model = "fable"
+model = "opus"
 sandbox = "workspace-write"
 in_place = true
 
@@ -159,9 +170,10 @@ does not stop the others. One session may hold several writable jobs at once
 when each writes in a different checkout; a second writer in one checkout, and a
 second live instance of the same session, are refused.
 
-If the usage endpoint cannot measure reserved capacity, an operator can authorize
-one new job on an exact enrolled lane and model, with a recorded reason and
-evidence. This does not assert that Fable is exhausted or that quota is available:
+Under a policy that reserves a model, if the usage endpoint cannot measure
+reserved capacity, an operator can authorize one new job on an exact enrolled
+lane and model, with a recorded reason and evidence. This does not assert that
+the reserved model is exhausted or that quota is available:
 
 ```sh
 subfleet run --task research --tier standard -m opus -a claude-13 \

@@ -11,7 +11,9 @@ members. A running probe did the same. Every one of those passes then woke
 every `wait` caller, which re-read every job it watched behind the one store
 lock, and every tick read every job ever accepted to look for pending exports.
 These tests pin what each of those may cost, so the load stays flat as
-attempts, probes, waiters and history are added.
+attempts, probes, waiters and history are added. Since C-5.12 a running
+attempt uses one shared process table, so its cases assert that tighter cost;
+a probe keeps C-5.11's own pacing.
 """
 
 from __future__ import annotations
@@ -33,31 +35,44 @@ BOOT = "0f1e2d3c-4b5a-4968-8776-655443322110"   # synthetic
 STARTED = "Thu Sep 24 11:46:51 2026"
 GUARDIAN, CHILD, PGID = 4242, 4243, 4242
 GROUP_SNAPSHOT = ["/bin/ps", "-axo", "pid=,pgid=,stat=,lstart="]
+TABLE = procs.TABLE_ARGV
+UUID_READ = ["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]
 
 
 class FakePs:
     """Answers `procs._read` like macOS would for one guardian and its child.
 
     `starts` is each live pid's `lstart`; changing a pid's entry models a new
-    process that has taken that pid.
+    process that has taken that pid. `failing` names the reads that fail
+    ("table", "sysctl", "ps -p"), and `hidden` the pids the table does not show.
     """
 
     def __init__(self):
         self.calls: list[list[str]] = []
         self.starts = {GUARDIAN: STARTED, CHILD: STARTED, 4300: STARTED}
+        self.failing: set[str] = set()
+        self.hidden: set[int] = set()
 
     def __call__(self, argv, *, empty_ok=False):
         argv = [str(part) for part in argv]
         self.calls.append(argv)
         if argv[0].endswith("sysctl"):
+            if "sysctl" in self.failing:
+                raise procs.InspectionError("sysctl inspection unavailable")
             return BOOT + "\n" if argv[-1] == "kern.bootsessionuuid" else "{ sec = 1790255587, usec = 0 }\n"
+        if argv == TABLE:
+            if "table" in self.failing:
+                raise procs.InspectionError("ps inspection unavailable")
+            rows = [(GUARDIAN, 1, PGID, "Ss"), (CHILD, GUARDIAN, PGID, "R"), (4300, 1, 4300, "S")]
+            return "".join(f"{pid} {ppid} {pgid} {stat:<4} {self.starts[pid]}\n"
+                           for pid, ppid, pgid, stat in rows if pid not in self.hidden) + \
+                f"4301 4300 4300 Z    {STARTED}\n"
+        if argv[1:2] == ["-p"] and "ps -p" in self.failing:
+            raise procs.InspectionError("ps inspection unavailable")
         if argv == GROUP_SNAPSHOT:
             return (f"{GUARDIAN} {PGID} Ss   {self.starts[GUARDIAN]}\n"
                     f"{CHILD} {PGID} R    {self.starts[CHILD]}\n"
                     f"4300 4300 S    {self.starts[4300]}\n4301 4300 Z    {STARTED}\n")
-        if "pid=,ppid=,pgid=,stat=" in argv:
-            return (f"{GUARDIAN} 1 {PGID} Ss\n{CHILD} {GUARDIAN} {PGID} R\n"
-                    "4300 1 4300 S\n4301 4300 4300 Z\n")
         if "pid=,command=" in argv:
             return ""
         if argv[1:2] == ["-p"] and argv[-1] == "lstart=":
@@ -69,13 +84,16 @@ class FakePs:
     def environment_dumps(self):
         return [argv for argv in self.calls if "-axEww" in argv]
 
+    def tables(self):
+        return [argv for argv in self.calls if argv == TABLE]
+
 
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
-    core = Daemon(tmp_path / "state", liveness_interval_s=30)
+    core = Daemon(tmp_path / "state", inspect_interval_s=30)
     # The constructor recorded this machine's real boot identity; the attempt
     # below belongs to the fake one, so each test starts with nothing cached.
-    monkeypatch.setattr(procs, "_BOOT_ID", [])
+    procs.forget_boot_id()
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
@@ -104,15 +122,20 @@ def count_liveness(monkeypatch) -> list:
 
 # --- procs --------------------------------------------------------------------
 
-def test_boot_session_uuid_is_read_once_per_process(monkeypatch):
-    """C-5.11, C-5.3: the boot-session UUID cannot change under a live process, so it
-    is read once; legacy boottime seconds can shift and are read every time."""
+def test_boot_session_uuid_is_reused_and_boottime_never_is(monkeypatch):
+    """C-5.11 with C-5.12: the boot-session UUID is reused for five seconds;
+    legacy boottime seconds can shift and are read every time."""
     ps = FakePs()
     monkeypatch.setattr(procs, "_read", ps)
+    clock = StepClock(0.0)
+    monkeypatch.setattr(procs, "time", clock)
     assert [procs.boot_id() for _ in range(5)] == [BOOT] * 5
     assert sum(argv[0].endswith("sysctl") for argv in ps.calls) == 1
+    clock.now = procs.BOOT_ID_TTL_S + 0.01
+    assert procs.boot_id() == BOOT
+    assert sum(argv[0].endswith("sysctl") for argv in ps.calls) == 2
 
-    monkeypatch.setattr(procs, "_BOOT_ID", [])
+    procs.forget_boot_id()
     legacy = []
     def seconds_only(argv, *, empty_ok=False):
         legacy.append(argv)
@@ -148,12 +171,18 @@ def test_group_members_failure_is_an_inspection_error(monkeypatch):
 
 # --- running attempts -----------------------------------------------------------
 
-def test_running_attempt_inspection_is_paced_and_never_dumps_environments(daemon, monkeypatch):
-    """C-5.11: a second's worth of control ticks (20 at 50 ms) asks `ps` about a running
-    guardian once, runs no `ps -axEww`, and still records the owned group.
+def expire(core):
+    """The attempt is due and the shared table has expired."""
+    core._inspect_next[ATTEMPT] = 0
+    core._table = (core._table[0], 0.0)
 
-    Before the fix the same 20 ticks spent 60 subprocesses on liveness alone
-    (three per tick) and a full census with an environment dump.
+
+def test_running_attempt_inspection_is_paced_and_never_dumps_environments(daemon, monkeypatch):
+    """C-5.11 with C-5.12: twenty control ticks read one process table, ask
+    nothing about the guardian singly, run no `ps -axEww`, and record its group.
+
+    Before C-5.11 this spent sixty subprocesses on liveness and a full census;
+    with C-5.11 it spent ten; the shared table needs two.
     """
     ps = FakePs()
     monkeypatch.setattr(procs, "_read", ps)
@@ -162,26 +191,20 @@ def test_running_attempt_inspection_is_paced_and_never_dumps_environments(daemon
     for _ in range(20):
         daemon._process_attempt(ATTEMPT)
 
-    # The tick's question, and the leader re-check that guards recording the
-    # newly seen members (C-5.4): nothing else in 20 ticks.
-    assert len(asked) == 2
+    # The same table shows both the recorded leader and its owned members.
+    assert asked == []
     assert not ps.environment_dumps()
-    # lstart + stat + the one sysctl, then the group snapshot, an identity per
-    # new member (lstart + stat each) and the leader re-check (lstart + stat).
-    assert len(ps.calls) == 3 + 1 + 4 + 2
+    assert ps.calls == [TABLE, UUID_READ]
     assert set(owned(daemon)) == {str(GUARDIAN), str(CHILD)}
     assert owned(daemon)[str(CHILD)] == {"pid": CHILD, "boot_id": BOOT, "proc_start": STARTED}
     assert daemon.store.get_attempt(ATTEMPT)["state"] == "running"
 
-    # The next interval: one liveness question (the UUID is remembered) and a
-    # group snapshot that finds every member under its recorded start.
+    # The next interval reads one new table; the boot UUID is remembered.
     ps.calls.clear()
-    daemon._liveness_next[ATTEMPT] = daemon._census_next[ATTEMPT] = 0
+    expire(daemon)
     daemon._process_attempt(ATTEMPT)
-    assert len(asked) == 3
-    assert ps.calls == [["/bin/ps", "-p", str(GUARDIAN), "-o", "lstart="],
-                        ["/bin/ps", "-p", str(GUARDIAN), "-o", "stat="],
-                        GROUP_SNAPSHOT]
+    assert asked == []
+    assert ps.calls == [TABLE]
 
 
 def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatch):
@@ -195,7 +218,7 @@ def test_a_pid_taken_by_a_new_group_member_is_recorded_afresh(daemon, monkeypatc
 
     later = "Thu Sep 24 11:52:07 2026"
     ps.starts[CHILD] = later                  # the child exited; a sibling now has its pid
-    daemon._liveness_next[ATTEMPT] = daemon._census_next[ATTEMPT] = 0
+    expire(daemon)
     daemon._process_attempt(ATTEMPT)
     assert owned(daemon)[str(CHILD)] == {"pid": CHILD, "boot_id": BOOT, "proc_start": later}
     assert owned(daemon)[str(GUARDIAN)]["proc_start"] == STARTED
@@ -215,28 +238,25 @@ def test_a_member_recorded_under_another_boot_identity_is_recorded_afresh(daemon
     daemon._process_attempt(ATTEMPT)
     assert owned(daemon)[str(CHILD)] == {"pid": CHILD, "boot_id": BOOT, "proc_start": STARTED}
 
-    # Recorded under the current boot and start, it is not asked about again.
+    # The next table records that same identity without any per-pid reads.
     ps.calls.clear()
-    daemon._liveness_next[ATTEMPT] = daemon._census_next[ATTEMPT] = 0
+    expire(daemon)
     daemon._process_attempt(ATTEMPT)
-    assert ps.calls[-1] == GROUP_SNAPSHOT
+    assert ps.calls == [TABLE]
 
 
 def test_pacing_cleanup_survives_a_worker_adding_an_entry_mid_walk(daemon):
     """C-5.11: workers add pacing entries while the control loop prunes them; the
     prune walks a copy, so an insertion mid-walk cannot raise and cost a tick."""
-    daemon._liveness_next.update({"gone/a1": 1.0, "also-gone/a1": 1.0})
-    daemon._census_next.update({"gone/a1": 1.0})
+    daemon._inspect_next.update({"gone/a1": 1.0, "also-gone/a1": 1.0})
 
     class Live(set):
         def __contains__(self, aid):                # a worker's first deadline lands mid-walk
-            daemon._liveness_next.setdefault("new/a1", 2.0)
-            daemon._census_next.setdefault("new/a1", 2.0)
+            daemon._inspect_next.setdefault("new/a1", 2.0)
             return super().__contains__(aid)
 
     daemon._forget_paced(Live({"new/a1"}))
-    assert daemon._liveness_next == {"new/a1": 2.0}
-    assert daemon._census_next == {"new/a1": 2.0}
+    assert daemon._inspect_next == {"new/a1": 2.0}
 
 
 def test_a_failing_inspection_is_retried_not_skipped(daemon, monkeypatch):
@@ -245,7 +265,7 @@ def test_a_failing_inspection_is_retried_not_skipped(daemon, monkeypatch):
     backoff) instead of returning at the gate and reading as recovery."""
     monkeypatch.setattr(procs, "_read", FakePs())
     failures = []
-    def failing_record(a):
+    def failing_record(a, table):
         failures.append(a["attempt_id"])
         raise RuntimeError("database or disk is full")
     monkeypatch.setattr(daemon, "_record_owned", failing_record)
@@ -253,7 +273,7 @@ def test_a_failing_inspection_is_retried_not_skipped(daemon, monkeypatch):
         with pytest.raises(RuntimeError):
             daemon._process_attempt(ATTEMPT)
         assert len(failures) == n
-        assert ATTEMPT not in daemon._liveness_next
+        assert ATTEMPT not in daemon._inspect_next
 
 
 def test_paced_inspection_still_reads_the_receipt_every_tick(daemon, monkeypatch):
@@ -276,12 +296,12 @@ def test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live(daemon, monke
     the live set it reads each tick."""
     monkeypatch.setattr(procs, "_read", FakePs())
     daemon._process_attempt(ATTEMPT)
-    assert ATTEMPT in daemon._liveness_next and ATTEMPT in daemon._census_next
+    assert ATTEMPT in daemon._inspect_next
     with daemon.store.transaction("test.finished") as tx:
         tx.execute("UPDATE attempts SET state='succeeded' WHERE attempt_id=?", (ATTEMPT,))
     live = {a["attempt_id"] for a in daemon.store.query(daemon_module.LIVE_ATTEMPTS)}
     daemon._forget_paced(live)
-    assert ATTEMPT not in daemon._liveness_next and ATTEMPT not in daemon._census_next
+    assert ATTEMPT not in daemon._inspect_next
 
 
 class StepClock:
