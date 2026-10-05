@@ -32,6 +32,10 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+
+    /// A stopped turn or uncertain delivery needs the person's decision even
+    /// when no approval card is waiting.
+    var needsYouLabel: String? { blockedBy == nil ? nil : "Needs you" }
 }
 
 struct SidebarSection: Identifiable, Equatable {
@@ -43,6 +47,12 @@ struct SidebarSection: Identifiable, Equatable {
 enum SidebarGrouping: String, CaseIterable {
     case recency
     case workspace
+}
+
+private func conversationIsMoreRecent(_ lhs: Conversation, _ rhs: Conversation) -> Bool {
+    let left = lhs.lastActivityDate ?? .distantPast
+    let right = rhs.lastActivityDate ?? .distantPast
+    return left == right ? lhs.conversation_id < rhs.conversation_id : left > right
 }
 
 /// `~/…` for paths under the home directory.
@@ -440,6 +450,8 @@ struct ConversationStoreState: Equatable {
     var catalog: Catalog?
     /// `models.list` per provider.
     var models: [String: [ModelEntry]] = [:]
+    /// Policy defaults published by `models.list`, never inferred from catalog order.
+    var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
@@ -467,7 +479,7 @@ struct ConversationStoreState: Equatable {
     // MARK: Folding daemon answers
 
     mutating func apply(list: ConversationListResult) {
-        conversations = list.conversations.map(withWatchActivity).sorted { $0.updated_at > $1.updated_at }
+        conversations = list.conversations.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
@@ -485,16 +497,24 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(models: ModelsListResult, provider: String) {
         self.models[provider] = models.models.filter { $0.provider == provider }
+        modelDefaults[provider] = models.default_models?[provider]
     }
 
     mutating func upsert(_ conversation: Conversation) {
-        let conversation = withWatchActivity(conversation)
+        var conversation = withWatchActivity(conversation)
         if let index = conversations.firstIndex(where: { $0.conversation_id == conversation.conversation_id }) {
+            // `open` and settings replies need not include the cached native
+            // activity. Keep it until the next authoritative list refresh.
+            let previous = conversations[index]
+            if let activity = previous.last_activity,
+               (parseTimestamp(activity) ?? .distantPast) > (conversation.lastActivityDate ?? .distantPast) {
+                conversation.last_activity = activity
+            }
             conversations[index] = conversation
         } else {
             conversations.insert(conversation, at: 0)
         }
-        conversations.sort { $0.updated_at > $1.updated_at }
+        conversations.sort(by: conversationIsMoreRecent)
         pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
         // A native session that now has a conversation leaves the catalog list.
         if let native = conversation.native_session_id {
@@ -533,7 +553,7 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(history page: HistoryPage, conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
-        timeline.apply(history: page)
+        timeline.apply(history: page, provider: conversation(conversationID)?.provider ?? "")
         timelines[conversationID] = timeline
     }
 
@@ -726,7 +746,7 @@ struct ConversationStoreState: Equatable {
             entries.append(SidebarEntry(
                 id: "cv:" + conversation.conversation_id, target: .conversation(conversation.conversation_id),
                 provider: conversation.provider, title: title, subtitle: abbreviatedPath(conversation.workspace),
-                workspace: conversation.workspace, date: parseTimestamp(conversation.updated_at),
+                workspace: conversation.workspace, date: conversation.lastActivityDate,
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
@@ -933,8 +953,8 @@ final class ConversationEngine {
         let args = ConversationCreateArgs(request_id: requestID, provider: provider, workspace: workspace,
                                           workspace_kind: workspaceKind, allow_main: allowMain ? true : nil, title: title,
                                           settings: settings, confirm_widen: confirmWiden ? true : nil)
-        try outbox.enqueueCreate(args)
-        return Outbox.draftKey(requestID)
+        let entry = try outbox.enqueueCreate(args)
+        return entry.conversationID ?? Outbox.draftKey(requestID)
     }
 
     /// Journal a message (sending is `pump`). `conversation` is a daemon id or

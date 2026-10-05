@@ -11,3 +11,5 @@ build/
 .venv
 # Job-local commit metadata when the shared worktree metadata is read-only.
 .git-local/
+# Delivery bundles are separate artifacts, not repository history.
+docs/reports/*.bundle

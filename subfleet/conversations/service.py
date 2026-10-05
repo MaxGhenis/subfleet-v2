@@ -63,7 +63,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1")
+                "handoff.v1", "workspace.check.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -73,7 +73,7 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff"})
+                      "conversation.create", "conversation.handoff", "workspace.check"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
                          "message.steer"})
 MAX_WAIT_S = 50.0
@@ -277,6 +277,7 @@ class ConversationService:
         provider = args.get("provider")
         policy = self.daemon.policy
         observed = self._catalog_cache()
+        retired = policy.get("retired") or {}
         models = []
         for short, entry in policy["models"].items():
             if provider and entry["provider"] != provider:
@@ -285,6 +286,7 @@ class ConversationService:
             # `default` is whatever one account's settings pick; a conversation names a model.
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
+                           "retired": short in retired or entry["id"] in retired,
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
@@ -294,7 +296,22 @@ class ConversationService:
                            "fast": {"supported": seen.get("fast"),
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
-        return {"models": models, "source": "policy, and each provider's catalog as a turn last reported it"}
+        defaults = {}
+        hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
+        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard]
+        for name in ("claude", "codex"):
+            offered = [m for m in models if m["provider"] == name and not m["retired"]]
+            preferred = ["opus"] if name == "claude" else hard_models
+            default = next((m for short in preferred for m in offered if m["short"] == short), None)
+            # Retirement is defined by the loaded policy, for every model id.
+            fallback = offered
+            if default is None and fallback:
+                default = next((m for m in fallback if not policy["models"][m["short"]].get("scope")), fallback[0])
+            if default:
+                defaults[name] = default["id"]
+        return {"models": models, "default_models": defaults,
+                "source": "policy, and each provider's catalog as a turn last reported it"}
 
     def _default_effort(self, provider: str, model_id: str) -> str | None:
         """C-26.8: the effort a turn of `model_id` runs at when its message names
@@ -351,8 +368,14 @@ class ConversationService:
         return {**CONVERSATION_DEFAULTS, **(self.daemon.policy.get("conversations") or {})}
 
     def op_conversation_list(self, args, peer) -> dict:
-        conversations = [self._view(c) for c in self.store.list_conversations(
-            provider=args.get("provider"), limit=int(args.get("limit") or 200))]
+        from .catalog import activity_times
+        activity = activity_times(self.root)
+        rows = self.store.list_conversations(provider=args.get("provider"), limit=None)
+        for row in rows:
+            row["last_activity"] = self._last_activity(row, activity)
+        rows.sort(key=lambda c: c["last_activity"], reverse=True)
+        limit = max(1, min(int(args.get("limit") or 200), 1000))
+        conversations = [self._view(c) for c in rows[:limit]]
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
             from .catalog import read_catalog, refresh_running
@@ -380,12 +403,23 @@ class ConversationService:
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
                                                     "updated_at")},
+                "last_activity": conversation.get("last_activity") or conversation.get("updated_at"),
                 # C-30.4: the legacy import's hold is its own column, so no outcome
                 # lifts it, but to a client it is a block like any other (the app
                 # shows a conversation with `blocked_by` as needing a decision).
                 "blocked_by": conversation.get("blocked_by") or (LEGACY_OWNER if conversation.get("legacy_hold") else None),
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
+
+    @staticmethod
+    def _last_activity(conversation: dict, activity: dict) -> str:
+        """The row or its native transcript at the last catalog run; never a scan."""
+        updated = datetime.fromisoformat(conversation["updated_at"].replace("Z", "+00:00"))
+        native = conversation.get("native_session_id")
+        mtime = activity.get((conversation["provider"], canonical_native(native))) if native else None
+        if mtime is not None:
+            updated = max(updated, datetime.fromtimestamp(mtime, UTC))
+        return updated.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def _view_live(self, conversation: dict) -> dict:
         """`_view` plus `live_elsewhere`, from the last catalog run (D-23: no scan)."""
@@ -433,7 +467,7 @@ class ConversationService:
         return conversation
 
     def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider")
+        provider = args.get("provider") or "claude"
         request_id = args.get("request_id")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
@@ -455,11 +489,7 @@ class ConversationService:
                 workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
         else:
             workspace = os.path.realpath(os.path.expanduser(str(args["workspace"])))
-        if not os.path.isdir(workspace):
-            raise ConversationError("bad-workspace", "workspace must be an existing directory")
-        if kind not in ("in-place", "worktree"):
-            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
-        self._check_workspace(provider, workspace, settings)
+        workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=allow_main)
         existing = self.store.one("SELECT conversation_id FROM conversations WHERE request_id=?", (request_id,))
         if kind == "worktree" and existing is None and self._git_toplevel(workspace) is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
@@ -471,6 +501,57 @@ class ConversationService:
             # cut short by a crash: the same request id finishes the same worktree.
             conversation = self._cut_worktree(conversation)
         return {"conversation": self._view(conversation), "created": created}
+
+    def op_workspace_check(self, args, peer) -> dict:
+        """A read-only preview of create's folder checks, on the same file pool."""
+        workspace = args.get("workspace")
+        try:
+            provider = args.get("provider") or "claude"
+            if provider not in PROVIDERS:
+                raise ConversationError("bad-provider", "provider is claude or codex")
+            settings = validate_settings(provider, {"model": "workspace-check", "permission": args.get("permission") or "ask"})
+            self._check_codex_policy(provider, settings)
+            kind = args.get("workspace_kind") or "in-place"
+            planned = not workspace
+            if planned:
+                if kind != "in-place":
+                    raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+                # Preview the private scratch location without making a folder.
+                workspace = str(self.root / "conversations/workspaces/workspace-check")
+            workspace = self._validate_workspace(provider, workspace, settings,
+                                                 kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
+            return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
+        except ConversationError as exc:
+            return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
+
+    def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
+                            kind: str, allow_main: bool, planned: bool = False) -> str:
+        """C-26.10 and C-13.2: check and create take precisely this path."""
+        if not isinstance(workspace, str) or not workspace:
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        workspace = os.path.realpath(os.path.expanduser(workspace))
+        if not planned and not os.path.isdir(workspace):
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        if kind not in ("in-place", "worktree"):
+            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
+        self._check_workspace(provider, workspace, settings)
+        if kind == "worktree" and self._git_toplevel(workspace) is None:
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
+        if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
+            from ..salvage import validate_writable_workdir
+            try:
+                existing = Path(workspace)
+                while planned and not existing.exists() and existing != existing.parent:
+                    existing = existing.parent
+                validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
+            except AdapterError as exc:
+                raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
+            except SalvageError as exc:
+                raise ConversationError("git-unavailable", f"could not inspect {workspace}: {exc}", code=1,
+                                        fix="try again") from exc
+        return workspace
 
     def _git_toplevel(self, directory: str) -> str | None:
         from ..salvage import git_toplevel
@@ -1472,7 +1553,7 @@ class ConversationService:
 
     def _check_workspace(self, provider: str, workspace: str, settings: dict) -> None:
         """C-26.10: a writable turn may not own the state root or a provider home."""
-        writable = settings["permission"] == "accept-edits" or (provider == "codex" and settings["permission"] != "read-only")
+        writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
         protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
@@ -1480,7 +1561,17 @@ class ConversationService:
         real = Path(workspace).resolve()
         for path in protected:
             p = path.expanduser().resolve()
-            if real == p or real in p.parents:
+            # APFS may identify case variants as the same directory even though
+            # realpath preserves their spelling. Identity also covers symlinks.
+            contains = real == p or real in p.parents
+            for ancestor in (p, *p.parents):
+                try:
+                    contains = contains or os.path.samefile(real, ancestor)
+                except OSError:
+                    pass
+                if contains:
+                    break
+            if contains:
                 raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
                                         fix="choose a narrower directory, or Ask or read-only")
 

@@ -890,14 +890,16 @@ class ConversationStore:
             return None
         return {"blocked_by": row["blocked_by"], "legacy_hold": row["legacy_hold"]}
 
-    def list_conversations(self, *, provider: str | None = None, limit: int = 200) -> list[dict]:
+    def list_conversations(self, *, provider: str | None = None, limit: int | None = 200) -> list[dict]:
         sql = "SELECT * FROM conversations WHERE archived_at IS NULL"
         params: list[Any] = []
         if provider:
             sql += " AND provider=?"
             params.append(provider)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        sql += " ORDER BY updated_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, min(int(limit), 1000)))
         return [_decode_conversation(r) for r in self.query(sql, tuple(params))]
 
     # --- messages --------------------------------------------------------------

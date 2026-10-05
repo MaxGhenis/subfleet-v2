@@ -25,6 +25,10 @@ struct MainWindow: View {
                 }
                 if model.newDraft.isPresented {
                     NewConversationDraftView(model: model)
+                } else if let draft = model.selectedFailedDraft {
+                    FailedConversationDraftView(draft: draft, changeFolder: { model.changeFailedDraftFolder(draft) },
+                                                copy: { model.copyFailedDraft(draft) },
+                                                discard: { model.discardFailedDraft(draft.id) })
                 } else if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
@@ -40,7 +44,12 @@ struct MainWindow: View {
                 if let problem = model.problem {
                     HStack {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        Text(problem).readingFont(.secondary).lineLimit(2)
+                        if !model.failedDrafts.isEmpty {
+                            Button(problem) { model.selectFailedDraft() }
+                                .buttonStyle(.link).readingFont(.secondary).lineLimit(2)
+                        } else {
+                            Text(problem).readingFont(.secondary).lineLimit(2)
+                        }
                         Spacer()
                         Button { model.problem = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
                     }
@@ -53,6 +62,10 @@ struct MainWindow: View {
         .onChange(of: search) { _, value in model.setSearch(value) }
         .onChange(of: selection) { _, value in
             guard let value else { return }
+            if value.hasPrefix("failed:") {
+                model.selectFailedDraft(String(value.dropFirst("failed:".count)))
+                return
+            }
             if let entry = model.state.sidebarEntries().first(where: { $0.id == value }) { model.select(entry) }
         }
         .onChange(of: model.state.focusedConversationID) { _, id in
@@ -75,6 +88,9 @@ struct MainWindow: View {
             }
         }
         .onChange(of: model.newDraft.isPresented) { _, visible in if visible { selection = nil } }
+        .onChange(of: model.selectedFailedDraftID) { _, id in
+            if let id { selection = "failed:" + id }
+        }
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in
             palette.close(restoringFocus: false)
@@ -155,6 +171,22 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
+            if !model.failedDrafts.isEmpty {
+                Section("Drafts that need you") {
+                    ForEach(model.failedDrafts) { draft in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Could not start", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                            Text(draft.failure.message).readingFont(.caption).lineLimit(2)
+                            if !draft.text.isEmpty { Text(draft.text).readingFont(.caption).lineLimit(2) }
+                            HStack {
+                                Button("Change folder and retry") { model.changeFailedDraftFolder(draft) }
+                                Button("Copy message") { model.copyFailedDraft(draft) }
+                                Button("Discard") { model.discardFailedDraft(draft.id) }
+                            }.buttonStyle(.borderless).font(.caption)
+                        }.tag("failed:" + draft.id)
+                    }
+                }
+            }
             ForEach(model.state.sidebar()) { section in
                 Section(section.title) {
                     ForEach(section.entries) { entry in
@@ -208,8 +240,9 @@ struct SidebarRow: View {
                 .help("Waiting for your approval; click to show it")
                 .accessibilityLabel(approvalsWaitingWords(entry.pendingApprovals))
             }
-            if entry.blockedBy != nil {
-                Image(systemName: "exclamationmark.octagon").foregroundStyle(.red).help("Needs your decision")
+            if let words = entry.needsYouLabel {
+                Label(words, systemImage: "exclamationmark.octagon").font(.caption).foregroundStyle(.orange)
+                    .help("Needs your decision")
             }
             if entry.active {
                 ProgressView().controlSize(.mini)
@@ -263,14 +296,8 @@ struct ConversationView: View {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
             if let banner = model.state.blockedBanner(for: conversation.conversation_id) {
-                VStack(alignment: .leading, spacing: 6) {
-                    StatusBanner(title: banner.title, detail: banner.detail, symbol: "exclamationmark.octagon")
-                    HStack {
-                        ForEach(Array(banner.choices.enumerated()), id: \.offset) { _, choice in
-                            Button(choice.label) { model.perform(choice, conversationID: conversation.conversation_id) }
-                                .help(choice.detail)
-                        }
-                    }.padding(.horizontal, 10).padding(.bottom, 8)
+                BlockedConversationBanner(banner: banner) {
+                    model.perform($0, conversationID: conversation.conversation_id)
                 }
             }
             ScrollViewReader { proxy in
@@ -514,6 +541,8 @@ struct TimelineRow: View {
                 .readingFont(.secondary).foregroundStyle(.red)
         case .notice(let words):
             Text(words).readingFont(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+        case .taskNotification(let notice):
+            TaskNotificationView(notice: notice)
         case .steered:
             // `Timeline.items` draws the steered message's own bubble in this place.
             EmptyView()
