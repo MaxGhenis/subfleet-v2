@@ -344,10 +344,18 @@ class SessionsArgs:
 # --- Encoding -----------------------------------------------------------------
 
 def encode(obj: Any) -> bytes:
-    """One JSON line, UTF-8, trailing newline."""
+    """One JSON line, UTF-8, trailing newline.
+
+    A lone surrogate (a client's `"\\ud800"` escape, echoed back as its request
+    id) has no UTF-8 form; the line is then written with ASCII escapes, which
+    is the same JSON value, so the reply is still sent (C-16.1).
+    """
     if is_dataclass(obj):
         obj = asdict(obj)
-    return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    try:
+        return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    except UnicodeEncodeError:
+        return (json.dumps(obj, separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
 
 
 def decode_request(line: bytes | str) -> Request:

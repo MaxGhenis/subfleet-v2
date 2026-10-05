@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import hooks
+from subfleet import hooks, protocol
 from subfleet.client import Client
 from subfleet.contracts import Exit
 
@@ -698,3 +698,55 @@ def test_timeout_is_explicit_and_overridable(monkeypatch):
     assert hooks.desired_groups("/x/sf hook")["PostToolUse"]["hooks"][0]["timeout"] == 45
     monkeypatch.setenv("SUBFLEET_HOOK_TIMEOUT_S", "junk")
     assert hooks.timeout_s() == 600
+
+
+# --- a busy daemon (C-16.7) ---------------------------------------------------
+
+def busy_answer(request):
+    return protocol.fail(request.id, Exit.DAEMON_UNAVAILABLE,
+                         "the daemon is busy: it holds 512 client connections, its limit",
+                         "try again shortly")
+
+
+def test_c16_7_the_prompt_hooks_take_busy_at_once_and_read_offline(daemon, root, monkeypatch):
+    """C-16.7 the pending-notice client never waits out busy answers: the hook reads
+    the store offline instead, which is instant."""
+    made: list[dict] = []
+    real = hooks.Client
+
+    class Recording(real):
+        def __init__(self, *args, **kwargs):
+            made.append(kwargs)
+            super().__init__(*args, **kwargs)
+    monkeypatch.setattr(hooks, "Client", Recording)
+    served = daemon({"notice.pending": busy_answer})
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                               stdout=io.StringIO()) == 0
+    assert made and made[0].get("retry_busy") is False
+    assert served.ops() == ["notice.pending"]            # asked once, not retried
+
+
+def test_c16_7_the_post_tool_use_waiter_takes_busy_as_an_empty_poll(daemon, root, monkeypatch):
+    """C-16.7 a busy `wait` is asked again in the hook's own loop, each poll with
+    its whole deadline, never retried inside `Client.call` (whose retry would get
+    less than the poll), and the finished job is still delivered."""
+    from subfleet import client as client_module
+    inner_retries: list[float] = []
+    monkeypatch.setattr(client_module, "_sleep", inner_retries.append)
+    answers = iter([busy_answer, busy_answer])
+
+    def wait(request):
+        step = next(answers, None)
+        return step(request) if step else {"jobs": [finished_job()]}
+    served = daemon({"list": lambda request: {"jobs": [running_job()]},
+                     "wait": wait,
+                     "notice.pending": lambda request: {"notices": [notice(7, text="demo done")]},
+                     "notice.mark": lambda request: {"notices": []}})
+    stderr = io.StringIO()
+    clock = Clock()
+    code = hooks.post_tool_use(
+        payload("PostToolUse", tool_name="Bash",
+                tool_input={"command": "subfleet run -p p.md"}, tool_response=JOB),
+        root, budget_s=30, stderr=stderr, now=clock, sleep=clock.sleep)
+    assert code == 2 and stderr.getvalue().strip() == "demo done"
+    assert served.ops().count("wait") == 3 and inner_retries == []

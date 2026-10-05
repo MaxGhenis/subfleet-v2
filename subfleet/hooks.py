@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, state_root
+from .client import Client, DaemonError, DaemonUnavailable, busy_pause, state_root
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -512,6 +512,7 @@ _RETRY_FLOOR_S = 0.25
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
+    busy = 0
     while True:
         remaining = deadline - now()
         if remaining <= 0:
@@ -520,9 +521,18 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
-                                 timeout=poll + 10)
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+                                 timeout=poll + 10, retry_busy=False)
+        except DaemonError as exc:
+            if not exc.busy:
+                return int(Exit.OK)
+            # C-16.7: busy is an empty poll; ask again within the budget, and
+            # the next poll has its whole deadline.
+            busy += 1
+            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+            continue
+        except (DaemonUnavailable, ProtocolError, OSError):
             return int(Exit.OK)
+        busy = 0
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a

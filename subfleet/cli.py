@@ -48,6 +48,7 @@ from .client import (
     DaemonUnavailable,
     OutcomeUnknown,
     ResponseLost,
+    busy_pause,
     same_process,
     state_root,
 )
@@ -719,6 +720,9 @@ def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
     if result.get("refused"):
         return True, (" (found by its request id after the re-sent submission was "
                       f"refused: {result['refused']})")
+    if result.get("busy"):
+        return True, (" (found by its request id; the re-sent submission met a busy "
+                      "daemon and was not read)")
     if answered:
         return True, " (created by the re-sent submission; the first went unanswered)"
     if minted:
@@ -1170,7 +1174,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     # that mentions another job must not change what this call blocks on or
     # what it exits with (C-17.3).
     adopting = bool(mine) or bool(last) or not requested
-    idle_polls = 0
+    idle_polls = busy_polls = 0
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -1188,12 +1192,25 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             budget = deadline + 15 if remaining is None else min(
                 deadline + 15, max(1.0, remaining + 1.0))
             try:
-                result = client.call("wait", _asdict(poll), timeout=budget)
+                result = client.call("wait", _asdict(poll), timeout=budget, retry_busy=False)
+            except DaemonError as exc:
+                if not exc.busy:
+                    raise
+                # C-16.7: busy is an empty poll here, and the loop asks again, so
+                # the next poll has its whole deadline; a retry inside `call`
+                # would have less than the poll it asks the daemon to hold.
+                busy_polls += 1
+                pause = busy_pause(busy_polls)
+                if timeout is not None:                 # what is left now, not before the call
+                    pause = min(pause, max(0.0, timeout - (time.monotonic() - started)))
+                time.sleep(pause)
+                continue
             except ProtocolError:
                 if timeout is not None and timeout - (time.monotonic() - started) <= 0:
                     timed_out = True
                     break
                 raise
+            busy_polls = 0
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
