@@ -343,9 +343,13 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 an existing session's recorded cwd (C-30.2: that of the transcript copy it
 continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
-repository). Turns run in place and hold `worktree:<git toplevel or
-directory>`; two conversations on one checkout take turns (a lease wait,
-never a refusal; review F-06). A directory outside git is allowed. A checkout
+repository). Turns run in place. Two conversations on one checkout run at
+once: each turn holds a row of its own on the folder
+(`worktree-turn:<git toplevel or directory>:<job id>`), never the exclusive
+`worktree:` lease, which only a detached writer holds (C-24.5, 2026-09-29;
+the owner's ruling "nothing should be queued"). Until then they took turns
+on `worktree:<git toplevel or directory>` (a lease wait, never a refusal;
+review F-06). A directory outside git is allowed. A checkout
 on `main` or `master` needs `allow_main`, person-only, settable at creation or
 on an existing conversation with confirmation. C-13.2 still binds every
 detached job.
@@ -574,7 +578,11 @@ working tree now, so it also shows what the person changed between turns,
 which a finished turn's `turn.diff` leaves out. A `to` that is the working
 tree now lists the nested repositories with no commit its snapshot left out
 (`to.skipped`, C-13.1), which the diff cannot show, and the Changes pane says
-so; a stored end's list is in the turn's receipt and evidence. Both run on the file pool
+so; a stored end's list is in the turn's receipt and evidence. Conversations
+share folders (D-16), so neither claims one conversation made what it shows:
+each carries `shared`, the other conversations whose turns wrote in the folder
+while this turn ran (or since the conversation's first turn), which the Changes
+pane names above the diff (C-26.14, 2026-09-29). Both run on the file pool
 `conversation.history` uses (C-25.3), read git's plumbing (`diff-tree` with no
 external diff driver or textconv filter), and return at most 1,000 files and
 512 KiB of unified diff, cut at a line with `truncated: true`; the bound is on
@@ -801,7 +809,7 @@ ops (D-8) are marked †.
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}`; `state_reason` says why a message waits, so a hold shows without a second open; `state` is null on a row that reports no state change (an approval asked or answered, or a turn's end snapshot recorded), after which the client fetches that message again (D-24) |
 | `conversation.runs` | `{conversation_id, limit?}` → `{runs:[{job_id, name, kind, state, task, tier, sandbox, wait_reason, created_at, started_at, finished_at, out_path, workdir, lane_id, model_served, model_requested, attempt_state, attempts}]}`: the detached jobs whose caller is the conversation's native session (a Claude turn's tools carry it), turn jobs excluded, lane and model from the latest attempt; the app shows the live ones under the header and all of them on click |
 | `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], default_models:{provider:model_id}, source}` (D-19); first-use Claude defaults to `claude-opus-5-5`; Codex follows the fleet policy's hard-tier Codex model (shipped policy: `gpt-6-astra`). When no active hard-tier choice exists, the daemon selects the first active unscoped model, or the first active model if all are scoped. The loaded policy's `retired` map excludes models by alias or id; Astra remains active in the shipped policy. Auto uses Claude unless Codex has a ready lane and Claude has none. |
-| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
+| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed, shared:[{conversation_id, title, message_ids, from, to}]}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 | `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
 
@@ -1032,6 +1040,13 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   tool call`, or `Running <tool>` while a tool call is open) and
   counts up the seconds since that began: a long think or a slow tool reads
   as work, not as a hang (Max, 2026-09-24: two silent minutes read as broken).
+- A waiting message's strip is its `state_reason`, `<kind>: <detail>`, in
+  words (C-24.4, 2026-09-29): what admission's last turn pass found (the job
+  and conversation holding a lease, closed lanes and their first reset,
+  lanes' other reasons), and "Waiting for capacity" only for `capacity:`. A
+  message with no reason reads as such, never as capacity: on 2026-09-28
+  four messages read "Waiting for capacity" for hours while another
+  conversation's turn held their folder.
 - A conversation whose Claude session a live process outside Subfleet holds
   (`live_elsewhere` on every conversation view, from the last catalog run if
   it is fresh) shows D-17's words above the composer: open in the Claude app
