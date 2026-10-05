@@ -371,7 +371,8 @@ def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, 
 CATALOG_STEPS = ("tick", "refresh", "advance", "exit", "stubborn", "close")
 
 
-def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch):
+@pytest.mark.parametrize("seed_start", range(0, 150, 30))
+def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch, seed_start):
     """C-30.1, checked after every step of 150 seeded random sequences of timer
     ticks, `catalog.refresh`, clock jumps, run exits, runs that ignore signals and
     close(), with close() at a random point or not at all:
@@ -406,7 +407,7 @@ def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, mo
     monkeypatch.setattr(service_module.os, "killpg", killpg)
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.0)
     TERM, KILL = service_module.signal.SIGTERM, service_module.signal.SIGKILL
-    for seed in range(150):
+    for seed in range(seed_start, seed_start + 30):
         rng = random.Random(seed)
         steps = [rng.choice(CATALOG_STEPS) for _ in range(rng.randint(1, 14))]
         root = tmp_path / f"s{seed}"
