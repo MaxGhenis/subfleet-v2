@@ -981,6 +981,10 @@ final class UIModel: ObservableObject {
                 try engine.respond(to: detail, decision: decision, answers: answers, message: message,
                                    reviewedMasked: reviewedMasked)
             }
+            if let answers, decision == "answer" {
+                state.timelines[detail.approval.conversation_id]?.noteApprovalAnswer(
+                    approvalID: detail.approval.approval_id, answers: answers)
+            }
             let approvals = try? await onOutbox { try engine.approvals(conversationID: detail.approval.conversation_id) }
             if let approvals { state.apply(approvals: approvals, conversationID: detail.approval.conversation_id) }
             updateBadge()

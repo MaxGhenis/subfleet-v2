@@ -48,18 +48,15 @@
     "request": {
       "method": "item/fileChange/requestApproval",
       "params": {
-        "grantRoot": "/",
+        "threadId": "thread-fixture",
+        "turnId": "turn-fixture",
+        "itemId": "item-fixture",
         "reason": "Write release notes",
-        "changes": [
-          {
-            "path": "/repo/release.md"
-          }
-        ]
+        "grantRoot": "/"
       }
     },
     "visible": [
-      "grantRoot: /",
-      "/repo/release.md"
+      "grantRoot: /"
     ]
   },
   {

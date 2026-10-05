@@ -8,6 +8,10 @@ extension ToolActivity {
         if hidden { return "Credential access (hidden)" }
         let lines = summary.components(separatedBy: "\n")
         let json = summary.data(using: .utf8).flatMap({ try? JSONValue.parse($0) })
+        if name.lowercased() == "command" {
+            let command = json?["command"]?.string ?? (summary.hasPrefix("command: ") ? String(summary.dropFirst(9)) : summary)
+            return ShellCommandPresentation.label(command)
+        }
         if let json,
            let description = json["description"]?.string, !description.isEmpty { return description }
         // Summary metadata follows the command. A description inside a heredoc
@@ -33,8 +37,6 @@ extension ToolActivity {
             .map { line in String(line[line.range(of: ": ")!.upperBound...]) }
         let filename = file.map { URL(fileURLWithPath: $0).lastPathComponent }
         switch name.lowercased() {
-        case "command":
-            return (field("command") ?? lines.first ?? "").split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
         case "bash", "shell", "exec_command", "commandexecution": return "Run a command"
         case "read", "read_file": return filename.map { "Read \($0)" } ?? "Read a file"
         case "edit", "write", "apply_patch", "filechange":

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 final class ReviewDefaults: UserDefaults, @unchecked Sendable {
     private var values: [String: Any] = [:]
@@ -10,7 +11,13 @@ final class ReviewDefaults: UserDefaults, @unchecked Sendable {
 
 final class ReviewClient: DaemonCalling, @unchecked Sendable {
     let fixtures: [JSONValue]
+    private let getLock = NSLock()
+    private var gets: [String: Int] = [:]
     init(_ fixtures: [JSONValue]) { self.fixtures = fixtures }
+    func getCount(_ id: String) -> Int {
+        getLock.lock(); defer { getLock.unlock() }
+        return gets[id, default: 0]
+    }
     func approval(_ fixture: JSONValue) -> ApprovalView {
         var display = ["description": fixture["headline"]!]
         if fixture["kind"]!.string! == "question" { display["questions"] = fixture["request"]?["input"]?["questions"] }
@@ -23,8 +30,10 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
         if op.name == "approval.get" {
             let id = try JSONValue.from(args)["approval_id"]!.string!
             let fixture = fixtures.first { $0["id"]!.string! == id }!
-            return try JSONValue.from(ApprovalDetail(approval: approval(fixture), request: fixture["request"]!,
+            let result = try JSONValue.from(ApprovalDetail(approval: approval(fixture), request: fixture["request"]!,
                 masked: [], request_sha256: "fixture", nonce: "fixture")).decode(R.self)
+            getLock.lock(); gets[id, default: 0] += 1; getLock.unlock()
+            return result
         }
         if op.name == "conversation.runs" { return try JSONValue.object(["runs": .array([])]).decode(R.self) }
         throw DaemonClientError.unavailable("Review fixtures never contact a daemon")
@@ -33,7 +42,8 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
 
 @MainActor func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
 
-@MainActor func capture<V: View>(_ view: V, width: Int = 900, height: Int = 1500) async -> NSBitmapImageRep {
+@MainActor func capture<V: View>(_ view: V, width: Int = 900, height: Int = 1500,
+                               settled: () -> Bool = { true }) async -> NSBitmapImageRep {
     let host = NSHostingView(rootView: view.environment(\.textScale, 1).environment(\.colorScheme, .light)
         .frame(width: CGFloat(width), height: CGFloat(height), alignment: .topLeading).background(Color.white))
     let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: width, height: height),
@@ -42,10 +52,17 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
     window.contentView = host
     defer { window.close() }
     host.frame = window.contentView!.bounds
+    host.wantsLayer = true
     host.layoutSubtreeIfNeeded()
+    if let warm = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: warm) }
     // Let .task load the exact request. The window remains unshown.
     try? await Task.sleep(nanoseconds: 500_000_000)
+    for _ in 0..<50 where !settled() { try? await Task.sleep(nanoseconds: 100_000_000) }
+    precondition(settled(), "The request must load before the grant is captured")
+    try? await Task.sleep(nanoseconds: 100_000_000)
     host.layoutSubtreeIfNeeded()
+    host.displayIfNeeded()
+    CATransaction.flush()
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width * 2, pixelsHigh: height * 2,
         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
         bytesPerRow: 0, bitsPerPixel: 0)!
@@ -54,10 +71,10 @@ final class ReviewClient: DaemonCalling, @unchecked Sendable {
     return rep
 }
 
-func words(_ rep: NSBitmapImageRep) throws -> String {
+func words(_ rep: NSBitmapImageRep, name: String? = nil) throws -> String {
     // Vision requires unavailable sandbox services on some macOS hosts.
     // Tesseract reads the actual raster entirely in the foreground.
-    let path = URL(fileURLWithPath: CommandLine.arguments[2]).appendingPathComponent(UUID().uuidString + ".png")
+    let path = URL(fileURLWithPath: CommandLine.arguments[2]).appendingPathComponent((name ?? UUID().uuidString) + ".png")
     try rep.representation(using: .png, properties: [:])!.write(to: path)
     let process = Process()
     process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SF_REVIEW_TESSERACT"]!)
@@ -82,25 +99,38 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
         var state = ConversationStoreState()
         state.availability = .ready(Capabilities(protocol: 1, daemon_version: "fixture", conversation_schema: 1,
             capabilities: ["conversation.v1"], codex_writable: true))
-        let conversation = Conversation(conversation_id: "c", provider: "codex", title: "First conversation",
+        var conversation = Conversation(conversation_id: "c", provider: "codex", title: "First conversation",
             workspace: "/repo/project", workspace_kind: "in-place", allow_main: false,
             settings: ConversationSettings(model: "gpt-6-astra", effort: "high", fast: true),
             origin: "person", created_at: "2026-10-04T10:00:00Z", updated_at: "2026-10-04T10:00:00Z", pending_approvals: 2, active: false)
+        conversation.updated_at = ISO8601DateFormatter().string(from: Date())
         state.upsert(conversation)
         var second = conversation
         second.conversation_id = "second"
         second.title = "Second conversation"
-        second.updated_at = "2026-10-04T09:00:00Z"
+        second.updated_at = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400 * 1.2))
         state.upsert(second)
+        var earlier = second
+        earlier.conversation_id = "earlier"
+        earlier.title = "Earlier conversation"
+        earlier.updated_at = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400 * 6))
+        state.upsert(earlier)
         let model = UIModel(paths: .rooted(at: root), client: client, defaults: ReviewDefaults(), state: state)
         var approvals: [String: Any] = [:]
         for fixture in fixtures {
             let approval = client.approval(fixture)
             let card = ApprovalCard(approvalID: approval.approval_id, kind: approval.kind,
                 display: approval.display, options: approval.options, state: .pending)
-            let inline = await capture(ApprovalCardView(model: model, conversationID: "c", card: card, review: {}))
-            let sheet = await capture(ApprovalSheet(model: model, card: card, approvalID: approval.approval_id, done: {}))
-            approvals[approval.approval_id] = ["card": try words(inline), "sheet": try words(sheet)]
+            let cardGets = client.getCount(approval.approval_id)
+            let inline = await capture(ApprovalCardView(model: model, conversationID: "c", card: card, review: {})
+                                        .fixedSize(horizontal: false, vertical: true),
+                                       settled: { client.getCount(approval.approval_id) > cardGets })
+            let sheetGets = client.getCount(approval.approval_id)
+            let sheet = await capture(ApprovalSheet(model: model, card: card, approvalID: approval.approval_id, done: {})
+                                        .fixedSize(horizontal: false, vertical: true),
+                                      settled: { client.getCount(approval.approval_id) > sheetGets })
+            approvals[approval.approval_id] = ["card": try words(inline, name: "card-" + approval.approval_id),
+                                             "sheet": try words(sheet, name: "sheet-" + approval.approval_id)]
         }
         var turns: [String: String] = [:]
         for state in ["complete", "running", "failed", "interrupted", "cancelled", "stop-too-late", "failover", "unblock-note"] {
@@ -143,6 +173,18 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
             try await Task.sleep(nanoseconds: 200_000_000)
         }
         let arrowChanged = selection != before
+        var arrowPath: [String] = []
+        if let table {
+            for key in Array(repeating: UInt16(125), count: 8) + Array(repeating: UInt16(126), count: 8) {
+                let character = key == 125 ? "\u{F701}" : "\u{F700}"
+                let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: sidebarWindow.windowNumber, context: nil, characters: character,
+                    charactersIgnoringModifiers: character, isARepeat: false, keyCode: key)!
+                table.keyDown(with: event)
+                try await Task.sleep(nanoseconds: 50_000_000)
+                arrowPath.append(selection ?? "nil")
+            }
+        }
         let buttons = allViews(sidebarHost).compactMap { $0 as? NSButton }
         var badgeClicked = false, badgeHit = false, badgeIndependent = false
         for button in buttons {
@@ -189,6 +231,7 @@ func words(_ rep: NSBitmapImageRep) throws -> String {
         }
         print(String(data: try JSONSerialization.data(withJSONObject: ["approvals": approvals, "turns": turns,
             "sidebar": ["native_selection": table != nil, "arrow_changed_selection": arrowChanged,
+                        "arrow_path": arrowPath,
                         "focus_shortcut_handled": focusHandled, "focus_shortcut_reached_list": focusReachedList,
                         "badge_clicked": badgeClicked, "badge_hit_is_control": badgeHit,
                         "badge_is_independent": badgeIndependent,

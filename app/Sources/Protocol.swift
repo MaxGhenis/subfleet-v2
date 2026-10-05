@@ -904,7 +904,8 @@ struct ApprovalView: Codable, Equatable, Identifiable {
 }
 
 /// The display fields a driver recorded for a provider request (claude_turn /
-/// codex_turn `summary`). Every key is kept: the card shows all of them.
+/// codex_turn `summary`). Every key is kept for Details; the grant projection
+/// omits named protocol plumbing and duplicate summary copy.
 struct ApprovalDisplay: JSONObjectBacked, Hashable {
     var fields: [String: JSONValue]
     init(fields: [String: JSONValue] = [:]) { self.fields = fields }
