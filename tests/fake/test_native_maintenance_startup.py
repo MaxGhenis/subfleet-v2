@@ -71,7 +71,7 @@ class _Clock:
 #: sizing; `sized-deadline` got past sizing and ran out of time before its first
 #: prune; `pruning-deadline` ran out of time after pruning a job.
 _OUTCOMES = {'ok': 5.0, 'deadline': 60.0, 'sized-deadline': 60.0, 'pruning-deadline': 60.0, 'cancelled': 1.0,
-             'raise': 0.25, 'advancing-batch': 2.0, 'stalled-batch': 2.0}
+             'raise': 0.25, 'advancing-batch': 2.0, 'stalled-batch': 2.0, 'scan-failed': 2.0}
 
 
 def _drive(service, monkeypatch, start, gaps, outcomes):
@@ -109,6 +109,8 @@ def _drive(service, monkeypatch, start, gaps, outcomes):
             return {'interrupted': 'deadline', 'pruned': [], 'progressed': True, 'jobs_after': 3, 'bytes_before': 4096}
         if outcome == 'pruning-deadline':
             return {'interrupted': 'deadline', 'pruned': ['job-1'], 'jobs_after': 2, 'bytes_before': 4096}
+        if outcome == 'scan-failed':
+            return {'more': True, 'progressed': True, 'holder_scan_failed': True, 'jobs_after': 3}
         if outcome in ('advancing-batch', 'stalled-batch'):
             return {'more': True, 'progressed': outcome == 'advancing-batch', 'pruned': []}
         return {}
@@ -176,6 +178,15 @@ def test_a_retention_pass_that_runs_out_of_time_sizing_is_due_again_in_an_hour(s
     assert daemon_module.RETENTION_INTERVAL_S == 3600 and daemon_module.RETENTION_PASS_S == 180
     assert 'retention' not in service._worker_retry_at and 'retention' not in service._worker_failures
     assert len(warnings) == 2 and all('before it pruned a job' in line and '3 jobs in the store' in line for line in warnings)
+
+
+def test_a_failed_holder_scan_does_not_reoffer_batches_on_the_catch_up_clock(state_daemon, monkeypatch):
+    """A failed shared scanner blocks the next batch despite quarantine and rollback."""
+    service, _ = state_daemon
+    passes = _drive(service, monkeypatch, 7200.0, [5, 5, 3589, 1], ['scan-failed'])
+    assert passes == [(7200.0, 7202.0, 'scan-failed'), (10802.0, 10807.0, 'ok')]
+    assert 'retention' not in service._worker_failures
+    assert 'retention' not in service._worker_retry_at
 
 
 def test_a_raise_after_a_sizing_deadline_starts_its_backoff_over(state_daemon, monkeypatch):
@@ -256,9 +267,9 @@ def _old_jobs(service, *names, kind="dispatch"):
         (directory / "stdout").write_bytes(b"x" * 10)
 
 
-def test_the_real_pass_that_runs_out_of_time_before_its_first_prune_waits_the_hour(state_daemon, monkeypatch):
-    """C-8.4 (review of 19ecb52f): against the real `maintenance`, a deadline that falls
-    after sizing and before the first prune rearms the hour and raises nothing."""
+def test_the_real_pass_with_slow_selection_still_prunes_and_is_retried(state_daemon, monkeypatch):
+    """Slow pre-selection work must still permit one archive slice and commit;
+    the deadline between batches then retries on the worker clock."""
     from subfleet import retention
     service, _ = state_daemon
     _old_jobs(service, "old-a", "old-b")
@@ -268,15 +279,15 @@ def test_the_real_pass_that_runs_out_of_time_before_its_first_prune_waits_the_ho
                         lambda *a, **k: (clock.jumped.set(), real_reasons(*a, **k))[1])
     _budget(service, jobs=0)
     service._last_maintenance = 0
-    service._retention()                                       # returns: no TimeoutError
-    assert service._last_maintenance > 0
-    assert service.timers.status()["retention"]["last_error_type"] == "TimeoutError"
-    assert service.store.get_job("old-a") is not None and service.store.get_job("old-b") is not None
+    with pytest.raises(TimeoutError):
+        service._retention()
+    assert service._last_maintenance == 0
+    assert service.store.get_job("old-a") is None and service.store.get_job("old-b") is not None
 
 
 def test_the_real_pass_that_runs_out_of_time_after_a_prune_is_retried(state_daemon, monkeypatch):
     """C-8.4, C-5.10: against the real `maintenance`, a deadline that falls after the
-    first prune has committed raises, so the worker clock retries the pass."""
+    first batch has committed raises, so the worker clock retries the pass."""
     service, _ = state_daemon
     _old_jobs(service, "old-a", "old-b")
     _deadline_after_first_prune(service, monkeypatch)
@@ -307,12 +318,15 @@ def _deadline_after_first_prune(service, monkeypatch):
         if kind == "retention.pruned":
             clock.jumped.set()
     monkeypatch.setattr(service.store, "transaction", transaction)
+    real_pass = daemon_module.maintenance
+    monkeypatch.setattr(daemon_module, "maintenance",
+                        lambda *a, **k: real_pass(*a, batch=1, **k))
 
 
 def test_the_real_pass_prunes_turn_jobs_on_their_own_budget(state_daemon, monkeypatch):
     """C-8.4, C-26.12 (port review of 454525ec): the turn pool's budget and keep time
-    reach the real pass from policy. Only turn jobs are over budget; the first is
-    pruned and the deadline after it raises."""
+    reach the real pass from policy. Only turn jobs are over budget; the first batch
+    is pruned and the deadline before the next batch raises."""
     service, _ = state_daemon
     _old_jobs(service, "turn-a", "turn-b", kind="turn")
     _old_jobs(service, "kept")
@@ -467,6 +481,7 @@ def test_retention_log_lines_report_what_the_archives_added(state_daemon, monkey
     {'interrupted': 'cancelled', 'pruned': ['a'], 'progressed': True},
     {'interrupted': 'deadline', 'progressed': False, 'jobs_after': 3},
     {'more': True, 'progressed': True}, {},
+    {'more': True, 'progressed': True, 'holder_scan_failed': True},
 ])
 def test_every_rearm_records_its_status_before_setting_last_maintenance(state_daemon, monkeypatch, result):
     """Bookkeeping failure leaves every outcome due; cancellation wins over progress."""
@@ -486,14 +501,15 @@ def test_cancellation_wins_even_after_a_prune(state_daemon, monkeypatch):
     service, _ = state_daemon
     service._last_maintenance = 0
     monkeypatch.setattr(daemon_module, 'maintenance',
-                        lambda *a, **k: {'interrupted': 'cancelled', 'pruned': ['a'], 'progressed': True})
+                        lambda *a, **k: {'interrupted': 'cancelled', 'pruned': ['a'], 'progressed': True,
+                                        'holder_scan_failed': True})
     service._retention()
     assert service._last_maintenance > 0
     assert service.timers.status()['retention']['last_error_type'] == 'CancelledError'
 
 
-@pytest.mark.parametrize('outcome', ['raise', 'cancelled', 'deadline', 'sized-deadline', 'advancing-batch', 'ok'])
-def test_notice_prune_is_first_and_once_per_pass(state_daemon, monkeypatch, outcome):
+@pytest.mark.parametrize('outcome', ['raise', 'cancelled', 'deadline', 'sized-deadline', 'advancing-batch', 'scan-failed', 'ok'])
+def test_notice_prune_is_first_and_once_per_retention_call(state_daemon, monkeypatch, outcome):
     service, _ = state_daemon
     calls = []
     monkeypatch.setattr(service, '_prune_service_notices', lambda: calls.append('notices'))
@@ -503,7 +519,9 @@ def test_notice_prune_is_first_and_once_per_pass(state_daemon, monkeypatch, outc
             raise OSError('failed')
         return {'interrupted': outcome if outcome in ('cancelled', 'deadline') else
                 ('deadline' if outcome == 'sized-deadline' else None),
-                'more': outcome == 'advancing-batch', 'progressed': outcome in ('sized-deadline', 'advancing-batch')}
+                'more': outcome in ('advancing-batch', 'scan-failed'),
+                'progressed': outcome in ('sized-deadline', 'advancing-batch', 'scan-failed'),
+                'holder_scan_failed': outcome == 'scan-failed'}
     monkeypatch.setattr(daemon_module, 'maintenance', maintenance)
     if outcome in ('raise', 'sized-deadline'):
         with pytest.raises((OSError, TimeoutError)):

@@ -191,7 +191,8 @@ def test_cancel_mid_archive_keeps_rows_and_the_next_pass_finishes(retained, monk
 
 def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypatch):
     """C-8.4 (review of 19ecb52f): the daemon tells a pass that pruned from one that did
-    not by `pruned`, which a deadline after the first committed prune must still carry."""
+    not by `pruned`, which a deadline between batches must still carry.
+    A started batch finishes committing; the next job has not started yet."""
     from contextlib import contextmanager
     store, root = retained
     job(store, root, "a")
@@ -213,11 +214,11 @@ def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypat
             expired.set()
     monkeypatch.setattr(store, "transaction", transaction)
     monkeypatch.setattr(retention, "time", Clock())
-    result = retention.maintenance(store, root, max_jobs=0, deadline=real_time.monotonic() + 600)
+    result = retention.maintenance(store, root, max_jobs=0, deadline=real_time.monotonic() + 600, batch=1)
     assert result["interrupted"] == "deadline"
     assert result["pruned"] == ["a"]
     assert result["progressed"] is True
-    assert store.get_job("a") is None and store.get_job("b") is not None and (root / "retention" / "b" / "job").exists()
+    assert store.get_job("a") is None and store.get_job("b") is not None and later.exists()
 
 
 def test_an_interrupted_sizing_pass_retains_advancement_and_resumes_at_the_next_job(retained, monkeypatch):

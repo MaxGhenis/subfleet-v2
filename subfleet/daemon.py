@@ -3469,7 +3469,7 @@ class Daemon:
         # retirement archives before it deletes; a pass retires a bounded batch,
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
-        # Once per daemon pass, including one that is cancelled or raises.
+        # Once per retention call (one bounded batch), including interruptions.
         try:
             self._prune_service_notices()
         except Exception as exc:
@@ -3487,6 +3487,14 @@ class Daemon:
         interrupted = result.get("interrupted")
         if interrupted == "cancelled":
             self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
+        if result.get("holder_scan_failed"):
+            # Quarantining and rolling back is action, but another batch cannot
+            # retire jobs while the shared process listing is unavailable.
+            self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in an hour",
+                             result.get("jobs_after", 0))
             self._last_maintenance = time.monotonic()
             return
         if interrupted:

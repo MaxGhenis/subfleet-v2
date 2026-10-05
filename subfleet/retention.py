@@ -393,7 +393,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     clock = clock or time.monotonic
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
-                                "progressed": False, **dict.fromkeys(FREED_KEYS, 0)}
+                                "progressed": False, "holder_scan_failed": False, **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
@@ -497,7 +497,7 @@ class _Pass:
         for job in jobs:
             counts[_pool(job)] += 1
         self._measure(jobs, in_flight, counts, protected)
-        _checkpoint(self.cancel, self.deadline, clock=self.clock)
+        self.ctx.check()
         totals = {name: 0 for name in self.budgets}
         unmeasured = {name: 0 for name in self.budgets}
         unknown = {name: 0 for name in self.budgets}
@@ -549,18 +549,18 @@ class _Pass:
             counts[pool] -= 1
             totals[pool] -= self.sizes.get(job_id, 0)
         retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
-        for n, job_id in enumerate(chosen):
+        for job_id in chosen:
             self.ctx.check()
-            if self.deadline is not None and self.clock() >= self.deadline:
-                if retirements:
-                    waiting = True
-                    break
-                raise _Interrupted("deadline")
+            # Slow recovery or pin reads must still permit the first job.
+            if self.deadline is not None and self.clock() >= self.deadline and retirements:
+                waiting = True
+                break
             retirement = self._start(by_id[job_id], protected)
             if retirement is not None:
                 retirements[job_id] = retirement
         self._check_holders(retirements, second=False)
         archived: dict[str, rarch.Retirement] = {}
+        sliced = False
         # Least recently sliced first (never sliced first of all, oldest first
         # among them): the pass's time goes round the in-flight jobs (N3).
         for job_id in sorted(retirements, key=lambda job_id: self.state.sliced.get(job_id, float("-inf"))):
@@ -569,9 +569,12 @@ class _Pass:
             if retirement.state == "archived":
                 archived[job_id] = retirement
                 continue
-            if self.deadline is not None and self.clock() >= self.deadline + self.slice_s:
+            # Give at least one job its slice even if pre-selection work used
+            # the entire deadline and grace. Later slices keep the pass bound.
+            if sliced and self.deadline is not None and self.clock() >= self.deadline + self.slice_s:
                 self.progress["in_flight"].append(job_id)
                 continue
+            sliced = True
             self.state.sliced[job_id] = self.clock()
             try:
                 outcome = retirement.archive(self.clock() + self.slice_s)
@@ -590,7 +593,8 @@ class _Pass:
                 archived[job_id] = retirement
         self._check_holders(archived, second=True)
         for job_id, retirement in archived.items():
-            _checkpoint(self.cancel, self.deadline, clock=self.clock)
+            # The deadline limits starts; verified archives finish this pass.
+            self.ctx.check()
             if retirement.state == "archived":
                 self._finish(retirement, protected)
         after = {name: pools[name]["bytes_before"] for name in pools}
@@ -830,11 +834,13 @@ class _Pass:
         except ScanFailed as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
+            self.progress["holder_scan_failed"] = True
             for job_id, retirement in wanted.items():
                 self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
                 retirements.pop(job_id, None)
             return
         except (OSError, ValueError) as exc:
+            self.progress["holder_scan_failed"] = True
             for job_id, retirement in wanted.items():
                 self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
                 retirements.pop(job_id, None)
