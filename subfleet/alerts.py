@@ -140,16 +140,20 @@ def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] 
     who = f"{login} ({lanes})"
     home = f"claude-cards:{login}"
     never = "Subfleet never redeems or claims; using it is your call."
+    # A card kept through a read that listed none is as last listed, not as read now.
+    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the latest read listed "
+              f"none ({warning.get('unlisted')}), so check Settings, Usage. " if warning.get("unlisted") else "")
     if kind == "card-expiring":
         subject = f"claude: unused limit reset on {login} expires soon"
         body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}) "
                 f"that expire at {_when(warning.get('at'), now)}. Use it from Settings, Usage, Reset for free "
-                f"(web or desktop) before then, or it is lost. {never}")
+                f"(web or desktop) before then, or it is lost. {listed}{never}")
     elif kind == "card-lapse-risk":
         reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
         subject = f"claude: unused limit reset on {login} is lost if its plan lapses"
         body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}); "
-                f"{reasons}. A card is lost when the plan is cancelled or downgraded before it is used. {never}")
+                f"{reasons}. A card is lost when the plan is cancelled or downgraded before it is used. "
+                f"{listed}{never}")
     elif kind == "credit-expiring":
         subject = f"claude: {warning.get('label')} on {login} expires soon"
         body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left, "

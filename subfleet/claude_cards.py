@@ -361,7 +361,9 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
     """Every card or credit about to be lost, one entry per thing at risk.
 
     Kinds, each keyed so a repeat is recognisable:
-    * `card-expiring`: an unused card ends within `warn_days`.
+    * `card-expiring`: an unused card ends within `warn_days`. A card kept
+      through a read that listed none carries `listed_at` and `unlisted`, as a
+      `card-lapse-risk` does.
     * `card-lapse-risk`: an unused card on an account whose plan is lapsing: a
       subscription status other than `active`, or a declared plan end within
       `warn_days` and before the card's own end. (A lapsed plan's usage cannot be
@@ -388,6 +390,12 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
         plan = account.get("plan") or {}
         declared = plan_end_for(account, plan_ends)
         status = plan.get("subscription_status")
+        # Cards kept through a read that listed none say when they were last
+        # listed and why the latest read listed none, so an alert can say so.
+        unlisted = account.get("cards_unlisted") or {}
+        listing = {"listed_at": unlisted.get("listed_at"),
+                   "unlisted": "no cards block" if unlisted.get("missing")
+                   else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}"} if unlisted else {}
 
         def lapse_reasons(ends: datetime | None) -> list[str]:
             reasons = []
@@ -403,12 +411,13 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
             ends = parse_time(grant.get("ends_at"))
             if ends is not None and ends <= horizon:
                 out.append({**base, "kind": "card-expiring", "key": f"{label}:{grant['id']}",
-                            "grant": grant["id"], "at": iso_utc(ends), "resets_left": grant["resets_left"]})
+                            "grant": grant["id"], "at": iso_utc(ends), "resets_left": grant["resets_left"],
+                            **listing})
             reasons = lapse_reasons(ends)
             if reasons:
                 out.append({**base, "kind": "card-lapse-risk", "key": f"{label}:{grant['id']}:lapse",
                             "grant": grant["id"], "at": iso_utc(declared) if declared else None,
-                            "resets_left": grant["resets_left"], "reasons": reasons})
+                            "resets_left": grant["resets_left"], "reasons": reasons, **listing})
         for credit in account.get("credits") or []:
             ends = parse_time(credit.get("expires_at"))
             remaining = credit.get("remaining_dollars") or 0
@@ -471,7 +480,11 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
     if previous.get("identity") and current.get("identity") and previous["identity"] != current["identity"]:
         return []           # another account now: nothing of the old one is known lost
     known = {item.get("grant") or item.get("credit") for item in lost_items(previous)}
-    held = [grant for grant in unused_cards(previous, then) if grant["id"] not in known]
+    # Cards kept through `ok` reads that listed none were last listed at `listed_at`, and are judged
+    # from that listing, as they are when the reads between failed: one that ended meanwhile is
+    # still recorded by the next read that lists cards.
+    listed = parse_time((previous.get("cards_unlisted") or {}).get("listed_at")) or then
+    held = [grant for grant in unused_cards(previous, listed) if grant["id"] not in known]
     money = [credit for credit in previous.get("credits") or []
              if (credit.get("remaining_dollars") or 0) > 0 and credit.get("key") not in known
              and (parse_time(credit.get("expires_at")) is None or parse_time(credit.get("expires_at")) > then)]

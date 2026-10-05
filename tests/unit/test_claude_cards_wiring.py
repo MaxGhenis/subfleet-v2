@@ -289,3 +289,5 @@ def test_cards_help_says_what_a_read_may_spend():
     assert "never redeems" in listing and "never redeems a card or claims a credit" in own
     assert "one minimal Claude Code turn (a heal)" in own and "claude_cards.heal_interval_min" in own
     assert "--refresh read every login now" in own and "may spend a heal turn" in own
+    assert "unless an operator hold covers one of its lanes" in own
+    assert "Without --refresh it shows the last read and spends nothing." in own

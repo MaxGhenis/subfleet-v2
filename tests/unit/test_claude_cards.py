@@ -941,10 +941,13 @@ def test_a_read_that_lists_no_cards_keeps_the_last_listed_grants(tmp_path):
     """C-9.10: an `ok` read whose cards block is missing or ineligible keeps the cards the last
     listing read saw, records that read beside them, and goes on warning on what they hold."""
     from subfleet import render, status_json
+    from subfleet.alerts import card_condition
     login = Login(expires_in_s=90 * 86400)
     good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
     listed = good["accounts"][0]
     when = NOW + timedelta(days=13)          # the card ends 2026-10-22T16:00Z, inside five days
+    [plain] = cc.view(good, when, warn_days=5)["warnings"]         # a listed card: no caveat
+    assert "unlisted" not in plain and "last listed" not in card_condition(plain, when)["body"]
     for cedar, reason, missing in ((None, None, True),
                                    ({"eligible": False, "ineligible_reason": "surface", "grants": []}, "surface", False)):
         later = _pass(login, Wire(_blind(cedar)), when, good, tmp_path)
@@ -960,6 +963,11 @@ def test_a_read_that_lists_no_cards_keeps_the_last_listed_grants(tmp_path):
         assert "nothing held" not in "\n".join(render.card_lines(shown, compact=True))
         [menu] = status_json._cards({"claude_cards": shown})["accounts"]
         assert menu["cards_unlisted"] == row["cards_unlisted"] and menu["cards"][0]["id"] == CARD
+        [warning] = shown["warnings"]
+        assert warning["listed_at"] == listed["read_at"] and warning["key"] == f"{listed['login']}:{CARD}"
+        why = "no cards block" if missing else "ineligible: surface"
+        assert (f"This is the card as last listed {listed['read_at']}; the latest read listed none ({why})"
+                in card_condition(warning, when)["body"])
         # Another read that lists nothing still knows when the cards were last listed ...
         again = _pass(login, Wire(_blind(cedar)), when + timedelta(hours=6), later, tmp_path)
         assert again["accounts"][0]["cards_unlisted"]["listed_at"] == listed["read_at"]
@@ -1134,3 +1142,139 @@ def test_kept_cards_and_claims_never_cross_accounts(tmp_path, reads):
         assert [credit["expires_at"] for credit in row["credits"]] == ([credit_ends] if credit_ends else [])
         assert (row["cloud_credit_claim"] or {}).get("expires_at") in (None, _CLAIM_ENDS[account_id])
         assert "lost" not in row
+
+
+# --- the review of #133 --------------------------------------------------------------
+
+
+def _fails_usage():
+    return {**healthy(), cc.CARDS_USAGE_URL: [(OSError("down"), None, None)]}
+
+
+@pytest.mark.parametrize("between", ["blind", "failed"])
+def test_a_card_that_ends_while_reads_list_none_is_lost_at_the_next_listing(tmp_path, between):
+    """C-9.10: a card the last listing held unused, that ends while the reads between list no cards
+    (or fail), is recorded lost by the next read that lists it unused after its end."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    middle = _blind({"eligible": False, "ineligible_reason": "surface", "grants": []}) if between == "blind" \
+        else _fails_usage()
+    mid = _pass(login, Wire(middle), NOW + timedelta(days=18), good, tmp_path)       # the card ended Oct 22
+    after = _pass(login, Wire(healthy()), NOW + timedelta(days=19), mid, tmp_path)
+    assert after["accounts"][0]["lost"] == [{"grant": CARD, "at": cc.iso_utc(NOW + timedelta(days=19)),
+                                             "reason": "expired"}]
+
+
+def test_reads_that_list_none_keep_when_cards_were_listed_and_name_the_latest(tmp_path):
+    """C-9.10: `listed_at` survives failed reads between blind ones; `at` names the latest blind read."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    snapshot = good
+    surface = {"eligible": False, "ineligible_reason": "surface", "grants": []}
+    for step, answers in enumerate((_blind(surface), _fails_usage(), _blind(None), _fails_usage()), start=1):
+        snapshot = _pass(login, Wire(answers), NOW + timedelta(hours=6 * step), snapshot, tmp_path)
+        assert snapshot["accounts"][0]["cards_unlisted"]["listed_at"] == good["accounts"][0]["read_at"]
+    assert snapshot["accounts"][0]["cards_unlisted"]["at"] == cc.iso_utc(NOW + timedelta(hours=18))
+
+
+def test_a_lapse_after_a_read_that_listed_none(tmp_path):
+    """C-9.10: a lapse records the card a read that listed none kept, and leaves no `cards_unlisted`."""
+    login = Login(expires_in_s=90 * 86400)
+    lapsed_wire = Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]})
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    blind = _pass(login, Wire(_blind(None)), NOW + timedelta(days=1), good, tmp_path)
+    row = _pass(login, lapsed_wire, NOW + timedelta(days=2), blind, tmp_path)["accounts"][0]
+    assert row["cards"] is None and row["cards_unlisted"] is None
+    assert [(item.get("grant") or item.get("credit"), item["reason"]) for item in row["lost"]] == [
+        (CARD, "lapse"), ("iguana_necktie", "lapse")]
+    # Nothing to lose (a used card, no credit): the lapsed read itself clears the record.
+    used = _usage_with()
+    used["cedar_ember"]["grants"][0]["resets_left"] = 0
+    used.pop("iguana_necktie")
+    first = _pass(login, Wire({**healthy(), cc.CARDS_USAGE_URL: [(200, used, None)]}), NOW, None, tmp_path)
+    unlisted = {key: value for key, value in used.items() if key != "cedar_ember"}
+    blind = _pass(login, Wire({**healthy(), cc.CARDS_USAGE_URL: [(200, unlisted, None)]}), NOW + timedelta(days=1),
+                  first, tmp_path)
+    assert blind["accounts"][0]["cards_unlisted"]
+    row = _pass(login, lapsed_wire, NOW + timedelta(days=2), blind, tmp_path)["accounts"][0]
+    assert row["cards_unlisted"] is None and "lost" not in row
+
+
+def test_the_old_accounts_loss_record_is_never_the_new_ones(tmp_path):
+    """C-9.10: what the old account was recorded losing is not shown, or alerted, for the new one."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}),
+                   NOW + timedelta(days=1), good, tmp_path)
+    assert lapsed["accounts"][0]["lost"]
+    other = json.loads(json.dumps(fixture("profile_active")))
+    other["account"]["uuid"] = "11111111-1111-4111-8111-111111111111"
+    login.expires_ms += 1000            # a new sign-in: the settled login is read again at once
+    new = _pass(login, Wire({**healthy(), cc.PROFILE_URL: [(200, other, None)]}),
+                NOW + timedelta(days=1, hours=1), lapsed, tmp_path)
+    row = new["accounts"][0]
+    assert row["identity"].startswith("11111111") and "lost" not in row
+    assert not [warning for warning in cc.view(new, NOW + timedelta(days=1, hours=1), warn_days=5)["warnings"]
+                if warning["kind"].endswith("-lost")]
+
+
+def test_heal_turn_kills_the_group_before_its_bounded_wait(tmp_path, monkeypatch):
+    """C-23.47: a CLI that ignores SIGTERM has its whole group killed two seconds later, before the
+    bounded wait for its output, never only its leader."""
+    import signal
+    import subprocess
+    import threading
+    kills, cancel = [], threading.Event()
+    monkeypatch.setattr(cc, "_kill_group", lambda pid, sig=signal.SIGKILL: kills.append((pid, sig)))
+
+    class Child:
+        pid, returncode, killed = 4245, None, False
+
+        def __init__(self, argv, **kwargs):
+            pass
+
+        def communicate(self, timeout=None):
+            cancel.set()                    # the daemon stops while the turn runs
+            if (self.pid, signal.SIGKILL) in kills:
+                return "", ""
+            raise subprocess.TimeoutExpired("claude", timeout)
+
+        def kill(self):
+            Child.killed = True
+    rc, _out, err = cc.heal_turn(tmp_path / "home", model="m", prompt="p", popen=Child, cancel=cancel)
+    assert rc == 130 and "stopping" in err and not Child.killed
+    assert kills == [(4245, signal.SIGTERM), (4245, signal.SIGKILL), (4245, signal.SIGKILL)]
+
+
+_CARD_READS = st.lists(st.tuples(st.sampled_from(["unused", "used", "absent", "blind", "fails"]),
+                                 st.integers(min_value=1, max_value=6)), min_size=1, max_size=8)
+
+
+def _card_answers(kind):
+    if kind == "fails":
+        return _fails_usage()
+    if kind == "blind":
+        return _blind({"eligible": False, "ineligible_reason": "surface", "grants": []})
+    payload = _usage_with()
+    if kind == "used":
+        payload["cedar_ember"]["grants"][0]["resets_left"] = 0
+    elif kind == "absent":
+        payload["cedar_ember"]["grants"] = []
+    return {**healthy(), cc.CARDS_USAGE_URL: [(200, payload, None)]}
+
+
+@given(_CARD_READS)
+@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_a_read_that_lists_no_cards_counts_as_a_failed_one_for_card_loss(tmp_path, reads):
+    """C-9.10, differential: for the cards' loss record, an `ok` read whose cards block lists none is
+    a read that failed. Replacing every such read by a failed one changes no card entry."""
+    login = Login(expires_in_s=400 * 86400)
+
+    def card_losses(sequence):
+        snapshot, when = None, NOW
+        for kind, days in sequence:
+            when += timedelta(days=days)
+            snapshot = _pass(login, Wire(_card_answers(kind)), when, snapshot, tmp_path)
+        return [(item["grant"], item["at"], item["reason"])
+                for item in snapshot["accounts"][0].get("lost") or [] if item.get("grant")]
+    assert card_losses(reads) == card_losses([("fails" if kind == "blind" else kind, days) for kind, days in reads])
