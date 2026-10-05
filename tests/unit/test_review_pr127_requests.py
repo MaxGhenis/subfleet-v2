@@ -30,14 +30,13 @@ def test_bad_final_line_does_not_discard_the_valid_line(svc):
     assert any('wake-refused' in r["data_json"] for r in events)
 
 
-def test_timer_floor_is_checked_at_settlement_too(svc):
+def test_timer_floor_is_checked_at_turn_start(svc):
     cid = bound(svc)
     mid = submit(svc, cid)
     svc.store._db.execute("UPDATE messages SET created_at=? WHERE message_id=?", (datetime.fromtimestamp(1000, UTC).isoformat(), mid))
     svc.wakes.now = lambda: 1100
     svc.wakes.from_final(cid, mid, "WAKE-ME: at=" + datetime.fromtimestamp(1300, UTC).isoformat())
-    assert svc.store.query("SELECT kind FROM wake_requests") == []
-    assert any('wake-refused' in r['data_json'] for r in svc.store.query("SELECT data_json FROM events"))
+    assert svc.store.one("SELECT kind FROM wake_requests")["kind"] == "time"
 
 
 @pytest.mark.parametrize("text", [

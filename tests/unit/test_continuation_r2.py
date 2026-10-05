@@ -13,8 +13,8 @@ from tests.unit.test_conversation_wakes import bound, rows, settle_all
 from tests.unit.test_review_r2_repro import iso, run_under, turn_job, T0
 
 
-@pytest.mark.parametrize('remaining', [-1, 0, 299, 300])
-def test_final_timer_requires_five_minutes_from_now(svc, remaining):
+@pytest.mark.parametrize('remaining', [-1, 0, 1, 299, 300])
+def test_final_timer_is_five_minutes_after_turn_start_and_still_ahead(svc, remaining):
     cid = bound(svc)
     mid = submit(svc, cid)
     job = turn_job(svc, cid, 1)
@@ -24,9 +24,11 @@ def test_final_timer_requires_five_minutes_from_now(svc, remaining):
         tx.execute('UPDATE messages SET job_id=?,state=\'complete\' WHERE message_id=?', (job, mid))
     svc.wakes.now = lambda: T0 + 600
     svc.wakes.from_final(cid, mid, f'WAKE-ME: at={iso(T0 + 600 + remaining)}')
-    assert bool(svc.store.query('SELECT * FROM wake_requests')) == (remaining >= 300)
+    # The turn started 600 s before settlement, so every case clears the floor;
+    # only a time already past at settlement is refused.
+    assert bool(svc.store.query('SELECT * FROM wake_requests')) == (remaining > 0)
     events = svc.store.query('SELECT data_json FROM events WHERE message_id=?', (mid,))
-    assert any('wake-refused' in e['data_json'] for e in events) == (remaining < 300)
+    assert any('wake-refused' in e['data_json'] for e in events) == (remaining <= 0)
 
 
 def test_first_pr_watch_keeps_events_between_turn_creation_and_settlement(svc, monkeypatch):
@@ -45,7 +47,7 @@ def test_first_pr_watch_keeps_events_between_turn_creation_and_settlement(svc, m
     assert len(rows(svc, cid)) == 1
 
 
-def test_pr_refusal_survives_restart_and_identical_retry(svc, monkeypatch):
+def test_pr_refusal_survives_restart_without_a_second_wake_and_clears_once_resolved(svc, monkeypatch):
     cid = bound(svc)
     svc.wakes.now = lambda: T0
     request_id = str(uuid.uuid4())
@@ -57,11 +59,16 @@ def test_pr_refusal_survives_restart_and_identical_retry(svc, monkeypatch):
     settle_all(svc, cid)
     engine = wakes.WakeEngine(svc)
     try:
+        engine.now = lambda: T0 + 120
         assert engine.register(cid, request_id, spec)['request_id'] == request_id
-        with pytest.raises(ConversationError, match='already refused'):
-            engine.register(cid, str(uuid.uuid4()), spec)
+        engine.register(cid, str(uuid.uuid4()), spec)            # re-armed: watched, not announced again
         engine.tick()
         assert len(rows(svc, cid)) == 1
+        merged = {'state': 'MERGED', 'merged_at': iso(T0 + 200), 'checks': [], 'reviews': []}
+        monkeypatch.setattr(wakes, 'query_prs', lambda _: {'o/r#7': merged})
+        engine.now = lambda: T0 + 300
+        engine.tick()                                           # the PR now resolves: refusal cleared
+        assert svc.store.query("SELECT * FROM wake_pr_refusals WHERE conversation_id=?", (cid,)) == []
     finally:
         engine.close()
 

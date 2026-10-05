@@ -156,6 +156,15 @@ def claim(tx, cid: str, mid: str, data: dict, *, accepted_at: str) -> None:
     for job_id in data["runs"]:
         if tx.execute("SELECT 1 FROM wake_runs WHERE conversation_id=? AND job_id=?", (cid, job_id)).fetchone():
             raise ConversationError("wake-deferred", "completion already delivered")
+    announced = set(data["requests"])
+    for _, request_id in data["requests"]:
+        # The PR worker may have recorded an event on another kind of this request
+        # after the tick read it. Consuming that kind unannounced would make the
+        # event a baseline; the next evaluation includes it instead.
+        for row in tx.execute("SELECT kind FROM wake_requests WHERE conversation_id=? AND request_id=? "
+                              "AND state='pending' AND ready_json IS NOT NULL", (cid, request_id)):
+            if (row["kind"], request_id) not in announced:
+                raise ConversationError("wake-deferred", "another kind of this request became ready")
     for kind, request_id in data["requests"]:
         # Kinds in one request are alternatives: the first ready trigger consumes
         # all of them. Independent requests ready this cycle share one message.
@@ -216,10 +225,17 @@ class WakeEngine:
                 self.service.log.warning("PR wake worker failed: %s", exc)
             self._poll_future = None
         if self._poll_future is None and self.now() >= self._next_poll:
-            self._next_poll = self.now() + PR_INTERVAL_S
+            now = self.now()
+            last = self.store.one("SELECT value FROM wake_meta WHERE key='pr-polled'")
+            # The next check is due when the once-a-minute mark allows, not a full
+            # interval after a check the mark refused.
+            due = last["value"] + PR_INTERVAL_S if last else now
             pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='pr' AND ready_json IS NULL")
-            if pending:
+            if pending and now >= due:
+                self._next_poll = now + PR_INTERVAL_S
                 self._poll_future = self.poller.submit(self._poll_prs, pending)
+            else:
+                self._next_poll = due if pending and due > now else now + PR_INTERVAL_S
         now = self.now()
         scan_completions = now >= self._next_completions
         if scan_completions:
@@ -249,14 +265,22 @@ class WakeEngine:
                 if existing != spec:
                     raise ConversationError("wake-id-conflict", "request id already has another payload")
                 return {"request_id": request_id, "kinds": list(spec)}
-            for target in spec.get("pr", {}).get("targets", []):
-                refused = tx.execute("SELECT error FROM wake_pr_refusals WHERE conversation_id=? AND target=?",
-                                     (cid, target)).fetchone()
-                if refused:
-                    raise ConversationError("bad-wake", f"PR watch already refused: {target} ({refused['error']}). Correct the reference.")
-            previous_pr = tx.execute("SELECT observed_json FROM wake_requests WHERE conversation_id=? AND kind='pr' "
-                                     "AND state='fired' AND observed_json IS NOT NULL ORDER BY rowid DESC LIMIT 1", (cid,)).fetchone()
-            baseline = json.loads(previous_pr["observed_json"]) if previous_pr else {}
+            # Baselines are per target: the last fired observation of each, then the
+            # watch this request supersedes. That watch's undelivered events stay
+            # ready rather than becoming a baseline (an observation before them does).
+            baseline, carried = {}, set()
+            for row in tx.execute("SELECT observed_json FROM wake_requests WHERE conversation_id=? AND kind='pr' "
+                                  "AND state='fired' AND observed_json IS NOT NULL ORDER BY rowid", (cid,)):
+                baseline.update(json.loads(row["observed_json"]))
+            superseded = tx.execute("SELECT observed_json,ready_json FROM wake_requests WHERE conversation_id=? "
+                                    "AND kind='pr' AND state='pending'", (cid,)).fetchone()
+            if superseded and superseded["observed_json"]:
+                ready = set(json.loads(superseded["ready_json"] or "[]"))
+                for target, snapshot in json.loads(superseded["observed_json"]).items():
+                    if target in ready and not snapshot.get("error"):
+                        carried.add(target)
+                    elif target not in ready:
+                        baseline[target] = snapshot
             for kind, payload in spec.items():
                 encoded = json.dumps(payload, sort_keys=True)
                 previous = tx.execute("SELECT payload_json FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind=?",
@@ -267,10 +291,15 @@ class WakeEngine:
                     continue
                 tx.execute("UPDATE wake_requests SET state='superseded' WHERE conversation_id=? AND kind=? AND state='pending'", (cid, kind))
                 observed = {p: baseline[p] for p in payload["targets"] if p in baseline} if kind == "pr" else None
+                ready = [p for p in payload["targets"] if p in carried] if kind == "pr" else []
+                if ready:
+                    old = json.loads(superseded["observed_json"])
+                    observed = {**(observed or {}), **{p: old[p] for p in ready}}
                 threshold = self.now() if event_since is None else event_since
-                tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at,observed_json) VALUES(?,?,?,?,?,?)",
+                tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at,observed_json,ready_json) "
+                           "VALUES(?,?,?,?,?,?,?)",
                            (cid, request_id, kind, encoded, datetime.fromtimestamp(threshold, UTC).isoformat(),
-                            json.dumps(observed) if observed else None))
+                            json.dumps(observed) if observed else None, json.dumps(ready) if ready else None))
         if "pr" in spec:
             # A new watch is checked on the next tick rather than up to a minute
             # later; the `pr-polled` mark still holds gh to one query a minute.
@@ -301,8 +330,13 @@ class WakeEngine:
                 continue
             try:
                 args = trailing_requests(line)[0]
-                self.register(cid, request_id, normalize(**args, now=max(self.now(), validation_time)),
-                              event_since=validation_time)
+                # The floor is measured from the turn's start: the agent wrote the
+                # time during the turn, and settlement can follow by minutes (D-15).
+                # A time already past at settlement is still refused.
+                spec = normalize(**args, now=min(self.now(), validation_time))
+                if "time" in spec and spec["time"]["at"] <= self.now():
+                    raise ConversationError("bad-wake", "at is already past at settlement")
+                self.register(cid, request_id, spec, event_since=validation_time)
             except (ConversationError, ValueError) as exc:
                 self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
                 if message:
@@ -360,9 +394,13 @@ class WakeEngine:
         for r in requests:
             before = json.loads(r["observed_json"] or "{}")
             watched = json.loads(r["payload_json"])["targets"]
+            # A target already refused here is announced once; it stays watched so
+            # that it can resolve later (a PR opened after the watch, access restored).
+            refused = {row["target"] for row in self.store.query(
+                "SELECT target FROM wake_pr_refusals WHERE conversation_id=?", (r["conversation_id"],))}
             changed = [p for p in watched if p in snapshots and (
-                snapshots[p].get("error") or pr_changed(before.get(p), snapshots[p]) or
-                (p not in before and pr_event_since(snapshots[p], r["created_at"])))]
+                (snapshots[p].get("error") and p not in refused) or pr_changed(before.get(p), snapshots[p]) or
+                (p not in before and not snapshots[p].get("error") and pr_event_since(snapshots[p], r["created_at"])))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
                 tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
@@ -371,6 +409,8 @@ class WakeEngine:
                 tx.executemany("INSERT OR REPLACE INTO wake_pr_refusals VALUES(?,?,?)",
                                [(r["conversation_id"], p, snapshots[p]["error"]) for p in watched
                                 if p in snapshots and snapshots[p].get("error")])
+                tx.executemany("DELETE FROM wake_pr_refusals WHERE conversation_id=? AND target=?",
+                               [(r["conversation_id"], p) for p in watched if p in snapshots and not snapshots[p].get("error")])
 
     def tick(self, *, poll: bool = True, scan_completions: bool = True, scan_requests: bool = True) -> None:
         self.start()

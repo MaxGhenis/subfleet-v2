@@ -204,13 +204,13 @@ def test_prior_f5_one_bad_line_keeps_the_good_line(svc):
     assert [r["kind"] for r in svc.store.query("SELECT kind FROM wake_requests WHERE conversation_id=?", (cid,))] == ["pr"]
 
 
-def test_prior_f5_timer_still_five_minutes_out_at_settlement_is_kept(svc):
+def test_prior_f5_timer_set_five_minutes_out_during_the_turn_is_kept(svc):
     cid = bound(svc)
     mid = submit(svc, cid, "work, then check back")
     with svc.store.transaction() as tx:                    # the turn started at T0
         tx.execute("UPDATE messages SET created_at=? WHERE message_id=?", (iso(T0), mid))
     svc.wakes.now = lambda: T0 + 180                       # it settles 3 minutes later
-    svc.wakes.from_final(cid, mid, f"Back soon.\nWAKE-ME: at={iso(T0 + 480)}")
+    svc.wakes.from_final(cid, mid, f"Back soon.\nWAKE-ME: at={iso(T0 + 310)}")
     assert [r["kind"] for r in svc.store.query("SELECT kind FROM wake_requests WHERE conversation_id=?", (cid,))] == ["time"]
 
 
