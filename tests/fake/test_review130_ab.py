@@ -236,3 +236,4 @@ def test_rule1_a_deadline_after_progress_still_raises_with_more_waiting(state_da
         service._retention()
     assert service._last_maintenance == 0
     assert service.store.get_job('c') is not None and service.store.get_job('a') is None
+    assert service.store.get_job('b') is None, 'the deadline must not stop a verified batch midway through commit'
