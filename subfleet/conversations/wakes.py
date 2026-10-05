@@ -255,7 +255,7 @@ class WakeEngine:
                 if refused:
                     raise ConversationError("bad-wake", f"PR watch already refused: {target} ({refused['error']}). Correct the reference.")
             previous_pr = tx.execute("SELECT observed_json FROM wake_requests WHERE conversation_id=? AND kind='pr' "
-                                     "AND observed_json IS NOT NULL ORDER BY created_at DESC,rowid DESC LIMIT 1", (cid,)).fetchone()
+                                     "AND state='fired' AND observed_json IS NOT NULL ORDER BY rowid DESC LIMIT 1", (cid,)).fetchone()
             baseline = json.loads(previous_pr["observed_json"]) if previous_pr else {}
             for kind, payload in spec.items():
                 encoded = json.dumps(payload, sort_keys=True)

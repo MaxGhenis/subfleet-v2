@@ -66,6 +66,30 @@ def test_pr_refusal_survives_restart_and_identical_retry(svc, monkeypatch):
         engine.close()
 
 
+def test_rearm_does_not_baseline_an_undelivered_mid_turn_pr_event(svc, monkeypatch):
+    cid = bound(svc)
+    mid = submit(svc, cid)
+    job = turn_job(svc, cid, 1, state='running')
+    with svc.daemon.store.transaction() as tx:
+        tx.execute('UPDATE jobs SET created_at=? WHERE job_id=?', (iso(T0), job))
+    with svc.store.transaction() as tx:
+        tx.execute('UPDATE messages SET job_id=?,state=\'running\' WHERE message_id=?', (job, mid))
+    svc.wakes.now = lambda: T0
+    register_id = str(uuid.uuid4())
+    svc.wakes.register(cid, register_id, wakes.normalize(prs=['o/r#1'], now=T0))
+    snapshot = {'state': 'OPEN', 'checks': [['COMPLETED', 'ci', 'SUCCESS', iso(T0 + 240), 'fix']], 'reviews': []}
+    monkeypatch.setattr(wakes, 'query_prs', lambda _: {'o/r#1': snapshot})
+    svc.wakes.now = lambda: T0 + 300
+    svc.wakes.tick()
+    assert rows(svc, cid) == []
+    svc.daemon.store.update_job(job, state='succeeded')
+    svc.store.set_state(mid, 'complete')
+    svc.wakes.now = lambda: T0 + 600
+    svc.wakes.from_final(cid, mid, 'WAKE-ME: prs=o/r#1')
+    svc.wakes.tick()
+    assert len(rows(svc, cid)) == 1
+
+
 @settings(max_examples=32, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(timer=st.booleans(), pr=st.booleans(), delivered=st.booleans(),
        terminal=st.booleans(), pruned=st.booleans(), due=st.booleans(), changed=st.booleans())
