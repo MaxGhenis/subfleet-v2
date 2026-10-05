@@ -836,6 +836,8 @@ def test_c16_7_a_read_reaching_a_thread_after_the_daemon_ended_its_stream_is_not
     service.dispatch = lambda op, args, **kw: ran.append(op) or real(op, args, **kw)
 
     ended, peer = socket.socketpair(socket.AF_UNIX)
+    with service._connection_lock:
+        service._connections.add(ended)                       # held, as a real connection is
     service._end_stream(ended)                                # as after a broken reply
     service._respond(ended, threading.Lock(), protocol.Request(op="daemon.status", args={}, id="a"))
     assert ran == [] and counts(service)["abandoned"] == 0
@@ -850,6 +852,9 @@ def test_c16_7_a_read_reaching_a_thread_after_the_daemon_ended_its_stream_is_not
     other.close()                                             # the control: the client left
     service._respond(left, threading.Lock(), protocol.Request(op="daemon.status", args={}, id="b"))
     assert ran == [] and counts(service)["abandoned"] == 1
+    with service._connection_lock:
+        service._connections.discard(ended)
+        service._shut_down.discard(ended)
     for sock in (ended, peer, left):
         sock.close()
 
@@ -903,9 +908,13 @@ def test_c16_1_a_request_id_with_no_utf8_form_is_still_answered(serve):
     with connect(service) as sock:
         sock.sendall(b'{"v":1,"id":"\\ud800","op":"ping","args":{}}\n')
         send(sock, "ping")
-        first, second = reply_lines(sock, 2)
-    assert first["id"] == "\ud800" and first["result"]["pong"] is True
-    assert second["result"]["pong"] is True
+        replies = reply_lines(sock, 2)
+    # Both run on the request pool, so they may be answered in either order. Ids
+    # are compared escaped: a lone surrogate in a failure message cannot cross
+    # pytest-xdist's channel and turns one failure into an internal error.
+    answered = {reply["id"].encode("unicode_escape"): reply for reply in replies}
+    assert set(answered) == {b"\\ud800", b"ping"}
+    assert all(reply["result"]["pong"] is True for reply in replies)
 
 
 def test_c16_7_subfleet_wait_over_a_busy_daemon_ends_near_its_timeout(root, monkeypatch):
