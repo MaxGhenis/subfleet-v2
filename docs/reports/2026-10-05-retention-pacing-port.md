@@ -132,8 +132,9 @@ passed again (8.00 s); a Git diff confirmed only this report remained uncommitte
 ## Foreground test results
 
 The requested globs collect 409 unique pytest items (408 before the new
-incomplete-cleanup regression). They are run in slices of at most 20 collected
-items or as individual properties. Remaining broad suites and individual
+incomplete-cleanup regression). Large archive and salvage suites are run in
+slices of at most 20 collected items, and properties individually; the combined
+daemon/timer and small-suite runs are identified below. Remaining broad suites and individual
 properties use a 540 s foreground supervisor; no test runs in the background.
 Every completed slice was under 10 minutes. The largest completed
 slice reported 437.51 s. Repeated verification of the 20 timer-retention items
