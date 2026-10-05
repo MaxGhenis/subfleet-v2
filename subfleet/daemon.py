@@ -6769,9 +6769,17 @@ class Daemon:
                 return False
         # While another daemon's lock says `stack_dumps`, the handler is replaced
         # in place, never let go first (review r3, P1).
-        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
-        _STACK_DUMPS = weakref.ref(self)
-        _ADVERTISED[self._dumps_token] = (_STACK_DUMPS, stream)
+        try:
+            faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+            _STACK_DUMPS = weakref.ref(self)
+            _ADVERTISED[self._dumps_token] = (_STACK_DUMPS, stream)
+        except BaseException:
+            # Registered, maybe, but not recorded (a KeyboardInterrupt between the
+            # two): this daemon is not a member, so its cleanup closes its stream,
+            # which faulthandler may hold. Point the signal back at the member
+            # that should hold it, or let it go (review of 67b9adc, P2).
+            _hand_sigusr1_on()
+            raise
         return True
 
     def _disable_stack_dumps(self) -> bool:

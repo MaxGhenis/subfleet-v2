@@ -877,7 +877,18 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     daemon closed at the same moment, saw itself not holding the signal and closed
     its stream, and a SIGUSR1 then wrote stacks into whatever reused the descriptor
     while a third daemon stood advertised. The second close now waits for the hand-
-    off, finds itself the holder, and hands the signal on to the third."""
+    off, finds itself the holder, and hands the signal on to the third.
+
+    The interleaving is forced, not hoped for (reviews of 78bfbf0, 3cac1e8 and
+    67b9adc, P3). Middle's close passes its membership check and stops at its lock
+    write; newest's close then hands the signal to middle and stops inside the
+    hand-off, holding `_DUMPS_LOCK`; middle's close goes on to the step where it
+    leaves the set and decides whether it holds the signal. `_DUMPS_LOCK`, wrapped,
+    lets middle take it only without blocking and says when it is refused, which
+    can happen only there and only while the hand-off holds it; middle cannot pass
+    that step until the hand-off lets go. A close that leaves the set or decides
+    outside the lock, or no lock, is never refused, and the test fails whatever
+    the scheduling."""
     import faulthandler
     from types import SimpleNamespace
     from test_lockwatch import dumped_into, log_text
@@ -885,21 +896,17 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     middle = Daemon(tmp_path / "middle")
     newest = Daemon(tmp_path / "newest")
     assert daemon_module._STACK_DUMPS() is newest
-    entered, release, reached = threading.Event(), threading.Event(), threading.Event()
-    real_lock, middle_closing = daemon_module._DUMPS_LOCK, []
+    writing, go_on, entered, release, refused = (threading.Event() for _ in range(5))
+    real_lock, real_write, middle_closing = daemon_module._DUMPS_LOCK, Daemon._write_lock, []
 
     class Watched:
-        """`_DUMPS_LOCK`, which middle's close takes without blocking, and says when
-        it is refused: proof that it came to take the lock, the step just before
-        it decides whether it holds the signal, while the hand-off held it.
-        Middle cannot pass that step until the hand-off lets go, so what follows
-        does not depend on how the threads are scheduled (reviews of 78bfbf0 and
-        3cac1e8, P3: a checkpoint any weaker let an unserialised close pass)."""
+        """`_DUMPS_LOCK`, which middle's close takes only without blocking, saying
+        when it is refused."""
 
         def __enter__(self):
             if middle_closing and threading.current_thread() is middle_closing[0]:
                 while not real_lock.acquire(blocking=False):
-                    reached.set()
+                    refused.set()
                     time.sleep(.01)
                 return True
             return real_lock.acquire()
@@ -911,6 +918,12 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
         def _is_owned(self):
             return real_lock._is_owned()
 
+    def write(self, *, stack_dumps):
+        if self is middle and not stack_dumps:
+            writing.set()                                   # past its membership check, the lock let go
+            go_on.wait()                                    # until newest is inside the hand-off
+        return real_write(self, stack_dumps=stack_dumps)
+
     def register(*args, **kwargs):
         result = faulthandler.register(*args, **kwargs)
         if kwargs.get("file") is middle._log_handler.stream and not entered.is_set():
@@ -918,23 +931,28 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
             release.wait()                                  # until the test releases it, in `finally`
         return result
     monkeypatch.setattr(daemon_module, "_DUMPS_LOCK", Watched())
+    monkeypatch.setattr(Daemon, "_write_lock", write)
     monkeypatch.setattr(daemon_module, "faulthandler",
                         SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                         dump_traceback_later=faulthandler.dump_traceback_later))
+    closing_middle = threading.Thread(target=middle.close)
+    middle_closing.append(closing_middle)
     closing_newest = threading.Thread(target=newest.close)
-    closing_newest.start()
     try:
-        assert entered.wait(10), "newest never handed the signal to middle"
-        closing_middle = threading.Thread(target=middle.close)
-        middle_closing.append(closing_middle)
         closing_middle.start()
-        assert reached.wait(10), "middle's close never found _DUMPS_LOCK held by the hand-off"
+        assert writing.wait(10), "middle's close never came to its lock write"
+        assert not refused.is_set()                         # nothing held the lock at its membership check
+        closing_newest.start()
+        assert entered.wait(10), "newest never handed the signal to middle"
+        go_on.set()
+        assert refused.wait(10), "middle left the set or decided without waiting for the hand-off"
         assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
         assert not middle._log_handler.stream.closed
     finally:
+        go_on.set()
         release.set()
         closing_newest.join(10)
-    closing_middle.join(10)
+        closing_middle.join(10)
     assert not closing_middle.is_alive() and middle._log_handler.stream.closed
     assert daemon_module._STACK_DUMPS() is oldest
     try:
@@ -942,7 +960,6 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     finally:
         oldest.close()
     assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
-
 
 
 # --- review round 7 (of 78bfbf0): a daemon that cannot make SIGUSR1 safe -------
@@ -1073,3 +1090,71 @@ def test_c3_6_a_declined_daemon_whose_lock_write_fails_never_joins_the_advertise
     finally:
         later.close()
     assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
+
+
+
+# --- review round 9 (of 67b9adc): a registration interrupted part way -----------
+
+INTERRUPTED = r"""
+import faulthandler, json, os, signal, sys
+from pathlib import Path
+from types import SimpleNamespace
+from subfleet import daemon as dm
+from subfleet.daemon import Daemon
+dm.procs.boot_id = lambda: "fake-boot"
+dm.procs.proc_start = lambda pid: "fake-start"
+signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts
+base = Path(sys.argv[1])
+a = Daemon(base / "a")                                    # holds SIGUSR1, its lock says stack_dumps
+real_write = Daemon._write_lock
+
+def register(*args, **kwargs):
+    faulthandler.register(*args, **kwargs)
+    if kwargs.get("file") is not a._log_handler.stream:
+        raise KeyboardInterrupt                           # SIGINT, after registering, before recording
+
+def write(self, *, stack_dumps):
+    if self.root.name == "b" and not stack_dumps:
+        raise OSError(5, "Input/output error")            # B's cleanup cannot clear its lock
+    return real_write(self, stack_dumps=stack_dumps)
+dm.faulthandler = SimpleNamespace(register=register, unregister=faulthandler.unregister,
+                                  dump_traceback_later=faulthandler.dump_traceback_later)
+Daemon._write_lock = write
+try:
+    Daemon(base / "b")
+except KeyboardInterrupt:
+    pass
+reused = os.pipe()                                        # what B's closed descriptor may become
+os.set_blocking(reused[0], False)
+size = (base / "a" / "daemon.log").stat().st_size
+os.kill(os.getpid(), signal.SIGUSR1)                      # `daemon stacks` against A
+import time
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline and (base / "a" / "daemon.log").stat().st_size <= size:
+    time.sleep(.02)
+try:
+    stray = len(os.read(reused[0], 65536))
+except BlockingIOError:
+    stray = 0
+print(json.dumps({"a_grew": (base / "a" / "daemon.log").stat().st_size > size, "stray": stray,
+                  "holder_is_a": dm._STACK_DUMPS() is a}))
+"""
+
+
+def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path):
+    """Review of 67b9adc, P2 (GPT): daemon A held SIGUSR1 and its lock said
+    `stack_dumps`. Daemon B registered its own stream, and a KeyboardInterrupt
+    landed before B recorded it; B was not a member, so its cleanup closed its
+    stream, which faulthandler still held, and A's dumps went to whatever reused
+    the descriptor. The interrupted take now points the signal back at A first.
+    In a subprocess, so a regression's stray dump lands in that process."""
+    import os
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
+    env["PYTHONPATH"] = str(repo)
+    done = subprocess.run([sys.executable, "-c", INTERRUPTED, str(tmp_path)], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"a_grew": True, "stray": 0, "holder_is_a": True}
