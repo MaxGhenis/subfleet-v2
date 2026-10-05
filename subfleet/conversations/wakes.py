@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS wake_pr_refusals (
  conversation_id TEXT NOT NULL, target TEXT NOT NULL, error TEXT NOT NULL,
  PRIMARY KEY(conversation_id,target)
 );
+CREATE TABLE IF NOT EXISTS wake_pr_windows (
+ conversation_id TEXT NOT NULL, request_id TEXT NOT NULL, target TEXT NOT NULL,
+ event_since TEXT NOT NULL, PRIMARY KEY(conversation_id,request_id,target)
+);
 """
 
 
@@ -272,8 +276,18 @@ class WakeEngine:
             for row in tx.execute("SELECT observed_json FROM wake_requests WHERE conversation_id=? AND kind='pr' "
                                   "AND state='fired' AND observed_json IS NOT NULL ORDER BY rowid", (cid,)):
                 baseline.update(json.loads(row["observed_json"]))
-            superseded = tx.execute("SELECT observed_json,ready_json FROM wake_requests WHERE conversation_id=? "
+            superseded = tx.execute("SELECT request_id,payload_json,created_at,observed_json,ready_json "
+                                    "FROM wake_requests WHERE conversation_id=? "
                                     "AND kind='pr' AND state='pending'", (cid,)).fetchone()
+            # Retained targets keep their unobserved event window even if a poll
+            # has not run or is still in flight. New targets start at this request.
+            # Pre-upgrade watches have no window rows: their creation time is the floor.
+            windows = {}
+            if superseded:
+                windows = {p: superseded["created_at"] for p in json.loads(superseded["payload_json"])["targets"]}
+                windows.update({row["target"]: row["event_since"] for row in tx.execute(
+                    "SELECT target,event_since FROM wake_pr_windows WHERE conversation_id=? AND request_id=?",
+                    (cid, superseded["request_id"]))})
             if superseded and superseded["observed_json"]:
                 ready = set(json.loads(superseded["ready_json"] or "[]"))
                 for target, snapshot in json.loads(superseded["observed_json"]).items():
@@ -296,10 +310,14 @@ class WakeEngine:
                     old = json.loads(superseded["observed_json"])
                     observed = {**(observed or {}), **{p: old[p] for p in ready}}
                 threshold = self.now() if event_since is None else event_since
+                created_at = datetime.fromtimestamp(threshold, UTC).isoformat()
                 tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at,observed_json,ready_json) "
                            "VALUES(?,?,?,?,?,?,?)",
-                           (cid, request_id, kind, encoded, datetime.fromtimestamp(threshold, UTC).isoformat(),
+                           (cid, request_id, kind, encoded, created_at,
                             json.dumps(observed) if observed else None, json.dumps(ready) if ready else None))
+                if kind == "pr":
+                    tx.executemany("INSERT INTO wake_pr_windows VALUES(?,?,?,?)",
+                                   [(cid, request_id, p, windows.get(p, created_at)) for p in payload["targets"]])
         if "pr" in spec:
             # A new watch is checked on the next tick rather than up to a minute
             # later; the `pr-polled` mark still holds gh to one query a minute.
@@ -394,13 +412,17 @@ class WakeEngine:
         for r in requests:
             before = json.loads(r["observed_json"] or "{}")
             watched = json.loads(r["payload_json"])["targets"]
+            windows = {row["target"]: row["event_since"] for row in self.store.query(
+                "SELECT target,event_since FROM wake_pr_windows WHERE conversation_id=? AND request_id=?",
+                (r["conversation_id"], r["request_id"]))}
             # A target already refused here is announced once; it stays watched so
             # that it can resolve later (a PR opened after the watch, access restored).
             refused = {row["target"] for row in self.store.query(
                 "SELECT target FROM wake_pr_refusals WHERE conversation_id=?", (r["conversation_id"],))}
             changed = [p for p in watched if p in snapshots and (
                 (snapshots[p].get("error") and p not in refused) or pr_changed(before.get(p), snapshots[p]) or
-                (p not in before and not snapshots[p].get("error") and pr_event_since(snapshots[p], r["created_at"])))]
+                (p not in before and not snapshots[p].get("error") and
+                 pr_event_since(snapshots[p], windows.get(p, r["created_at"]))))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
                 tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "

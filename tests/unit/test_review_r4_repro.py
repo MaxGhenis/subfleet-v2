@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from subfleet.conversations import wakes
-from subfleet.conversations.store import ConversationError
+from subfleet.conversations.store import ConversationError, ConversationStore
 from tests.unit.test_conversation_service import submit, svc  # noqa: F401
 from tests.unit.test_review_r2_repro import (
     T0, bound, calls_of, fake_gh, iso, pr_node, run_under, settle_wakes,
@@ -63,6 +63,59 @@ def test_unobserved_event_survives_rearm(svc, tmp_path, monkeypatch, in_flight):
     rows = svc.store.query("SELECT state,created_at,ready_json FROM wake_requests WHERE conversation_id=?", (cid,))
     print(f"R4 unobserved in_flight={in_flight}: gh={calls_of(calls)} wakes={wake_texts(svc,cid)} rows={rows}")
     assert len(wake_rows(svc, cid)) == 1, "CI failed during an armed watch but its first poll/rearm lost it"
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["persisted-window", "pre-upgrade-watch"])
+def test_unobserved_window_survives_restart_and_multiple_rearms(svc, tmp_path, monkeypatch, legacy):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    arm(svc, cid, prs=["o/r#1"])
+    if legacy:
+        with svc.store.transaction() as tx:
+            tx.execute("DROP TABLE IF EXISTS wake_pr_windows")
+    svc.wakes.close()
+    svc.store.close()
+    svc.store = ConversationStore(svc.root)
+    svc.wakes = wakes.WakeEngine(svc)
+    svc.wakes.now = lambda: clock[0]
+    for offset in (31, 40, 50):
+        clock[0] = T0 + offset
+        arm(svc, cid, prs=["o/r#1"])
+    fake_gh(tmp_path, monkeypatch, {"data": {"p0": pr_node(
+        checks=(("COMPLETED", "FAILURE", iso(T0 + 20)),))}})
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 1
+    assert "PR state changed: o/r#1" in wake_texts(svc, cid)[0]
+
+
+def test_retained_target_window_does_not_extend_to_new_targets(svc, tmp_path, monkeypatch):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    arm(svc, cid, prs=["o/r#1"])
+    clock[0] = T0 + 31
+    arm(svc, cid, prs=["o/r#1", "o/r#2"])
+    fake_gh(tmp_path, monkeypatch, {"data": {f"p{i}": pr_node(
+        checks=(("COMPLETED", "FAILURE", iso(T0 + 20)),)) for i in range(2)}})
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 1
+    assert "PR state changed: o/r#1" in wake_texts(svc, cid)[0]
+    assert "o/r#2" not in wake_texts(svc, cid)[0]
+
+
+def test_removed_target_readded_starts_a_new_window(svc, tmp_path, monkeypatch):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    for offset, targets in ((0, ["o/r#1"]), (31, ["o/r#2"]), (62, ["o/r#1", "o/r#2"])):
+        clock[0] = T0 + offset
+        arm(svc, cid, prs=targets)
+    fake_gh(tmp_path, monkeypatch, {"data": {
+        "p0": pr_node(checks=(("COMPLETED", "FAILURE", iso(T0 + 20)),)),
+        "p1": pr_node(checks=(("IN_PROGRESS", None, None),))}})
+    poll_and_settle(svc, cid, clock)
+    assert wake_rows(svc, cid) == []
 
 
 @pytest.mark.parametrize("event", ["merged", "checks", "review"])
