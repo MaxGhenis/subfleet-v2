@@ -23,6 +23,7 @@ COOLDOWN_S = 30 * 60
 PR_INTERVAL_S = 60
 MIN_TIMER_S = 300
 MAX_TARGETS = 16
+EVALUATION_INTERVAL_S = 1.0
 PR = re.compile(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)\Z")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wake_requests (
@@ -175,6 +176,7 @@ class WakeEngine:
         self._poll_future = None
         self._next_poll = 0.0
         self._next_completions = 0.0
+        self._next_requests = 0.0
         self._started = False
         # Catalog-only services can be constructed before a job store exists.
         # Start immediately when possible to snapshot historical completions
@@ -214,14 +216,18 @@ class WakeEngine:
                 self.service.log.warning("PR wake worker failed: %s", exc)
             self._poll_future = None
         if self._poll_future is None and self.now() >= self._next_poll:
+            self._next_poll = self.now() + PR_INTERVAL_S
             pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='pr' AND ready_json IS NULL")
             if pending:
-                self._next_poll = self.now() + PR_INTERVAL_S
                 self._poll_future = self.poller.submit(self._poll_prs, pending)
-        scan_completions = self.now() >= self._next_completions
+        now = self.now()
+        scan_completions = now >= self._next_completions
         if scan_completions:
-            self._next_completions = self.now() + 1.0
-        self.tick(poll=False, scan_completions=scan_completions)
+            self._next_completions = now + EVALUATION_INTERVAL_S
+        scan_requests = scan_completions or now >= self._next_requests
+        if scan_requests:
+            self._next_requests = now + EVALUATION_INTERVAL_S
+        self.tick(poll=False, scan_completions=scan_completions, scan_requests=scan_requests)
 
     def register(self, cid: str, request_id: str, spec: dict, *, event_since: float | None = None) -> dict:
         conversation = self.store.conversation(cid)
@@ -362,13 +368,15 @@ class WakeEngine:
                                [(r["conversation_id"], p, snapshots[p]["error"]) for p in watched
                                 if p in snapshots and snapshots[p].get("error")])
 
-    def tick(self, *, poll: bool = True, scan_completions: bool = True) -> None:
+    def tick(self, *, poll: bool = True, scan_completions: bool = True, scan_requests: bool = True) -> None:
         self.start()
         self._surface_notices()
-        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
+        if not scan_requests and not scan_completions:
+            return
+        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)
-        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
+            pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
         completions = self._completions() if scan_completions else {}
         covered = {r["conversation_id"]: set() for r in pending if r["kind"] == "runs"}
         for r in pending:
@@ -377,16 +385,30 @@ class WakeEngine:
         grouped = {}
         for r in pending:
             grouped.setdefault(r["conversation_id"], []).append(r)
-        for cid in grouped.keys() | completions.keys():
-            now = self.now()
-            with self.store.transaction() as tx:
-                if not eligible(tx, cid, now):
-                    continue
+        now = self.now()
+        with self.store.read() as db:
+            candidates = [cid for cid in grouped.keys() | completions.keys() if eligible(db, cid, now)]
+        if not candidates:
+            return
+        # Read each target set in bounded batches, not one round trip per run
+        # and per conversation. Claim rechecks conversation guards on write.
+        job_store = self.service.daemon.store
+        active_turns = {r["name"] for r in _target_rows(job_store,
+            "SELECT name FROM jobs WHERE kind='turn' AND state NOT IN ('succeeded','failed','cancelled','lost') AND name IN ({})",
+            [f"turn-{cid}" for cid in candidates])}
+        leases = {r["lease_key"] for r in _target_rows(job_store,
+            "SELECT lease_key FROM leases WHERE lease_key IN ({})", [f"conversation:{cid}" for cid in candidates])}
+        targets = sorted({j for cid in candidates for j in covered.get(cid, set())})
+        jobs_by_id = {j["job_id"]: j for j in _target_rows(job_store,
+            "SELECT job_id,state,out_path,accepted_attempt_id FROM jobs WHERE job_id IN ({})", targets)}
+        delivered = {(r["conversation_id"], r["job_id"]) for r in _target_rows(self.store,
+            "SELECT conversation_id,job_id FROM wake_runs WHERE job_id IN ({})", targets)}
+        noticed = {r["job_id"] for r in _target_rows(job_store,
+            "SELECT job_id FROM notices WHERE state IN ('acknowledged','surfaced') "
+            "AND COALESCE(transport,'')<>'conversation' AND job_id IN ({})", targets)}
+        for cid in candidates:
             # Job leases and finalization may lag the message's terminal receipt.
-            if self.service.daemon.store.one("SELECT 1 FROM jobs WHERE kind='turn' AND name=? "
-                    "AND state NOT IN ('succeeded','failed','cancelled','lost')", (f"turn-{cid}",)):
-                continue
-            if self.service.daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"conversation:{cid}",)):
+            if f"turn-{cid}" in active_turns or f"conversation:{cid}" in leases:
                 continue
             runs = {j["job_id"]: j for j in completions.get(cid, []) if j["job_id"] not in covered.get(cid, set())}
             ready, notes = [], []
@@ -394,11 +416,12 @@ class WakeEngine:
                 payload = json.loads(r["payload_json"])
                 kind = r["kind"]
                 if kind == "runs":
-                    jobs = [self.service.daemon.store.one("SELECT * FROM jobs WHERE job_id=?", (j,)) or
+                    jobs = [jobs_by_id.get(j) or
                             {"job_id": j, "state": "pruned"} for j in payload["targets"]]
                     if not all(j["state"] in ('succeeded','failed','cancelled','lost','quarantined','pruned') for j in jobs):
                         continue
-                    undelivered = {j["job_id"]: j for j in jobs if not self._delivered(cid, j["job_id"])}
+                    undelivered = {j["job_id"]: j for j in jobs
+                                   if (cid, j["job_id"]) not in delivered and j["job_id"] not in noticed}
                     if not undelivered:
                         # Only these runs already have their answer. Alternative
                         # timer and PR triggers still need delivery or resolution.
@@ -448,11 +471,6 @@ class WakeEngine:
                 self._surface_notices()
                 self.service.daemon._notify()
 
-    def _delivered(self, cid: str, job_id: str) -> bool:
-        return bool(self.store.one("SELECT 1 FROM wake_runs WHERE conversation_id=? AND job_id=?", (cid, job_id)) or
-                    self.service.daemon.store.one("SELECT 1 FROM notices WHERE job_id=? AND state IN ('acknowledged','surfaced') "
-                                                  "AND COALESCE(transport,'')<>'conversation'", (job_id,)))
-
     def _surface_notices(self) -> None:
         """Repair only outstanding deliveries, in bounded batches across stores."""
         rows = self.store.query("SELECT job_id,delivered_at FROM wake_notice_repairs LIMIT 500")
@@ -466,6 +484,14 @@ class WakeEngine:
         with self.store.transaction() as tx:
             tx.executemany("DELETE FROM wake_notice_repairs WHERE job_id=? AND delivered_at=?",
                            [(r["job_id"], r["delivered_at"]) for r in rows])
+
+
+def _target_rows(store, sql: str, targets: list[str]) -> list[dict]:
+    rows = []
+    for offset in range(0, len(targets), 500):
+        batch = targets[offset:offset + 500]
+        rows.extend(store.query(sql.format(",".join("?" for _ in batch)), tuple(batch)))
+    return rows
 
 
 def pr_changed(before: dict | None, after: dict) -> bool:
