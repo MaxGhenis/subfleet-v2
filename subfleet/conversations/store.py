@@ -1673,8 +1673,10 @@ class ConversationStore:
                    "VALUES (?,?,?,?,?,?)", (conversation_id, message_id, state, pending, utcnow(), reason))
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
+        # Titles enrich the feed; missing catalog metadata must not hide a
+        # snapshot/overlap notification or prevent its cursor from advancing.
         rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
-                          "JOIN conversations c ON c.conversation_id=ch.conversation_id "
+                          "LEFT JOIN conversations c ON c.conversation_id=ch.conversation_id "
                           "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
         for row in rows:
             row["steered_into"] = steered_into(row.get("state_reason"))
