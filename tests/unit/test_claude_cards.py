@@ -724,14 +724,18 @@ def test_heal_turn_argv_environment_and_session(tmp_path, monkeypatch):
 
         def communicate(self, timeout=None):
             return "ok", ""
+    import signal
+    kills = []           # the fake pid is no process of the test's; nothing is signalled for real
+    monkeypatch.setattr(cc, "_kill_group", lambda pid, sig=signal.SIGKILL: kills.append((pid, sig)))
     rc, out, _err = cc.heal_turn(tmp_path / "max@example.org", claude_bin="claude", model="claude-haiku-4-5-20251001",
                                  prompt="Reply with exactly: ok", popen=Child)
-    assert (rc, out) == (0, "ok")
+    assert (rc, out) == (0, "ok") and kills == [(4242, signal.SIGKILL)]
     assert seen["argv"] == ["claude", "-p", "Reply with exactly: ok", "--model", "claude-haiku-4-5-20251001",
                             "--max-turns", "1", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
     assert seen["start_new_session"] is True and seen["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "max@example.org")
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in seen["env"] and "ANTHROPIC_API_KEY" not in seen["env"]
     assert seen["cwd"] != str(tmp_path) and seen["stdin"] is not None
+    assert (seen["text"], seen["encoding"], seen["errors"]) == (True, "utf-8", "replace")
 
 
 def test_heal_turn_missing_cli_is_127(tmp_path):
@@ -918,3 +922,150 @@ def test_ended_card_is_shown_as_ended_not_usable(tmp_path):
     assert "reset card ended unused (opus55-launch-promax-20260921" in text and "usable now" not in text
     compact = "\n".join(render.card_lines(shown, compact=True))
     assert "card used" not in compact
+
+
+# --- the #132 review's follow-ups --------------------------------------------------
+
+
+def _blind(cedar):
+    """Healthy answers whose usage read carries `cedar` as its cards block, or none at all."""
+    answers, payload = healthy(), _usage_with()
+    payload.pop("cedar_ember")
+    if cedar is not None:
+        payload["cedar_ember"] = cedar
+    answers[cc.CARDS_USAGE_URL] = [(200, payload, None)]
+    return answers
+
+
+def test_a_read_that_lists_no_cards_keeps_the_last_listed_grants(tmp_path):
+    """C-9.10: an `ok` read whose cards block is missing or ineligible keeps the cards the last
+    listing read saw, records that read beside them, and goes on warning on what they hold."""
+    from subfleet import render, status_json
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    listed = good["accounts"][0]
+    when = NOW + timedelta(days=13)          # the card ends 2026-10-22T16:00Z, inside five days
+    for cedar, reason, missing in ((None, None, True),
+                                   ({"eligible": False, "ineligible_reason": "surface", "grants": []}, "surface", False)):
+        later = _pass(login, Wire(_blind(cedar)), when, good, tmp_path)
+        row = later["accounts"][0]
+        assert row["status"] == "ok" and row["cards"] == listed["cards"]
+        assert row["cards_unlisted"] == {"at": cc.iso_utc(when), "ineligible_reason": reason,
+                                         "missing": missing, "listed_at": listed["read_at"]}
+        shown = cc.view(later, when, warn_days=5)
+        assert shown["accounts"][0]["unused_cards"] == 1 and kinds(shown["warnings"]) == ["card-expiring"]
+        text = "\n".join(render.card_lines(shown))
+        assert "1 unused reset card (opus55-launch-promax-20260921" in text
+        assert f"cards as listed {listed['read_at']}; the read at {cc.iso_utc(when)} listed none" in text
+        assert "nothing held" not in "\n".join(render.card_lines(shown, compact=True))
+        [menu] = status_json._cards({"claude_cards": shown})["accounts"]
+        assert menu["cards_unlisted"] == row["cards_unlisted"] and menu["cards"][0]["id"] == CARD
+        # Another read that lists nothing still knows when the cards were last listed ...
+        again = _pass(login, Wire(_blind(cedar)), when + timedelta(hours=6), later, tmp_path)
+        assert again["accounts"][0]["cards_unlisted"]["listed_at"] == listed["read_at"]
+        # ... and a read that lists cards again ends the record.
+        back = _pass(login, Wire(healthy()), when + timedelta(hours=12), again, tmp_path)
+        assert back["accounts"][0]["cards_unlisted"] is None and back["accounts"][0]["cards"] == listed["cards"]
+
+
+def test_an_ineligible_first_read_is_shown_as_ineligible(tmp_path):
+    """C-9.10: with no listing read before it, an ineligible block is what is shown, with its reason."""
+    from subfleet import render
+    later = _pass(Login(expires_in_s=90 * 86400), Wire(_blind({"eligible": False, "ineligible_reason": "surface",
+                                                               "grants": []})), NOW, None, tmp_path)
+    row = later["accounts"][0]
+    assert row["cards"]["eligible"] is False and row["cards_unlisted"] is None
+    assert "no reset card (ineligible: surface)" in "\n".join(render.card_lines(cc.view(later, NOW, warn_days=5)))
+
+
+def test_another_account_never_inherits_the_old_claims_credit_expiry(tmp_path):
+    """C-9.10: a folder signed into another account, whose claim-status read fails, dates its cloud
+    credit from its own usage block, never from the old account's claim; and keeps none of the old
+    account's cards when its own read lists none."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    assert good["accounts"][0]["credits"][0]["expires_at"] == "2026-11-05T07:59:00Z"
+    other = json.loads(json.dumps(fixture("profile_active")))
+    other["account"]["uuid"], other["organization"]["uuid"] = ("11111111-1111-4111-8111-111111111111",
+                                                               "22222222-2222-4222-8222-222222222222")
+    answers = {cc.PROFILE_URL: [(200, other, None)],
+               cc.CARDS_USAGE_URL: [(200, _usage_with(credit_resets="2026-12-31T00:00:00Z",
+                                                       cedar={"eligible": False, "ineligible_reason": "surface"}), None)],
+               cc.CLOUD_CREDIT_STATUS_URL: [(urllib.error.HTTPError(cc.CLOUD_CREDIT_STATUS_URL, 503, "x", {}, None),
+                                             None, None)]}
+    for row in (_pass(login, Wire(answers), NOW + timedelta(hours=6), good, tmp_path)["accounts"][0],
+                sensor(Wire(answers), login, now=lambda: NOW + timedelta(hours=6)).read(
+                    tmp_path / "a", allow_heal=False, previous=good["accounts"][0])):
+        assert row["status"] == "ok" and row["identity"].startswith("11111111")
+        [credit] = row["credits"]
+        assert credit["expires_at"] == "2026-12-31T00:00:00Z" and "expires_from" not in credit
+        assert row["cloud_credit_claim"] is None
+        assert row["cards"]["eligible"] is False and row["cards"]["grants"] == [] and not row.get("cards_unlisted")
+
+
+def test_another_account_whose_usage_read_fails_shows_nothing_of_the_old_one(tmp_path):
+    """C-9.10: the folder's new account, its profile read and its usage read failed, shows none of
+    the old account's cards, credits or claim status, and no time they were read."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    other = json.loads(json.dumps(fixture("profile_active")))
+    other["account"]["uuid"] = "11111111-1111-4111-8111-111111111111"
+    row = sensor(Wire({cc.PROFILE_URL: [(200, other, None)], cc.CARDS_USAGE_URL: [(OSError("down"), None, None)]}),
+                 login).read(tmp_path / "a", allow_heal=False, previous=good["accounts"][0])
+    assert row["status"] == "unavailable" and row["identity"].startswith("11111111")
+    assert (row["cards"], row["credits"], row["cloud_credit_claim"], row["read_at"]) == (None, [], None, None)
+
+
+def test_heal_turn_output_that_is_not_utf8_is_replaced_not_raised(tmp_path):
+    """C-9.10: a byte the CLI writes that is not UTF-8 is replaced: the turn's rc and output come
+    back, and what the turn left running is killed."""
+    import os
+    import time as clock
+    marker = tmp_path / "child.pid"
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\nsleep 60 >/dev/null 2>&1 &\necho $! > {marker}\n"
+                    "printf 'ok \\377\\n'\nprintf 'note \\376\\n' >&2\n")
+    fake.chmod(0o755)
+    rc, out, err = cc.heal_turn(tmp_path / "home", claude_bin=str(fake), model="m", prompt="p", timeout=30)
+    assert (rc, out, err) == (0, "ok �\n", "note �\n")
+    child = int(marker.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        clock.sleep(.1)
+    else:
+        pytest.fail("the heal's background child outlived the turn")
+
+
+def test_heal_turn_kills_its_group_however_the_turn_ends(tmp_path, monkeypatch):
+    """C-9.10: an error while the turn's output is read still kills the turn's process group."""
+    import signal
+    kills = []
+    monkeypatch.setattr(cc, "_kill_group", lambda pid, sig=signal.SIGKILL: kills.append((pid, sig)))
+
+    class Child:
+        pid, returncode = 4243, None
+
+        def __init__(self, argv, **kwargs):
+            pass
+
+        def communicate(self, timeout=None):
+            raise RuntimeError("the pipe broke")
+    with pytest.raises(RuntimeError):
+        cc.heal_turn(tmp_path / "home", model="m", prompt="p", popen=Child)
+    assert kills == [(4243, signal.SIGKILL)]
+
+
+@pytest.mark.parametrize(("org", "status", "gone"), [
+    ("claude_free", "canceled", True),       # what the five lapsed accounts read (2026-10-05)
+    ("claude_free", "active", True),
+    ("claude_max", "canceled", True),        # C-9.10: `canceled` alone is `lapsed`
+    ("claude_max", "active", False),
+    ("claude_max", "past_due", False),       # lapsing, not lapsed: its cards are read and warned on
+    ("claude_max", None, False),
+    (None, None, False)])
+def test_lapsed_is_the_contracts_rule(org, status, gone):
+    """C-9.10: "`claude_free` or `canceled` is `lapsed`": either one, each on its own."""
+    assert cc.lapsed({"organization_type": org, "subscription_status": status}) is gone

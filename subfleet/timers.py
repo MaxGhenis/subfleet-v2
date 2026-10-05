@@ -423,9 +423,12 @@ class Timers:
     def claude_cards_cycle(self):
         """C-9.10: read every login's cards, credits and plan; publish the snapshot.
 
-        GETs only, and never a claim: no code path here or in `claude_cards`
-        can redeem a card or claim a credit. Usage reads are paced with the
-        probe's (C-9.9).
+        Its requests are GETs, never a claim: no code path here or in
+        `claude_cards` can redeem a card or claim a credit. It is not free of
+        cost: it may spend one heal turn (C-23.47) on each expired login that
+        backs a lane, unless an operator hold covers one of its lanes, at most
+        once per `claude_cards.heal_interval_min` per login. Usage reads are
+        paced with the probe's (C-9.9).
         """
         if self.cancel.is_set():
             return None

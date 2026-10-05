@@ -420,7 +420,8 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
     """C-9.10: one line per login: its cards, credits and plan, or why they are unknown.
 
     Cards and credits are shown from the last read that saw them, with that
-    read's time when the latest one failed; nothing here is ever redeemed.
+    read's time when the latest one failed or listed no cards; nothing here is
+    ever redeemed.
     `compact` (what `status` prints) shows only the logins holding something
     that can be lost and counts the rest by status; `subfleet cards` shows all.
     """
@@ -482,6 +483,12 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
                 parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
             elif cards:
                 parts.append("no reset card")
+            unlisted = account.get("cards_unlisted") or {}
+            if unlisted:
+                why = ("no cards block" if unlisted.get("missing")
+                       else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}")
+                parts.append(f"cards as listed {unlisted.get('listed_at') or 'before'}; "
+                             f"the read at {unlisted.get('at')} listed none ({why})")
             for credit in account.get("credits") or []:
                 parts.append(f"{credit.get('label')} {_money(credit.get('remaining_dollars'))} of "
                              f"{_money(credit.get('limit_dollars'))} left, expires {credit.get('expires_at') or 'unknown'}")

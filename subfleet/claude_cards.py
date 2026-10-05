@@ -294,7 +294,16 @@ def parse_plan(payload: Any) -> dict[str, Any] | None:
 
 
 def lapsed(plan: Mapping[str, Any] | None) -> bool:
-    """The plan is gone: a free organization or a canceled subscription."""
+    """The plan is gone: a free organization or a canceled subscription, either
+    one on its own (C-9.10: "`claude_free` or `canceled` is `lapsed`").
+
+    `canceled` alone counts. Help article 17007452 says a reset is "no longer
+    available" once the account cancels or downgrades. The one pending
+    cancellation observed (org 7c4b7006, 2026-10-04) read `status: active`, with
+    `plan_ending_at` set, in claude.ai's `subscription_details`, so a cancellation
+    that is only scheduled is not taken to read `canceled`. Any other status but
+    `active` is lapsing, not lapsed: its cards are still read, and warned on.
+    """
     if not plan:
         return False
     return (plan.get("organization_type") in FREE_ORGANIZATIONS
@@ -475,8 +484,9 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
         grants_now = {grant["id"]: grant for grant in cards_now.get("grants") or []}
         credits_now = {credit["key"]: credit for credit in current.get("credits") or []}
         # A cards block that is missing or ineligible lists nothing; its silence
-        # says nothing about a card, so no card expiry is read from it.
-        listing = bool(cards_now) and cards_now.get("eligible") is True
+        # says nothing about a card, so no card expiry is read from it. The cards
+        # such a read keeps are the last listing read's, not this read's.
+        listing = bool(cards_now) and cards_now.get("eligible") is True and not current.get("cards_unlisted")
         # Each thing is judged by its end as the read now gives it, when it is
         # still listed (an end can move), else by the end last seen.
         held = [grant for grant in held if listing
@@ -533,10 +543,12 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     own servers never start), one turn, no tools needed, and an environment
     holding no other credential. No heal starts once `cancel` is set. The group
     is stopped when the turn outlives `timeout` or `cancel` is set (a daemon stop
-    must not wait for a heal): SIGTERM, then SIGKILL two seconds later. It is
-    killed after a normal exit too, so nothing it started outlives it. Waiting
-    for its output after a kill is bounded. Returns (rc, stdout, stderr): 124 is
-    a timeout, 127 a CLI that could not start, 130 a cancelled heal. Nothing here
+    must not wait for a heal): SIGTERM, then SIGKILL two seconds later. However
+    the heal ends, a normal exit and an error while its output is read included,
+    the group is killed, so nothing it started outlives it. Its output is read
+    as UTF-8, a byte that is not UTF-8 replaced rather than raised. Waiting for its
+    output after a kill is bounded. Returns (rc, stdout, stderr): 124 is a
+    timeout, 127 a CLI that could not start, 130 a cancelled heal. Nothing here
     reads or writes the credential.
     """
     env = {key: value for key, value in os.environ.items() if key not in HEAL_ENV_REMOVE}
@@ -548,41 +560,43 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     with tempfile.TemporaryDirectory(prefix="subfleet-card-heal-") as workdir:
         try:
             child = popen(argv, cwd=workdir, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True, start_new_session=True)
+                          stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                          start_new_session=True)
         except OSError as error:
             return 127, "", f"could not run {claude_bin}: {type(error).__name__}"
-        deadline = time.monotonic() + timeout
-        rc: int | None = None
-        while True:
-            try:
-                out, err = child.communicate(timeout=min(1.0, max(0.0, deadline - time.monotonic())))
-                break
-            except subprocess.TimeoutExpired:
-                if cancel is not None and cancel.is_set():
-                    rc, why = 130, "heal cancelled: the daemon is stopping"
-                elif time.monotonic() >= deadline:
-                    rc, why = 124, f"heal timed out after {timeout:g}s"
-                else:
-                    continue
-                # SIGTERM first, so a CLI part way through renewing its login can
-                # finish writing it; what is still running two seconds later is killed.
-                _kill_group(child.pid, signal.SIGTERM)
+        try:
+            deadline = time.monotonic() + timeout
+            rc: int | None = None
+            while True:
                 try:
-                    out, _err = child.communicate(timeout=2)
-                    _kill_group(child.pid)
+                    out, err = child.communicate(timeout=min(1.0, max(0.0, deadline - time.monotonic())))
+                    break
+                except subprocess.TimeoutExpired:
+                    if cancel is not None and cancel.is_set():
+                        rc, why = 130, "heal cancelled: the daemon is stopping"
+                    elif time.monotonic() >= deadline:
+                        rc, why = 124, f"heal timed out after {timeout:g}s"
+                    else:
+                        continue
+                    # SIGTERM first, so a CLI part way through renewing its login can
+                    # finish writing it; what is still running two seconds later is killed.
+                    _kill_group(child.pid, signal.SIGTERM)
+                    try:
+                        out, _err = child.communicate(timeout=2)
+                        return rc, out or "", why
+                    except subprocess.TimeoutExpired:
+                        _kill_group(child.pid)
+                    try:
+                        out, _err = child.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        # A descendant that left the group still holds the pipes;
+                        # its output is not worth waiting for.
+                        child.kill()
+                        out = ""
                     return rc, out or "", why
-                except subprocess.TimeoutExpired:
-                    _kill_group(child.pid)
-                try:
-                    out, _err = child.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    # A descendant that left the group still holds the pipes;
-                    # its output is not worth waiting for.
-                    child.kill()
-                    out = ""
-                return rc, out or "", why
-        _kill_group(child.pid)          # whatever the turn left running
-        return int(child.returncode or 0), out or "", err or ""
+            return int(child.returncode or 0), out or "", err or ""
+        finally:
+            _kill_group(child.pid)      # whatever the turn left running, however it ended
 
 
 class ReadOnlyViolation(RuntimeError):
@@ -687,7 +701,10 @@ class Sensor:
              pace: Callable[[], None] | None = None,
              stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
         """One account's snapshot. A failed read keeps the last good cards and
-        credits beside a status that says why they are not current.
+        credits beside a status that says why they are not current. An `ok` read
+        whose cards block is missing or ineligible keeps the cards the last
+        listing read saw, beside `cards_unlisted` (when, why, and when they were
+        last listed). A folder that answers as another account keeps nothing.
 
         An expired login is healed (one minimal turn under its folder, after
         which the CLI has renewed its own login) only when `allow_heal`, and at
@@ -703,6 +720,7 @@ class Sensor:
             "login": home.name, "home": str(home), "identity": previous.get("identity"),
             "email": previous.get("email"), "observed_at": iso_utc(now), "detail": None,
             "plan": previous.get("plan"), "cards": previous.get("cards"),
+            "cards_unlisted": previous.get("cards_unlisted"),
             "credits": previous.get("credits") or [], "cloud_credit_claim": previous.get("cloud_credit_claim"),
             "read_at": previous.get("read_at"), "heal": previous.get("heal"), "healed": False,
             "retry_after_until": None,
@@ -771,11 +789,18 @@ class Sensor:
         plan = parse_plan(profile) if status == 200 else None
         if plan is None:
             return done(UNAVAILABLE if status != 403 else NO_SCOPE, f"profile HTTP {status}")
+        if account.get("identity") and account["identity"] != plan["identity"]:
+            # The folder now holds another account, which starts afresh: nothing
+            # kept from the old one stands in for a read of this one that fails
+            # below. That includes the old claim status, which would otherwise date
+            # this account's cloud credit.
+            account.update(cards=None, cards_unlisted=None, credits=[], cloud_credit_claim=None, read_at=None)
         account.update(identity=plan["identity"], email=plan["email"],
                        plan={key: plan[key] for key in ("organization_type", "rate_limit_tier",
                                                         "subscription_status", "billing_type")})
         if lapsed(plan):
-            account.update(cards=None, credits=[], cloud_credit_claim=None, read_at=iso_utc(now))
+            account.update(cards=None, cards_unlisted=None, credits=[], cloud_credit_claim=None,
+                           read_at=iso_utc(now))
             return done(LAPSED, f"{plan['organization_type']}, subscription {plan['subscription_status']}")
         if pace is not None:
             pace()          # C-9.9: the usage endpoint penalises bursts
@@ -788,7 +813,18 @@ class Sensor:
             return done(NO_SCOPE, "usage HTTP 403")
         if status != 200 or not isinstance(usage, dict):
             return done(UNAVAILABLE, f"usage HTTP {status}")
-        account["cards"] = parse_cards(usage.get("cedar_ember"))
+        cards, kept = parse_cards(usage.get("cedar_ember")), account.get("cards") or {}
+        if (cards is None or not cards["eligible"]) and kept.get("eligible") is True:
+            # A block that is missing or ineligible lists nothing, and its silence
+            # says nothing about a card (`surface` was one User-Agent away from
+            # listing one). The last block that listed cards stays, and this read
+            # is recorded beside it.
+            account["cards_unlisted"] = {
+                "at": iso_utc(now), "ineligible_reason": cards["ineligible_reason"] if cards else None,
+                "missing": cards is None,
+                "listed_at": (account.get("cards_unlisted") or {}).get("listed_at") or account.get("read_at")}
+        else:
+            account["cards"], account["cards_unlisted"] = cards, None
         account["credits"] = parse_credits(usage)
         status, claim, _retry = (None, None, None) if stop() else self._get(CLOUD_CREDIT_STATUS_URL, token, {
             "anthropic-version": ANTHROPIC_VERSION, "x-organization-uuid": plan["org_uuid"]})
@@ -910,17 +946,13 @@ def _refresh_one(sensor: Sensor, home: Path, prior: Mapping[str, Any] | None,
             account["status"], account["detail"] = HELD, "an operator hold covers this account; no turn is spent on it"
     backed, how = associate(lanes, account.get("identity"), home.name)
     account["lanes"], account["lanes_by"] = sorted(lane["lane_id"] for lane in backed), how
+    # The folder now holds another account. `Sensor.read` dropped what the old
+    # one held when the profile named the new one; nothing of it is lost here.
     changed = bool(prior and prior.get("identity") and account.get("identity")
                    and prior["identity"] != account["identity"])
-    if changed:
-        # The folder now holds another account: nothing the old one held is shown for it.
-        if account.get("status") != OK:
-            account.update(cards=None, credits=[], cloud_credit_claim=None, read_at=None)
-        elif (account.get("cloud_credit_claim") or {}).get("checked_at") != account.get("read_at"):
-            account["cloud_credit_claim"] = None
     found = lost_since(prior, account, sensor.now())
     if any(item["reason"] == "lapse" for item in found):
-        account.update(cards=None, credits=[])
+        account.update(cards=None, cards_unlisted=None, credits=[])
     record = ([] if changed else lost_items(prior or {})) + found
     if record:
         account["lost"] = record
