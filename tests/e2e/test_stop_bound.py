@@ -20,6 +20,12 @@ import pytest
 
 from subfleet.procs import same_process
 
+# `serial`: these assert how a real daemon ends against a grace clock. Beside
+# pytest-xdist's busy workers one failed in 8 of 44 CI runs (probes of 2026-09-30
+# and 10-01), mostly with the daemon ended by signal 14 where the test expects
+# exit 1; alone, in 2 of 17, near serial CI's 8 to 10%.
+pytestmark = pytest.mark.serial
+
 
 #: Give the held worker time to drain before faulthandler ends the process.
 GRACE_S = 5.0

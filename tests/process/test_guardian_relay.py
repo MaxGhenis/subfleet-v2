@@ -18,6 +18,13 @@ import pytest
 from subfleet import procs
 from subfleet.relay import RelayClient, read_log
 
+# `serial`: a `close` frame races the guardian's own stop. The child exits on EOF
+# and the guardian calls `relay.stop()`, which can shut the connection before the
+# ack is sent, so the client reads "closed before acknowledging". Beside
+# pytest-xdist's busy workers that happened in 3 of 44 CI runs (probes of
+# 2026-09-30 and 10-01); alone, in 0 of 17; in serial CI, in 1 to 2% of jobs.
+pytestmark = pytest.mark.serial
+
 ECHO = "import sys\nfor line in sys.stdin:\n    sys.stdout.write('got:' + line); sys.stdout.flush()\nprint('eof')\n"
 
 

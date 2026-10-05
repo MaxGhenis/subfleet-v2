@@ -698,6 +698,7 @@ def _scrubber_probe(script: str) -> dict:
     return json.loads(result.stdout)
 
 
+@pytest.mark.serial  # a CPU-time ratio: it failed once beside parallel workers, never serially
 @pytest.mark.parametrize("identifier", ["a_", "a-", "a."])
 def test_scrubber_work_scales_linearly_for_long_ordinary_identifiers(identifier):
     """C-23.14 / C-25.5: four times the input must not take quadratic CPU."""
