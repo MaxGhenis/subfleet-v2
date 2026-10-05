@@ -57,6 +57,7 @@ def isolated_dumps():
     if not daemon_module._ADVERTISED:
         faulthandler.unregister(signal.SIGUSR1)
         daemon_module._STACK_DUMPS = None
+        daemon_module._HELD_STREAMS.clear()
 
 
 # --- C-15.5: the last read when the deadline passes ----------------------------
@@ -845,16 +846,24 @@ def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch,
     built on a second could hand the signal on to nobody between the second's
     registration and its joining `_ADVERTISED`, leaving it advertised with no
     handler. Registering and joining, and leaving and handing on, each run under
-    `_DUMPS_LOCK`, so neither can fall between the other's two steps. Review of
-    9a514a7, P3 (GPT): a close that left the set under the lock but decided
-    whether it held the signal outside it, taking the lock again only to hand on,
-    passed the forced interleaving; asked outside the lock, the holder can change
-    between the two reads of it. Every step is checked here: joining, leaving,
-    the decision, registering and handing on."""
+    `_DUMPS_LOCK`, so neither can fall between the other's two steps. Reviews of
+    9a514a7 and 674b99b, P3: a close that decided outside the lock whether it held
+    the signal passed the forced interleaving. There is no such decision now
+    (every leave settles), and every step is checked here: joining, leaving,
+    settling and registering, for a close that holds the signal and one that
+    does not."""
     import faulthandler
     from types import SimpleNamespace
     seen = []
-    real_hand_on = daemon_module._hand_sigusr1_on
+    real_settle = daemon_module._settle_sigusr1
+
+    def register(*args, **kwargs):
+        seen.append(("register", daemon_module._DUMPS_LOCK._is_owned()))
+        return faulthandler.register(*args, **kwargs)
+
+    def settle():
+        seen.append(("settle", daemon_module._DUMPS_LOCK._is_owned()))
+        return real_settle()
 
     class Advertised(dict):
         def __setitem__(self, key, value):
@@ -864,38 +873,20 @@ def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch,
         def pop(self, key, *default):
             seen.append(("leave", daemon_module._DUMPS_LOCK._is_owned()))
             return super().pop(key, *default)
-
-    class Holder:
-        """`_STACK_DUMPS`, saying whether the lock is held when a close asks it."""
-
-        def __init__(self, ref):
-            self.ref = ref
-
-        def __call__(self):
-            seen.append(("decide", daemon_module._DUMPS_LOCK._is_owned()))
-            return self.ref()
-
-    def register(*args, **kwargs):
-        seen.append(("register", daemon_module._DUMPS_LOCK._is_owned()))
-        return faulthandler.register(*args, **kwargs)
-
-    def hand_on():
-        seen.append(("hand_on", daemon_module._DUMPS_LOCK._is_owned()))
-        return real_hand_on()
     monkeypatch.setattr(daemon_module, "faulthandler",
                         SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                         dump_traceback_later=faulthandler.dump_traceback_later))
-    monkeypatch.setattr(daemon_module, "_hand_sigusr1_on", hand_on)
+    monkeypatch.setattr(daemon_module, "_settle_sigusr1", settle)
     monkeypatch.setattr(daemon_module, "_ADVERTISED", Advertised(daemon_module._ADVERTISED))
     older = Daemon(tmp_path / "older")
     core = Daemon(tmp_path / "solo")
     token = core._dumps_token
-    assert token in daemon_module._ADVERTISED
-    daemon_module._STACK_DUMPS = Holder(daemon_module._STACK_DUMPS)   # the closes replace it
-    older.close()                                           # not holding it: leaves and decides
-    core.close()                                            # holding it: leaves, decides, hands on
+    assert token in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS() is core
+    older.close()                                           # not holding it
+    core.close()                                            # holding it, the last to leave
     assert token not in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS is None
-    assert {step for step, _ in seen} == {"join", "leave", "decide", "register", "hand_on"}, seen
+    assert not daemon_module._HELD_STREAMS
+    assert {step for step, _ in seen} == {"join", "leave", "settle", "register"}, seen
     assert all(owned for _, owned in seen), seen
 
 
@@ -1165,15 +1156,32 @@ Daemon._enable_stack_dumps = enable
 Daemon._release_partial_init = release
 
 def write(self, *, stack_dumps):
-    if self.root.name == "b" and not stack_dumps:
+    if self.root.name == "b" and not stack_dumps and where != "cleanup-settle":
         raise OSError(5, "Input/output error")            # B's cleanup cannot clear its lock
     return real_write(self, stack_dumps=stack_dumps)
+
+real_settle, settle_armed = dm._settle_sigusr1, []
+
+def settle():
+    if settle_armed:
+        settle_armed.clear()
+        raise RuntimeError("inside the settle")           # B has left; its cleanup swallows this
+    return real_settle()
+
+def policy(path):
+    if where == "cleanup-settle":
+        settle_armed.append(True)                         # B took the signal; construction now fails
+        raise RuntimeError("policy unreadable")
+    return real_policy(path)
+real_policy = dm.load_policy
+dm.load_policy = policy
+dm._settle_sigusr1 = settle
 dm.faulthandler = SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                   dump_traceback_later=faulthandler.dump_traceback_later)
 Daemon._write_lock = write
 try:
     Daemon(base / "b")
-except KeyboardInterrupt:
+except (KeyboardInterrupt, RuntimeError):
     pass
 reused = os.pipe()                                        # what B's closed descriptor may become
 os.set_blocking(reused[0], False)
@@ -1193,7 +1201,8 @@ print(json.dumps({"a_grew": (base / "a" / "daemon.log").stat().st_size > size, "
 """
 
 
-@pytest.mark.parametrize("where,at_cleanup", [("registered", 1), ("inserted", 1), ("taken", 2)])
+@pytest.mark.parametrize("where,at_cleanup", [("registered", 1), ("inserted", 1), ("taken", 2),
+                                              ("cleanup-settle", 2)])
 def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path, where, at_cleanup):
     """Review of 67b9adc, P2 (GPT): daemon A held SIGUSR1 and its lock said
     `stack_dumps`. Daemon B registered its own stream, and a KeyboardInterrupt
@@ -1205,8 +1214,12 @@ def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path
     `stack_dumps`), and B's cleanup, unable to rewrite its lock, kept B in the set
     for good, A's dumps going to B's abandoned log. A lock never written with the
     flag no longer keeps a daemon in, and a take that raises has left the set
-    before its cleanup starts (one that completed is a member until then). In a
-    subprocess, so a regression's stray dump lands in that process."""
+    before its cleanup starts (one that completed is a member until then). Review
+    of 674b99b: construction failed after B took the signal, and an exception in
+    its leave's settle was swallowed by the cleanup loop, which then closed B's
+    stream while faulthandler held it; a stream that may be held now closes only
+    after a settle has moved the signal off it. In a subprocess, so a
+    regression's stray dump lands in that process."""
     import os
     import subprocess
     import sys
@@ -1233,7 +1246,8 @@ dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
 signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts
 base, case = Path(sys.argv[1]), sys.argv[2]
-names = ["a", "b", "c"] if case == "handoff" else ["a", "b"]
+three = case in ("handoff", "before-leaving", "settle-entry")
+names = ["a", "b", "c"] if three else ["a", "b"]
 built = {name: Daemon(base / name) for name in names}     # the last built holds SIGUSR1
 real_write, armed = Daemon._write_lock, [True]
 
@@ -1251,6 +1265,22 @@ def write(self, *, stack_dumps):
         real_write(self, stack_dumps=stack_dumps)
         raise KeyboardInterrupt                           # the rewrite durable, as fsync returns
     return real_write(self, stack_dumps=stack_dumps)
+real_leave, real_settle, settling = Daemon._leave_advertised, dm._settle_sigusr1, []
+
+def leave(self, token):
+    if case == "before-leaving" and armed and self is built["c"]:
+        armed.clear()
+        raise KeyboardInterrupt                           # C's lock rewritten, C not yet left
+    return real_leave(self, token)
+
+def settle():
+    if case == "settle-entry" and armed and settling:
+        armed.clear()
+        raise KeyboardInterrupt                           # C has left the set, the settle not begun
+    return real_settle()
+Daemon._leave_advertised = leave
+dm._settle_sigusr1 = settle
+
 class Leaving(dict):
     def pop(self, key, *default):
         value = super().pop(key, *default)
@@ -1262,13 +1292,14 @@ dm.faulthandler = SimpleNamespace(register=register, unregister=faulthandler.unr
                                   dump_traceback_later=faulthandler.dump_traceback_later)
 dm._ADVERTISED = Leaving(dm._ADVERTISED)
 Daemon._write_lock = write
-closing = built["c"] if case == "handoff" else built["b"]
+closing = built["c"] if three else built["b"]
+settling.append(True)
 try:
     closing.close()
 except KeyboardInterrupt:
     pass
-if case == "handoff":
-    built["b"].close()                                    # B, recorded as holder, hands the signal on
+if three:
+    built["b"].close()                                    # B leaves; its settle repairs what C's left
 reused = os.pipe()                                        # what a closed descriptor may become
 os.set_blocking(reused[0], False)
 logs = {name: base / name / "daemon.log" for name in names}
@@ -1294,6 +1325,8 @@ print(json.dumps({"grew": sorted(n for n in names if logs[n].stat().st_size > si
     ("after-rewrite", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
     ("before-rewrite", {"grew": ["b"], "stray": 0, "members": ["a", "b"], "holder": "b"}),
     ("leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+    ("before-leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+    ("settle-entry", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
 ])
 def test_c3_6_a_close_interrupted_part_way_leaves_no_stream_faulthandler_holds_closed(tmp_path, case, expected):
     """Review of 9a514a7 (Opus). P2: C, closing, handed SIGUSR1 to B by registering
@@ -1306,8 +1339,13 @@ def test_c3_6_a_close_interrupted_part_way_leaves_no_stream_faulthandler_holds_c
     the lock says when read back: B leaves and hands the signal to A. Interrupted
     before the rewrite, B's lock still says `stack_dumps`, and B stays, holding the
     signal, its stream open (its dumps arrive). Interrupted just after leaving the
-    set, B still hands the signal on, so no non-member holds it. In a subprocess,
-    so a regression's stray dump lands in that process."""
+    set, B still hands the signal on, so no non-member holds it. Review of
+    674b99b (both): C's close was interrupted after its rewrite but before it
+    left, or after it left but before the settle began, so C stayed in the set,
+    or held the signal as a non-member, for good, and A's dumps went to C's
+    abandoned log. Every leave now settles, and a settle drops a member that
+    began to leave once its lock reads back without the flag: B's close repairs
+    both. In a subprocess, so a regression's stray dump lands in that process."""
     import os
     import subprocess
     import sys
@@ -1349,5 +1387,5 @@ def test_c3_6_a_failed_construction_whose_revoke_raises_keeps_its_stream(tmp_pat
     finally:
         with daemon_module._DUMPS_LOCK:                     # let it go, then close what it held
             daemon_module._ADVERTISED.pop(built[0]._dumps_token, None)
-            daemon_module._hand_sigusr1_on()
+            daemon_module._settle_sigusr1()
         stream.close()
