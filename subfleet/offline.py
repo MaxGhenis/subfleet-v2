@@ -367,7 +367,22 @@ class Offline:
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
+            "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
         }
+
+    def _cards_view(self) -> dict[str, Any]:
+        from . import claude_cards
+        from .policy import PolicyError, load_policy
+        try:
+            policy = load_policy(self.root / "policy.json")
+        except (PolicyError, OSError):
+            policy = {}
+        if not claude_cards.settings(policy)["enabled"]:
+            return {"read_at": None, "accounts": [], "warnings": [], "disabled": True}
+        try:
+            return claude_cards.load_view(self.root, policy, datetime.now(timezone.utc))
+        except Exception as exc:                    # noqa: BLE001 - status never fails on this section
+            return {"read_at": None, "accounts": [], "warnings": [], "error_type": type(exc).__name__}
 
     def notices(self, session_id: str | None = None, *, resolved: bool = False) -> list[dict[str, Any]]:
         """C-15.8: `notices` with no daemon; the same rows `notice.list` returns."""

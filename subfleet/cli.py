@@ -40,7 +40,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, protocol
+from . import capacity, descriptors, ids, protocol, render
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -372,6 +372,11 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
+    cards = data.get("claude_cards")
+    if isinstance(cards, dict):
+        # C-9.10: what each Claude account holds that can be lost.
+        lines.append("")
+        lines.extend(render.card_lines(cards, compact=True))
     if closures:
         lines.append("")
         lines.append("closures")
