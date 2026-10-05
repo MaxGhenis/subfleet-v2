@@ -724,12 +724,16 @@ def test_c16_7_refused_while_busy_says_busy_absent_or_unverifiable(tmp_path):
     assert client_module.refused_while_busy(SimpleNamespace(lock_holder_alive=lambda: True), socket_gone()) is False
 
 
-@pytest.mark.parametrize("alive,expected", [(None, "gives-up"), (True, "waits-on")])
-def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeypatch, alive, expected):
+@pytest.mark.parametrize("alive,timeout,expected", [(None, None, "gives-up"), (True, None, "waits-on"),
+                                                    (None, 600.0, "waits-on")],
+                         ids=["unverifiable", "alive", "unverifiable-with-timeout"])
+def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeypatch, alive, timeout, expected):
     """Review of 4fc5b49, P2: a refused connect after busy, with a lock that cannot say
     whether its holder lives, kept an unbounded `wait` asking for ever (a replacement
     daemon had truncated the lock and gone). It is busy for at most
-    REFUSED_UNVERIFIED_MAX_S, then absent; a lock naming a living holder waits on."""
+    REFUSED_UNVERIFIED_MAX_S, then absent; a lock naming a living holder waits on.
+    Review of 1efa0ef, P3: a `wait --timeout` is bounded by that, not cut off at the
+    60 s meant for a wait with no deadline."""
     from types import SimpleNamespace
     from subfleet import cli
     clock = [0.0]
@@ -747,8 +751,125 @@ def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeyp
         return {"jobs": [{"job_id": "20261004-000009-done", "state": "succeeded", "rc": 0}], "timeout": False}
     monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call, lock_holder_alive=lambda: alive))
     args = cli.build_parser().parse_args(["wait", "20261004-000009-done"])
-    code = cli.wait_jobs(args, ["20261004-000009-done"], timeout=None, quiet=True)
+    code = cli.wait_jobs(args, ["20261004-000009-done"], timeout=timeout, quiet=True)
     if expected == "gives-up":
         assert code != 0 and polls[0] < 40 and clock[0] >= 5.0
     else:
         assert code == 0 and polls[0] == 40
+
+
+# --- review round 5 (of 1efa0ef) ----------------------------------------------
+
+MIXED = r"""
+import json, os, signal, sys, threading
+from pathlib import Path
+from subfleet import daemon as dm
+from subfleet.daemon import Daemon
+dm.procs.boot_id = lambda: "fake-boot"
+dm.procs.proc_start = lambda pid: "fake-start"
+base = Path(sys.argv[1])
+built = {}
+worker = threading.Thread(target=lambda: built.__setitem__("a", Daemon(base / "a")))
+worker.start(); worker.join()                             # A off the main thread: SIG_DFL beneath
+b = Daemon(base / "b")                                    # B on the main thread, A still advertised
+built["a"].close()
+b.close()                                                 # the last to leave, on the main thread
+os.kill(os.getpid(), signal.SIGUSR1)                      # a `daemon stacks` that raced B's close
+print(json.dumps({"ignored": signal.getsignal(signal.SIGUSR1) == signal.SIG_IGN}))
+"""
+
+
+def test_c3_6_the_last_main_thread_close_leaves_sigusr1_ignored(tmp_path):
+    """Review of 1efa0ef, P3: daemon A, built off the main thread, took SIGUSR1 first,
+    so faulthandler saved the fatal default beneath it; B, built on the main thread
+    while A stood, replaced the handler in place. When B closed last, unregistering
+    put the default back, and a `daemon stacks` that had read B's lock just before
+    ended the host (exit -30). The last main-thread close now leaves it ignored."""
+    import os
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
+    env["PYTHONPATH"] = str(repo)
+    done = subprocess.run([sys.executable, "-c", MIXED, str(tmp_path)], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"ignored": True}
+
+
+def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch, isolated_dumps):
+    """Review of 1efa0ef, P3: a holder closing on one thread while another daemon was
+    built on a second could hand the signal on to nobody between the second's
+    registration and its joining `_ADVERTISED`, leaving it advertised with no
+    handler. Registering and joining, and leaving and handing on, each run under
+    `_DUMPS_LOCK`, so neither can fall between the other's two steps."""
+    import faulthandler
+    from types import SimpleNamespace
+    seen = []
+    real_hand_on = daemon_module._hand_sigusr1_on
+
+    def register(*args, **kwargs):
+        seen.append(("register", daemon_module._DUMPS_LOCK._is_owned()))
+        return faulthandler.register(*args, **kwargs)
+
+    def hand_on():
+        seen.append(("hand_on", daemon_module._DUMPS_LOCK._is_owned()))
+        return real_hand_on()
+    monkeypatch.setattr(daemon_module, "faulthandler",
+                        SimpleNamespace(register=register, unregister=faulthandler.unregister,
+                                        dump_traceback_later=faulthandler.dump_traceback_later))
+    monkeypatch.setattr(daemon_module, "_hand_sigusr1_on", hand_on)
+    core = Daemon(tmp_path / "solo")
+    token = core._dumps_token
+    assert token in daemon_module._ADVERTISED
+    core.close()
+    assert token not in daemon_module._ADVERTISED
+    assert ("register", True) in seen and ("hand_on", True) in seen
+    assert all(owned for _, owned in seen), seen
+
+
+def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_path, monkeypatch, isolated_dumps):
+    """Review of 1efa0ef (GPT, hard): the newest daemon, closing, had registered
+    SIGUSR1 on the next daemon's stream but not yet recorded it as the holder; that
+    daemon closed at the same moment, saw itself not holding the signal and closed
+    its stream, and a SIGUSR1 then wrote stacks into whatever reused the descriptor
+    while a third daemon stood advertised. The second close now waits for the hand-
+    off, finds itself the holder, and hands the signal on to the third."""
+    import faulthandler
+    from types import SimpleNamespace
+    from test_lockwatch import dumped_into, log_text
+    oldest = Daemon(tmp_path / "oldest")
+    middle = Daemon(tmp_path / "middle")
+    newest = Daemon(tmp_path / "newest")
+    assert daemon_module._STACK_DUMPS() is newest
+    entered, release = threading.Event(), threading.Event()
+
+    def register(*args, **kwargs):
+        result = faulthandler.register(*args, **kwargs)
+        if kwargs.get("file") is middle._log_handler.stream and not entered.is_set():
+            entered.set()                                   # registered on middle's stream, not yet recorded
+            release.wait(10)
+        return result
+    monkeypatch.setattr(daemon_module, "faulthandler",
+                        SimpleNamespace(register=register, unregister=faulthandler.unregister,
+                                        dump_traceback_later=faulthandler.dump_traceback_later))
+    closing_newest = threading.Thread(target=newest.close)
+    closing_newest.start()
+    try:
+        assert entered.wait(10), "newest never handed the signal to middle"
+        closing_middle = threading.Thread(target=middle.close)
+        closing_middle.start()
+        closing_middle.join(.5)
+        assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
+        assert not middle._log_handler.stream.closed
+    finally:
+        release.set()
+        closing_newest.join(10)
+    closing_middle.join(10)
+    assert not closing_middle.is_alive() and middle._log_handler.stream.closed
+    assert daemon_module._STACK_DUMPS() is oldest
+    try:
+        assert dumped_into(oldest, len(log_text(oldest)))
+    finally:
+        oldest.close()
+    assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED

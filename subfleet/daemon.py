@@ -570,9 +570,8 @@ class Daemon:
         self._enable_stack_dumps()
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
         # says so: `daemon stacks` signals only a daemon whose lock says
-        # `stack_dumps`, never one that would die of the signal. From here this
-        # daemon is one of `_ADVERTISED` until its lock stops saying so.
-        _ADVERTISED[self._dumps_token] = (weakref.ref(self), self._log_handler.stream)
+        # `stack_dumps`, never one that would die of the signal. This daemon is
+        # already one of `_ADVERTISED`, and stays until its lock stops saying so.
         self._write_lock(stack_dumps=True)
         soft, hard = descriptors.open_file_limits()
         self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
@@ -6721,10 +6720,17 @@ class Daemon:
         soon as the log is open, and before `daemon.lock` says so: SIGUSR1's
         default action is to end the process.
         """
-        global _STACK_DUMPS
         self._dumps_token = next(_DUMPS_TOKENS)
         stream = self._log_handler.stream
         stream.flush()
+        with _DUMPS_LOCK:
+            self._take_sigusr1(stream)
+
+    def _take_sigusr1(self, stream) -> None:
+        """`_enable_stack_dumps`, under `_DUMPS_LOCK`: take SIGUSR1 and join
+        `_ADVERTISED`, so no daemon handing the signal on in between finds this
+        one missing and lets it go (review of 1efa0ef, P3)."""
+        global _STACK_DUMPS
         # A daemon built earlier in this process (tests build several) may hold
         # the registration still. `faulthandler.register` over a live one only
         # changes the file: it would not put its handler back over the SIG_IGN
@@ -6745,6 +6751,7 @@ class Daemon:
         # action would end the host (review r3, P1).
         faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
         _STACK_DUMPS = weakref.ref(self)
+        _ADVERTISED[self._dumps_token] = (_STACK_DUMPS, stream)
 
     def _disable_stack_dumps(self) -> bool:
         """C-3.6: `daemon.lock` stops saying `stack_dumps`, then this daemon leaves
@@ -6760,13 +6767,15 @@ class Daemon:
             self._write_lock(stack_dumps=False)
         except OSError as exc:
             if token is not None:
-                _ADVERTISED[token] = (weakref.ref(self), self._log_handler.stream)
+                with _DUMPS_LOCK:
+                    _ADVERTISED[token] = (weakref.ref(self), self._log_handler.stream)
             self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
                              "into this log", exc)
             return False
-        _ADVERTISED.pop(token, None)
-        if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-            _hand_sigusr1_on()
+        with _DUMPS_LOCK:
+            _ADVERTISED.pop(token, None)
+            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+                _hand_sigusr1_on()
         return True
 
     def close(self) -> None:
@@ -6839,6 +6848,10 @@ _STACK_DUMPS: weakref.ref | None = None
 #: the stream of the one registered last; for the others it lands in that log.
 _ADVERTISED: dict[int, tuple[weakref.ref, Any]] = {}
 _DUMPS_TOKENS = itertools.count()
+#: Taking SIGUSR1 with joining `_ADVERTISED`, and leaving it with handing the
+#: signal on, are each one step under this lock (review of 1efa0ef, P3). The
+#: signal handler itself never takes it: faulthandler runs in C.
+_DUMPS_LOCK = threading.RLock()
 
 
 def _hand_sigusr1_on() -> None:
@@ -6852,6 +6865,11 @@ def _hand_sigusr1_on() -> None:
         _STACK_DUMPS = holder
     else:
         faulthandler.unregister(signal.SIGUSR1)
+        if threading.current_thread() is threading.main_thread():
+            # What faulthandler restored is what it saved first, SIG_DFL if the first
+            # daemon was built off the main thread; a main-thread close leaves the
+            # signal ignored, as a daemon built there always did (review of 1efa0ef, P3).
+            signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         _STACK_DUMPS = None
 
 

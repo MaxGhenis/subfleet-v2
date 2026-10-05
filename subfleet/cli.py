@@ -1272,9 +1272,10 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     verdict = None if busy is None else refused_while_busy(client, exc)
                     if busy is None or verdict is False:
                         raise
-                    if verdict is None:
+                    if verdict is None and timeout is None:
                         # The lock cannot say whether the daemon lives: busy for a
-                        # bounded time only, since this loop may have no deadline.
+                        # bounded time only, since this loop has no deadline of its
+                        # own; with `--timeout`, that bounds it (review of 1efa0ef, P3).
                         unverified_since = unverified_since or time.monotonic()
                         if time.monotonic() - unverified_since > REFUSED_UNVERIFIED_MAX_S:
                             raise
