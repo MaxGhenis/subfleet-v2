@@ -168,7 +168,7 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
 |---|---|---|
 | B1: a salvage commit a network remote already held could never retire | Salvage refs were bundle heads; `git bundle` drops a head a remote holds, so the bundle lacked it, or was empty without a registration, and every attempt rolled back | The anchor is built whenever the repository is known (parents: the admin-named commits, the salvage commits, the baseline) and is the bundle's only head. The manifest records each salvage `{artifact_id, ref, commit}` and which commits are ancestors of the anchor; a salvage artifact counts as archived when its commit is one. An anchor a remote already reaches needs no bundle. Restore recreates `refs/subfleet-restored/<job>/<ref>` from the manifest |
 | B2: the conversation service ran a repository-wide `git worktree prune` | `_cut_worktree` pruned before re-adding a broken worktree | `retention_git.discard_registration` removes only the tree's own unlocked registration; the daemon and the conversation service both call it |
-| N2: one job that could not be measured kept retention in 5-second catch-up | Counted as unmeasured for ever | Its size is unknown, which decides it; it is measured again after 1 h, doubling to 24 h. A pass reports `progressed`; the daemon doubles the catch-up wait, up to an hour, while passes report more work but change nothing |
+| N2: one job that could not be measured kept retention in 5-second catch-up | Counted as unmeasured for ever | Its size is unknown, which decides it; it is measured again after 1 h, doubling to 24 h. A pass reports `progressed`; the daemon waits the hour when a pass changes nothing, and retries advancing batches promptly (2.1.11 pacing port) |
 | N10: an error dropped the archive cache | The whole tree was read again every 6 h | The cache is kept on every rollback except when the job is in use again (pinned, rows or leases changed); a repeated error doubles its deferral to 24 h; a stored copy that does not read back is removed so the next attempt clones it anew |
 | N8 (jobs with a cache): deferrals lived only in memory | A restart retried every deferred job at once | The idle journal records the error count and, in wall-clock time, when the job may be tried again; a restarted daemon recalls it |
 | N3: a slice could stop making progress, and parked jobs queued behind the first | A slice stopped mid-file, or before its cached re-walk reached anything new, and the next started over; in-flight jobs were sliced in name order | One file's read runs to its end; a slice parks only after it has written new progress; in-flight jobs are sliced least recently sliced first, so they take turns at a pass's time |
@@ -389,7 +389,9 @@ when the job is in use again (pinned, its rows or leases changed), when its
 rows are gone, or after two idle days. Anchor refs stay; they are harmless.
 
 **Recovery** (start of every pass): a `retention:` lease with no journal is
-released (the old retention's, or a selection that died before its journal); a
+released and its job is selected before ordinary candidates (the old retention's,
+or a selection that died before its journal). This priority survives an interrupted
+pass in `RetentionState.leftovers`; pins and archive verification still apply. A
 journal in `committing` is resolved by whether the rows exist; everything
 committed is published and reclaimed; everything before commit continues; an
 idle journal's deferral is recalled once per daemon.
@@ -660,12 +662,19 @@ until they expire.
   instead of queueing behind the first.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
-- **Pacing.** The daemon runs a pass hourly; while a pass reports more waiting
-  (a parked job, a full batch, undecided sizes) the next runs 5 s later
-  ("retention catch-up: ..." in the daemon log). A pass that reports more but
-  changed nothing (`progressed` false) doubles that wait, up to an hour; one
-  that made progress sets it back to 5 s. A pass that did work never raises
-  `TimeoutError`; the daemon's worker pool has one more thread for it.
+- **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
+  (a parked job, a full batch, undecided sizes) and advances, the next runs 5 s
+  later ("retention catch-up: ..." in the daemon log). A newly cached size,
+  archive work, deferral or reclaim is advancement, even before the first prune.
+  A deadline after advancement warns and raises `TimeoutError`, so C-5.10 retries
+  it (0.5 s, doubling to 60 s); interrupted results retain `progressed` and
+  committed `pruned` jobs. A deadline with no advancement marks `TimeoutError`,
+  warns once with the job count, rearms the hour and returns. Cancellation takes
+  precedence, marks `CancelledError` and rearms the hour. A completed or
+  non-advancing batch also waits the hour. Status is marked before the hour is
+  rearmed; failed bookkeeping leaves retention due. The service-notice prune
+  runs first, once per daemon pass, and its failure is logged without failing
+  job retention. The worker pool has one more thread for retention.
 - **Below the operator's apps** (final review of e50716e8, N9). The daemon
   runs at the default QoS, and a thread's QoS reaches no child
   (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts
@@ -882,7 +891,7 @@ finding:
 | N12, bundle cache | `test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move` |
 | Nothing written after the final check deleted | `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_new_file_before_commit_rolls_back_the_job`, `test_a_swapped_directory_sends_nothing_outside`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept` |
 | Slow or interrupted checks defer, no livelock | `test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass`, `test_a_busy_oldest_job_does_not_block_the_queue`, `test_a_failed_process_listing_defers_the_batch`, `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`, `test_a_slice_moves_forward_when_one_file_outlasts_it`, `test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it`, `test_parked_jobs_take_turns_at_the_pass_time` |
-| N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_backs_off_while_a_pass_changes_nothing` |
+| N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_waits_the_hour_only_when_a_pass_changes_nothing` |
 | N10, cache kept on error | `test_a_persistent_error_keeps_the_cache_and_backs_off`, `test_an_archive_that_does_not_read_back_authorizes_nothing` |
 | Staged, resumable removal | `test_interrupted_removal_resumes_and_leaves_no_half_tree`, `test_a_crash_at_any_step_is_recovered_by_the_next_pass[7 steps]`, `test_an_entry_deletion_cannot_remove_is_set_aside_not_left_half_deleted` |
 | No repository-wide prune (B2) | `test_retention_never_prunes_other_registrations`, `test_discarding_a_broken_allocation_removes_only_its_own_registration`, `test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory, detached-worktree]` |

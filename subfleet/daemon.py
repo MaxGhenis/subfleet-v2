@@ -118,12 +118,10 @@ READ_CONNECTIONS = 6
 #: d635: seconds a retention pass may start new work; a started job gets its
 #: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
 RETENTION_PASS_S = 180
+#: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
+RETENTION_INTERVAL_S = 3600
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
-#: A pass that reports more work but changed nothing doubles the wait before the
-#: next, up to this (review of a9a6cbf4, N2: one unmeasurable job kept retention
-#: in 5-second catch-up for ever).
-RETENTION_CATCH_UP_MAX_S = 3600
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -604,7 +602,6 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         # d635: deferrals and measured sizes carried between retention passes.
         self._retention_state = RetentionState()
-        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         # Every connection not yet closed, for shutdown; `_reading`, those whose
         # reader still runs, is what `MAX_CONNECTIONS` counts (C-16.1).
         self._connections: set[socket.socket] = set()
@@ -3310,7 +3307,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -3388,6 +3385,11 @@ class Daemon:
         # retirement archives before it deletes; a pass retires a bounded batch,
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
+        # Once per daemon pass, including one that is cancelled or raises.
+        try:
+            self._prune_service_notices()
+        except Exception as exc:
+            self.log.warning("retention: service notices were not pruned: %s", type(exc).__name__)
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
@@ -3396,20 +3398,28 @@ class Daemon:
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
-        if result.get("interrupted"):
-            if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+        pruned = len(result.get("pruned") or ())
+        progressed = bool(pruned or result.get("progressed"))
+        interrupted = result.get("interrupted")
+        if interrupted == "cancelled":
+            self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
+        if interrupted:
+            if not progressed:
+                self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+                self.log.warning("retention: deadline reached before it pruned a job or advanced; "
+                                 "%d jobs in the store; next pass in an hour", result.get("jobs_after", 0))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        self._prune_service_notices()
+            self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
+                             "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
+            # Stay due. _schedule records the error and applies C-5.10.
+            raise TimeoutError("retention deadline reached after progress")
         for error in (result.get("errors") or [])[:5]:
             self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
-        if result.get("more"):
-            if result.get("progressed", True):
-                self._retention_catch_up_s = RETENTION_CATCH_UP_S
-            else:
-                self._retention_catch_up_s = min(RETENTION_CATCH_UP_MAX_S, 2 * self._retention_catch_up_s)
-            delay = self._retention_catch_up_s
+        if result.get("more") and progressed:
+            delay = RETENTION_CATCH_UP_S
             self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
                           "archive, which added %d bytes; net %d on disk), %d in flight, %d deferred; "
                           "continuing in %g seconds",
@@ -3419,18 +3429,17 @@ class Daemon:
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0),
                           len(result.get("in_flight") or ()), len(result.get("deferred") or {}), delay)
             self.timers.mark("retention", next_due=after(delay))
-            self._last_maintenance = time.monotonic() - 3600 + delay
+            self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
             return
-        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         if result.get("pruned"):
             self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive, "
                           "which added %d bytes (bundles, manifests, rows); net %d on disk",
                           len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
                           result.get("archived_bytes") or 0, result.get("added_bytes") or 0,
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0))
-        self.timers.mark("retention", next_due=after(3600))
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
         # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+        # Completed and non-advancing passes rearm the hourly interval last.
         self._last_maintenance = time.monotonic()
 
     def _prune_service_notices(self) -> int:
