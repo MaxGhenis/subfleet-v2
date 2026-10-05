@@ -78,6 +78,22 @@ LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
              "j.started_at AS job_started_at,j.max_wall_s "
              "FROM attempts a LEFT JOIN jobs j USING(job_id) "
              "WHERE a.state IN ('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap; only a
+#: job with a parent extends an ancestry (`scheduler._parent_blocks`); and on
+#: this line an active attempt's job says by its `kind` whether it counts as a
+#: turn (C-26.9). Every other attempt and job the store keeps changes no route:
+#: on 2026-10-02 the live store held 2,722 attempts (23 MB, most of it
+#: `evidence_json`) and 2,625 jobs, read and turned into dicts on every
+#: evaluation, against 38 active attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+#: `state` is carried for C-6.15's host-pressure hold, which leaves out the
+#: attempts of any ancestor of a job that has not started; every such job has a
+#: parent, so it is among these rows.
+ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job_id > '' OR job_id IN "
+              "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')) "
+              "ORDER BY created_at,rowid")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -1037,9 +1053,15 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_rows(self) -> dict:
+    def _capacity_rows(self, *, route: bool = False) -> dict:
         """C-3.7: every row a capacity view is built from, read in one committed
         state off the store lock (inside a transaction, the transaction's own).
+
+        `route` is for a route evaluation (`_pick`): it reads only the attempts
+        and jobs a route can depend on (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`, C-11.2),
+        and `scheduler.evaluate` reaches the same decision over them as over
+        every row (a differential property test). Status and the operator's
+        views read every row.
 
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
@@ -1047,8 +1069,9 @@ class Daemon:
         with self.store.snapshot():
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
-                    "closures": self.store.list_closures(), "attempts": self.store.list_attempts(),
-                    "jobs": self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")}
+                    "closures": self.store.list_closures(),
+                    "attempts": self.store.query(ROUTE_ATTEMPTS) if route else self.store.list_attempts(),
+                    "jobs": self.store.query(ROUTE_JOBS if route else "SELECT * FROM jobs ORDER BY created_at,rowid")}
             # Probe reservations are explicit leases, not invented in-flight attempt
             # counts. A recovered probe keeps its lane unavailable until containment.
             leases = self.store.query(capacity.PROBE_LEASES)
@@ -1498,7 +1521,7 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        rows = self._capacity_rows()
+        rows = self._capacity_rows(route=True)
         # The instant the view is built at: it keeps closures and labels readings
         # on it, and gives `evaluate` its whole second (C-6.3's clock check).
         instant = datetime.now(timezone.utc)
