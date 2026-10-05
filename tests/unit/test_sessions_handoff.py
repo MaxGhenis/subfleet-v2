@@ -507,6 +507,24 @@ def test_an_ordinary_session_is_not_refused_as_a_lane(home, policy, repo):
     assert result.brief.session_id == SESSION
 
 
+def test_handoff_reads_the_writer_not_the_prompt_source(home, policy, repo):
+    """C-23.31: a desktop session one message started is handed off; a `claude
+    -p` run with three prompts and no ledger row is refused as a lane run."""
+    fx.transcript(home, SESSION, [{**entry, "cwd": str(repo)} for entry in
+                                  fx.desktop_interrupted(age_s=600)], cwd=str(repo))
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(daemon, policy, session_id=SESSION, last=False,
+                             model="astra", stage_prompt=lambda text: Path("/dev/null"),
+                             workdir=repo, dry_run=True)
+    assert result.brief.session_id == SESSION
+    fx.transcript(home, SESSION, fx.notified_lane(age_s=600), cwd=str(repo))
+    with pytest.raises(handoff.HandoffError) as raised:
+        handoff.handoff(daemon, policy, session_id=SESSION, last=False, model="astra",
+                        stage_prompt=lambda text: Path("/dev/null"), workdir=repo, lane_ids=[])
+    assert "headless lane run" in str(raised.value)
+    assert daemon.submits == []
+
+
 def test_a_missing_transcript_is_a_user_facing_error(home):
     """C-17.3: exit 2, and the message names the session it could not find."""
     with pytest.raises(handoff.HandoffError, match="transcript not found"):

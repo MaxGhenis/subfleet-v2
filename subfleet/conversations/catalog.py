@@ -23,6 +23,7 @@ import errno
 import fcntl
 import functools
 import json
+import math
 import os
 import re
 import signal
@@ -37,7 +38,7 @@ from typing import Any, Callable, Iterable
 from ..sessions import transcripts
 from ..state_files import open_state
 from .redact import scrub
-from .store import canonical_native
+from .store import PROVIDERS, canonical_native
 
 WALL_S = 20.0
 #: A run's exit status when it stopped publishing because its owner is gone (`Owner`):
@@ -71,8 +72,11 @@ def map_permission(mode: str | None) -> str:
 
 #: The shape of a Claude record in `catalog-cache.json`; a cached record of another
 #: version is read again. 2: the record carries `workspace` (`_workspace`), which
-#: discovery and opening share (review of 3c1a34e, finding 7).
-CLAUDE_RECORD_VERSION = 2
+#: discovery and opening share (review of 3c1a34e, finding 7). 3: `headless` is
+#: read from the writer's `entrypoint` (C-23.31, 2026-10-03); a cached record of
+#: an unchanged transcript kept the prompt rule's verdict, which hid desktop
+#: sessions one or two messages started.
+CLAUDE_RECORD_VERSION = 3
 
 
 def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
@@ -527,6 +531,30 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             "next": out[-1].get("mtime") if out and len(out) >= limit else None, "state": state,
             "age_s": None if age_s is None else round(age_s, 1), "stale_after_s": stale_after_s,
             "live_elsewhere": live}
+
+
+def activity_times(root: Path) -> dict[tuple[str, str], float]:
+    """Every bound session's latest indexed transcript mtime (C-30.1, D-23).
+
+    Read the cached catalog without pagination or freshness filtering: an old
+    transcript mtime remains evidence of activity, even when process liveness
+    has expired. Never stat a transcript or walk the provider's projects here.
+    """
+    catalog, _ = _load(Path(root) / "catalog.json")
+    times = {}
+    latest = min(time.time(), 253402300799)
+    items = catalog.get("items")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict) or item.get("provider") not in PROVIDERS:
+            continue
+        native, mtime = item.get("native_session_id"), item.get("mtime")
+        if not isinstance(native, str) or not native or not isinstance(mtime, (int, float)) or isinstance(mtime, bool):
+            continue
+        if not 0 <= mtime <= latest or not math.isfinite(mtime):
+            continue
+        key = (item["provider"], canonical_native(native))
+        times[key] = max(times.get(key, 0), mtime)
+    return times
 
 
 def refresh_running(root: Path) -> bool | None:

@@ -27,7 +27,11 @@ def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout:
     """Build `binary` from the app's sources and the probe file(s); the machine
     may be loaded, so the timeout is generous."""
     probes = probe if isinstance(probe, list) else [probe]
-    command = ["xcrun", "swiftc", "-D", flag, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
+    # Exercise UIModel with AppKit and notifications, while excluding SwiftUI
+    # view bodies. The full view probe retains SUBFLEET_VIEW_TEST separately.
+    flags = [flag] if flag != "SUBFLEET_UI_MODEL_TEST" else [flag, "SUBFLEET_MODEL_TEST", "SUBFLEET_VIEW_TEST"]
+    defines = [arg for name in flags for arg in ("-D", name)]
+    command = ["xcrun", "swiftc", *defines, "-parse-as-library", "-target", f"{platform.machine()}-apple-macos14.0",
                *map(str, app_sources()), *map(str, probes), "-o", str(binary)]
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     assert compiled.returncode == 0, compiled.stderr[-20000:]

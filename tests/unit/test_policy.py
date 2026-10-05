@@ -236,11 +236,12 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     assert (policy["retention"]["jobs"], policy["retention"]["bytes"]) == (500, 2 * 1024 ** 3)
     assert (policy["retention"]["turn_jobs"], policy["retention"]["turn_bytes"],
             policy["retention"]["turn_keep_days"]) == (2000, 4 * 1024 ** 3, 14)
+    assert policy["retention"]["remote_less_history_bytes"] == 64 * 1024 ** 2      # d635 N1
     policy_data["conversations"] = {"catalog_interval_s": 0, "compact_after_s": 0}
     policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0}
     policy = load_policy(write_policy(tmp_path, policy_data))
     assert policy["conversations"]["catalog_interval_s"] == 0 and policy["conversations"]["compact_after_s"] == 0
-    assert policy["conversations"]["approval_wait_s"] == 3600
+    assert policy["conversations"]["approval_wait_s"] is None
     assert policy["retention"]["turn_jobs"] == 50 and policy["retention"]["turn_keep_days"] == 0
     assert policy["retention"]["jobs"] == 500
 
@@ -253,6 +254,8 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     ("retention", "turn_jobs", 0),
     ("retention", "bytes", "2GiB"),
     ("retention", "turn_keep_days", -1),
+    ("retention", "remote_less_history_bytes", -1),
+    ("retention", "remote_less_history_bytes", 1.5),
 ])
 def test_conversation_and_retention_values_are_validated(tmp_path, policy_data, section, key, value):
     """C-11.1: a bad value names its section and key; zero only where it means none."""
@@ -275,7 +278,7 @@ def test_d260_the_shipped_policy_lets_writable_codex_jobs_reach_the_network():
 
 def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy_data):
     """C-24.7, C-26.5, C-26.9: a policy without `conversations` gets the runner's
-    defaults (10, 20, 30 and 135 s, approvals 3600 s); a supplied section is kept
+    defaults (10, 20, 30 and 135 s, approvals unlimited); a supplied section is kept
     and reaches the turn runner's clocks."""
     from subfleet.conversations.runner import Clocks
 
@@ -283,14 +286,30 @@ def test_conversation_clocks_default_and_follow_the_policy_file(tmp_path, policy
     loaded = load_policy(write_policy(tmp_path, policy_data))
     clocks = ("approval_wait_s", "stop_sigint_after_s", "stop_close_after_s", "stop_contain_after_s", "after_result_s")
     assert {k: loaded["conversations"][k] for k in clocks} == {
-        "approval_wait_s": 3600, "stop_sigint_after_s": 10, "stop_close_after_s": 20,
+        "approval_wait_s": None, "stop_sigint_after_s": 10, "stop_close_after_s": 20,
         "stop_contain_after_s": 30, "after_result_s": 135}
     assert Clocks.from_policy(loaded) == Clocks()
     policy_data["conversations"] = {"stop_sigint_after_s": 0.5, "stop_close_after_s": 1.5,
                                     "stop_contain_after_s": 2.5, "after_result_s": 4}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert Clocks.from_policy(loaded) == Clocks(sigint_after_s=0.5, close_after_s=1.5, contain_after_s=2.5,
-                                                after_result_s=4.0, approval_wait_s=3600.0)
+                                                after_result_s=4.0, approval_wait_s=None)
+
+
+@pytest.mark.parametrize("section,expected", [({}, None), ({"approval_wait_s": None}, None),
+                                           ({"approval_wait_s": 2.5}, 2.5)])
+def test_approval_wait_accepts_no_limit_or_a_positive_number(tmp_path, policy_data, section, expected):
+    """C-26.9: null and an omitted approval wait are unlimited; a finite policy
+    limit reaches the runner unchanged, including fractional seconds."""
+    from subfleet.conversations.runner import Clocks
+
+    policy_data["conversations"] = section
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["conversations"]["approval_wait_s"] == expected
+    assert Clocks.from_policy(loaded).approval_wait_s == expected
+    assert Clocks.from_policy({"conversations": section}).approval_wait_s == expected
+    assert Clocks.from_policy({}).approval_wait_s is None
+    assert load_policy(DEFAULT_POLICY_PATH)["conversations"]["approval_wait_s"] is None
 
 
 def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path, policy_data):
@@ -321,9 +340,8 @@ def test_turn_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tmp_path,
     ({"max_active_turns": "3"}, "conversations.max_active_turns"),
     ({"turn_slots_per_lane": 1.5}, "conversations.turn_slots_per_lane"),
     ({"turn_slots_per_lane": float("inf")}, "conversations.turn_slots_per_lane"),
-    # Null means "no cap" for the two turn caps only.
+    # Counts that are not caps still require a number.
     ({"compact_per_tick": None}, "conversations.compact_per_tick"),
-    ({"approval_wait_s": None}, "conversations.approval_wait_s"),
 ])
 def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_key):
     """C-26.9, C-11.1: a turn cap is null or a positive whole number; nothing else is."""
@@ -342,6 +360,11 @@ def test_invalid_turn_caps_name_the_key(tmp_path, policy_data, section, error_ke
     ({"stop_contain_after_s": True}, "conversations.stop_contain_after_s"),
     ({"after_result_s": "135"}, "conversations.after_result_s"),
     ({"approval_wait_s": float("inf")}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": 0}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": -1}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": True}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": "3600"}, "conversations.approval_wait_s"),
+    ({"approval_wait_s": float("nan")}, "conversations.approval_wait_s"),
     # C-24.7: the escalation keeps its order.
     ({"stop_sigint_after_s": 20, "stop_close_after_s": 10}, "conversations.stop_close_after_s"),
     ({"stop_close_after_s": 30, "stop_contain_after_s": 30}, "conversations.stop_close_after_s"),
@@ -405,12 +428,21 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
     assert admission_settings({})["lane_spread"] == 2
+    assert admission_settings({})["weekly_reserve"] == .02
+    assert admission_settings({})["five_hour_reserve"] == .10
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
+    assert admission_settings({})["prove_idle_s"] == 900          # C-6.14: on unless a policy turns it off
+    assert admission_settings({})["prove_wait_s"] == 300          # C-6.14: how long a silent pilot holds its lane
     policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
+                                "prove_wait_s": None}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                   "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                   "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
+                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10}
+    policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
+    loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
+    assert (loaded["prove_idle_s"], loaded["prove_wait_s"]) == (0.5, 0.25)
     policy_data["admission"] = {"pin_grace_s": 0}             # C-11.8: 0 fails such a job on the pass that finds it
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
@@ -423,6 +455,12 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"lane_spread": 0}, "admission.lane_spread"),
     ({"lane_spread": 1.5}, "admission.lane_spread"),
     ({"lane_spread": True}, "admission.lane_spread"),
+    ({"weekly_reserve": -.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": 1.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": True}, "admission.weekly_reserve"),
+    ({"five_hour_reserve": None}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("nan")}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("inf")}, "admission.five_hour_reserve"),
     ({"desktop_recent_s": -1}, "admission.desktop_recent_s"),
     ({"desktop_recent_s": float("inf")}, "admission.desktop_recent_s"),
     ({"pin_grace_s": -1}, "admission.pin_grace_s"),
@@ -432,6 +470,14 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"pin_hold_far_s": 0}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": None}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": float("inf")}, "admission.pin_hold_far_s"),
+    ({"prove_idle_s": 0}, "admission.prove_idle_s"),
+    ({"prove_idle_s": -60}, "admission.prove_idle_s"),
+    ({"prove_idle_s": float("nan")}, "admission.prove_idle_s"),
+    ({"prove_idle_s": True}, "admission.prove_idle_s"),
+    ({"prove_idle_s": "900"}, "admission.prove_idle_s"),
+    ({"prove_wait_s": 0}, "admission.prove_wait_s"),
+    ({"prove_wait_s": float("inf")}, "admission.prove_wait_s"),
+    ({"prove_wait_s": False}, "admission.prove_wait_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),

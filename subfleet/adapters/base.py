@@ -80,6 +80,19 @@ class Adapter(ABC):
         takes the model as a flag.
         """
 
+    def model_answered(self, event: object) -> bool:
+        """C-6.14, C-4.5: does this one decoded stream event show the provider's
+        model answering on the lane's credential, not the CLI speaking for it?
+
+        The daemon reads a running attempt's stream line by line and stops at the
+        first event this says yes to: that is the lane proven (C-6.14). Its
+        classification records the same over the whole stream as the outcome's
+        `model_answered` (C-4.5: an `auth-dead` attempt the model never answered
+        ran nothing, so its job may move on). An adapter whose stream it cannot
+        read says no, and its lanes are proven only by an attempt that ends `ok`.
+        """
+        return False
+
     # --- helpers adapters may share -----------------------------------------
 
     @staticmethod

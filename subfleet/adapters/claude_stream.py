@@ -113,6 +113,63 @@ def is_synthetic_api_error(row: Any) -> bool:
         isinstance(block.get("text"), str) for block in content)
 
 
+#: The `usage` counters a served request fills; Claude Code's own placeholder
+#: frames carry them all as zero (`is_synthetic_api_error`).
+USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+
+
+def _counted(usage: Any) -> bool:
+    """Whether a `usage` object counts any token: only a request the model served does."""
+    return isinstance(usage, dict) and any(type(usage.get(key)) is int and usage[key] > 0
+                                           for key in USAGE_TOKEN_FIELDS)
+
+
+def cli_placeholder(row: Any) -> bool:
+    """C-9.3: is this `assistant` frame the CLI's own words, not a model's? One marked
+    as an API error message, one whose model is missing or Claude Code's `<synthetic>`
+    sentinel, or one carrying a credential or organisation error (`AUTH_ERROR_KINDS`),
+    which is the CLI's refusal whatever else the frame holds."""
+    if not isinstance(row, dict) or row.get("type") != "assistant":
+        return False
+    if row.get("is_api_error_message") is True or row.get("isApiErrorMessage") is True \
+            or row.get("error") in AUTH_ERROR_KINDS or is_synthetic_api_error(row):
+        return True
+    message = row.get("message")
+    model = message.get("model") if isinstance(message, dict) else None
+    return not (isinstance(model, str) and model and not model.startswith("<"))
+
+
+def model_answered(row: Any) -> bool:
+    """C-6.14, C-4.5: whether one decoded stream event shows the model answering.
+
+    Yes for an `assistant` frame a model served: a model id that is not Claude
+    Code's `<synthetic>` sentinel, no API-error marker, and no `error` at all (a
+    frame the CLI stamped with one of its error kinds proves nothing, whatever
+    model id and usage it carries); for a `result` whose `usage` counts a token,
+    unless it is marked `is_error` (served tokens always come with a served frame
+    or thinking before them, and an error result's counters prove nothing); and for a
+    `system/thinking_tokens` progress event with a positive count, which Claude
+    Code 2.1.284 writes while the model streams its thinking, before the first
+    `assistant` frame. No for everything the CLI writes on its own: `system/init`
+    (written before any request, and present in the 2026-09-30 incident, where
+    the organisation had disabled Claude Code and no request was served), hook
+    events, and the placeholder that carried that refusal (model `<synthetic>`,
+    `is_api_error_message`, every usage counter zero, `duration_api_ms` 0).
+    When in doubt, no: a lane read as proven takes a burst.
+    """
+    if not isinstance(row, dict):
+        return False
+    kind = row.get("type")
+    if kind == "assistant":
+        return not cli_placeholder(row) and row.get("error") not in ERROR_KINDS
+    if kind == "result":
+        return row.get("is_error") is not True and _counted(row.get("usage"))
+    if kind == "system" and row.get("subtype") == "thinking_tokens":
+        count = row.get("estimated_tokens")
+        return type(count) in (int, float) and count > 0
+    return False
+
+
 @dataclass(frozen=True)
 class InitEvent:
     """`system/init`. Its mere presence proves the credential authenticated (C-9.3)."""
@@ -222,6 +279,8 @@ class StreamSummary:
     bad_lines: int = 0
     truncated_tail: bool = False
     unknown_types: tuple[str, ...] = ()
+    #: C-4.5, C-6.14: some event showed the model answering (`model_answered`).
+    answered: bool = False
 
     # --- convenience the classifier leans on --------------------------------
 
@@ -265,6 +324,21 @@ class StreamSummary:
                 out.append(message.text)
         if self.result is not None:
             if self.result.text:
+                out.append(self.result.text)
+            out.extend(self.result.errors)
+        return tuple(out)
+
+    def cli_texts(self) -> tuple[str, ...]:
+        """C-9.3, C-4.5: the strings the CLI and the provider wrote, not the model:
+        every `assistant` frame that is the CLI's own (`cli_placeholder`: Claude
+        Code's placeholders, such as the 2026-09-30 organisation block), the
+        `errors` of the result, and its text when it is marked `is_error`, where
+        it repeats the refusal. A model's own words, and a success result that
+        repeats them, are left out: a review of this classifier quotes its
+        phrases, and an `auth-dead` read from them would disable its lane."""
+        out = [message.text for message in self.assistants if message.text and cli_placeholder(message.raw)]
+        if self.result is not None:
+            if self.result.text and self.result.is_error:
                 out.append(self.result.text)
             out.extend(self.result.errors)
         return tuple(out)
@@ -403,11 +477,13 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
     unknown: list[str] = []
     bad = 0
     session_id: str | None = None
+    answered = False
 
     for row in rows:
         if not isinstance(row, dict):
             bad += 1
             continue
+        answered = answered or model_answered(row)
         session_id = session_id or _as_str(row.get("session_id"))
         kind = row.get("type")
 
@@ -497,6 +573,7 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
         bad_lines=max(0, bad + counts["total"] - counts["parsed"] - (1 if counts["truncated"] else 0)),
         truncated_tail=counts["truncated"],
         unknown_types=tuple(dict.fromkeys(unknown)),
+        answered=answered,
     )
 
 

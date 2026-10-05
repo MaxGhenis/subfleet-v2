@@ -125,7 +125,8 @@ def test_c18_1_frontend_accepts_empty_fleet(probe, tmp_path):
     result = display(probe, tmp_path, [])
     assert result == {"stale": False, "codex": [], "claude": [],
                       "has_jobs_section": True, "job_groups": [], "recent_jobs": [],
-                      "dispatchable": {"claude": 0, "codex": 0}, "auto_provider": "claude"}
+                      "dispatchable": {"claude": 0, "codex": 0}, "auto_provider": "claude",
+                      "has_alerts_section": True, "alerts": [], "alerts_need_attention": False}
 
 
 def test_c9_1_frontend_handles_lanes_without_usage_windows(probe, tmp_path):
@@ -213,14 +214,15 @@ def test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions(probe
 
 
 def test_auto_provider_follows_the_lanes_ready_now(probe, tmp_path):
-    """A new conversation's Auto choice: the provider with more lanes admission
-    could place work on now, from the daemon's own status.json; Claude on a tie."""
+    """Auto prefers any ready Claude lane, or Claude when readiness is unknown."""
     payload = build_status({"lanes": [lane("codex"), lane("claude")], "offline": False}, now=NOW)
     payload["claude"]["lanes"] = {"dispatchable_now": 1}
     payload["codex"]["fleet"]["dispatchable_now"] = 1
     tie = project(probe, tmp_path, payload)
     assert tie["dispatchable"] == {"claude": 1, "codex": 1} and tie["auto_provider"] == "claude"
     payload["codex"]["fleet"]["dispatchable_now"] = 4
+    assert project(probe, tmp_path, payload)["auto_provider"] == "claude"
+    payload["claude"]["lanes"]["dispatchable_now"] = 0
     assert project(probe, tmp_path, payload)["auto_provider"] == "codex"
     del payload["claude"]["lanes"]
     payload["codex"]["fleet"]["dispatchable_now"] = 0
@@ -237,3 +239,44 @@ def test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable(probe, tmp_pat
         assert row["status"] == "Unavailable" and row["tone"] == "neutral"
         assert "Not dispatchable" in row["detail"]
         assert row["percentage"] == 25 and row["weekly_percentage"] == 60
+
+
+ALERTS = [
+    {"key": "claude-lane-auth:a@example.invalid", "severity": "critical",
+     "subject": "claude credentials: claude-1 is auth-dead",
+     "body": "claude-1 (a@example.invalid): auth-dead. Run: claude setup-token; subfleet lanes enroll claude-1",
+     "since": "2026-09-19T11:00:00Z", "last_sent": "2026-09-19T11:00:00Z"},
+    {"key": "codex-fleet-low", "severity": "warn", "subject": "codex: only one dispatchable lane",
+     "body": "Only codex-1 has observed headroom. Run: subfleet status", "since": None, "last_sent": None},
+    {"key": "recovered-ish", "severity": "info", "subject": "", "body": None},
+]
+
+
+def test_c18_4_frontend_shows_each_alert_with_what_to_run(probe, tmp_path):
+    """C-18.4, C-23.52 the menu model shows each alert in force, its command, and its tone."""
+    payload = build_status({"lanes": [lane("codex")], "alerts": ALERTS}, now=NOW)
+    result = project(probe, tmp_path, payload)
+    assert result["has_alerts_section"] is True and result["alerts_need_attention"] is True
+    assert [(row["title"], row["tone"]) for row in result["alerts"]] == [
+        ("claude credentials: claude-1 is auth-dead", "error"),
+        ("codex: only one dispatchable lane", "warning"),
+        ("recovered-ish", "neutral")]
+    assert result["alerts"][0]["detail"].endswith("subfleet lanes enroll claude-1")
+    assert result["alerts"][0]["since"] == "2026-09-19T11:00:00Z" and result["alerts"][1]["since"] is None
+
+
+def test_c18_4_frontend_info_alone_needs_no_attention_and_none_is_quiet(probe, tmp_path):
+    """C-18.4 only an alert above `info` marks the menu bar icon."""
+    info = build_status({"lanes": [lane("codex")], "alerts": ALERTS[2:]}, now=NOW)
+    assert project(probe, tmp_path, info)["alerts_need_attention"] is False
+    quiet = project(probe, tmp_path, build_status({"lanes": [lane("codex")]}, now=NOW))
+    assert quiet["alerts"] == [] and quiet["alerts_need_attention"] is False
+
+
+def test_c18_4_frontend_reads_a_snapshot_from_a_daemon_without_alerts(probe, tmp_path):
+    """C-18.4 an older daemon's status.json has no alerts key, and the menu still decodes it."""
+    payload = build_status({"lanes": [lane("codex")]}, now=NOW)
+    payload.pop("alerts")
+    result = project(probe, tmp_path, payload)
+    assert result["has_alerts_section"] is False and result["alerts"] == []
+    assert result["codex"][0]["percentage"] == 25

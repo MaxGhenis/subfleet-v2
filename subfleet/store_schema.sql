@@ -233,6 +233,16 @@ CREATE INDEX IF NOT EXISTS events_probe_holder ON events(json_extract(data_json,
 -- that filters on JSON in SQL also reads these few rows and parses them in Python,
 -- as every such read did before it moved into SQL.
 CREATE INDEX IF NOT EXISTS events_not_json ON events(kind, event_id DESC) WHERE NOT json_valid(data_json);
+-- C-11.8, C-15.8: the pin notice a `job.pin_noticed` event names, so naming a
+-- listed notice's job is one index step per notice, however many pins had no one
+-- to tell (their events name none) and however long the history. The CASE keeps
+-- json_extract off a payload json_valid refuses, in the index as in the query
+-- (`store.pin_notice_jobs`). `kind` leads so that, with no statistics (nothing
+-- here runs ANALYZE), the planner prefers it to `events_kind`: two equality
+-- terms to one.
+CREATE INDEX IF NOT EXISTS events_pin_notice ON events(kind,
+  (CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END), event_id DESC)
+  WHERE kind='job.pin_noticed';
 
 -- Jobless operator messages use ping and the same notice polling/ack path.
 -- A separate table is additive: v1's notices.job_id remains a required FK.
