@@ -186,17 +186,47 @@ def busy() -> DaemonError:
                        "try again shortly")
 
 
+def refused() -> DaemonUnavailable:
+    """What `_call_once` raises when the connect is refused (a full listen backlog)."""
+    try:
+        raise ConnectionRefusedError(61, "Connection refused")
+    except ConnectionRefusedError as cause:
+        try:
+            raise DaemonUnavailable(f"no daemon at daemon.sock: {cause}") from cause
+        except DaemonUnavailable as exc:
+            return exc
+
+
+def socket_gone() -> DaemonUnavailable:
+    """What `_call_once` raises once a stopped daemon has unlinked its socket."""
+    try:
+        raise FileNotFoundError(2, "No such file or directory")
+    except FileNotFoundError as cause:
+        try:
+            raise DaemonUnavailable(f"no daemon at daemon.sock: {cause}") from cause
+        except DaemonUnavailable as exc:
+            return exc
+
+
 def test_c16_7_a_connect_refused_after_busy_reports_busy_not_an_absent_daemon(tmp_path, monkeypatch):
     """A full listen backlog behind a busy daemon refuses the connect; that is not
     an absent daemon, and must not send a caller to offline mode (#55)."""
     monkeypatch.setattr(client_module, "_sleep", lambda seconds: None)
-    client = Scripted(tmp_path, busy(), DaemonUnavailable("connection refused"))
+    client = Scripted(tmp_path, busy(), refused())
     with pytest.raises(DaemonError) as caught:
         client.call("list", timeout=10)
     assert caught.value.busy
-    fresh = Scripted(tmp_path, DaemonUnavailable("connection refused"))
+    fresh = Scripted(tmp_path, refused())
     with pytest.raises(DaemonUnavailable):                   # with no busy answer first, it is absent
         fresh.call("list", timeout=10)
+    # Review r3, P2: only a refused connect while the lock names a living daemon is busy.
+    gone = Scripted(tmp_path, busy(), socket_gone())          # stopped: the socket was unlinked
+    with pytest.raises(DaemonUnavailable):
+        gone.call("list", timeout=10)
+    dead = Scripted(tmp_path, busy(), refused())              # crashed: the lock names a dead process
+    dead.lock_holder_alive = lambda: False
+    with pytest.raises(DaemonUnavailable):
+        dead.call("list", timeout=10)
 
 
 def test_c16_7_a_call_can_take_busy_at_once(tmp_path):
@@ -343,7 +373,7 @@ def test_c16_7_the_cli_wait_takes_a_connect_refused_after_busy_as_busy(monkeypat
     "start the daemon". It is the busy daemon's full backlog: the loop asks again."""
     from types import SimpleNamespace
     from subfleet import cli
-    steps = [busy(), DaemonUnavailable("no daemon at daemon.sock: Connection refused"),
+    steps = [busy(), refused(),
              {"jobs": [{"job_id": "20261004-000005-done", "state": "succeeded", "rc": 0}], "timeout": False}]
 
     def call(op, args, **kwargs):
@@ -356,6 +386,27 @@ def test_c16_7_the_cli_wait_takes_a_connect_refused_after_busy_as_busy(monkeypat
     args = cli.build_parser().parse_args(["wait", "20261004-000005-done"])
     assert cli.wait_jobs(args, ["20261004-000005-done"], timeout=None, quiet=True) == 0
     assert steps == []
+
+
+def test_c16_7_the_cli_wait_ends_when_the_busy_daemon_stops(monkeypatch, capsys):
+    """Review r3, P2: after a busy answer, the daemon stopped and unlinked its socket.
+    Every poll then failed and an unbounded `wait` asked for ever; it now reports the
+    daemon absent at once."""
+    from types import SimpleNamespace
+    from subfleet import cli
+    steps = [busy(), socket_gone(), {"jobs": [], "timeout": True}]
+
+    def call(op, args, **kwargs):
+        step = steps.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call))
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+    args = cli.build_parser().parse_args(["wait", "20261004-000007-any"])
+    assert cli.wait_jobs(args, ["20261004-000007-any"], timeout=None, quiet=True) != 0
+    assert len(steps) == 1                                  # it stopped at the unlinked socket
+    capsys.readouterr()
 
 
 def test_c16_7_the_cli_wait_still_reports_a_daemon_absent_from_the_start(monkeypatch, capsys):
@@ -373,8 +424,7 @@ def test_c16_7_the_cli_wait_still_reports_a_daemon_absent_from_the_start(monkeyp
 def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypatch):
     from subfleet import hooks
     delivered = []
-    steps = [busy(), DaemonUnavailable("refused"), {"jobs": [{"job_id": "j", "state": "succeeded"}],
-                                                   "timeout": False}]
+    steps = [busy(), refused(), {"jobs": [{"job_id": "j", "state": "succeeded"}], "timeout": False}]
 
     class Hooked:
         def call(self, op, args, **kwargs):
@@ -387,8 +437,17 @@ def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypa
     assert hooks._wait_and_deliver(Hooked(), "s", "j", 100.0, stderr=None, now=lambda: clock[0],
                                    sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
     assert delivered and steps == []
-    # Refused with no busy answer first: the daemon is absent, and the hook gives up quietly.
-    absent = [DaemonUnavailable("refused")]
+    # Refused with no busy answer first, or a socket gone after one: the daemon is
+    # absent, and the hook gives up quietly.
+    for script in ([refused()], [busy(), socket_gone()]):
+        pending = list(script)
+
+        class Gone:
+            def call(self, op, args, **kwargs):
+                raise pending.pop(0)
+        assert hooks._wait_and_deliver(Gone(), "s", "j", 100.0, stderr=None, now=lambda: 0.0,
+                                       sleep=lambda s: None) == 0 and not pending
+    absent = [refused()]
 
     class Absent:
         def call(self, op, args, **kwargs):
@@ -442,3 +501,124 @@ def wait_until(predicate, timeout=5.0) -> bool:
             return True
         time.sleep(.02)
     return False
+
+
+# --- review round 3 (of eac0706) -----------------------------------------------
+
+def test_c15_5_the_deadline_read_does_not_wait_for_the_hubs_wake(daemon):
+    """Review r3, P2: the job committed while the pass read (its snapshot older),
+    and the hub, which wakes a waiter only after its own read, had not woken this one
+    when the deadline passed. The waiter reads once more regardless."""
+    daemon.wait_hub.recheck_s = 3600
+    job = add_job(daemon, "20261004-000008-ended-unannounced")
+    real, calls = daemon._wait_answer, []
+
+    def stale_then_real(job_ids):
+        calls.append(time.monotonic())
+        if len(calls) == 1:
+            answer = real(job_ids)                          # the snapshot: still running
+            time.sleep(.4)                                  # past the 0.3 s deadline
+            commit_elsewhere(daemon, job)                   # no wake: the hub has not read it yet
+            return answer
+        return real(job_ids)
+    daemon._wait_answer = stale_then_real
+    result = daemon.wait(protocol.WaitArgs(job_ids=[job], deadline_s=.3), client_gone=lambda: False)
+    assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded" and len(calls) == 2
+
+
+def test_c3_6_close_keeps_the_handler_and_its_stream_when_the_lock_cannot_be_cleared(monkeypatch):
+    """Review r3, P3: `close()` unregistered SIGUSR1 even when `daemon.lock` still said
+    `stack_dumps`, so `daemon stacks` could end a host built off the main thread. As a
+    failed construction does, it now keeps the handler and the stream it writes to."""
+    import signal
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
+    with tempfile.TemporaryDirectory(prefix="sfi-", dir="/tmp") as directory:
+        core = Daemon(Path(directory))
+        real_write = Daemon._write_lock
+
+        def write(self, *, stack_dumps):
+            if not stack_dumps:
+                raise OSError(28, "No space left on device")
+            return real_write(self, stack_dumps=stack_dumps)
+        monkeypatch.setattr(Daemon, "_write_lock", write)
+        try:
+            core.close()
+            log = Path(directory) / "daemon.log"
+            assert "could not drop stack_dumps" in log.read_text()
+            size = log.stat().st_size
+            os_kill_self(signal.SIGUSR1)                    # as `daemon stacks` would
+            assert wait_until(lambda: log.stat().st_size > size), "the dump did not reach daemon.log"
+        finally:
+            import faulthandler
+            faulthandler.unregister(signal.SIGUSR1)
+            daemon_module._STACK_DUMPS = None
+
+
+SCENARIO = r"""
+import json, os, signal, sys, threading, time
+from pathlib import Path
+from subfleet import daemon as dm
+from subfleet.daemon import Daemon
+dm.procs.boot_id = lambda: "fake-boot"
+dm.procs.proc_start = lambda pid: "fake-start"
+real_write, real_policy = Daemon._write_lock, dm.load_policy
+state = {"fail_clear": True, "fail_policy": True}
+
+def write(self, *, stack_dumps):
+    if not stack_dumps and state["fail_clear"]:
+        raise OSError(5, "Input/output error")
+    return real_write(self, stack_dumps=stack_dumps)
+
+def policy(path):
+    if state["fail_policy"]:
+        raise RuntimeError("bad policy")
+    return real_policy(path)
+Daemon._write_lock, dm.load_policy = write, policy
+
+def build(root, close):
+    try:
+        core = Daemon(root)
+    except RuntimeError:
+        return
+    if close:
+        core.close()
+
+base, later = Path(sys.argv[1]), sys.argv[2]
+a, b = base / "a", base / "b"
+first = threading.Thread(target=build, args=(a, False))   # off the main thread: no SIG_IGN beneath
+first.start(); first.join()                               # A failed and kept its handler and stream
+state["fail_clear"] = False
+state["fail_policy"] = later == "fails"
+second = threading.Thread(target=build, args=(b, later == "closes"))
+second.start(); second.join()                             # B cleared its own flag and let go
+size = (a / "daemon.log").stat().st_size
+os.kill(os.getpid(), signal.SIGUSR1)                      # `daemon stacks` against A
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline and (a / "daemon.log").stat().st_size <= size:
+    time.sleep(.02)
+print(json.dumps({"grew": (a / "daemon.log").stat().st_size > size,
+                  "a_flag": json.loads((a / "daemon.lock").read_text()).get("stack_dumps"),
+                  "b_flag": json.loads((b / "daemon.lock").read_text()).get("stack_dumps")}))
+"""
+
+
+@pytest.mark.parametrize("later", ["fails", "closes"])
+def test_c3_6_a_later_daemon_never_takes_a_kept_handler_away(tmp_path, later):
+    """Review r3, P1 (GPT): daemon A's construction failed and could not clear its
+    lock, so it kept its handler and stream. Daemon B, built later in the same host
+    off the main thread, then failed (or ran and closed) and let SIGUSR1 go, and
+    `daemon stacks` against A, whose lock still says `stack_dumps`, ended the host
+    (exit -30). While A's flag stands, the signal now dumps into A's log. In a
+    subprocess, so a regression ends that process, not this test run."""
+    import os
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
+    env["PYTHONPATH"] = str(repo)
+    done = subprocess.run([sys.executable, "-c", SCENARIO, str(tmp_path), later], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
+    result = json.loads(done.stdout.strip().splitlines()[-1])
+    assert result == {"grew": True, "a_flag": True, "b_flag": None}

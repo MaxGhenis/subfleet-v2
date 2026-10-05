@@ -48,6 +48,7 @@ from .client import (
     DaemonError,
     DaemonUnavailable,
     busy_pause,
+    refused_while_busy,
     OutcomeUnknown,
     ResponseLost,
     same_process,
@@ -1266,7 +1267,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # connect refused after a busy answer is the same busy daemon
                 # behind a full listen backlog, never an absent one (review r2, P1).
                 if isinstance(exc, DaemonUnavailable):
-                    if busy is None:
+                    if busy is None or not refused_while_busy(client, exc):
                         raise
                 elif not exc.busy:
                     raise

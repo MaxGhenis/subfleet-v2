@@ -115,6 +115,22 @@ class DaemonError(Exception):
         return self.code == Exit.DAEMON_UNAVAILABLE
 
 
+def refused_while_busy(client: Any, exc: BaseException) -> bool:
+    """C-16.7: whether a `DaemonUnavailable` that followed a busy answer is that busy
+    daemon's full listen backlog, and so busy too: only a refused connect
+    (ECONNREFUSED) while the lock still names a living daemon. A socket gone
+    (the daemon stopped and unlinked it), a lock that names a dead process, or
+    any other failure is an absent daemon, so no loop asks for ever (review r3,
+    P2). The lock check costs a `ps` and a `sysctl`, paid only on this path."""
+    if not isinstance(getattr(exc, "__cause__", None), ConnectionRefusedError):
+        return False
+    alive = getattr(client, "lock_holder_alive", None)
+    try:
+        return alive is None or alive() is not False
+    except Exception:                                   # noqa: BLE001 - unverifiable is not dead
+        return True
+
+
 def busy_pause(streak: int) -> float:
     """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
     to 1 s, less up to half at random so refused clients do not return together."""
@@ -399,8 +415,8 @@ class Client:
                 return self._call_once(op, args, request_id=request_id,
                                        timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
-            except DaemonUnavailable:
-                if busy is None:
+            except DaemonUnavailable as exc:
+                if busy is None or not refused_while_busy(self, exc):
                     raise
                 raise busy from None
             except DaemonError as exc:

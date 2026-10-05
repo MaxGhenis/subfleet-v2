@@ -79,7 +79,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, busy_pause, state_root
+from .client import Client, DaemonError, DaemonUnavailable, busy_pause, refused_while_busy, state_root
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -602,7 +602,8 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
             # next poll has its whole deadline (as #55 on main). A connect refused
             # after a busy answer is that busy daemon's full backlog, not an
             # absent daemon (review r2, P1).
-            if not (busy if isinstance(exc, DaemonUnavailable) else exc.busy):
+            if not ((busy and refused_while_busy(client, exc)) if isinstance(exc, DaemonUnavailable)
+                    else exc.busy):
                 return int(Exit.OK)
             busy += 1
             sleep(min(busy_pause(busy), max(0.0, deadline - now())))
