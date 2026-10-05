@@ -665,7 +665,8 @@ until they expire.
 - **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
   (a parked job, a full batch, undecided sizes) and advances, the next runs 5 s
   later ("retention catch-up: ..." in the daemon log). A newly cached size,
-  archive work, deferral or reclaim is advancement, even before the first prune.
+  archive work, publication, deferral or verified deletion is advancement, even
+  before the first prune or while a committed journal has a blocked remnant.
   A deadline after advancement warns and raises `TimeoutError`, so C-5.10 retries
   it (0.5 s, doubling to 60 s); interrupted results retain `progressed` and
   committed `pruned` jobs. A deadline with no advancement marks `TimeoutError`,

@@ -289,3 +289,45 @@ def test_orphan_priority_survives_an_interrupted_pass(retained, monkeypatch):
     assert result['interrupted'] == 'cancelled' and 'z' in state.leftovers
     result = retention.maintenance(store, root, state=state, max_jobs=0, batch=1)
     assert result['pruned'] == ['z']
+
+
+def test_partial_verified_deletion_advances_until_only_a_blocked_remnant_is_left(retained, monkeypatch):
+    """A committed journal can delete new files on a retry without pruning rows
+    again. That is progress; an unchanged blocked remnant waits the hour."""
+    store, root = retained
+    job(store, root, 'a')
+    for name in ('b', 'c'):
+        (root / 'jobs/a' / name).write_bytes(name.encode())
+    blocked = {'stdout', 'b', 'c'}
+    original = rfs.Reclaim._one
+    publish, published = rarch.Retirement.publish, []
+    def publish_after_failure(retirement):
+        if not published:
+            published.append('failed')
+            raise OSError('fixture interrupts publication after the commit')
+        return publish(retirement)
+    def one(reclaim, fd, rel, name):
+        if name not in blocked:
+            original(reclaim, fd, rel, name)
+    def no_conflicts(*args, **kwargs):
+        raise PermissionError('fixture blocks setting aside the remnant')
+    monkeypatch.setattr(rfs.Reclaim, '_one', one)
+    monkeypatch.setattr(rfs.Reclaim, '_conflict_dir', no_conflicts)
+    monkeypatch.setattr(rarch.Retirement, 'publish', publish_after_failure)
+    first = retention.maintenance(store, root, max_jobs=0)
+    assert first['pruned'] == ['a'] and first['more'] is True
+    assert first['in_flight'] == ['a']
+    second = retention.maintenance(store, root, max_jobs=0)
+    assert second['pruned'] == [] and second['progressed'] is True and second['more'] is True
+    assert rarch.check_archive(root, 'a')['ok']
+    blocked.difference_update({'stdout', 'b'})
+    third = retention.maintenance(store, root, max_jobs=0)
+    assert third['pruned'] == [] and third['progressed'] is True and third['more'] is True
+    assert not (root / 'retention/a/job/stdout').exists()
+    assert not (root / 'retention/a/job/b').exists()
+    fourth = retention.maintenance(store, root, max_jobs=0)
+    assert fourth['pruned'] == [] and fourth['progressed'] is False and fourth['more'] is True
+    blocked.clear()
+    fifth = retention.maintenance(store, root, max_jobs=0)
+    assert fifth['reclaimed'] == ['a'] and fifth['more'] is False
+    assert rarch.check_archive(root, 'a')['ok']

@@ -857,10 +857,13 @@ class _Pass:
         try:
             if retirement.state == "committed":
                 retirement.publish()
+                self.acted += 1       # publishing a committed archive is durable advancement
             report = retirement.reclaim()
         except (OSError, ValueError, rgit.GitError) as exc:
             self._incomplete(retirement, f"{type(exc).__name__}: {exc}")
             return
+        if report["deleted"]:
+            self.acted += 1       # resumed verified deletion advanced, even if a remnant remains
         if not report["done"]:
             self._incomplete(retirement, "; ".join(e["error"] for e in report["errors"][:3]))
             return
@@ -895,6 +898,7 @@ class _Pass:
         """Deletion could not finish (a permission, a flag): the journal keeps it
         for the next pass; the event is written once per retirement."""
         job_id = retirement.job_id
+        self.progress["in_flight"].append(job_id)
         self.errors.append({"job_id": job_id, "error": f"reclaim: {error}"[:500]})
         if retirement.journal is not None and not retirement.journal.get("incomplete_reported"):
             self.store.add_event("retention.reclaim_incomplete", job_id=job_id, data={"error": error[:500]})
