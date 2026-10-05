@@ -573,7 +573,11 @@ class Daemon:
         # `stack_dumps`, never one that would die of the signal. A daemon saying so
         # is already one of `_ADVERTISED`, and stays until its lock stops saying so;
         # one that could not make the signal safe does not say so.
-        self._write_lock(stack_dumps=self._enable_stack_dumps())
+        advertise = self._enable_stack_dumps()
+        # From here the lock may say `stack_dumps` (a write cut short may have said
+        # it): only now can a failed rewrite keep this daemon in `_ADVERTISED`.
+        self._lock_may_advertise = advertise
+        self._write_lock(stack_dumps=advertise)
         soft, hard = descriptors.open_file_limits()
         self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
                       "idle ones closed after %g s",
@@ -6774,10 +6778,11 @@ class Daemon:
             _STACK_DUMPS = weakref.ref(self)
             _ADVERTISED[self._dumps_token] = (_STACK_DUMPS, stream)
         except BaseException:
-            # Registered, maybe, but not recorded (a KeyboardInterrupt between the
-            # two): this daemon is not a member, so its cleanup closes its stream,
-            # which faulthandler may hold. Point the signal back at the member
-            # that should hold it, or let it go (review of 67b9adc, P2).
+            # Registered, maybe, and recorded, maybe (a KeyboardInterrupt anywhere in
+            # the three): this daemon's cleanup closes its stream, which faulthandler
+            # may hold. Leave the set, and point the signal back at the member that
+            # should hold it, or let it go (reviews of 67b9adc and 6506619, P2).
+            _ADVERTISED.pop(self._dumps_token, None)
             _hand_sigusr1_on()
             raise
         return True
@@ -6790,22 +6795,20 @@ class Daemon:
         stays in `_ADVERTISED` for good, its stream kept open there, and SIGUSR1 is
         left as it is: `daemon stacks` against this root still reads a living pid
         and the flag (reviews of 02c6320, eac0706 and 4fc5b49). Holder or not, the
-        same rule. A daemon that declined the signal (`_take_sigusr1` returned
-        False) never said so and never joins, whatever its lock write meets
-        (review of 3cac1e8, P2: joining on a failed write made a later daemon skip
-        the SIG_IGN beneath its fresh registration). Returns whether the stream
-        may close."""
+        same rule. Only a lock that may say `stack_dumps` keeps a daemon in the set
+        this way: one that declined the signal never joined (review of 3cac1e8,
+        P2), and one interrupted before its lock was written with the flag leaves
+        whatever its rewrite meets (review of 6506619, P2). Returns whether the
+        stream may close."""
         token = self.__dict__.get("_dumps_token")
-        with _DUMPS_LOCK:
-            advertised = token is not None and token in _ADVERTISED
         try:
             self._write_lock(stack_dumps=False)
         except OSError as exc:
-            if not advertised:
-                return True                                # no flag to drop, and nothing holds the stream
-            self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
-                             "into this log", exc)
-            return False                                   # it stays in `_ADVERTISED`, its stream kept
+            if self.__dict__.get("_lock_may_advertise"):
+                self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
+                                 "into this log", exc)
+                return False                               # it stays in `_ADVERTISED`, its stream kept
+            # Its lock never said `stack_dumps`: it leaves, as below.
         with _DUMPS_LOCK:
             _ADVERTISED.pop(token, None)
             if _STACK_DUMPS is not None and _STACK_DUMPS() is self:

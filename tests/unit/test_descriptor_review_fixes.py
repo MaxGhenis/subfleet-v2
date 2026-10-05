@@ -886,9 +886,10 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     leaves the set and decides whether it holds the signal. `_DUMPS_LOCK`, wrapped,
     lets middle take it only without blocking and says when it is refused, which
     can happen only there and only while the hand-off holds it; middle cannot pass
-    that step until the hand-off lets go. A close that leaves the set or decides
-    outside the lock, or no lock, is never refused, and the test fails whatever
-    the scheduling."""
+    that step until the hand-off lets go. A close that decides outside the lock,
+    or no lock, is never refused, and one that leaves the set outside it is
+    refused with its token already gone (review of 6506619, P3): the test fails
+    either way, whatever the scheduling."""
     import faulthandler
     from types import SimpleNamespace
     from test_lockwatch import dumped_into, log_text
@@ -946,6 +947,7 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
         assert entered.wait(10), "newest never handed the signal to middle"
         go_on.set()
         assert refused.wait(10), "middle left the set or decided without waiting for the hand-off"
+        assert middle._dumps_token in daemon_module._ADVERTISED, "middle left the set without the lock"
         assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
         assert not middle._log_handler.stream.closed
     finally:
@@ -1104,14 +1106,35 @@ from subfleet.daemon import Daemon
 dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
 signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts
-base = Path(sys.argv[1])
+base, where = Path(sys.argv[1]), sys.argv[2]
 a = Daemon(base / "a")                                    # holds SIGUSR1, its lock says stack_dumps
-real_write = Daemon._write_lock
+real_write, real_enable = Daemon._write_lock, Daemon._enable_stack_dumps
 
 def register(*args, **kwargs):
     faulthandler.register(*args, **kwargs)
-    if kwargs.get("file") is not a._log_handler.stream:
+    if where == "registered" and kwargs.get("file") is not a._log_handler.stream:
         raise KeyboardInterrupt                           # SIGINT, after registering, before recording
+
+class Inserting(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if where == "inserted" and len(self) > 1:
+            raise KeyboardInterrupt                       # SIGINT, B recorded, before the take returns
+
+def enable(self):
+    taken = real_enable(self)
+    if where == "taken" and self.root.name == "b":
+        raise KeyboardInterrupt                           # SIGINT, the take done, before the lock says so
+    return taken
+at_cleanup = []
+real_release = Daemon._release_partial_init
+
+def release(self):
+    at_cleanup.append(len(dm._ADVERTISED))                # a take that raised has left the set by now
+    return real_release(self)
+dm._ADVERTISED = Inserting(dm._ADVERTISED)
+Daemon._enable_stack_dumps = enable
+Daemon._release_partial_init = release
 
 def write(self, *, stack_dumps):
     if self.root.name == "b" and not stack_dumps:
@@ -1137,24 +1160,33 @@ try:
 except BlockingIOError:
     stray = 0
 print(json.dumps({"a_grew": (base / "a" / "daemon.log").stat().st_size > size, "stray": stray,
-                  "holder_is_a": dm._STACK_DUMPS() is a}))
+                  "holder_is_a": dm._STACK_DUMPS() is a, "members": len(dm._ADVERTISED),
+                  "at_cleanup": at_cleanup}))
 """
 
 
-def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path):
+@pytest.mark.parametrize("where,at_cleanup", [("registered", 1), ("inserted", 1), ("taken", 2)])
+def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path, where, at_cleanup):
     """Review of 67b9adc, P2 (GPT): daemon A held SIGUSR1 and its lock said
     `stack_dumps`. Daemon B registered its own stream, and a KeyboardInterrupt
     landed before B recorded it; B was not a member, so its cleanup closed its
     stream, which faulthandler still held, and A's dumps went to whatever reused
     the descriptor. The interrupted take now points the signal back at A first.
-    In a subprocess, so a regression's stray dump lands in that process."""
+    Review of 6506619, P2 (GPT): the interrupt landed after B joined the set
+    (before the take returned, or after it but before B's lock said
+    `stack_dumps`), and B's cleanup, unable to rewrite its lock, kept B in the set
+    for good, A's dumps going to B's abandoned log. A lock never written with the
+    flag no longer keeps a daemon in, and a take that raises has left the set
+    before its cleanup starts (one that completed is a member until then). In a
+    subprocess, so a regression's stray dump lands in that process."""
     import os
     import subprocess
     import sys
     repo = Path(__file__).resolve().parents[2]
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
     env["PYTHONPATH"] = str(repo)
-    done = subprocess.run([sys.executable, "-c", INTERRUPTED, str(tmp_path)], cwd=repo, env=env,
+    done = subprocess.run([sys.executable, "-c", INTERRUPTED, str(tmp_path), where], cwd=repo, env=env,
                           capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
-    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"a_grew": True, "stray": 0, "holder_is_a": True}
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"a_grew": True, "stray": 0, "holder_is_a": True,
+                                                               "members": 1, "at_cleanup": [at_cleanup]}
