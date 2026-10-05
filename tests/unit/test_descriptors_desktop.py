@@ -28,7 +28,7 @@ DAEMON_WRITES = {"submit", "kill", "notice.ack", "notice.mark", "gate.start", "g
 #: only when it names a conversation; opened by native session it may create one.
 CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conversation.history",
                       "conversation.events", "conversation.watch", "conversation.runs", "message.status",
-                      "approval.list", "approval.get", "turn.diff", "conversation.diff"}
+                      "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check"}
 #: The conversation ops that write something a caller relies on: a conversation,
 #: its title, a message, a steer, a stop, an answer, an attachment, a catalog run,
 #: a handoff.
