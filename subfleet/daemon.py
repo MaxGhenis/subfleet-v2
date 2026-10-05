@@ -657,6 +657,9 @@ class Daemon:
             # 3c8fe55, P0, and of 02c6320). The lock fd is still open here: its
             # finalizer runs last.
             if "_dumps_token" in self.__dict__:
+                # Kept open unless this returns: the loop below swallows what it
+                # raises, and faulthandler may hold the stream (review of 9a514a7, P2).
+                revoked[0] = False
                 revoked[0] = self._disable_stack_dumps()
         steps = [no_stack_dumps, closing_log]
         steps += [functools.partial(executor.shutdown, wait=False)
@@ -6795,25 +6798,61 @@ class Daemon:
         stays in `_ADVERTISED` for good, its stream kept open there, and SIGUSR1 is
         left as it is: `daemon stacks` against this root still reads a living pid
         and the flag (reviews of 02c6320, eac0706 and 4fc5b49). Holder or not, the
-        same rule. Only a lock that may say `stack_dumps` keeps a daemon in the set
-        this way: one that declined the signal never joined (review of 3cac1e8,
-        P2), and one interrupted before its lock was written with the flag leaves
-        whatever its rewrite meets (review of 6506619, P2). Returns whether the
-        stream may close."""
+        same rule. Only a lock that may say `stack_dumps`, read back after the
+        rewrite whatever cut it short, keeps a daemon in the set this way: one that
+        declined the signal never joined (review of 3cac1e8, P2), one interrupted
+        before its lock was written with the flag leaves whatever its rewrite meets
+        (review of 6506619, P2), and one whose rewrite landed before an exception
+        did leaves too (review of 9a514a7, P3). Returns whether the stream may
+        close."""
         token = self.__dict__.get("_dumps_token")
         try:
             self._write_lock(stack_dumps=False)
-        except OSError as exc:
-            if self.__dict__.get("_lock_may_advertise"):
+        except BaseException as exc:
+            # Cut short by EIO or ENOSPC, or by an exception landing anywhere in
+            # it (a KeyboardInterrupt in an embedded host, after the rewrite may
+            # already be durable): what decides is what the lock says now
+            # (review of 9a514a7, P3).
+            if self._lock_may_still_advertise():
+                if not isinstance(exc, OSError):
+                    raise                                  # it stays; the interrupted close keeps the stream
                 self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
                                  "into this log", exc)
                 return False                               # it stays in `_ADVERTISED`, its stream kept
-            # Its lock never said `stack_dumps`: it leaves, as below.
-        with _DUMPS_LOCK:
-            _ADVERTISED.pop(token, None)
-            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-                _hand_sigusr1_on()
+            self._leave_advertised(token)
+            if not isinstance(exc, OSError):
+                raise
+            return True
+        self._leave_advertised(token)
         return True
+
+    def _lock_may_still_advertise(self) -> bool:
+        """C-3.6: whether `daemon.lock` may say `stack_dumps` now: it was written
+        with the flag at some point (`_lock_may_advertise`), and reading it back
+        does not show it without (as `daemon stacks` reads it: a record that does
+        not parse says nothing). A read that fails cannot tell, so it may."""
+        if not self.__dict__.get("_lock_may_advertise"):
+            return False
+        try:
+            raw = os.pread(self._lock_fd, 1 << 16, 0)
+        except (OSError, AttributeError):
+            return True
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            return False
+        return isinstance(record, dict) and record.get("stack_dumps") is True
+
+    def _leave_advertised(self, token) -> None:
+        """C-3.6: leave `_ADVERTISED` and, holding SIGUSR1, hand it on, one step
+        under `_DUMPS_LOCK`; an exception landing after the leave still hands the
+        signal on, so no non-member is left holding it (review of 9a514a7, P3)."""
+        with _DUMPS_LOCK:
+            try:
+                _ADVERTISED.pop(token, None)
+            finally:
+                if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+                    _hand_sigusr1_on()
 
     def close(self) -> None:
         if self._closed:
@@ -6899,8 +6938,13 @@ def _hand_sigusr1_on() -> None:
     global _STACK_DUMPS
     if _ADVERTISED:
         holder, stream = next(reversed(_ADVERTISED.values()))
-        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+        # Recorded first: an exception landing between the two (a KeyboardInterrupt
+        # in a closing daemon) leaves the signal on the closing daemon's stream,
+        # which its interrupted close keeps open, and the recorded holder hands it
+        # on when it leaves. Registered first, the holder would see itself not
+        # holding it and close the stream faulthandler held (review of 9a514a7, P2).
         _STACK_DUMPS = holder
+        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
     else:
         faulthandler.unregister(signal.SIGUSR1)          # back to the SIG_IGN beneath it
         _STACK_DUMPS = None

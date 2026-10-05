@@ -845,11 +845,35 @@ def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch,
     built on a second could hand the signal on to nobody between the second's
     registration and its joining `_ADVERTISED`, leaving it advertised with no
     handler. Registering and joining, and leaving and handing on, each run under
-    `_DUMPS_LOCK`, so neither can fall between the other's two steps."""
+    `_DUMPS_LOCK`, so neither can fall between the other's two steps. Review of
+    9a514a7, P3 (GPT): a close that left the set under the lock but decided
+    whether it held the signal outside it, taking the lock again only to hand on,
+    passed the forced interleaving; asked outside the lock, the holder can change
+    between the two reads of it. Every step is checked here: joining, leaving,
+    the decision, registering and handing on."""
     import faulthandler
     from types import SimpleNamespace
     seen = []
     real_hand_on = daemon_module._hand_sigusr1_on
+
+    class Advertised(dict):
+        def __setitem__(self, key, value):
+            seen.append(("join", daemon_module._DUMPS_LOCK._is_owned()))
+            super().__setitem__(key, value)
+
+        def pop(self, key, *default):
+            seen.append(("leave", daemon_module._DUMPS_LOCK._is_owned()))
+            return super().pop(key, *default)
+
+    class Holder:
+        """`_STACK_DUMPS`, saying whether the lock is held when a close asks it."""
+
+        def __init__(self, ref):
+            self.ref = ref
+
+        def __call__(self):
+            seen.append(("decide", daemon_module._DUMPS_LOCK._is_owned()))
+            return self.ref()
 
     def register(*args, **kwargs):
         seen.append(("register", daemon_module._DUMPS_LOCK._is_owned()))
@@ -862,12 +886,16 @@ def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch,
                         SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                         dump_traceback_later=faulthandler.dump_traceback_later))
     monkeypatch.setattr(daemon_module, "_hand_sigusr1_on", hand_on)
+    monkeypatch.setattr(daemon_module, "_ADVERTISED", Advertised(daemon_module._ADVERTISED))
+    older = Daemon(tmp_path / "older")
     core = Daemon(tmp_path / "solo")
     token = core._dumps_token
     assert token in daemon_module._ADVERTISED
-    core.close()
-    assert token not in daemon_module._ADVERTISED
-    assert ("register", True) in seen and ("hand_on", True) in seen
+    daemon_module._STACK_DUMPS = Holder(daemon_module._STACK_DUMPS)   # the closes replace it
+    older.close()                                           # not holding it: leaves and decides
+    core.close()                                            # holding it: leaves, decides, hands on
+    assert token not in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS is None
+    assert {step for step, _ in seen} == {"join", "leave", "decide", "register", "hand_on"}, seen
     assert all(owned for _, owned in seen), seen
 
 
@@ -1190,3 +1218,136 @@ def test_c3_6_a_registration_interrupted_part_way_hands_the_signal_back(tmp_path
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
     assert json.loads(done.stdout.strip().splitlines()[-1]) == {"a_grew": True, "stray": 0, "holder_is_a": True,
                                                                "members": 1, "at_cleanup": [at_cleanup]}
+
+
+
+# --- review round 11 (of 9a514a7): a close interrupted part way -----------------
+
+CLOSE_INTERRUPTED = r"""
+import faulthandler, json, os, signal, sys, threading, time
+from pathlib import Path
+from types import SimpleNamespace
+from subfleet import daemon as dm
+from subfleet.daemon import Daemon
+dm.procs.boot_id = lambda: "fake-boot"
+dm.procs.proc_start = lambda pid: "fake-start"
+signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts
+base, case = Path(sys.argv[1]), sys.argv[2]
+names = ["a", "b", "c"] if case == "handoff" else ["a", "b"]
+built = {name: Daemon(base / name) for name in names}     # the last built holds SIGUSR1
+real_write, armed = Daemon._write_lock, [True]
+
+def register(*args, **kwargs):
+    faulthandler.register(*args, **kwargs)
+    if case == "handoff" and armed and kwargs.get("file") is built["b"]._log_handler.stream:
+        armed.clear()
+        raise KeyboardInterrupt                           # C's hand-off: registered on B's stream
+
+def write(self, *, stack_dumps):
+    if self is built["b"] and not stack_dumps and armed and case in ("before-rewrite", "after-rewrite"):
+        armed.clear()
+        if case == "before-rewrite":
+            raise KeyboardInterrupt                       # before anything is written: the flag stands
+        real_write(self, stack_dumps=stack_dumps)
+        raise KeyboardInterrupt                           # the rewrite durable, as fsync returns
+    return real_write(self, stack_dumps=stack_dumps)
+class Leaving(dict):
+    def pop(self, key, *default):
+        value = super().pop(key, *default)
+        if case == "leaving" and armed and key == built["b"]._dumps_token:
+            armed.clear()
+            raise KeyboardInterrupt                       # B has left the set, not yet handed on
+        return value
+dm.faulthandler = SimpleNamespace(register=register, unregister=faulthandler.unregister,
+                                  dump_traceback_later=faulthandler.dump_traceback_later)
+dm._ADVERTISED = Leaving(dm._ADVERTISED)
+Daemon._write_lock = write
+closing = built["c"] if case == "handoff" else built["b"]
+try:
+    closing.close()
+except KeyboardInterrupt:
+    pass
+if case == "handoff":
+    built["b"].close()                                    # B, recorded as holder, hands the signal on
+reused = os.pipe()                                        # what a closed descriptor may become
+os.set_blocking(reused[0], False)
+logs = {name: base / name / "daemon.log" for name in names}
+sizes = {name: path.stat().st_size for name, path in logs.items()}
+os.kill(os.getpid(), signal.SIGUSR1)                      # `daemon stacks` against A
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline and not any(logs[n].stat().st_size > sizes[n] for n in names):
+    time.sleep(.02)
+time.sleep(.2)
+try:
+    stray = len(os.read(reused[0], 65536))
+except BlockingIOError:
+    stray = 0
+holder = next((name for name, core in built.items() if dm._STACK_DUMPS and dm._STACK_DUMPS() is core), None)
+print(json.dumps({"grew": sorted(n for n in names if logs[n].stat().st_size > sizes[n]), "stray": stray,
+                  "members": sorted(n for n, core in built.items() if core._dumps_token in dm._ADVERTISED),
+                  "holder": holder}))
+"""
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("handoff", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+    ("after-rewrite", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+    ("before-rewrite", {"grew": ["b"], "stray": 0, "members": ["a", "b"], "holder": "b"}),
+    ("leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+])
+def test_c3_6_a_close_interrupted_part_way_leaves_no_stream_faulthandler_holds_closed(tmp_path, case, expected):
+    """Review of 9a514a7 (Opus). P2: C, closing, handed SIGUSR1 to B by registering
+    B's stream, and a KeyboardInterrupt landed before it recorded B as holder; B,
+    closing next, saw itself not holding the signal and closed the stream
+    faulthandler held, so A's dumps were lost or went to whatever reused it. The
+    holder is now recorded first, and B hands the signal on to A. P3: B's close
+    was interrupted after its lock rewrite was durable, and B stayed in the set
+    for good, A's dumps going to B's abandoned log. Membership now follows what
+    the lock says when read back: B leaves and hands the signal to A. Interrupted
+    before the rewrite, B's lock still says `stack_dumps`, and B stays, holding the
+    signal, its stream open (its dumps arrive). Interrupted just after leaving the
+    set, B still hands the signal on, so no non-member holds it. In a subprocess,
+    so a regression's stray dump lands in that process."""
+    import os
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
+    env["PYTHONPATH"] = str(repo)
+    done = subprocess.run([sys.executable, "-c", CLOSE_INTERRUPTED, str(tmp_path), case], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == expected
+
+
+
+def test_c3_6_a_failed_construction_whose_revoke_raises_keeps_its_stream(tmp_path, monkeypatch, isolated_dumps):
+    """Review of 9a514a7, P2 (GPT): construction failed after the daemon took
+    SIGUSR1, and its cleanup's revoke raised; the cleanup loop swallowed that, and
+    its "may close" default closed the stream faulthandler held. It stays open
+    now, unless the revoke returns saying it may close."""
+    built = []
+    real_enable = Daemon._enable_stack_dumps
+
+    def enable(self):
+        built.append(self)
+        return real_enable(self)
+
+    def broken(path):
+        raise RuntimeError("policy unreadable")
+
+    def revoke(self):
+        raise RuntimeError("an exception inside the revoke")
+    monkeypatch.setattr(Daemon, "_enable_stack_dumps", enable)
+    monkeypatch.setattr(daemon_module, "load_policy", broken)
+    monkeypatch.setattr(Daemon, "_disable_stack_dumps", revoke)
+    with pytest.raises(RuntimeError, match="policy unreadable"):
+        Daemon(tmp_path / "failed")
+    stream = built[0]._log_handler.stream
+    try:
+        assert daemon_module._STACK_DUMPS() is built[0] and not stream.closed
+    finally:
+        with daemon_module._DUMPS_LOCK:                     # let it go, then close what it held
+            daemon_module._ADVERTISED.pop(built[0]._dumps_token, None)
+            daemon_module._hand_sigusr1_on()
+        stream.close()
