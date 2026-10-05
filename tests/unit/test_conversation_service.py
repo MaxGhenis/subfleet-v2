@@ -1959,6 +1959,9 @@ def test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
     is now refused (`store-closed`). Nothing it does outlives `Daemon.close()`, so the
     removed root stays gone either way."""
     from subfleet.daemon import Daemon
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     root = tmp_path / "state"
     daemon = Daemon(root, tick_s=.05)
     svc = daemon.conversations
