@@ -181,7 +181,7 @@ def test_c3_6_a_failed_construction_clears_stack_dumps_before_it_lets_the_signal
                 Daemon(root)
             except RuntimeError as exc:
                 raised.append(exc)
-        builder = threading.Thread(target=build)            # off the main thread: no SIG_IGN behind it
+        builder = threading.Thread(target=build)            # off the main thread, as reported
         builder.start()
         builder.join(10)
         assert raised and "policy unreadable" in str(raised[0])
@@ -620,7 +620,7 @@ def run(name, root, close):
         built[name].close()
 
 def thread(*args):
-    worker = threading.Thread(target=run, args=args)     # off the main thread: no SIG_IGN beneath
+    worker = threading.Thread(target=run, args=args)     # off the main thread, as reported
     worker.start(); worker.join()
 
 if later in ("fails", "closes"):
@@ -657,7 +657,9 @@ def test_c3_6_a_later_daemon_never_takes_a_kept_handler_away(tmp_path, later):
     lock, so it kept its handler and stream. Daemon B, built later in the same host
     off the main thread, then failed (or ran and closed) and let SIGUSR1 go, and
     `daemon stacks` against A, whose lock still says `stack_dumps`, ended the host
-    (exit -30). While A's flag stands, the signal now dumps into A's log. Review r4,
+    (exit -30). While A's flag stands, the signal now dumps into A's log (with SIG_IGN
+    beneath every fresh registration since review of 2300b43, a regression here
+    dumps nothing rather than ending the process; `grew` catches either). Review r4,
     P2: the same when A is a running daemon B took SIGUSR1 over from, and when A, not
     holding it, could not clear its flag at close. In a subprocess, so a regression
     ends that process, not this test run."""
@@ -760,41 +762,78 @@ def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeyp
 
 # --- review round 5 (of 1efa0ef) ----------------------------------------------
 
-MIXED = r"""
-import json, os, signal, sys, threading
+RESTORED = r"""
+import ctypes, faulthandler, json, os, signal, sys, threading
 from pathlib import Path
+from types import SimpleNamespace
 from subfleet import daemon as dm
 from subfleet.daemon import Daemon
 dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
-base = Path(sys.argv[1])
+
+def disposition():
+    libc = ctypes.CDLL(None, use_errno=True)
+    action = ctypes.create_string_buffer(256)
+    assert libc.sigaction(signal.SIGUSR1, None, action) == 0
+    return {0: "default", 1: "ignore"}.get(ctypes.c_void_p.from_buffer(action).value or 0, "handler")
+
+restored = []
+def unregister(signum):
+    result = faulthandler.unregister(signum)
+    restored.append(disposition())
+    os.kill(os.getpid(), signal.SIGUSR1)                  # a `daemon stacks` that read the flag just before it cleared
+    return result
+
+def racing():
+    dm.faulthandler = SimpleNamespace(register=faulthandler.register, unregister=unregister,
+                                      dump_traceback_later=faulthandler.dump_traceback_later)
+
+def off_main(fn):
+    worker = threading.Thread(target=fn)
+    worker.start(); worker.join()
+
+base, order = Path(sys.argv[1]), sys.argv[2]
 built = {}
-worker = threading.Thread(target=lambda: built.__setitem__("a", Daemon(base / "a")))
-worker.start(); worker.join()                             # A off the main thread: SIG_DFL beneath
-b = Daemon(base / "b")                                    # B on the main thread, A still advertised
-built["a"].close()
-b.close()                                                 # the last to leave, on the main thread
-os.kill(os.getpid(), signal.SIGUSR1)                      # a `daemon stacks` that raced B's close
-print(json.dumps({"ignored": signal.getsignal(signal.SIGUSR1) == signal.SIG_IGN}))
+if order == "off-then-main":
+    off_main(lambda: built.__setitem__("a", Daemon(base / "a")))
+    b = Daemon(base / "b")                                # on the main thread while A stands
+    racing()
+    built["a"].close()
+    b.close()                                             # the last to leave, on the main thread
+elif order == "off-only":
+    def build_and_close():
+        core = Daemon(base / "a")
+        racing()
+        core.close()                                      # the last to leave, off the main thread
+    off_main(build_and_close)
+elif order == "off-at-exit":
+    off_main(lambda: built.__setitem__("a", Daemon(base / "a")))
+    unregister(signal.SIGUSR1)                            # what the interpreter's exit does to a user signal
+print(json.dumps({"restored": restored, "now": disposition()}))
 """
 
 
-def test_c3_6_the_last_main_thread_close_leaves_sigusr1_ignored(tmp_path):
-    """Review of 1efa0ef, P3: daemon A, built off the main thread, took SIGUSR1 first,
-    so faulthandler saved the fatal default beneath it; B, built on the main thread
-    while A stood, replaced the handler in place. When B closed last, unregistering
-    put the default back, and a `daemon stacks` that had read B's lock just before
-    ended the host (exit -30). The last main-thread close now leaves it ignored."""
+@pytest.mark.parametrize("order", ["off-then-main", "off-only", "off-at-exit"])
+def test_c3_6_letting_sigusr1_go_always_restores_it_ignored(tmp_path, order):
+    """Review of 1efa0ef, P3, and of 2300b43, P2 (GPT): daemon A, built off the main
+    thread, took SIGUSR1 first, so faulthandler saved the fatal default beneath its
+    handler. Whenever the handler then went, at the last close (B, built on the main
+    thread while A stood, closing last there; or A alone, off it) or as the
+    interpreter exited, faulthandler put that default back, and a `daemon stacks`
+    that had read the flag just before it cleared ended the host (exit -30), even
+    with SIG_IGN set straight afterwards. SIG_IGN is now beneath the handler
+    whenever faulthandler takes the signal fresh, on either thread, so what it puts
+    back ends nothing. The signal is raised the moment `unregister` returns."""
     import os
     import subprocess
     import sys
     repo = Path(__file__).resolve().parents[2]
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
     env["PYTHONPATH"] = str(repo)
-    done = subprocess.run([sys.executable, "-c", MIXED, str(tmp_path)], cwd=repo, env=env,
+    done = subprocess.run([sys.executable, "-c", RESTORED, str(tmp_path), order], cwd=repo, env=env,
                           capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
-    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"ignored": True}
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"restored": ["ignore"], "now": "ignore"}
 
 
 def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch, isolated_dumps):
@@ -842,14 +881,21 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     middle = Daemon(tmp_path / "middle")
     newest = Daemon(tmp_path / "newest")
     assert daemon_module._STACK_DUMPS() is newest
-    entered, release = threading.Event(), threading.Event()
+    entered, release, cleared = threading.Event(), threading.Event(), threading.Event()
+    real_write = Daemon._write_lock
+
+    def write(self, *, stack_dumps):
+        real_write(self, stack_dumps=stack_dumps)
+        if self is middle and not stack_dumps:
+            cleared.set()                                   # middle is at its revocation
 
     def register(*args, **kwargs):
         result = faulthandler.register(*args, **kwargs)
         if kwargs.get("file") is middle._log_handler.stream and not entered.is_set():
             entered.set()                                   # registered on middle's stream, not yet recorded
-            release.wait(10)
+            release.wait(120)                               # until the test says, however slow the runner
         return result
+    monkeypatch.setattr(Daemon, "_write_lock", write)
     monkeypatch.setattr(daemon_module, "faulthandler",
                         SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                         dump_traceback_later=faulthandler.dump_traceback_later))
@@ -859,7 +905,8 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
         assert entered.wait(10), "newest never handed the signal to middle"
         closing_middle = threading.Thread(target=middle.close)
         closing_middle.start()
-        closing_middle.join(.5)
+        assert cleared.wait(30), "middle's close never reached its revocation"
+        closing_middle.join(.5)                             # from here an unserialised close takes microseconds
         assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
         assert not middle._log_handler.stream.closed
     finally:
