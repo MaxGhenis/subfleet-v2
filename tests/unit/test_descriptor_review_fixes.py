@@ -41,6 +41,24 @@ from test_daemon_connections import connect, counts, reply, send, serve, until  
 from test_wait_hub import add_job, daemon  # noqa: F401 - daemon: a fixture
 
 
+@pytest.fixture
+def isolated_dumps():
+    """C-3.6 state a test leaves behind stays with it: a daemon whose lock could not
+    stop saying `stack_dumps` stays in `_ADVERTISED` for good, and a later test's
+    daemon would hand SIGUSR1 to its stream (review of 4fc5b49, P2: it broke
+    tests/unit/test_lockwatch.py's disposition check)."""
+    import faulthandler
+    import signal
+    before = dict(daemon_module._ADVERTISED)
+    yield
+    for token in list(daemon_module._ADVERTISED):
+        if token not in before:
+            del daemon_module._ADVERTISED[token]
+    if not daemon_module._ADVERTISED:
+        faulthandler.unregister(signal.SIGUSR1)
+        daemon_module._STACK_DUMPS = None
+
+
 # --- C-15.5: the last read when the deadline passes ----------------------------
 
 def commit_elsewhere(core, job_id: str) -> None:
@@ -61,14 +79,22 @@ def test_c15_5_a_wait_reads_once_more_when_its_deadline_passes(daemon, with_clie
     that had already succeeded; a CLI at its own deadline then exited 124."""
     daemon.wait_hub.recheck_s = 3600
     job = add_job(daemon, "20261004-000001-ended-unseen")
+    first_read, real = threading.Event(), daemon._wait_answer
+
+    def reading(job_ids):
+        try:
+            return real(job_ids)
+        finally:
+            first_read.set()
+    daemon._wait_answer = reading
     result = {}
     waiter = threading.Thread(target=lambda: result.update(daemon.wait(
-        protocol.WaitArgs(job_ids=[job], deadline_s=.6),
+        protocol.WaitArgs(job_ids=[job], deadline_s=2),
         client_gone=(lambda: False) if with_client else None)))
     waiter.start()
-    time.sleep(.15)
-    commit_elsewhere(daemon, job)
-    waiter.join(5)
+    assert first_read.wait(5)                               # the waiter has read: still running
+    commit_elsewhere(daemon, job)                           # unseen by the hub, well before the deadline
+    waiter.join(10)
     assert not waiter.is_alive()
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded"
 
@@ -136,7 +162,7 @@ def test_c16_7_no_reply_joins_a_line_that_failed_part_way():
 
 # --- C-3.6: a failed construction takes back what it advertised ----------------
 
-def test_c3_6_a_failed_construction_clears_stack_dumps_before_it_lets_the_signal_go(monkeypatch):
+def test_c3_6_a_failed_construction_clears_stack_dumps_before_it_lets_the_signal_go(monkeypatch, isolated_dumps):
     """Review P0 (GPT): built off the main thread, a daemon whose construction failed
     after it advertised `stack_dumps` unregistered the handler but left the flag, so
     `daemon stacks` would send SIGUSR1, default action fatal, to a living host."""
@@ -456,7 +482,7 @@ def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypa
                                    sleep=lambda s: None) == 0 and not absent
 
 
-def test_c3_6_a_lock_that_cannot_be_cleared_keeps_the_handler_and_its_stream(monkeypatch):
+def test_c3_6_a_lock_that_cannot_be_cleared_keeps_the_handler_and_its_stream(monkeypatch, isolated_dumps):
     """Review r2 (GPT P1, Opus P3): if clearing `stack_dumps` from the lock raised
     (ENOSPC, EIO), the handler stayed registered on a stream the cleanup then closed,
     so a SIGUSR1 dumped into whatever reused the descriptor. Unregistering instead
@@ -485,8 +511,7 @@ def test_c3_6_a_lock_that_cannot_be_cleared_keeps_the_handler_and_its_stream(mon
             os_kill_self(signal.SIGUSR1)                           # as `daemon stacks` would
             assert wait_until(lambda: log.stat().st_size > size), "the dump did not reach daemon.log"
         finally:
-            faulthandler.unregister(signal.SIGUSR1)
-            daemon_module._STACK_DUMPS = None
+            pass                                            # `isolated_dumps` forgets the kept entry
 
 
 def os_kill_self(sig) -> None:
@@ -526,7 +551,7 @@ def test_c15_5_the_deadline_read_does_not_wait_for_the_hubs_wake(daemon):
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded" and len(calls) == 2
 
 
-def test_c3_6_close_keeps_the_handler_and_its_stream_when_the_lock_cannot_be_cleared(monkeypatch):
+def test_c3_6_close_keeps_the_handler_and_its_stream_when_the_lock_cannot_be_cleared(monkeypatch, isolated_dumps):
     """Review r3, P3: `close()` unregistered SIGUSR1 even when `daemon.lock` still said
     `stack_dumps`, so `daemon stacks` could end a host built off the main thread. As a
     failed construction does, it now keeps the handler and the stream it writes to."""
@@ -550,9 +575,7 @@ def test_c3_6_close_keeps_the_handler_and_its_stream_when_the_lock_cannot_be_cle
             os_kill_self(signal.SIGUSR1)                    # as `daemon stacks` would
             assert wait_until(lambda: log.stat().st_size > size), "the dump did not reach daemon.log"
         finally:
-            import faulthandler
-            faulthandler.unregister(signal.SIGUSR1)
-            daemon_module._STACK_DUMPS = None
+            pass                                            # `isolated_dumps` forgets the kept entry
 
 
 SCENARIO = r"""
@@ -586,12 +609,37 @@ def build(root, close):
 
 base, later = Path(sys.argv[1]), sys.argv[2]
 a, b = base / "a", base / "b"
-first = threading.Thread(target=build, args=(a, False))   # off the main thread: no SIG_IGN beneath
-first.start(); first.join()                               # A failed and kept its handler and stream
-state["fail_clear"] = False
-state["fail_policy"] = later == "fails"
-second = threading.Thread(target=build, args=(b, later == "closes"))
-second.start(); second.join()                             # B cleared its own flag and let go
+built = {}
+
+def run(name, root, close):
+    try:
+        built[name] = Daemon(root)
+    except RuntimeError:
+        return
+    if close:
+        built[name].close()
+
+def thread(*args):
+    worker = threading.Thread(target=run, args=args)     # off the main thread: no SIG_IGN beneath
+    worker.start(); worker.join()
+
+if later in ("fails", "closes"):
+    thread("a", a, False)                                 # A failed and kept its handler and stream
+    state["fail_clear"] = False
+    state["fail_policy"] = later == "fails"
+    thread("b", b, later == "closes")                     # B cleared its own flag and let go
+else:
+    state["fail_clear"] = False
+    state["fail_policy"] = False
+    thread("a", a, False)                                 # A runs on, its lock saying stack_dumps
+    thread("b", b, False)                                 # B takes SIGUSR1 over
+    if later == "nonholder-fails-clear":
+        state["fail_clear"] = True
+        threading.Thread(target=built["a"].close).start() or None
+        time.sleep(3)                                     # A could not clear its flag
+        state["fail_clear"] = False
+    threading.Thread(target=built["b"].close).start()
+    time.sleep(3)                                         # B closed cleanly
 size = (a / "daemon.log").stat().st_size
 os.kill(os.getpid(), signal.SIGUSR1)                      # `daemon stacks` against A
 deadline = time.monotonic() + 5
@@ -603,14 +651,16 @@ print(json.dumps({"grew": (a / "daemon.log").stat().st_size > size,
 """
 
 
-@pytest.mark.parametrize("later", ["fails", "closes"])
+@pytest.mark.parametrize("later", ["fails", "closes", "live-earlier", "nonholder-fails-clear"])
 def test_c3_6_a_later_daemon_never_takes_a_kept_handler_away(tmp_path, later):
     """Review r3, P1 (GPT): daemon A's construction failed and could not clear its
     lock, so it kept its handler and stream. Daemon B, built later in the same host
     off the main thread, then failed (or ran and closed) and let SIGUSR1 go, and
     `daemon stacks` against A, whose lock still says `stack_dumps`, ended the host
-    (exit -30). While A's flag stands, the signal now dumps into A's log. In a
-    subprocess, so a regression ends that process, not this test run."""
+    (exit -30). While A's flag stands, the signal now dumps into A's log. Review r4,
+    P2: the same when A is a running daemon B took SIGUSR1 over from, and when A, not
+    holding it, could not clear its flag at close. In a subprocess, so a regression
+    ends that process, not this test run."""
     import os
     import subprocess
     import sys
@@ -622,3 +672,83 @@ def test_c3_6_a_later_daemon_never_takes_a_kept_handler_away(tmp_path, later):
     assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
     result = json.loads(done.stdout.strip().splitlines()[-1])
     assert result == {"grew": True, "a_flag": True, "b_flag": None}
+
+
+# --- review round 4 (of 4fc5b49): every daemon whose lock says `stack_dumps` ----
+
+def test_c3_6_a_newer_daemon_closing_hands_sigusr1_to_an_older_one_still_running(tmp_path, isolated_dumps):
+    """Review r4, P2: the newer daemon held SIGUSR1 and closed; the older one ran on,
+    its lock still saying `stack_dumps`, but the handler went (off the main thread,
+    to the fatal default). It is handed to the older one now."""
+    from test_lockwatch import DUMPED, dumped_into, log_text
+    older = Daemon(tmp_path / "older")
+    newer = Daemon(tmp_path / "newer")
+    try:
+        newer.close()
+        assert daemon_module._STACK_DUMPS() is older
+        assert dumped_into(older, len(log_text(older)))
+    finally:
+        older.close()
+    assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
+
+
+def test_c3_6_a_non_holder_whose_lock_cannot_be_cleared_keeps_its_stream(tmp_path, monkeypatch, isolated_dumps):
+    """Review r4, P2: the older daemon, not holding SIGUSR1, could not clear its
+    flag at close and kept nothing; the newer closed cleanly and let the handler go
+    while the older's lock still said `stack_dumps`."""
+    from test_lockwatch import dumped_into, log_text
+    older = Daemon(tmp_path / "older")
+    newer = Daemon(tmp_path / "newer")
+    real_write = Daemon._write_lock
+
+    def failing_for_older(self, *, stack_dumps):
+        if self is older and not stack_dumps:
+            raise OSError(5, "Input/output error")
+        return real_write(self, stack_dumps=stack_dumps)
+    monkeypatch.setattr(Daemon, "_write_lock", failing_for_older)
+    older.close()
+    newer.close()
+    assert json.loads((tmp_path / "older" / "daemon.lock").read_text()).get("stack_dumps") is True
+    assert daemon_module._STACK_DUMPS() is older                # a dead-or-alive reference: the kept one
+    assert dumped_into(older, len(log_text(older)))
+
+
+def test_c16_7_refused_while_busy_says_busy_absent_or_unverifiable(tmp_path):
+    """The three answers: a refused connect while the lock names a living holder is
+    busy; with a dead holder, or a socket gone, absent; with a lock that cannot say,
+    unverifiable (None), which only a bounded caller may take as busy."""
+    from types import SimpleNamespace
+    assert client_module.refused_while_busy(SimpleNamespace(lock_holder_alive=lambda: True), refused()) is True
+    assert client_module.refused_while_busy(SimpleNamespace(lock_holder_alive=lambda: False), refused()) is False
+    assert client_module.refused_while_busy(SimpleNamespace(lock_holder_alive=lambda: None), refused()) is None
+    assert client_module.refused_while_busy(SimpleNamespace(lock_holder_alive=lambda: True), socket_gone()) is False
+
+
+@pytest.mark.parametrize("alive,expected", [(None, "gives-up"), (True, "waits-on")])
+def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeypatch, alive, expected):
+    """Review of 4fc5b49, P2: a refused connect after busy, with a lock that cannot say
+    whether its holder lives, kept an unbounded `wait` asking for ever (a replacement
+    daemon had truncated the lock and gone). It is busy for at most
+    REFUSED_UNVERIFIED_MAX_S, then absent; a lock naming a living holder waits on."""
+    from types import SimpleNamespace
+    from subfleet import cli
+    clock = [0.0]
+    monkeypatch.setattr(cli, "time", SimpleNamespace(monotonic=lambda: clock[0],
+                                                     sleep=lambda s: clock.__setitem__(0, clock[0] + s)))
+    monkeypatch.setattr(cli, "REFUSED_UNVERIFIED_MAX_S", 5.0)
+    polls = [0]
+
+    def call(op, args, **kwargs):
+        polls[0] += 1
+        if polls[0] == 1:
+            raise busy()
+        if polls[0] < 40:                                   # well past 5 s of refusals
+            raise refused()
+        return {"jobs": [{"job_id": "20261004-000009-done", "state": "succeeded", "rc": 0}], "timeout": False}
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call, lock_holder_alive=lambda: alive))
+    args = cli.build_parser().parse_args(["wait", "20261004-000009-done"])
+    code = cli.wait_jobs(args, ["20261004-000009-done"], timeout=None, quiet=True)
+    if expected == "gives-up":
+        assert code != 0 and polls[0] < 40 and clock[0] >= 5.0
+    else:
+        assert code == 0 and polls[0] == 40

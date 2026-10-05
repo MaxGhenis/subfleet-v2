@@ -115,20 +115,33 @@ class DaemonError(Exception):
         return self.code == Exit.DAEMON_UNAVAILABLE
 
 
-def refused_while_busy(client: Any, exc: BaseException) -> bool:
+#: C-16.7: how long a loop with no deadline of its own keeps taking refused
+#: connects after a busy answer as busy while `daemon.lock` cannot say whether its
+#: holder lives (no lock, no usable pid, `ps` blocked by a sandbox); past it the
+#: daemon is reported absent (review of 4fc5b49, P2).
+REFUSED_UNVERIFIED_MAX_S = 60.0
+
+
+def refused_while_busy(client: Any, exc: BaseException) -> bool | None:
     """C-16.7: whether a `DaemonUnavailable` that followed a busy answer is that busy
-    daemon's full listen backlog, and so busy too: only a refused connect
-    (ECONNREFUSED) while the lock still names a living daemon. A socket gone
-    (the daemon stopped and unlinked it), a lock that names a dead process, or
-    any other failure is an absent daemon, so no loop asks for ever (review r3,
-    P2). The lock check costs a `ps` and a `sysctl`, paid only on this path."""
+    daemon's full listen backlog. True: a refused connect (ECONNREFUSED) while
+    `daemon.lock` names a living daemon, so busy. None: refused, but the lock
+    cannot say whether its holder lives, which a caller with no deadline of its own
+    takes as busy for at most `REFUSED_UNVERIFIED_MAX_S` (a busy daemon must not
+    send a sandboxed caller, which cannot run `ps`, offline). False: a socket gone
+    (the daemon stopped and unlinked it), a holder that is dead, or any other
+    failure, so absent, and no loop asks for ever (reviews of eac0706 and
+    4fc5b49). The lock check costs a `ps` and a `sysctl`, paid only on this path."""
     if not isinstance(getattr(exc, "__cause__", None), ConnectionRefusedError):
         return False
     alive = getattr(client, "lock_holder_alive", None)
+    if alive is None:
+        return None
     try:
-        return alive is None or alive() is not False
+        verdict = alive()
     except Exception:                                   # noqa: BLE001 - unverifiable is not dead
-        return True
+        return None
+    return None if verdict is None else bool(verdict)
 
 
 def busy_pause(streak: int) -> float:
@@ -416,7 +429,8 @@ class Client:
                                        timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
             except DaemonUnavailable as exc:
-                if busy is None or not refused_while_busy(self, exc):
+                # An unverifiable lock counts as busy here: the half-deadline bounds it.
+                if busy is None or refused_while_busy(self, exc) is False:
                     raise
                 raise busy from None
             except DaemonError as exc:

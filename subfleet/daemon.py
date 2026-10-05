@@ -11,6 +11,7 @@ import contextlib
 import dataclasses
 import errno
 import faulthandler
+import itertools
 import fcntl
 import functools
 import hashlib
@@ -569,7 +570,9 @@ class Daemon:
         self._enable_stack_dumps()
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
         # says so: `daemon stacks` signals only a daemon whose lock says
-        # `stack_dumps`, never one that would die of the signal.
+        # `stack_dumps`, never one that would die of the signal. From here this
+        # daemon is one of `_ADVERTISED` until its lock stops saying so.
+        _ADVERTISED[self._dumps_token] = (weakref.ref(self), self._log_handler.stream)
         self._write_lock(stack_dumps=True)
         soft, hard = descriptors.open_file_limits()
         self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
@@ -644,30 +647,13 @@ class Daemon:
                     handler.stream.close()
 
         def no_stack_dumps():
-            # C-3.6, as `_disable_stack_dumps` does at a normal close: `daemon.lock`
-            # stops saying `stack_dumps` first, then the handler goes. Off the main
-            # thread no SIG_IGN stands behind it, so a lock left saying
-            # `stack_dumps` would let `daemon stacks` signal a living host to death
-            # (review of 3c8fe55, P0). The lock fd is still open here: its finalizer
-            # runs last.
-            global _STACK_DUMPS
-            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-                if "_ident" in self.__dict__ and "_lock_fd" in self.__dict__:
-                    try:
-                        self._write_lock(stack_dumps=False)
-                    except OSError:
-                        # The lock still says `stack_dumps`. Keep the handler and the
-                        # stream it writes to together: unregistered, a SIGUSR1 sent on
-                        # the lock's word would kill the host; registered on a closed
-                        # stream, it would dump into whatever reuses the descriptor
-                        # (review r2, P1). faulthandler holds the stream open, and the
-                        # next daemon's registration replaces this one.
-                        revoked[0] = False
-                        if (handler := self.__dict__.get("_log_handler")) is not None:
-                            _keep_dump_stream(handler.stream)
-                        return
-                _release_sigusr1()
-                _STACK_DUMPS = None
+            # C-3.6, as at a normal close (`_disable_stack_dumps`): `daemon.lock`
+            # stops saying `stack_dumps` first, then SIGUSR1 is handed on; a lock
+            # that cannot stop keeps the handler and its stream (review of
+            # 3c8fe55, P0, and of 02c6320). The lock fd is still open here: its
+            # finalizer runs last.
+            if "_dumps_token" in self.__dict__:
+                revoked[0] = self._disable_stack_dumps()
         steps = [no_stack_dumps, closing_log]
         steps += [functools.partial(executor.shutdown, wait=False)
                   for executor in (self.__dict__.get(name)
@@ -6736,14 +6722,18 @@ class Daemon:
         default action is to end the process.
         """
         global _STACK_DUMPS
+        self._dumps_token = next(_DUMPS_TOKENS)
         stream = self._log_handler.stream
         stream.flush()
         # A daemon built earlier in this process (tests build several) may hold
         # the registration still. `faulthandler.register` over a live one only
         # changes the file: it would not put its handler back over the SIG_IGN
         # below, and the signal would be ignored while the lock says
-        # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
-        if threading.current_thread() is threading.main_thread():
+        # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none),
+        # but only while no daemon's lock says `stack_dumps`: between the two the
+        # signal is at whatever faulthandler saved, which may be its fatal default
+        # (review of 4fc5b49, P3).
+        if threading.current_thread() is threading.main_thread() and not _ADVERTISED:
             faulthandler.unregister(signal.SIGUSR1)
             # What faulthandler puts back when it lets the signal go (at close,
             # or as the interpreter exits): ignore it, so a SIGUSR1 that races
@@ -6757,27 +6747,26 @@ class Daemon:
         _STACK_DUMPS = weakref.ref(self)
 
     def _disable_stack_dumps(self) -> bool:
-        """Unregister before the log closes, so no dump is written to a closed or
-        reused descriptor; a later daemon in the same process keeps its own.
-        `daemon.lock` stops saying `stack_dumps` first (C-3.6). If it cannot, the
-        handler stays, and so must the stream it writes to: unregistered, a SIGUSR1
-        sent on the lock's word would end a host with no SIG_IGN beneath the
-        handler (one built off the main thread); on a closed stream it would dump
-        into a reused descriptor (review r3, P3). Returns whether the stream may
-        close."""
-        global _STACK_DUMPS
+        """C-3.6: `daemon.lock` stops saying `stack_dumps`, then this daemon leaves
+        `_ADVERTISED` and, if it holds SIGUSR1, hands it on (`_hand_sigusr1_on`), all
+        before its log closes, so no dump is written to a closed or reused
+        descriptor. If the lock cannot stop saying so (EIO, ENOSPC), this daemon
+        stays in `_ADVERTISED` for good, its stream kept open there, and SIGUSR1 is
+        left as it is: `daemon stacks` against this root still reads a living pid
+        and the flag (reviews of 02c6320, eac0706 and 4fc5b49). Holder or not, the
+        same rule. Returns whether the stream may close."""
+        token = self.__dict__.get("_dumps_token")
         try:
             self._write_lock(stack_dumps=False)
         except OSError as exc:
-            self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 keeps dumping "
+            if token is not None:
+                _ADVERTISED[token] = (weakref.ref(self), self._log_handler.stream)
+            self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
                              "into this log", exc)
-            if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-                _keep_dump_stream(self._log_handler.stream)
-                return False
-            return True
+            return False
+        _ADVERTISED.pop(token, None)
         if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-            _release_sigusr1()
-            _STACK_DUMPS = None
+            _hand_sigusr1_on()
         return True
 
     def close(self) -> None:
@@ -6840,27 +6829,30 @@ class Daemon:
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
-#: C-3.6: the log streams of daemons in this process whose `daemon.lock` could
-#: not stop saying `stack_dumps`, kept open. While any is kept, SIGUSR1 keeps a
-#: handler: `daemon stacks` against that root reads a living pid and the flag and
-#: sends the signal, whose default action would end the host (review r3, P1).
-_KEPT_DUMP_STREAMS: list = []
+#: C-3.6: every daemon in this process whose `daemon.lock` says `stack_dumps`, in
+#: the order they said so: token -> (a weak reference to it, the log stream a dump
+#: for it goes to). One leaves only once its lock has stopped saying so; one whose
+#: lock could not stays for good, holding its stream open. While any stands,
+#: SIGUSR1 keeps a handler: `daemon stacks` against that root reads a living pid
+#: and the flag and sends the signal, whose default action would end a host with
+#: no SIG_IGN beneath the handler (one built off the main thread). A dump goes to
+#: the stream of the one registered last; for the others it lands in that log.
+_ADVERTISED: dict[int, tuple[weakref.ref, Any]] = {}
+_DUMPS_TOKENS = itertools.count()
 
 
-def _keep_dump_stream(stream) -> None:
-    """C-3.6: keep a stream SIGUSR1 may still dump into (`_KEPT_DUMP_STREAMS`)."""
-    if not any(kept is stream for kept in _KEPT_DUMP_STREAMS):
-        _KEPT_DUMP_STREAMS.append(stream)
-
-
-def _release_sigusr1() -> None:
-    """C-3.6: let a daemon's SIGUSR1 handler go, unless a daemon whose lock still
-    says `stack_dumps` lives in this process: then the signal dumps into the
-    stream kept for it, never falls back to its fatal default (review r3, P1)."""
-    if _KEPT_DUMP_STREAMS:
-        faulthandler.register(signal.SIGUSR1, file=_KEPT_DUMP_STREAMS[-1], all_threads=True, chain=False)
+def _hand_sigusr1_on() -> None:
+    """C-3.6: the holder's lock has stopped saying `stack_dumps`. SIGUSR1 now dumps
+    into the stream of the daemon that said so last among those whose lock still
+    does, or, when none does, its handler goes (reviews of eac0706 and 4fc5b49)."""
+    global _STACK_DUMPS
+    if _ADVERTISED:
+        holder, stream = next(reversed(_ADVERTISED.values()))
+        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+        _STACK_DUMPS = holder
     else:
         faulthandler.unregister(signal.SIGUSR1)
+        _STACK_DUMPS = None
 
 
 def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int) -> None:

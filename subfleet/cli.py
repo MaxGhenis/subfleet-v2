@@ -47,6 +47,7 @@ from .client import (
     Client,
     DaemonError,
     DaemonUnavailable,
+    REFUSED_UNVERIFIED_MAX_S,
     busy_pause,
     refused_while_busy,
     OutcomeUnknown,
@@ -1232,6 +1233,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     idle_polls = 0
     busy: DaemonError | None = None
     busy_streak = 0
+    unverified_since: float | None = None     # refused after busy, with a lock that cannot say
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -1267,12 +1269,21 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # connect refused after a busy answer is the same busy daemon
                 # behind a full listen backlog, never an absent one (review r2, P1).
                 if isinstance(exc, DaemonUnavailable):
-                    if busy is None or not refused_while_busy(client, exc):
+                    verdict = None if busy is None else refused_while_busy(client, exc)
+                    if busy is None or verdict is False:
                         raise
+                    if verdict is None:
+                        # The lock cannot say whether the daemon lives: busy for a
+                        # bounded time only, since this loop may have no deadline.
+                        unverified_since = unverified_since or time.monotonic()
+                        if time.monotonic() - unverified_since > REFUSED_UNVERIFIED_MAX_S:
+                            raise
+                    else:
+                        unverified_since = None
                 elif not exc.busy:
                     raise
                 else:
-                    busy = exc
+                    busy, unverified_since = exc, None
                 busy_streak += 1
                 pause = busy_pause(busy_streak)
                 if timeout is not None:
@@ -1283,7 +1294,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, left)
                 time.sleep(pause)
                 continue
-            busy, busy_streak = None, 0
+            busy, busy_streak, unverified_since = None, 0, None
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False

@@ -602,8 +602,9 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
             # next poll has its whole deadline (as #55 on main). A connect refused
             # after a busy answer is that busy daemon's full backlog, not an
             # absent daemon (review r2, P1).
-            if not ((busy and refused_while_busy(client, exc)) if isinstance(exc, DaemonUnavailable)
-                    else exc.busy):
+            # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
+            if not ((busy and refused_while_busy(client, exc) is not False)
+                    if isinstance(exc, DaemonUnavailable) else exc.busy):
                 return int(Exit.OK)
             busy += 1
             sleep(min(busy_pause(busy), max(0.0, deadline - now())))
