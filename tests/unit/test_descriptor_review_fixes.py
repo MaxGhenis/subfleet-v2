@@ -889,17 +889,24 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     real_lock, middle_closing = daemon_module._DUMPS_LOCK, []
 
     class Watched:
-        """`_DUMPS_LOCK`, saying when middle's close comes to take it: the step
-        just before it decides whether it holds the signal (review of 78bfbf0,
-        P3: a checkpoint any earlier let an unserialised close pass)."""
+        """`_DUMPS_LOCK`, which middle's close takes without blocking, and says when
+        it is refused: proof that it came to take the lock, the step just before
+        it decides whether it holds the signal, while the hand-off held it.
+        Middle cannot pass that step until the hand-off lets go, so what follows
+        does not depend on how the threads are scheduled (reviews of 78bfbf0 and
+        3cac1e8, P3: a checkpoint any weaker let an unserialised close pass)."""
 
         def __enter__(self):
             if middle_closing and threading.current_thread() is middle_closing[0]:
-                reached.set()
-            return real_lock.__enter__()
+                while not real_lock.acquire(blocking=False):
+                    reached.set()
+                    time.sleep(.01)
+                return True
+            return real_lock.acquire()
 
         def __exit__(self, *exc):
-            return real_lock.__exit__(*exc)
+            real_lock.release()
+            return False
 
         def _is_owned(self):
             return real_lock._is_owned()
@@ -921,8 +928,7 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
         closing_middle = threading.Thread(target=middle.close)
         middle_closing.append(closing_middle)
         closing_middle.start()
-        assert reached.wait(10), "middle's close never came to take _DUMPS_LOCK"
-        closing_middle.join(1)                              # unserialised, it would be done in microseconds
+        assert reached.wait(10), "middle's close never found _DUMPS_LOCK held by the hand-off"
         assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
         assert not middle._log_handler.stream.closed
     finally:
@@ -1025,3 +1031,45 @@ def test_c3_6_a_daemon_says_stack_dumps_only_where_the_signal_stays_safe_through
     assert json.loads(done.stdout.strip().splitlines()[-1]) == expected
     if case == "off-main-exit":
         assert "(most recent call first)" in (tmp_path / "d" / "daemon.log").read_text(errors="replace")
+
+
+
+# --- review round 8 (of 3cac1e8): a declined daemon never joins ---------------
+
+def test_c3_6_a_declined_daemon_whose_lock_write_fails_never_joins_the_advertised(tmp_path, monkeypatch,
+                                                                                isolated_dumps):
+    """Review of 3cac1e8, P2 (GPT; P3-1, Opus): daemon A declined SIGUSR1 (setting it
+    ignored failed), so its lock never said `stack_dumps`; its close then met EIO
+    rewriting the lock, and that put A into `_ADVERTISED`. Daemon B, built next,
+    found the set not empty, skipped the SIG_IGN beneath its fresh registration,
+    and said `stack_dumps` over the default action (GPT: exit -30 at the last
+    close and at exit). A now never joins, and B takes the signal fresh."""
+    assert not daemon_module._ADVERTISED
+    ignored, closing, real_ignore, real_write = [], [], daemon_module._ignore_sigusr1, Daemon._write_lock
+
+    def ignore():
+        if not ignored:
+            ignored.append("failed")
+            raise OSError(22, "Invalid argument")
+        ignored.append("set")
+        return real_ignore()
+
+    def write(self, *, stack_dumps):
+        if self.root.name == "declined" and closing:
+            raise OSError(5, "Input/output error")
+        return real_write(self, stack_dumps=stack_dumps)
+    monkeypatch.setattr(daemon_module, "_ignore_sigusr1", ignore)
+    monkeypatch.setattr(Daemon, "_write_lock", write)
+    declined = Daemon(tmp_path / "declined")
+    assert "stack_dumps" not in json.loads((tmp_path / "declined" / "daemon.lock").read_text())
+    closing.append(True)
+    declined.close()                                        # its lock rewrite meets EIO
+    assert not daemon_module._ADVERTISED and declined._log_handler.stream.closed
+    later = Daemon(tmp_path / "later")
+    try:
+        assert ignored == ["failed", "set"], ignored        # a fresh take, SIG_IGN beneath
+        assert json.loads((tmp_path / "later" / "daemon.lock").read_text()).get("stack_dumps") is True
+        assert daemon_module._STACK_DUMPS() is later
+    finally:
+        later.close()
+    assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
