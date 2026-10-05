@@ -1259,13 +1259,20 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     timed_out = True
                     break
                 raise
-            except DaemonError as exc:
+            except (DaemonError, DaemonUnavailable) as exc:
                 # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
-                # inside `--timeout` (review of the descriptor hotfix, F8).
-                if not exc.busy:
+                # inside `--timeout` (review of the descriptor hotfix, F8). A
+                # connect refused after a busy answer is the same busy daemon
+                # behind a full listen backlog, never an absent one (review r2, P1).
+                if isinstance(exc, DaemonUnavailable):
+                    if busy is None:
+                        raise
+                elif not exc.busy:
                     raise
-                busy, busy_streak = exc, busy_streak + 1
+                else:
+                    busy = exc
+                busy_streak += 1
                 pause = busy_pause(busy_streak)
                 if timeout is not None:
                     left = timeout - (time.monotonic() - started)

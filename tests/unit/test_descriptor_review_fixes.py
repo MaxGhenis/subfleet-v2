@@ -275,7 +275,7 @@ def test_c16_7_a_pool_that_cannot_start_a_thread_does_not_end_the_reader(serve):
         send(sock, "ping")                                  # answered on the same reader
         answer = reply(sock)
         assert answer["result"]["pong"] is True
-    assert counts(service)["no_thread"] == 1
+    assert counts(service)["unscheduled"] == 1
 
 
 def test_c16_7_end_stream_records_only_a_connection_still_held(serve):
@@ -310,3 +310,107 @@ def test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on(serve, li
         assert answer["ok"] is False and answer["error"]["code"] == 2
         send(sock, "ping")
         assert reply(sock)["result"]["pong"] is True
+
+
+# --- review round 2 (of 02c6320) -----------------------------------------------
+
+def test_c15_5_a_wake_during_the_last_read_asks_for_one_more(daemon):
+    """Review r2, P2: the pass's read began before the deadline, the job committed
+    while it ran (its snapshot older) and the hub woke the waiter; the deadline had
+    passed when it returned. The waiter must read again, not answer a timeout."""
+    daemon.wait_hub.recheck_s = 3600
+    job = add_job(daemon, "20261004-000004-ended-mid-read")
+    real, calls = daemon._wait_answer, []
+
+    def stale_then_real(job_ids):
+        calls.append(time.monotonic())
+        if len(calls) == 1:
+            answer = real(job_ids)                          # the snapshot: still running
+            time.sleep(.4)                                  # past the 0.3 s deadline
+            commit_elsewhere(daemon, job)
+            for waiter in list(daemon.wait_hub._waiters.values()):
+                waiter.event.set()                          # the hub's wake, during this read
+            return answer
+        return real(job_ids)
+    daemon._wait_answer = stale_then_real
+    result = daemon.wait(protocol.WaitArgs(job_ids=[job], deadline_s=.3), client_gone=lambda: False)
+    assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded" and len(calls) == 2
+
+
+def test_c16_7_the_cli_wait_takes_a_connect_refused_after_busy_as_busy(monkeypatch):
+    """Review r2, P1: with `retry_busy=False`, a refused connect after a busy answer
+    reached `_daemon_down` and ended even an unbounded `subfleet wait` with 69 and
+    "start the daemon". It is the busy daemon's full backlog: the loop asks again."""
+    from types import SimpleNamespace
+    from subfleet import cli
+    steps = [busy(), DaemonUnavailable("no daemon at daemon.sock: Connection refused"),
+             {"jobs": [{"job_id": "20261004-000005-done", "state": "succeeded", "rc": 0}], "timeout": False}]
+
+    def call(op, args, **kwargs):
+        step = steps.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call))
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+    args = cli.build_parser().parse_args(["wait", "20261004-000005-done"])
+    assert cli.wait_jobs(args, ["20261004-000005-done"], timeout=None, quiet=True) == 0
+    assert steps == []
+
+
+def test_c16_7_the_cli_wait_still_reports_a_daemon_absent_from_the_start(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from subfleet import cli
+
+    def call(op, args, **kwargs):
+        raise DaemonUnavailable("no daemon at daemon.sock: Connection refused")
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call))
+    args = cli.build_parser().parse_args(["wait", "20261004-000006-any"])
+    assert cli.wait_jobs(args, ["20261004-000006-any"], timeout=None, quiet=True) != 0
+    capsys.readouterr()
+
+
+def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypatch):
+    from subfleet import hooks
+    delivered = []
+    steps = [busy(), DaemonUnavailable("refused"), {"jobs": [{"job_id": "j", "state": "succeeded"}],
+                                                   "timeout": False}]
+
+    class Hooked:
+        def call(self, op, args, **kwargs):
+            step = steps.pop(0)
+            if isinstance(step, BaseException):
+                raise step
+            return step
+    monkeypatch.setattr(hooks, "_deliver", lambda client, session, job, stderr: delivered.append(job) or 0)
+    clock = [0.0]
+    assert hooks._wait_and_deliver(Hooked(), "s", "j", 100.0, stderr=None, now=lambda: clock[0],
+                                   sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
+    assert delivered and steps == []
+    # Refused with no busy answer first: the daemon is absent, and the hook gives up quietly.
+    absent = [DaemonUnavailable("refused")]
+
+    class Absent:
+        def call(self, op, args, **kwargs):
+            raise absent.pop(0)
+    assert hooks._wait_and_deliver(Absent(), "s", "j", 100.0, stderr=None, now=lambda: 0.0,
+                                   sleep=lambda s: None) == 0 and not absent
+
+
+def test_c3_6_a_failed_lock_write_still_lets_the_handler_go(monkeypatch):
+    """Review r2, P3: if clearing `stack_dumps` from the lock raised (ENOSPC, EIO),
+    the handler stayed registered on a stream the cleanup then closed."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
+    real_write = Daemon._write_lock
+
+    def write(self, *, stack_dumps):
+        if not stack_dumps:
+            raise OSError(28, "No space left on device")
+        return real_write(self, stack_dumps=stack_dumps)
+    monkeypatch.setattr(Daemon, "_write_lock", write)
+    monkeypatch.setattr(daemon_module, "load_policy", lambda path: (_ for _ in ()).throw(RuntimeError("bad policy")))
+    with tempfile.TemporaryDirectory(prefix="sfi-", dir="/tmp") as directory:
+        with pytest.raises(RuntimeError, match="bad policy"):
+            Daemon(Path(directory))
+    assert daemon_module._STACK_DUMPS is None

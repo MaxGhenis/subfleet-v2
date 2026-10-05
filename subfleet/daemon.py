@@ -542,7 +542,7 @@ class Daemon:
         self._pinned_max_connections = None if max_connections is None else max(1, int(max_connections))
         self.connection_idle_s = connection_idle_s
         self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
-                                   "abandoned": 0, "accept_failures": 0, "no_thread": 0}
+                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -650,7 +650,10 @@ class Daemon:
             global _STACK_DUMPS
             if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
                 if "_ident" in self.__dict__ and "_lock_fd" in self.__dict__:
-                    self._write_lock(stack_dumps=False)
+                    try:
+                        self._write_lock(stack_dumps=False)
+                    except OSError:
+                        pass            # as `_disable_stack_dumps`: the handler goes all the same
                 faulthandler.unregister(signal.SIGUSR1)
                 _STACK_DUMPS = None
         steps = [no_stack_dumps, closing_log]
@@ -2996,7 +2999,9 @@ class Daemon:
                     read_at = time.monotonic()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.stopping.is_set():
-                    if not read:
+                    # A wake that came while this pass read (a commit that landed
+                    # after its snapshot) also asks for one more read (review r2, P2).
+                    if not read or ready.is_set():
                         # C-15.5: once more when the deadline passes, or the daemon
                         # stops: a job that ended after the hub's last look, which
                         # has not woken this waiter yet, is still answered, never
@@ -6471,8 +6476,11 @@ class Daemon:
                         # queued the call before it tried, so the request may still
                         # run (and answer) when a worker frees, but it has no
                         # future to wait on here. The reader goes on, and the count
-                        # says so (review of 3c8fe55, P2).
-                        self._count_connection("no_thread", f"{req.op} ({exc})")
+                        # says so (review of 3c8fe55, P2), as `unscheduled` as on
+                        # main (#55). A pool shut down by a stopping daemon refuses
+                        # the same way, and is not counted.
+                        if not self.stopping.is_set():
+                            self._count_connection("unscheduled", f"{req.op} ({exc})")
                         continue
                     if future is None:
                         note_reply()
@@ -6509,7 +6517,6 @@ class Daemon:
                     conn.close()
                     with self._connection_lock:
                         self._connections.discard(conn)
-                        self._shut_down.discard(conn)
                         self._shut_down.discard(conn)
             for f in pending:
                 f.add_done_callback(finish)
@@ -6610,7 +6617,7 @@ class Daemon:
     _CONNECTION_EVENTS = {"refused": "connections refused busy",
                           "idle_closed": "idle connections closed",
                           "abandoned": "requests dropped because their client hung up",
-                          "no_thread": "requests whose pool could not start a thread"}
+                          "unscheduled": "requests whose pool could not start a thread"}
 
     def _count_connection(self, kind: str, detail: str | None = None) -> int:
         with self._connection_lock:
