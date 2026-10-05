@@ -882,12 +882,16 @@ def test_c3_6_taking_and_handing_on_sigusr1_hold_one_lock(tmp_path, monkeypatch,
     core = Daemon(tmp_path / "solo")
     token = core._dumps_token
     assert token in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS() is core
+    taking = len(seen)
     older.close()                                           # not holding it
     core.close()                                            # holding it, the last to leave
     assert token not in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS is None
     assert not daemon_module._HELD_STREAMS
     assert {step for step, _ in seen} == {"join", "leave", "settle", "register"}, seen
     assert all(owned for _, owned in seen), seen
+    # Review of 8ebe6b6, P3 (GPT): each leave settles, holder or not.
+    leaving = [step for step, _ in seen[taking:] if step in ("leave", "settle")]
+    assert leaving == ["leave", "settle", "leave", "settle"], seen[taking:]
 
 
 def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_path, monkeypatch, isolated_dumps):
@@ -1246,7 +1250,7 @@ dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
 signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts
 base, case = Path(sys.argv[1]), sys.argv[2]
-three = case in ("handoff", "before-leaving", "settle-entry")
+three = case in ("handoff", "before-leaving", "settle-entry", "collected")
 names = ["a", "b", "c"] if three else ["a", "b"]
 built = {name: Daemon(base / name) for name in names}     # the last built holds SIGUSR1
 real_write, armed = Daemon._write_lock, [True]
@@ -1268,7 +1272,7 @@ def write(self, *, stack_dumps):
 real_leave, real_settle, settling = Daemon._leave_advertised, dm._settle_sigusr1, []
 
 def leave(self, token):
-    if case == "before-leaving" and armed and self is built["c"]:
+    if case in ("before-leaving", "collected") and armed and self is built["c"]:
         armed.clear()
         raise KeyboardInterrupt                           # C's lock rewritten, C not yet left
     return real_leave(self, token)
@@ -1298,6 +1302,14 @@ try:
     closing.close()
 except KeyboardInterrupt:
     pass
+collected = None
+if case == "collected":
+    import gc, weakref
+    gone = weakref.ref(built.pop("c"))                    # the host drops C, its close cut short
+    closing = None
+    gc.collect()
+    collected = gone() is None
+    names.remove("c")
 if three:
     built["b"].close()                                    # B leaves; its settle repairs what C's left
 reused = os.pipe()                                        # what a closed descriptor may become
@@ -1316,17 +1328,20 @@ except BlockingIOError:
 holder = next((name for name, core in built.items() if dm._STACK_DUMPS and dm._STACK_DUMPS() is core), None)
 print(json.dumps({"grew": sorted(n for n in names if logs[n].stat().st_size > sizes[n]), "stray": stray,
                   "members": sorted(n for n, core in built.items() if core._dumps_token in dm._ADVERTISED),
-                  "holder": holder}))
+                  "holder": holder, "advertised": len(dm._ADVERTISED),
+                  **({"collected": collected} if collected is not None else {})}))
 """
 
 
 @pytest.mark.parametrize("case,expected", [
-    ("handoff", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
-    ("after-rewrite", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
-    ("before-rewrite", {"grew": ["b"], "stray": 0, "members": ["a", "b"], "holder": "b"}),
-    ("leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
-    ("before-leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
-    ("settle-entry", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a"}),
+    ("handoff", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1}),
+    ("after-rewrite", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1}),
+    ("before-rewrite", {"grew": ["b"], "stray": 0, "members": ["a", "b"], "holder": "b", "advertised": 2}),
+    ("leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1}),
+    ("before-leaving", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1}),
+    ("settle-entry", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1}),
+    ("collected", {"grew": ["a"], "stray": 0, "members": ["a"], "holder": "a", "advertised": 1,
+                   "collected": True}),
 ])
 def test_c3_6_a_close_interrupted_part_way_leaves_no_stream_faulthandler_holds_closed(tmp_path, case, expected):
     """Review of 9a514a7 (Opus). P2: C, closing, handed SIGUSR1 to B by registering
@@ -1345,7 +1360,10 @@ def test_c3_6_a_close_interrupted_part_way_leaves_no_stream_faulthandler_holds_c
     or held the signal as a non-member, for good, and A's dumps went to C's
     abandoned log. Every leave now settles, and a settle drops a member that
     began to leave once its lock reads back without the flag: B's close repairs
-    both. In a subprocess, so a regression's stray dump lands in that process."""
+    both. Review of 8ebe6b6, P3: when the host dropped C and it was collected
+    before that settle, C could never be judged and stayed in the set for good;
+    what a settle needs of a member now lives in its entry. In a subprocess, so
+    a regression's stray dump lands in that process."""
     import os
     import subprocess
     import sys
@@ -1389,3 +1407,57 @@ def test_c3_6_a_failed_construction_whose_revoke_raises_keeps_its_stream(tmp_pat
             daemon_module._ADVERTISED.pop(built[0]._dumps_token, None)
             daemon_module._settle_sigusr1()
         stream.close()
+
+
+def test_c3_6_a_settle_prunes_only_a_member_whose_lock_may_no_longer_say_stack_dumps(tmp_path, isolated_dumps):
+    """Review of 8ebe6b6, P3: what a settle needs of a member lives in its entry, so
+    one whose daemon object is gone is judged too. The rule, case by case: a member
+    that began to leave, or whose daemon is gone, leaves once its lock, read back
+    by path, cannot say `stack_dumps` (never came to write the flag, reads back
+    without it, or is missing); one whose lock reads back with the flag, or cannot
+    be read, stays; a live member not leaving always stays (it may be between its
+    take and its flagged write)."""
+    import weakref
+
+    class Member:
+        pass
+    assert not daemon_module._ADVERTISED
+    live = Member()
+
+    def lock(name, content):
+        path = tmp_path / name / "daemon.lock"
+        path.parent.mkdir()
+        if content == "unreadable":
+            path.mkdir()                                    # reading it raises IsADirectoryError
+        elif content is not None:
+            path.write_text(json.dumps(content))
+        return path
+    flagged, plain = {"pid": 1, "stack_dumps": True}, {"pid": 1}
+    cases = {                       # name: (alive, leaving, may_advertise, lock content, stays)
+        "dead-flagged": (False, False, True, flagged, True),
+        "dead-plain": (False, False, True, plain, False),
+        "dead-never-flagged": (False, False, False, flagged, False),
+        "dead-missing": (False, False, True, None, False),
+        "dead-unreadable": (False, False, True, "unreadable", True),
+        "live-plain": (True, False, True, plain, True),
+        "leaving-plain": (True, True, True, plain, False),
+        "leaving-flagged": (True, True, True, flagged, True),
+    }
+    streams = []
+    with daemon_module._DUMPS_LOCK:
+        for token, (name, (alive, leaving, may, content, _)) in enumerate(cases.items()):
+            state = daemon_module._DumpsState(lock(name, content), leaving=leaving, may_advertise=may)
+            ref = weakref.ref(live) if alive else weakref.ref(Member())        # a dead reference
+            stream = open(tmp_path / f"{name}.log", "a")
+            streams.append(stream)
+            daemon_module._ADVERTISED[("case", token)] = (ref, stream, state)
+        try:
+            daemon_module._settle_sigusr1()
+            stayed = {name for token, name in enumerate(cases) if ("case", token) in daemon_module._ADVERTISED}
+        finally:
+            for token in range(len(cases)):
+                daemon_module._ADVERTISED.pop(("case", token), None)
+            daemon_module._settle_sigusr1()                 # no member: the handler goes
+    for stream in streams:
+        stream.close()
+    assert stayed == {name for name, case in cases.items() if case[-1]}, stayed

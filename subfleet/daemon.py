@@ -576,7 +576,7 @@ class Daemon:
         advertise = self._enable_stack_dumps()
         # From here the lock may say `stack_dumps` (a write cut short may have said
         # it): only now can a failed rewrite keep this daemon in `_ADVERTISED`.
-        self._lock_may_advertise = advertise
+        self._dumps.may_advertise = advertise
         self._write_lock(stack_dumps=advertise)
         soft, hard = descriptors.open_file_limits()
         self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
@@ -6727,6 +6727,7 @@ class Daemon:
         default action is to end the process. False when the signal could not
         be made safe: the lock must then not say `stack_dumps`.
         """
+        self._dumps = _DumpsState(self.root / "daemon.lock")
         self._dumps_token = next(_DUMPS_TOKENS)
         stream = self._log_handler.stream
         stream.flush()
@@ -6778,7 +6779,7 @@ class Daemon:
         # (review r3, P1). A take that raises (a KeyboardInterrupt anywhere here)
         # leaves and settles again (reviews of 67b9adc and 6506619, P2).
         try:
-            _ADVERTISED[self._dumps_token] = (weakref.ref(self), stream)
+            _ADVERTISED[self._dumps_token] = (weakref.ref(self), stream, self._dumps)
             _settle_sigusr1()
         except BaseException:
             _ADVERTISED.pop(self._dumps_token, None)
@@ -6792,8 +6793,8 @@ class Daemon:
         may close (`_may_close_log`), so no dump is written to a closed or reused
         descriptor. If the lock may still say so (read back after the rewrite,
         whatever cut it short: EIO, ENOSPC, or an exception landing in it), this
-        daemon stays in `_ADVERTISED` for good, its stream kept open there, and
-        SIGUSR1 is left as it is: `daemon stacks` against this root still reads a
+        daemon stays in `_ADVERTISED`, its stream kept open there, until its lock
+        read back by path stops saying so, and SIGUSR1 is left as it is: `daemon stacks` against this root still reads a
         living pid and the flag (reviews of 02c6320, eac0706, 4fc5b49 and 9a514a7).
         Holder or not, the same rule. A daemon that never came to write the flag,
         or whose lock reads back without it, leaves (reviews of 3cac1e8 and
@@ -6801,7 +6802,8 @@ class Daemon:
         drops it once its lock reads back without the flag, should an exception
         cut this close short before it leaves (review of 674b99b)."""
         token = self.__dict__.get("_dumps_token")
-        self._leaving = True
+        if (state := self.__dict__.get("_dumps")) is not None:
+            state.leaving = True
         try:
             self._write_lock(stack_dumps=False)
         except BaseException as exc:
@@ -6818,26 +6820,8 @@ class Daemon:
         self._leave_advertised(token)
 
     def _lock_may_still_advertise(self) -> bool:
-        """C-3.6: whether `daemon.lock` may say `stack_dumps` now: it was written
-        with the flag at some point (`_lock_may_advertise`), and reading it back
-        does not show it without, read by its path as `daemon stacks` reads it (a
-        record that does not parse says nothing; a later daemon's record there is
-        what `daemon stacks` would act on). A read that fails cannot tell, so it
-        may. By path, not by descriptor: `_settle_sigusr1` asks a daemon whose
-        close has ended, whose descriptor number another file may have reused."""
-        if not self.__dict__.get("_lock_may_advertise"):
-            return False
-        try:
-            raw = (self.root / "daemon.lock").read_bytes()
-        except FileNotFoundError:
-            return False
-        except OSError:
-            return True
-        try:
-            record = json.loads(raw)
-        except ValueError:
-            return False
-        return isinstance(record, dict) and record.get("stack_dumps") is True
+        """C-3.6: whether `daemon.lock` may say `stack_dumps` now (`_lock_may_say_stack_dumps`)."""
+        return _lock_may_say_stack_dumps(self.__dict__.get("_dumps"))
 
     def _leave_advertised(self, token) -> None:
         """C-3.6: leave `_ADVERTISED` and settle SIGUSR1, one step under
@@ -6920,13 +6904,47 @@ class Daemon:
             self._log_handler.stream.close()   # else faulthandler may hold it, or a hand-off pick it
 
 
+@dataclasses.dataclass
+class _DumpsState:
+    """C-3.6: what a settle needs to know of a member of `_ADVERTISED`, kept in its
+    entry and shared with the daemon, so a member whose daemon object has been
+    collected can still be judged (review of 8ebe6b6, P3)."""
+    lock_path: Path
+    leaving: bool = False                  # it began to rewrite its lock without the flag
+    may_advertise: bool = False            # it came to write the flag (set just before that write)
+
+
+def _lock_may_say_stack_dumps(state: _DumpsState | None) -> bool:
+    """C-3.6: whether a member's `daemon.lock` may say `stack_dumps` now: it came to
+    write the flag (`may_advertise`), and reading it back does not show it without,
+    read by its path as `daemon stacks` reads it (a record that does not parse says
+    nothing; a later daemon's record there is what `daemon stacks` would act on). A
+    read that fails cannot tell, so it may. By path, not by descriptor: a settle
+    asks of members whose close has ended, whose descriptor number another file may
+    have reused."""
+    if state is None or not state.may_advertise:
+        return False
+    try:
+        raw = state.lock_path.read_bytes()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        return False
+    return isinstance(record, dict) and record.get("stack_dumps") is True
+
+
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
 #: C-3.6: every daemon in this process whose `daemon.lock` says `stack_dumps`, in
 #: the order they said so: token -> (a weak reference to it, the log stream a dump
-#: for it goes to). One leaves only once its lock has stopped saying so; one whose
-#: lock could not stays for good, holding its stream open. While any stands,
+#: for it goes to, its `_DumpsState`). One leaves only once its lock has stopped
+#: saying so; one whose lock cannot be rewritten stays, holding its stream open,
+#: until its lock, read back by path, stops saying so. While any stands,
 #: SIGUSR1 keeps a handler: `daemon stacks` against that root reads a living pid
 #: and the flag and sends the signal, which with no handler would be ignored and
 #: dump nothing (and, before review of 2300b43 put SIG_IGN beneath every fresh
@@ -6950,19 +6968,19 @@ _HELD_STREAMS: set[Any] = set()
 def _settle_sigusr1() -> None:
     """C-3.6, under `_DUMPS_LOCK`: make SIGUSR1's registration match `_ADVERTISED`.
 
-    Members that began to leave (`_leaving`) and whose lock reads back without the
-    flag go first. Then the signal dumps into the stream of the member that said
+    Members that began to leave, or whose daemon object has been collected, and
+    whose lock reads back without the flag go first (review of 8ebe6b6, P3: a
+    collected member could never be judged). Then the signal dumps into the stream of the member that said
     so last, or, when none is left, its handler goes, back to the SIG_IGN beneath
     it. Idempotent, and run by every take and every leave, whoever holds the
     signal: whatever an exception cut short in an earlier one, the next repairs
     (reviews of eac0706, 4fc5b49, 9a514a7 and 674b99b)."""
     global _STACK_DUMPS
-    for token, (ref, _) in list(_ADVERTISED.items()):
-        member = ref()
-        if member is not None and member.__dict__.get("_leaving") and not member._lock_may_still_advertise():
+    for token, (ref, _, state) in list(_ADVERTISED.items()):
+        if (state.leaving or ref() is None) and not _lock_may_say_stack_dumps(state):
             _ADVERTISED.pop(token, None)
     if _ADVERTISED:
-        holder, stream = next(reversed(_ADVERTISED.values()))
+        holder, stream, _ = next(reversed(_ADVERTISED.values()))
         _STACK_DUMPS = holder
         _HELD_STREAMS.add(stream)
         faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
