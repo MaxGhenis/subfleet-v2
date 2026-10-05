@@ -15,7 +15,8 @@ Evidence lives in `~/reviews/claude-reset-cards-2026-10-05/`, and its `README.md
 
 The sources for the cards themselves are help article 17007452 ("Reset for free" under Settings,
 Usage, on the web or desktop; an unused card is lost if the account cancels or downgrades first) and
-help article 17152539 (the cloud-session credit: $250 on Max, claim by Oct 7, expires Nov 4).
+help article 17152539 (the cloud-session credit: $250 on Max, claim by Oct 7, expires Nov 4). Both are
+summarized in `help/`.
 
 ## Where Claude Code reads them (2.1.286 bundle)
 
@@ -46,15 +47,19 @@ Byte offsets are into `~/Library/Application Support/Claude/claude-code/2.1.286/
   - The answer is `{eligible, claimed, state}`. The CLI lower-cases the state, strips a `*_state_`
     prefix and keeps only `not_claimed, pending, active, expired, claimed_elsewhere` (`jse`).
   - It offers a claim when `eligible && !claimed`.
-  - The CLI's cached remote config in each login's `.claude.json` names the endpoint
-    `/v1/code/promo/cloud_credit`.
+  - The CLI's cached remote config names the endpoint `/v1/code/promo/cloud_credit`. Only 3 of the
+    18 login folders' `.claude.json` (max@axiom.org, max@hivesight.ai, max@maxghenis.com) carry the
+    config.
 - `178778149`: the User-Agent, `claude-cli/<version> (external, <entrypoint>)`.
 
 Claude Code itself never reads the dollar blocks of the usage payload: `iguana`, `necktie` (outside an
 emoji table) and `_dollars` do not occur in the bundle. The claude.ai frontend does read them. In its
 2026-10-03 build (`claude-ai-cache/cd58f8e42-*`, function `Pt`), `iguana_necktie` is the cloud-session
-credit meter, read only once a claim exists. After a claim, the frontend polls usage until the block
-appears.
+credit meter, read only once a claim exists.
+- The frontend takes the credit's expiry from the claim status's `expires_at`, and from the block's
+  `resets_at` only when that is missing. The sensor does the same.
+- After a claim, the frontend polls usage until the block appears. That the block is absent before a
+  claim is inferred from this; no unclaimed account's usage was captured.
 
 ## What the endpoints returned (live, 2026-10-05 ~15:20Z)
 
@@ -92,7 +97,7 @@ The claude.ai frontend learns of a scheduled cancellation or downgrade from
 `next_charge_date`, `status` and `scheduled_downgrade`.
 
 - Asked with a Claude Code OAuth token on api.anthropic.com, it answers 403, "This endpoint does not
-  accept OAuth access tokens" (`oauth_token_not_accepted`).
+  accept OAuth access tokens" (`oauth_token_not_accepted`; `live/oauth-refused/`).
 - The `/api/oauth/organizations/...` spelling is 404.
 
 None of the reads made here showed a scheduled end. Only claude.ai's `subscription_details` did, and
@@ -110,7 +115,7 @@ The cache shows the credit going with the plan:
   - Usage read $250 at 07:07 EDT on 09-30.
   - Every meter was null at 16:46.
 
-Help article 17152539 says a downgrade keeps the credit. What these two show is that a lapsed plan's
+Help article 17152539 says a downgrade keeps the credit (`help/`). What these two show is that a lapsed plan's
 usage stops showing it. The sensor therefore treats money left on a lapsing plan as at risk, as it
 does cards, and records it as lost when the lapse is seen.
 
@@ -121,7 +126,8 @@ The census script (`tools/census.py`) predates the sensor and was more liberal t
 - It ran a heal turn on every login whose token had expired, except the two PE logins: 13 turns at
   15:13–15:14Z.
 - Every one of them ran under an operator hold. Lapsed lanes (claude-5, -12, -13, -14, -16, -17) had
-  long holds. Every other Claude lane had a fleet-wide hold set at 14:00–14:03Z until 15:22:21Z.
+  long holds. Every other Claude lane carried one of a rolling series of fleet-wide holds about 20
+  minutes long; the one in force was set at 15:03:56–15:06:26Z, until 15:22:21Z.
 - None of the 13 completed a model turn:
   - The five lapsed accounts' turns were refused ("organization has disabled Claude subscription
     access").
@@ -132,10 +138,11 @@ The census script (`tools/census.py`) predates the sensor and was more liberal t
 - One earlier heal, run by hand on max@maxghenis.com before the census, ran a Haiku turn to
   completion.
 
-The sensor's gate skips held accounts. A dry run of the sensor's own `refresh` against the live
-logins and the live store's lanes at 15:29–15:31Z, after the fleet-wide hold had ended, with a recording
-heal, would have healed only the five lane-backed, unheld logins whose tokens had expired
-(`dry-run/`).
+The sensor's gate skips held accounts. A dry run at 15:29–15:31Z, after that hold had ended, used a
+pre-commit working-tree version of the sensor (before the review fixes) with a recording heal,
+against the live logins and the live store's lanes. It would have healed only the five lane-backed,
+unheld logins whose tokens had expired (`dry-run/`). The committed gate decides the same way on
+those inputs; its tests cover holds, lane-less logins and dead logins.
 
 What it found:
 

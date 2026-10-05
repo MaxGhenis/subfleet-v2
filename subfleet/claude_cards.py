@@ -23,13 +23,17 @@ in the desktop app's HTTP cache, and live reads, 2026-10-05):
   Its `cedar_ember` block is `{eligible, ineligible_reason, at_limit, exhausted,
   grants, next_grant_id, weekly_resets_at, cooldown_until, event_props}`; each
   grant is `{id, label, resets_total, resets_left, starts_at, ends_at, clears,
-  paused, usable_now, use_requires_limit, percent_used, blocking}`. The server
-  answers `eligible: false, ineligible_reason: "surface"` with no grants unless
-  the User-Agent is Claude Code's own, `claude-cli/<version> (external, cli)`.
+  paused, usable_now, use_requires_limit, percent_used, blocking}`. Asked with
+  User-Agent `claude-code/2.1.286` the server answered `eligible: false,
+  ineligible_reason: "surface"` with no grants, and with Claude Code's own,
+  `claude-cli/<version> (external, cli)`, it listed the grant (one comparison on
+  one account, 2026-10-05), so the sensor sends Claude Code's.
   The same payload carries dollar blocks. Claude Code does not read them; the
   claude.ai frontend reads `iguana_necktie` as the claimed cloud-session credit
-  (`limit_dollars`, `used_dollars`, `remaining_dollars`, and `resets_at`, its
-  expiry), and it is absent until the credit is claimed.
+  (`limit_dollars`, `remaining_dollars`), takes its expiry from the claim
+  status's `expires_at` and only failing that from the block's `resets_at`, and
+  polls usage after a claim until the block appears (so it is, by inference,
+  absent until the credit is claimed).
 * `GET /v1/code/promo/cloud_credit` (Claude Code's `/claim-credit` status, with
   `anthropic-version` and `x-organization-uuid`): `{eligible, claimed,
   claimed_at, expires_at, state}`, state one of `not_claimed`, `pending`,
@@ -90,6 +94,8 @@ SNAPSHOT_VERSION = 1
 
 #: Dollar blocks in the usage payload that are credits, by their code names.
 CREDIT_LABELS = {"iguana_necktie": "cloud-session credit"}
+#: Credits whose expiry the claim status (`/v1/code/promo/cloud_credit`) gives.
+CLAIM_EXPIRY_CREDITS = frozenset({"iguana_necktie"})
 #: Usage blocks that are windows or overage, never promotional credits.
 NOT_CREDITS = frozenset({"five_hour", "seven_day", "extra_usage", "spend", "limits",
                          "seven_day_breakdown", "cedar_ember", "juniper_tide"})
@@ -453,6 +459,8 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
     then = parse_time(previous.get("read_at"))
     if then is None:
         return []
+    if previous.get("identity") and current.get("identity") and previous["identity"] != current["identity"]:
+        return []           # another account now: nothing of the old one is known lost
     known = {item.get("grant") or item.get("credit") for item in lost_items(previous)}
     held = [grant for grant in unused_cards(previous, then) if grant["id"] not in known]
     money = [credit for credit in previous.get("credits") or []
@@ -463,13 +471,21 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
         reason = "lapse"
     elif current.get("status") == OK:
         reason = "expired"
-        grants_now = {grant["id"]: grant for grant in ((current.get("cards") or {}).get("grants") or [])}
+        cards_now = current.get("cards") or {}
+        grants_now = {grant["id"]: grant for grant in cards_now.get("grants") or []}
         credits_now = {credit["key"]: credit for credit in current.get("credits") or []}
-        held = [grant for grant in held if (parse_time(grant.get("ends_at")) or now) < now
-                and grants_now.get(grant["id"], {}).get("resets_left", grant["resets_left"]) > 0]
-        money = [credit for credit in money if parse_time(credit.get("expires_at")) is not None
-                 and parse_time(credit.get("expires_at")) <= now
-                 and (credits_now.get(credit["key"], {}).get("remaining_dollars", credit["remaining_dollars"]) or 0) > 0]
+        # A cards block that is missing or ineligible lists nothing; its silence
+        # says nothing about a card, so no card expiry is read from it.
+        listing = bool(cards_now) and cards_now.get("eligible") is True
+        # Each thing is judged by its end as the read now gives it, when it is
+        # still listed (an end can move), else by the end last seen.
+        held = [grant for grant in held if listing
+                and (parse_time(grants_now.get(grant["id"], grant).get("ends_at")) or now) < now
+                and grants_now.get(grant["id"], grant).get("resets_left", 0) > 0]
+        money = [credit for credit in money
+                 if (ends := parse_time(credits_now.get(credit["key"], credit).get("expires_at"))) is not None
+                 and ends <= now
+                 and (credits_now.get(credit["key"], credit).get("remaining_dollars") or 0) > 0]
     else:
         return []
     return ([{"grant": grant["id"], "at": at, "reason": reason} for grant in held]
@@ -500,9 +516,9 @@ HEAL_ENV_REMOVE = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAU
 HEAL_TIMEOUT_S = 120
 
 
-def _kill_group(pid: int) -> None:
+def _kill_group(pid: int, sig: int = signal.SIGKILL) -> None:
     try:
-        os.killpg(pid, signal.SIGKILL)
+        os.killpg(pid, sig)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -515,9 +531,10 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     The CLI runs in a process group of its own, in a scratch directory, with no
     MCP server (`--strict-mcp-config` and an empty config, so a login folder's
     own servers never start), one turn, no tools needed, and an environment
-    holding no other credential. The group is killed whole when the turn
-    outlives `timeout`, when `cancel` is set (a daemon stop must not wait for a
-    heal), and after a normal exit, so nothing it started outlives it. Waiting
+    holding no other credential. No heal starts once `cancel` is set. The group
+    is stopped when the turn outlives `timeout` or `cancel` is set (a daemon stop
+    must not wait for a heal): SIGTERM, then SIGKILL two seconds later. It is
+    killed after a normal exit too, so nothing it started outlives it. Waiting
     for its output after a kill is bounded. Returns (rc, stdout, stderr): 124 is
     a timeout, 127 a CLI that could not start, 130 a cancelled heal. Nothing here
     reads or writes the credential.
@@ -526,6 +543,8 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     env["CLAUDE_CONFIG_DIR"] = str(home)
     argv = [claude_bin, "-p", prompt, "--model", model, "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+    if cancel is not None and cancel.is_set():
+        return 130, "", "heal cancelled: the daemon is stopping"
     with tempfile.TemporaryDirectory(prefix="subfleet-card-heal-") as workdir:
         try:
             child = popen(argv, cwd=workdir, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -545,7 +564,15 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
                     rc, why = 124, f"heal timed out after {timeout:g}s"
                 else:
                     continue
-                _kill_group(child.pid)
+                # SIGTERM first, so a CLI part way through renewing its login can
+                # finish writing it; what is still running two seconds later is killed.
+                _kill_group(child.pid, signal.SIGTERM)
+                try:
+                    out, _err = child.communicate(timeout=2)
+                    _kill_group(child.pid)
+                    return rc, out or "", why
+                except subprocess.TimeoutExpired:
+                    _kill_group(child.pid)
                 try:
                     out, _err = child.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -578,7 +605,7 @@ TRANSIENT_HEAL_RC = frozenset({124, 127, 130})
 HEAL_FAILURES = {124: "timed out", 127: "the claude CLI could not start or raised", 130: "cancelled by a stop"}
 #: What Claude Code prints when it cannot renew a login (observed 2026-10-05:
 #: "Failed to authenticate: OAuth session expired and could not be refreshed").
-DEAD_LOGIN = re.compile(r"could not be refreshed|failed to authenticate|invalid_grant|refresh token", re.I)
+DEAD_LOGIN = re.compile(r"could not be refreshed|invalid_grant|refresh token (?:was |is )?(?:revoked|expired|invalid)", re.I)
 
 
 def recent(now: datetime, then: datetime, window_s: float) -> bool:
@@ -657,7 +684,8 @@ class Sensor:
 
     def read(self, home: Path, *, allow_heal: bool, previous: Mapping[str, Any] | None = None,
              heal_after_s: float = CLAUDE_CARDS_DEFAULTS["heal_interval_min"] * 60,
-             pace: Callable[[], None] | None = None) -> dict[str, Any]:
+             pace: Callable[[], None] | None = None,
+             stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
         """One account's snapshot. A failed read keeps the last good cards and
         credits beside a status that says why they are not current.
 
@@ -727,13 +755,16 @@ class Sensor:
                     return done(UNAVAILABLE, f"the heal could not renew the login ({why}); it is tried again")
                 return done(LOGIN_DEAD, "the CLI could not renew this login")
         try:
-            return self._read_with(token, account, now, done, pace)
+            return self._read_with(token, account, now, done, pace, stop)
         except Exception as error:                  # noqa: BLE001 - the heal record above must survive
             return done(UNAVAILABLE, f"read failed: {type(error).__name__}")
 
     def _read_with(self, token: str, account: dict[str, Any], now: datetime,
                    done: Callable[[str, str | None], dict[str, Any]],
-                   pace: Callable[[], None] | None) -> dict[str, Any]:
+                   pace: Callable[[], None] | None,
+                   stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
+        if stop():
+            return done(UNAVAILABLE, "stopped before the read")
         status, profile, retry = self._get(PROFILE_URL, token)
         if status == 429:
             return self._rate_limited(account, now, retry)
@@ -748,6 +779,8 @@ class Sensor:
             return done(LAPSED, f"{plan['organization_type']}, subscription {plan['subscription_status']}")
         if pace is not None:
             pace()          # C-9.9: the usage endpoint penalises bursts
+        if stop():
+            return done(UNAVAILABLE, "stopped during the read")
         status, usage, retry = self._get(CARDS_USAGE_URL, token)
         if status == 429:
             return self._rate_limited(account, now, retry)
@@ -757,11 +790,17 @@ class Sensor:
             return done(UNAVAILABLE, f"usage HTTP {status}")
         account["cards"] = parse_cards(usage.get("cedar_ember"))
         account["credits"] = parse_credits(usage)
-        status, claim, _retry = self._get(CLOUD_CREDIT_STATUS_URL, token, {
+        status, claim, _retry = (None, None, None) if stop() else self._get(CLOUD_CREDIT_STATUS_URL, token, {
             "anthropic-version": ANTHROPIC_VERSION, "x-organization-uuid": plan["org_uuid"]})
         parsed = parse_claim(claim) if status == 200 else None
         if parsed is not None:
             account["cloud_credit_claim"] = {**parsed, "checked_at": iso_utc(now)}
+        claim_ends = (account.get("cloud_credit_claim") or {}).get("expires_at")
+        for credit in account["credits"]:
+            # The claude.ai frontend takes the cloud credit's expiry from the
+            # claim status first and the usage block's `resets_at` only after.
+            if credit["key"] in CLAIM_EXPIRY_CREDITS and claim_ends:
+                credit["expires_at"], credit["expires_from"] = claim_ends, "claim"
         # A claim status that could not be read keeps the last one read, with its
         # `checked_at`; past two days it no longer raises `credit-claimable`.
         account["read_at"] = iso_utc(now)
@@ -806,7 +845,8 @@ def associate(lanes: Iterable[Mapping[str, Any]], identity: str | None, login: s
     return bound + named, how
 
 
-def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[str, Any]],
+def refresh(sensor: Sensor, *, logins: Iterable[Path],
+            lanes: Iterable[Mapping[str, Any]] | Callable[[], Iterable[Mapping[str, Any]]],
             previous: Mapping[str, Any] | None, heal: bool, heal_after_s: float,
             pace: Callable[[], None] | None = None,
             stop: Callable[[], bool] = lambda: False,
@@ -814,7 +854,9 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
     """One pass over every login: the next snapshot.
 
     `lanes` are the Claude lanes, each with `lane_id`, `identity`, `label`,
-    `account_key` and `held` (an operator hold in force); `associate` says which
+    `account_key` and `held` (an operator hold in force), or a callable that
+    returns them, asked again for every login so a hold placed during a pass
+    covers the logins read after it; `associate` says which
     a login backs. A turn is spent healing a login only when it backs at least
     one lane (enabled or not: a disabled lane's account may still be paid for and
     hold a card) and no lane it backs is held (a hold means spend nothing there).
@@ -823,7 +865,7 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
     login read, every other login at its last state, so a heal is on disk before
     the next login is read and a pass that dies cannot spend it again.
     """
-    lanes = [dict(lane) for lane in lanes]
+    lanes_now = lanes if callable(lanes) else (lambda fixed=[dict(lane) for lane in lanes]: fixed)
     before = {row.get("login"): row for row in (previous or {}).get("accounts") or [] if isinstance(row, dict)}
     accounts = []
     homes = list(logins)
@@ -834,7 +876,9 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
                 accounts.append({**prior, "healed": False})
             continue
         try:
-            account = _refresh_one(sensor, home, prior, lanes, heal=heal, heal_after_s=heal_after_s, pace=pace)
+            current_lanes = [dict(lane) for lane in lanes_now()]
+            account = _refresh_one(sensor, home, prior, current_lanes, heal=heal, heal_after_s=heal_after_s,
+                                   pace=pace, stop=stop)
         except Exception as error:                  # noqa: BLE001 - one login never stops the pass
             account = {**(prior or {"login": home.name, "home": str(home), "lanes": []}),
                        "status": UNAVAILABLE, "detail": f"read failed: {type(error).__name__}",
@@ -849,7 +893,7 @@ def refresh(sensor: Sensor, *, logins: Iterable[Path], lanes: Iterable[Mapping[s
 
 def _refresh_one(sensor: Sensor, home: Path, prior: Mapping[str, Any] | None,
                  lanes: list[dict[str, Any]], *, heal: bool, heal_after_s: float,
-                 pace: Callable[[], None] | None) -> dict[str, Any]:
+                 pace: Callable[[], None] | None, stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
     backed, _how = associate(lanes, (prior or {}).get("identity"), home.name)
     held = any(lane.get("held") for lane in backed)
     _token, _expired, expires = sensor.login_state(home)
@@ -861,15 +905,23 @@ def _refresh_one(sensor: Sensor, home: Path, prior: Mapping[str, Any] | None,
         account = {**prior, "healed": False}
     else:
         account = sensor.read(home, allow_heal=heal and bool(backed) and not held, previous=prior,
-                              heal_after_s=heal_after_s, pace=pace)
+                              heal_after_s=heal_after_s, pace=pace, stop=stop)
         if held and account["status"] == LOGIN_EXPIRED:
             account["status"], account["detail"] = HELD, "an operator hold covers this account; no turn is spent on it"
     backed, how = associate(lanes, account.get("identity"), home.name)
     account["lanes"], account["lanes_by"] = sorted(lane["lane_id"] for lane in backed), how
+    changed = bool(prior and prior.get("identity") and account.get("identity")
+                   and prior["identity"] != account["identity"])
+    if changed:
+        # The folder now holds another account: nothing the old one held is shown for it.
+        if account.get("status") != OK:
+            account.update(cards=None, credits=[], cloud_credit_claim=None, read_at=None)
+        elif (account.get("cloud_credit_claim") or {}).get("checked_at") != account.get("read_at"):
+            account["cloud_credit_claim"] = None
     found = lost_since(prior, account, sensor.now())
     if any(item["reason"] == "lapse" for item in found):
         account.update(cards=None, credits=[])
-    record = lost_items(prior or {}) + found
+    record = ([] if changed else lost_items(prior or {})) + found
     if record:
         account["lost"] = record
     return account
@@ -885,6 +937,10 @@ def view(snapshot: Mapping[str, Any] | None, now: datetime, *, warn_days: float,
     plan_ends = plan_ends or {}
     for account in accounts:
         account["unused_cards"] = sum(grant["resets_left"] for grant in unused_cards(account, now))
+        if isinstance(account.get("cards"), dict):
+            account["cards"] = {**account["cards"], "grants": [
+                {**grant, "ended": (ends := parse_time(grant.get("ends_at"))) is not None and ends <= now}
+                for grant in account["cards"].get("grants") or []]}
         declared = plan_end_for(account, plan_ends)
         account["plan_ends_at"] = iso_utc(declared) if declared else None
         account["claimable"] = claimable(account.get("cloud_credit_claim"), now)

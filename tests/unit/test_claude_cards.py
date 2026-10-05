@@ -254,7 +254,9 @@ class Login:
         self.heals.append(home.name)
         if self.renews:
             self.expires_ms = (self.clock().timestamp() + 8 * 3600) * 1000
-        return (0, "", "") if self.renews else (1, "", "Failed to authenticate")
+        # The CLI's own words when a login's refresh token is dead (observed 2026-10-05).
+        return (0, "", "") if self.renews else (
+            1, "", "Failed to authenticate: OAuth session expired and could not be refreshed")
 
 
 def sensor(wire, login, *, now=lambda: NOW):
@@ -553,10 +555,10 @@ def test_settled_login_is_not_read_again_within_a_day(tmp_path):
 def test_stopped_pass_keeps_unread_logins(tmp_path):
     """C-9.10: a pass stopped part way keeps the last snapshot of every login it did not reach."""
     previous = {"version": 1, "accounts": [{"login": "b", "status": "ok", "cards": {"grants": []}}]}
-    calls = iter([False, True])
-    sense = cc.Sensor(login_reader=Login().read, heal=None, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW)
+    wire = Wire(healthy())
+    sense = cc.Sensor(login_reader=Login().read, heal=None, version=lambda: "2", opener=wire, now=lambda: NOW)
     snap = cc.refresh(sense, logins=[tmp_path / "a", tmp_path / "b"], lanes=[], previous=previous,
-                      heal=False, heal_after_s=1, stop=lambda: next(calls))
+                      heal=False, heal_after_s=1, stop=lambda: len(wire.requests) >= 3)   # after a's read
     assert [row["login"] for row in snap["accounts"]] == ["a", "b"] and snap["accounts"][1]["status"] == "ok"
 
 
@@ -795,3 +797,124 @@ def test_heal_turn_leaves_nothing_running_after_a_normal_exit(tmp_path):
         clock.sleep(.1)
     else:
         pytest.fail("the heal's background child outlived the turn")
+
+
+# --- review round 3 ------------------------------------------------------------------
+
+
+def _usage_with(ends=None, credit_resets=None, cedar=None):
+    payload = json.loads(json.dumps(fixture("usage_unused_card_at_limit")))
+    if ends:
+        payload["cedar_ember"]["grants"][0]["ends_at"] = ends
+    if credit_resets:
+        payload["iguana_necktie"]["resets_at"] = credit_resets
+    if cedar is not None:
+        payload["cedar_ember"] = cedar
+    return payload
+
+
+def _pass(login, opener, when, previous, tmp_path, **kwargs):
+    return cc.refresh(cc.Sensor(login_reader=login.read, heal=None, version=lambda: "2", opener=opener, now=lambda: when),
+                      logins=[tmp_path / "a"], lanes=[], previous=previous, heal=False, heal_after_s=1, **kwargs)
+
+
+def test_a_card_whose_end_moved_later_is_not_lost_until_its_new_end(tmp_path):
+    """C-9.10: a card judged by the end the read now gives: still live at its new end is not lost;
+    unused past it is."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    moved = healthy()
+    moved[cc.CARDS_USAGE_URL] = [(200, _usage_with(ends="2026-10-29T16:00:00Z"), None)]
+    later = _pass(login, Wire(moved), NOW + timedelta(days=18), good, tmp_path)
+    assert "lost" not in later["accounts"][0]
+    past = _pass(login, Wire(moved), NOW + timedelta(days=25), later, tmp_path)
+    assert [item["grant"] for item in past["accounts"][0]["lost"]] == [CARD]
+
+
+def test_a_read_that_lists_no_cards_proves_no_loss(tmp_path):
+    """C-9.10: an `ok` read whose cards block is missing or ineligible says nothing about a card."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    for cedar in (None, {"eligible": False, "ineligible_reason": "surface", "grants": []}):
+        blind = healthy()
+        payload = _usage_with()
+        payload.pop("cedar_ember")
+        if cedar is not None:
+            payload["cedar_ember"] = cedar
+        blind[cc.CARDS_USAGE_URL] = [(200, payload, None)]
+        later = _pass(login, Wire(blind), NOW + timedelta(days=18), good, tmp_path)
+        assert later["accounts"][0]["status"] == "ok" and "lost" not in later["accounts"][0]
+
+
+def test_another_account_in_the_folder_records_no_loss(tmp_path):
+    """C-9.10: a login folder signed into another account starts afresh; the old account's cards and
+    credits are neither shown for it nor recorded lost."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    other = json.loads(json.dumps(fixture("profile_lapsed")))
+    other["account"]["uuid"], other["organization"]["uuid"] = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+    later = _pass(login, Wire({cc.PROFILE_URL: [(200, other, None)]}), NOW + timedelta(days=1), good, tmp_path)
+    row = later["accounts"][0]
+    assert row["status"] == "lapsed" and "lost" not in row and row["cards"] is None and row["credits"] == []
+
+
+def test_holds_are_read_again_for_every_login(tmp_path):
+    """C-9.10: a hold placed while a pass runs covers the logins read after it."""
+    logins = {"a": Login(expires_in_s=-60), "b": Login(expires_in_s=-60)}
+    many = Many(logins)
+    lanes = [{"lane_id": "claude-1", "identity": None, "label": "a", "account_key": "claude:a", "held": False},
+             {"lane_id": "claude-2", "identity": None, "label": "b", "account_key": "claude:b", "held": False}]
+    def current():
+        if logins["a"].heals:                      # the operator holds b once a has been healed
+            lanes[1]["held"] = True
+        return lanes
+    cc.refresh(cc.Sensor(login_reader=many.read, heal=many.heal, version=lambda: "2", opener=Wire(healthy()), now=lambda: NOW),
+               logins=[tmp_path / "a", tmp_path / "b"], lanes=current, previous=None, heal=True, heal_after_s=1)
+    assert logins["a"].heals == ["a"] and logins["b"].heals == []
+
+
+def test_no_heal_starts_once_the_daemon_is_stopping(tmp_path):
+    """C-9.10: a heal asked for after a stop began starts no process."""
+    import threading
+    stopping = threading.Event()
+    stopping.set()
+    def refuse(*args, **kwargs):
+        raise AssertionError("a heal was started during a stop")
+    assert cc.heal_turn(tmp_path, model="m", prompt="p", cancel=stopping, popen=refuse)[0] == 130
+
+
+def test_a_stop_ends_a_read_between_requests(tmp_path):
+    """C-9.10: a stop that lands during a read sends no further request."""
+    wire = Wire(healthy())
+    row = sensor(wire, Login()).read(tmp_path / "a", allow_heal=False, stop=lambda: len(wire.requests) >= 1)
+    assert row["status"] == "unavailable" and [r.full_url for r in wire.requests] == [cc.PROFILE_URL]
+
+
+def test_generic_auth_failure_is_not_a_dead_login(tmp_path):
+    """C-9.10: only the CLI saying the login cannot be renewed makes it dead; a bare auth failure is retried."""
+    login = Login(expires_in_s=-60, renews=False)
+    login.heal = lambda home: (login.heals.append(home.name), (1, "", "Failed to authenticate. API Error: 401"))[1]
+    row = sensor(Wire(healthy()), login).read(tmp_path / "a", allow_heal=True)
+    assert row["status"] == "unavailable" and row["heal"]["transient"] is True
+
+
+def test_cloud_credit_expiry_comes_from_the_claim_first(tmp_path):
+    """C-9.10: as the claude.ai frontend does, the cloud credit's expiry is the claim status's
+    `expires_at`, and the usage block's `resets_at` only when there is none."""
+    answers = healthy()
+    answers[cc.CARDS_USAGE_URL] = [(200, _usage_with(credit_resets="2026-12-31T00:00:00Z"), None)]
+    row = sensor(Wire(answers), Login()).read(tmp_path / "a", allow_heal=False)
+    [credit] = row["credits"]
+    assert credit["expires_at"] == "2026-11-05T07:59:00Z" and credit["expires_from"] == "claim"
+
+
+def test_ended_card_is_shown_as_ended_not_usable(tmp_path):
+    """C-9.10: a card past its end with a reset left reads 'ended unused', never 'usable now'."""
+    from subfleet import render
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    shown = cc.view(good, NOW + timedelta(days=18), warn_days=5)
+    text = "\n".join(render.card_lines(shown))
+    assert "reset card ended unused (opus55-launch-promax-20260921" in text and "usable now" not in text
+    compact = "\n".join(render.card_lines(shown, compact=True))
+    assert "card used" not in compact

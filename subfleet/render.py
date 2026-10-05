@@ -441,7 +441,9 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
         if rest:
             tally: dict[str, int] = {}
             for row in rest:
-                key = ("card used" if row.get("status") == "ok" and ((row.get("cards") or {}).get("grants"))
+                grants = (row.get("cards") or {}).get("grants") or []
+                key = ("card used" if row.get("status") == "ok" and any(g.get("resets_left", 0) == 0 for g in grants)
+                       else "card ended unused" if row.get("status") == "ok" and grants
                        else "nothing held" if row.get("status") == "ok" else str(row.get("status") or "unknown"))
                 tally[key] = tally.get(key, 0) + 1
             others.append("  others: " + ", ".join(f"{count} {key}" for key, count in sorted(tally.items()))
@@ -463,7 +465,10 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
         cards = account.get("cards") or {}
         grants = cards.get("grants") or []
         if status != "lapsed" and account.get("read_at"):
-            unused = [grant for grant in grants if grant.get("resets_left", 0) > 0]
+            unused = [grant for grant in grants if grant.get("resets_left", 0) > 0 and not grant.get("ended")]
+            ended = [grant for grant in grants if grant.get("resets_left", 0) > 0 and grant.get("ended")]
+            for grant in ended:
+                parts.append(f"reset card ended unused ({grant['id']}, ended {grant.get('ends_at')})")
             if unused:
                 for grant in unused:
                     note = ("usable now" if grant.get("usable_now")
@@ -471,7 +476,7 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
                     parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
                                  f"{grant.get('ends_at') or 'unknown'}, {note}"
                                  + (", account at its limit" if cards.get("at_limit") else ""))
-            elif grants:
+            elif grants and not ended:
                 parts.append("reset card used")
             elif cards and not cards.get("eligible"):
                 parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
