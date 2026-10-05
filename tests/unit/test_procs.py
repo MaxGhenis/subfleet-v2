@@ -141,6 +141,26 @@ def test_a_live_recorded_escape_without_markers_keeps_quarantine(monkeypatch):
     assert result.descendant_pids == {99} and not result.verified_empty
 
 
+@pytest.mark.parametrize('matching', [0, 1, 2])
+def test_any_identity_for_a_pid_can_establish_ownership(monkeypatch, matching):
+    records = tuple(procs.ProcessIdentity(99, '100', start) for start in ('first', 'second', 'third'))
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable(
+        {99: (1, 99, 'Ss', records[matching].proc_start), 101: (99, 101, 'S', 'child')}, boot_id='100'))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(None, None, None, 'job/a1', recorded={99: records})
+    assert result.live_pids == {99, 101} and not result.verified_empty
+
+
+def test_all_identities_must_be_proven_gone_before_a_pid_is_discarded(monkeypatch):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable(
+        {99: (1, 99, 'Ss', 'same')}, boot_id='1700000123'))
+    monkeypatch.setattr(procs.ProcessTable, 'legacy_seconds', lambda self: '1700000123')
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    records = (procs.ProcessIdentity(99, '1700000000', 'same'), procs.ProcessIdentity(99, 'old', 'gone'))
+    result = procs.containment(None, None, None, 'job/a1', recorded={99: records})
+    assert result.unverifiable and not result.verified_empty
+
+
 def test_recorded_writer_with_unavailable_start_identity_is_unverifiable(monkeypatch):
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({99: (1, 99, "S", "")}, boot_id="100"))
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")

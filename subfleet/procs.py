@@ -6,7 +6,7 @@ only pid sets and start identities may become durable evidence.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Sequence
 
 import fcntl
 import os
@@ -383,7 +383,7 @@ def group_members(pgid: int) -> dict[int, str]:
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None, *,
-                recorded: dict[int, ProcessIdentity] | None = None) -> Containment:
+                recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -418,19 +418,33 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
         gone, owned = set(), set()
-        for pid, known in (recorded or {}).items():
+        for pid, observations in (recorded or {}).items():
             try:
                 if not live(pid):
                     gone.add(pid)
                 elif not table[pid][3]:
                     raise InspectionError("missing process start identity")
-                elif table[pid][3] != known.proc_start:
-                    gone.add(pid)
                 else:
-                    match = boot_identity.matches(known.boot_id, seen.boot(), seen.legacy_seconds)
-                    if match is None:
-                        raise InspectionError("unknown boot identity")
-                    (owned if match else gone).add(pid)
+                    # No observation overrides another. Ownership needs one
+                    # match; death needs every observation proved different.
+                    records = (observations,) if isinstance(observations, ProcessIdentity) else observations
+                    uncertain = False
+                    for known in records:
+                        if table[pid][3] != known.proc_start:
+                            continue
+                        try:
+                            match = boot_identity.matches(known.boot_id, seen.boot(), seen.legacy_seconds)
+                        except InspectionError:
+                            match = None
+                        if match is True:
+                            owned.add(pid)
+                            break
+                        if match is None:
+                            uncertain = True
+                    if pid not in owned:
+                        if uncertain or not records:
+                            raise InspectionError("unknown boot identity")
+                        gone.add(pid)
             except InspectionError:
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
         groups = set(seen.group(pgid))

@@ -30,6 +30,7 @@ def test_live_shaped_v6_store_migrates_and_every_gone_attempt_is_released_fairly
     for n in range(211):
         (root / "jobs" / f"20260922-{n:06d}-fixture" / "a1").mkdir(parents=True)
     monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     register("codex", FakeAdapter)
     now = [datetime(2026, 10, 5, 12, tzinfo=timezone.utc)]
     monkeypatch.setattr(dm, "quarantine_time", lambda seconds=0: (now[0] + timedelta(seconds=seconds)).isoformat(

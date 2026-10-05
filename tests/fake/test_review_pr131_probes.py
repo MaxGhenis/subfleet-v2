@@ -181,12 +181,14 @@ def test_a_child_forked_by_a_live_recorded_writer_is_found_through_it(state_daem
 # --- 4. Liveness: an unrecorded child pid now used by an unrelated process ----
 
 def test_an_unrelated_process_on_the_child_pid_does_not_hold_for_ever(state_daemon, monkeypatch):
-    """The provider (child 500) exited before the quarantine census, so no identity
-    was recorded for it. Pid 500 now belongs to an unrelated long-lived process in its
-    own group. It roots the descendant walk, so the quarantine never resolves."""
+    """The provider exited before quarantine. Its launch receipt proves that
+    the unrelated long-lived process at its PID has a different identity.
+    Without that evidence, calling a bare PID unrelated cannot be safe."""
     daemon, harness = state_daemon
     a = quarantine(daemon, harness, held={"42099": ident(42099, "old-start")})
     daemon.store.update_attempt(a["attempt_id"], child_pid=500)
+    (daemon.root / "jobs" / a["job_id"] / "a1" / "start.json").write_text(json.dumps({
+        "child_pid": 500, "child_identity": ident(500, "provider-start")}))
     a = daemon.store.get_attempt(a["attempt_id"])
     script_table(monkeypatch, {500: (1, 500, "Ss", "unrelated")})
     census = daemon._contain(a)

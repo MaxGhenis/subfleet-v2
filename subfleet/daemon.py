@@ -70,6 +70,35 @@ from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_
 QUARANTINE_RECHECK_BATCH = 8
 QUARANTINE_PASS_S = 1.0
 
+
+def _json_object(raw: str | None) -> dict:
+    """Legacy quarantine text and JSON scalars contain no structured evidence."""
+    try:
+        value = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _identity_union(*sources: dict) -> dict[int, list[procs.ProcessIdentity]]:
+    """Retain every distinct observation of a PID, in observation order."""
+    recorded: dict[int, list[procs.ProcessIdentity]] = {}
+    for source in sources:
+        for pid, values in source.items():
+            for value in values if isinstance(values, list) else [values]:
+                ident = procs.ProcessIdentity(**value)
+                if ident.pid != int(pid):
+                    raise ValueError("recorded process identity disagrees with its pid")
+                records = recorded.setdefault(ident.pid, [])
+                if ident not in records:
+                    records.append(ident)
+    return recorded
+
+
+def _identity_history(*sources: dict) -> dict[str, list[dict]]:
+    return {str(pid): [dataclasses.asdict(ident) for ident in records]
+            for pid, records in _identity_union(*sources).items()}
+
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
 
@@ -5815,14 +5844,18 @@ class Daemon:
 
     def _contain(self, a: dict):
         evidence = json.loads(a.get("evidence_json") or "{}")
-        held = json.loads(a.get("quarantine_reason") or "{}")
-        # The latest observation of a pid wins: the quarantine census (and each
-        # recheck) saw it after the running attempt's owned members were recorded.
-        recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in
-                    {**evidence.get("owned_identities", {}), **held.get("identities", {})}.items()}
+        held = _json_object(a.get("quarantine_reason"))
+        start = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "start.json") or {}
+        child_pid = a.get("child_pid") or start.get("child_pid")
+        child = start.get("child_identity")
+        guardian = {}
         if a.get("guardian_pid") and a.get("boot_id") and a.get("proc_start"):
-            recorded.setdefault(a["guardian_pid"], procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"]))
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"),
+            guardian = {str(a["guardian_pid"]): {"pid": a["guardian_pid"], "boot_id": a["boot_id"],
+                                              "proc_start": a["proc_start"]}}
+        recorded = _identity_union(evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
+                                   held.get("identity_history", {}), held.get("identities", {}), guardian,
+                                   {str(child_pid): child} if child else {})
+        return procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
                                  a["attempt_id"], root=str(self.root), recorded=recorded)
 
     @staticmethod
@@ -5925,6 +5958,7 @@ class Daemon:
         owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
         if owned != before:
             evidence["owned_identities"] = owned
+            evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}), before, owned)
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
@@ -5994,10 +6028,13 @@ class Daemon:
         # may become additional signal targets. Escaped/new marker pids remain
         # evidence for quarantine, never authority inferred from a PID alone.
         owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
+        before = evidence.get("owned_identities", {})
         leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if leader_live:
             owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
+        evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}),
+                                                               before, evidence["owned_identities"])
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
         if a.get("pgid"):
@@ -6071,7 +6108,7 @@ class Daemon:
         """
         for a in self.store.query("SELECT * FROM attempts WHERE quarantine_notice_pending=1 AND quarantine_recheck_at<=? "
                                   "ORDER BY quarantine_recheck_at,attempt_id LIMIT ?", (quarantine_time(), QUARANTINE_RECHECK_BATCH)):
-            with self.store.transaction("quarantine.notice_retry", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            with self.store.transaction("quarantine.notice_retry", job_id=a["job_id"], attempt_id=a["attempt_id"], audit=False) as tx:
                 tx.execute("UPDATE attempts SET quarantine_recheck_at=? WHERE attempt_id=?",
                            (quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
             try:
@@ -6104,18 +6141,22 @@ class Daemon:
     def _resolve_quarantine_once(self, a: dict, args: protocol.KillArgs | None) -> None:
         automatic = args is None
         force = bool(args and args.force_release)
-        with self.store.transaction("quarantine.recheck_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+        with self.store.transaction("quarantine.recheck_started", job_id=a["job_id"], attempt_id=a["attempt_id"], audit=False) as tx:
             tx.execute("UPDATE attempts SET quarantine_recheck_at=? WHERE attempt_id=?",
                        (quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
         census = self._contain(a)
         if not force and not census.verified_empty:
             # Preserve the last known writers even when an unavailable marker
             # read supplies no identities. They are checked on the next pass.
-            previous = json.loads(a["quarantine_reason"] or "{}")
-            detail = {**previous, **census.to_dict(),
-                      "identities": {**previous.get("identities", {}), **census.to_dict()["identities"]}}
-            with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
-                tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(detail), a["attempt_id"]))
+            previous = _json_object(a["quarantine_reason"])
+            current = census.to_dict()
+            detail = {**previous, **current,
+                      "identities": {**previous.get("identities", {}), **current["identities"]},
+                      "identity_history": _identity_history(previous.get("identity_history", {}),
+                                                            previous.get("identities", {}), current["identities"])}
+            if detail != previous:
+                with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=current) as tx:
+                    tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(detail), a["attempt_id"]))
             return
         artifacts, salvage_evidence = [], {}
         job = self._job(a["job_id"])
@@ -6157,7 +6198,7 @@ class Daemon:
         self._notify()
 
     def _quarantine_turn_notice(self, a: dict) -> None:
-        turn = (self._read_json(self.root / "jobs" / a["job_id"] / "manifest.json") or {}).get("turn")
+        turn = self._manifest_turn(a["job_id"])
         if not turn:
             # No conversation to tell (a legacy turn, or a manifest lost to a crash):
             # as `_turn_trees` does, skip the line. Raising here, after the release
@@ -6173,6 +6214,15 @@ class Daemon:
         self.conversations.record_quarantine_release(turn, a, override=override)
         with self.store.transaction("quarantine.turn_notified", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET quarantine_notice_pending=0 WHERE attempt_id=?", (a["attempt_id"],))
+
+    def _manifest_turn(self, job_id: str) -> dict | None:
+        """A corrupt conversation manifest has nobody identifiable to notify."""
+        try:
+            manifest = self._read_json(self.root / "jobs" / job_id / "manifest.json")
+        except (ValueError, UnicodeError):
+            return None
+        turn = manifest.get("turn") if isinstance(manifest, dict) else None
+        return turn if isinstance(turn, dict) else None
 
     def _lost(self, a: dict) -> None:
         self._finalize(a, lost=True)
@@ -6407,7 +6457,7 @@ class Daemon:
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))
             self._boundary("trees", job["job_id"], a["attempt_id"])
-        turn = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
+        turn = self._manifest_turn(job["job_id"])
         if turn:
             self.conversations.record_trees(turn, a, receipt)
         return receipt

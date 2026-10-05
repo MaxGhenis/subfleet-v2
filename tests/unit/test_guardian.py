@@ -62,6 +62,63 @@ def test_guardian_start_published_before_spawn(tmp_path, guardian_identity):
     assert rc == 0
 
 
+@pytest.mark.parametrize('relay', [False, True])
+def test_provider_identity_is_durable_before_wait_or_relay(tmp_path, monkeypatch, guardian_identity, relay):
+    """C-5.5: an escaped provider and an unrelated reused PID can be distinguished."""
+    provider = {'pid': 500, 'boot_id': 'test-boot', 'proc_start': 'provider-start'}
+    monkeypatch.setattr(guardian, 'proc_start',
+                        lambda pid: 'provider-start' if pid == 500 else 'guardian-start')
+    def check():
+        start = json.loads((tmp_path / 'start.json').read_text())
+        assert start['child_pid'] == 500
+        assert start['child_identity'] == provider
+    class Child:
+        pid = 500
+        def poll(self):
+            return None
+        def wait(self):
+            check()
+            return 0
+    monkeypatch.setattr(guardian.subprocess, 'Popen', lambda *args, **kwargs: Child())
+    class Relay:
+        def __init__(self, *args, **kwargs):
+            pass
+        def bind(self):
+            pass
+        def serve(self, fd, **kwargs):
+            check()
+            os.close(fd)
+        def stop(self):
+            pass
+    from subfleet import relay as relay_module
+    monkeypatch.setattr(relay_module, 'RelayServer', Relay)
+    assert guardian.run_guardian(['provider'], attempt_dir=tmp_path, cwd=str(tmp_path),
+        stdin_path=None, stdout_path=str(tmp_path / 'stdout'), stderr_path=str(tmp_path / 'stderr'),
+        control_socket=str(tmp_path / 'relay.sock') if relay else None) == 0
+
+
+def test_child_identity_inspection_failure_still_waits_and_writes_exit(tmp_path, monkeypatch, guardian_identity):
+    from subfleet.procs import InspectionError
+    def start(pid):
+        if pid == 500:
+            raise InspectionError('ps unavailable')
+        return 'guardian-start'
+    monkeypatch.setattr(guardian, 'proc_start', start)
+    waited = []
+    class Child:
+        pid = 500
+        def poll(self):
+            return None
+        def wait(self):
+            waited.append(True)
+            return 0
+    monkeypatch.setattr(guardian.subprocess, 'Popen', lambda *args, **kwargs: Child())
+    assert guardian.run_guardian(['provider'], attempt_dir=tmp_path, cwd=str(tmp_path),
+        stdin_path=None, stdout_path=str(tmp_path / 'stdout'), stderr_path=str(tmp_path / 'stderr')) == 0
+    assert waited == [True]
+    assert json.loads((tmp_path / 'exit.json').read_text())['child_pid'] == 500
+
+
 def test_guardian_launch_gate_eof_prevents_unrecorded_provider(tmp_path, guardian_identity):
     """C-4.2 a daemon crash before its starting commit cannot launch a provider."""
     reader, writer = os.pipe()

@@ -309,11 +309,13 @@ class Store:
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
-                    data: Mapping[str, Any] | None = None) -> Iterator[sqlite3.Connection]:
+                    data: Mapping[str, Any] | None = None, audit: bool = True) -> Iterator[sqlite3.Connection]:
         """C-3.2: serialize a mutation and its audit event; nested calls use savepoints.
 
         C-3.7: never inside a `snapshot()` on the same thread (`SnapshotWriteError`);
-        another thread's transaction is how a commit reaches a snapshot's lifetime."""
+        another thread's transaction is how a commit reaches a snapshot's lifetime.
+        `audit=False` is only for retry-clock bookkeeping, never state transitions;
+        it still commits atomically and advances the store generation."""
         if self.read_only:
             raise sqlite3.OperationalError("store is read-only")
         if getattr(self._local, "in_snapshot", False):
@@ -329,7 +331,7 @@ class Store:
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if audit and self.connection.total_changes != before:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))

@@ -13,7 +13,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .procs import boot_id, proc_start
+from .procs import InspectionError, boot_id, proc_start
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
 # daemon at the default QoS (launchd `ProcessType` `Interactive`) never lifts it over the
@@ -153,6 +153,19 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     spawn_error = None
     qos = provider_qos()
     command = provider_argv(argv, qos)
+
+    def record_child():
+        # The guardian has not reaped this child, so its PID cannot yet be
+        # recycled. Publish before waiting or serving the long-lived relay.
+        start["child_pid"] = child.pid
+        try:
+            child_start = proc_start(child.pid)
+        except InspectionError:
+            child_start = None
+        if child_start:
+            start["child_identity"] = {"pid": child.pid, "boot_id": start["boot_id"], "proc_start": child_start}
+        _receipt(attempt_dir / "start.json", start)
+
     try:
         with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
             if relay is not None:
@@ -164,6 +177,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     raise
                 finally:
                     os.close(read_end)
+                record_child()
                 relay.serve(write_end, child=child)
                 try:
                     rc = child.wait()
@@ -176,6 +190,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     if os.environ.get("SUBFLEET_PROBE"):
                         _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
                     child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                    record_child()
                     rc = child.wait()
     except OSError as exc:
         rc = 127
