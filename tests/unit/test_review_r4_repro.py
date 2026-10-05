@@ -188,6 +188,61 @@ def test_unannounced_refusal_survives_rearm(svc, tmp_path, monkeypatch):
     assert len(wake_rows(svc, cid)) == 1, "an observed refusal was suppressed even though nobody received it"
 
 
+def test_unannounced_refusal_survives_repeated_rearms_and_restart(svc, tmp_path, monkeypatch):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    job = turn_job(svc, cid, 1, state="running")
+    arm(svc, cid, prs=["o/r#1"])
+    fake_gh(tmp_path, monkeypatch, {"data": {"p0": {"pullRequest": None}}})
+    clock[0] = T0 + 61
+    svc.wakes.tick()
+    assert wake_rows(svc, cid) == []
+    for offset in (70, 80, 90):
+        clock[0] = T0 + offset
+        arm(svc, cid, prs=["o/r#1"])
+    svc.wakes.close()
+    svc.store.close()
+    svc.store = ConversationStore(svc.root)
+    svc.wakes = wakes.WakeEngine(svc)
+    svc.wakes.now = lambda: clock[0]
+    arm(svc, cid, prs=["o/r#1"])
+    svc.daemon.store.update_job(job, state="succeeded")
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 1
+    assert "PR watch refused: o/r#1" in wake_texts(svc, cid)[0]
+    arm(svc, cid, prs=["o/r#1"])
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 1
+
+
+def test_superseded_poll_cannot_suppress_an_undelivered_refusal(svc, tmp_path, monkeypatch):
+    cid = bound(svc)
+    clock = [T0]
+    svc.wakes.now = lambda: clock[0]
+    job = turn_job(svc, cid, 1, state="running")
+    arm(svc, cid, prs=["o/r#1"])
+    fake_gh(tmp_path, monkeypatch, {"data": {"p0": {"pullRequest": None}}})
+    original = wakes.query_prs
+
+    def interleaved(targets):
+        snapshots = original(targets)
+        clock[0] = T0 + 62
+        arm(svc, cid, prs=["o/r#1"])
+        return snapshots
+
+    monkeypatch.setattr(wakes, "query_prs", interleaved)
+    clock[0] = T0 + 61
+    svc.wakes.control_tick()
+    svc.wakes._poll_future.result(timeout=10)
+    monkeypatch.setattr(wakes, "query_prs", original)
+    assert svc.store.query("SELECT * FROM wake_pr_refusals WHERE conversation_id=?", (cid,)) == []
+    svc.daemon.store.update_job(job, state="succeeded")
+    poll_and_settle(svc, cid, clock)
+    assert len(wake_rows(svc, cid)) == 1
+    assert "PR watch refused: o/r#1" in wake_texts(svc, cid)[0]
+
+
 def test_claim_deferral_converges_on_the_next_tick(svc, tmp_path, monkeypatch):
     cid = bound(svc)
     clock = [T0]

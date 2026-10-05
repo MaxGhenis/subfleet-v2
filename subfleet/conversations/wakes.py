@@ -291,7 +291,7 @@ class WakeEngine:
             if superseded and superseded["observed_json"]:
                 ready = set(json.loads(superseded["ready_json"] or "[]"))
                 for target, snapshot in json.loads(superseded["observed_json"]).items():
-                    if target in ready and not snapshot.get("error"):
+                    if target in ready:
                         carried.add(target)
                     elif target not in ready:
                         baseline[target] = snapshot
@@ -415,8 +415,9 @@ class WakeEngine:
             windows = {row["target"]: row["event_since"] for row in self.store.query(
                 "SELECT target,event_since FROM wake_pr_windows WHERE conversation_id=? AND request_id=?",
                 (r["conversation_id"], r["request_id"]))}
-            # A target already refused here is announced once; it stays watched so
-            # that it can resolve later (a PR opened after the watch, access restored).
+            # Repeated refusal observations are suppressed. Until delivery, its
+            # ready snapshot stays latched and register carries it across re-arms.
+            # The target stays watched so it can resolve when access returns.
             refused = {row["target"] for row in self.store.query(
                 "SELECT target FROM wake_pr_refusals WHERE conversation_id=?", (r["conversation_id"],))}
             changed = [p for p in watched if p in snapshots and (
@@ -425,9 +426,13 @@ class WakeEngine:
                  pr_event_since(snapshots[p], windows.get(p, r["created_at"]))))]
             observed = {**before, **{p: snapshots[p] for p in watched if p in snapshots}}
             with self.store.transaction() as tx:
-                tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
+                updated = tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
                            "AND kind='pr' AND state='pending'", (json.dumps(observed), json.dumps(changed) if changed else None,
                                                                r["conversation_id"], r["request_id"]))
+                # A superseded poll cannot latch readiness, so it must not record
+                # a refusal that would suppress the replacement's first alert.
+                if not updated.rowcount:
+                    continue
                 tx.executemany("INSERT OR REPLACE INTO wake_pr_refusals VALUES(?,?,?)",
                                [(r["conversation_id"], p, snapshots[p]["error"]) for p in watched
                                 if p in snapshots and snapshots[p].get("error")])
