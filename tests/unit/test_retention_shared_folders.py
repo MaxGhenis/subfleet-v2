@@ -119,11 +119,11 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         observed = []
 
         def begin(retirement, job, pool):
-            assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?",
-                                    (folders.exclusive_key(folders.canonical(wt)),)), "canonical retirement fence missing"
             daemon._admit_turns()
             observed.append(turn)
-            assert not _live(daemon, turn), daemon._holds
+            assert not _live(daemon, turn), "turn reserved while retirement held its folder"
+            assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                                    (folders.exclusive_key(folders.canonical(wt)),)), "canonical retirement fence missing"
             assert folders.turn_holds(daemon.store.query, folders.canonical(wt)) == []
             assert daemon._holds[turn]["reason"] == "lease-held"
             raise rarch.Defer("test finished at fence", 1)
@@ -137,7 +137,7 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         assert _live(daemon, turn), daemon._holds
 
 
-phase = st.sampled_from(["select", "begin", "archive", "verify", "delete"])
+phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete"])
 operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans())
 
 
@@ -146,6 +146,7 @@ operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans())
 @example([("select", "start", False)])
 @example([("begin", "start", True), ("archive", "end", True), ("delete", "start", False)])
 @example([("begin", "start", False)])
+@example([("lock", "start", True), ("lock", "start", False)])
 @given(st.lists(operation, min_size=0, max_size=25))
 def test_interleavings_never_delete_a_folder_named_by_a_turn(schedule):
     """Generate starts/ends at each real archive-driver boundary.
@@ -194,6 +195,7 @@ def test_interleavings_never_delete_a_folder_named_by_a_turn(schedule):
                 patch.setattr(cls, method, wrapped)
 
             wrap(retention._Pass, "_start", "begin")
+            wrap(rarch.Retirement, "lock", "lock")
             wrap(rarch.Retirement, "archive", "archive")
             wrap(rarch.Retirement, "final_check", "verify")
             wrap(rarch.Retirement, "quarantine", "quarantine", check=True)
@@ -219,3 +221,16 @@ def test_archive_journal_and_fence_use_the_same_folder_spelling(world):
     result = run(world)
     assert result["pruned"] == ["MixedCase"], result
     assert not wt.exists() and not world.admin("MixedCase").exists()
+
+
+def test_turn_pin_recheck_does_no_filesystem_work_in_transaction(world, monkeypatch):
+    wt = world.job("job")
+    world.store.acquire_lease(folders.turn_key(str(wt), "live", writable=False), "live")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("folder spelling must be established outside retention transactions")
+
+    monkeypatch.setattr(folders, "canonical", unexpected)
+    monkeypatch.setattr(folders, "_kernel_path", unexpected)
+    with world.store.transaction():
+        assert retention._pin_reasons(world.store, set(), None, only="job")["job"] == "turn-folder"
