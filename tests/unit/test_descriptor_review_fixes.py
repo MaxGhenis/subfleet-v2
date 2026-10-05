@@ -585,6 +585,8 @@ from subfleet import daemon as dm
 from subfleet.daemon import Daemon
 dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
+signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts: this run may have
+                                                         # left it ignored, and children inherit that
 real_write, real_policy = Daemon._write_lock, dm.load_policy
 state = {"fail_clear": True, "fail_policy": True}
 
@@ -770,6 +772,8 @@ from subfleet import daemon as dm
 from subfleet.daemon import Daemon
 dm.procs.boot_id = lambda: "fake-boot"
 dm.procs.proc_start = lambda pid: "fake-start"
+signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts: this run may have
+                                                         # left it ignored, and children inherit that
 
 def disposition():
     libc = ctypes.CDLL(None, use_errno=True)
@@ -881,21 +885,32 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     middle = Daemon(tmp_path / "middle")
     newest = Daemon(tmp_path / "newest")
     assert daemon_module._STACK_DUMPS() is newest
-    entered, release, cleared = threading.Event(), threading.Event(), threading.Event()
-    real_write = Daemon._write_lock
+    entered, release, reached = threading.Event(), threading.Event(), threading.Event()
+    real_lock, middle_closing = daemon_module._DUMPS_LOCK, []
 
-    def write(self, *, stack_dumps):
-        real_write(self, stack_dumps=stack_dumps)
-        if self is middle and not stack_dumps:
-            cleared.set()                                   # middle is at its revocation
+    class Watched:
+        """`_DUMPS_LOCK`, saying when middle's close comes to take it: the step
+        just before it decides whether it holds the signal (review of 78bfbf0,
+        P3: a checkpoint any earlier let an unserialised close pass)."""
+
+        def __enter__(self):
+            if middle_closing and threading.current_thread() is middle_closing[0]:
+                reached.set()
+            return real_lock.__enter__()
+
+        def __exit__(self, *exc):
+            return real_lock.__exit__(*exc)
+
+        def _is_owned(self):
+            return real_lock._is_owned()
 
     def register(*args, **kwargs):
         result = faulthandler.register(*args, **kwargs)
         if kwargs.get("file") is middle._log_handler.stream and not entered.is_set():
             entered.set()                                   # registered on middle's stream, not yet recorded
-            release.wait(120)                               # until the test says, however slow the runner
+            release.wait()                                  # until the test releases it, in `finally`
         return result
-    monkeypatch.setattr(Daemon, "_write_lock", write)
+    monkeypatch.setattr(daemon_module, "_DUMPS_LOCK", Watched())
     monkeypatch.setattr(daemon_module, "faulthandler",
                         SimpleNamespace(register=register, unregister=faulthandler.unregister,
                                         dump_traceback_later=faulthandler.dump_traceback_later))
@@ -904,9 +919,10 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     try:
         assert entered.wait(10), "newest never handed the signal to middle"
         closing_middle = threading.Thread(target=middle.close)
+        middle_closing.append(closing_middle)
         closing_middle.start()
-        assert cleared.wait(30), "middle's close never reached its revocation"
-        closing_middle.join(.5)                             # from here an unserialised close takes microseconds
+        assert reached.wait(10), "middle's close never came to take _DUMPS_LOCK"
+        closing_middle.join(1)                              # unserialised, it would be done in microseconds
         assert closing_middle.is_alive(), "middle closed between the hand-off's two steps"
         assert not middle._log_handler.stream.closed
     finally:
@@ -920,3 +936,92 @@ def test_c3_6_a_daemon_closing_while_the_signal_is_handed_to_it_hands_it_on(tmp_
     finally:
         oldest.close()
     assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
+
+
+
+# --- review round 7 (of 78bfbf0): a daemon that cannot make SIGUSR1 safe -------
+
+def test_c3_6_a_daemon_that_cannot_ignore_sigusr1_beneath_does_not_say_stack_dumps(tmp_path, monkeypatch,
+                                                                                    isolated_dumps):
+    """Review of 78bfbf0, P2 (GPT): when setting SIGUSR1 ignored failed, the daemon
+    logged it and registered over the default action anyway, and its lock said
+    `stack_dumps`; the last close or the interpreter's exit put the default back,
+    and a `daemon stacks` that had read the flag ended the host (exit -30). Now it
+    neither registers nor says `stack_dumps`, and `daemon stacks` refuses it."""
+    assert not daemon_module._ADVERTISED                    # so this daemon takes the signal fresh
+
+    def failing():
+        raise OSError(22, "Invalid argument")
+    monkeypatch.setattr(daemon_module, "_ignore_sigusr1", failing)
+    core = Daemon(tmp_path / "unsafe")
+    try:
+        assert "stack_dumps" not in json.loads((tmp_path / "unsafe" / "daemon.lock").read_text())
+        assert core._dumps_token not in daemon_module._ADVERTISED and daemon_module._STACK_DUMPS is None
+        core._log_handler.flush()
+        assert "does not dump stacks on SIGUSR1" in (tmp_path / "unsafe" / "daemon.log").read_text()
+    finally:
+        core.close()
+    assert daemon_module._STACK_DUMPS is None and not daemon_module._ADVERTISED
+
+
+HOST = r"""
+import json, os, signal, sys, threading
+from pathlib import Path
+from subfleet import daemon as dm
+from subfleet.daemon import Daemon
+dm.procs.boot_id = lambda: "fake-boot"
+dm.procs.proc_start = lambda pid: "fake-start"
+signal.signal(signal.SIGUSR1, signal.SIG_DFL)            # as a fresh host starts: this run may have
+                                                         # left it ignored, and children inherit that
+base, case = Path(sys.argv[1]), sys.argv[2]
+built = {}
+
+def build():
+    built["d"] = Daemon(base / "d")
+
+if case.startswith("host-"):
+    signal.signal(signal.SIGUSR1, lambda *_: None)        # the host's own Python handler
+if case == "host-main":
+    build()
+else:
+    worker = threading.Thread(target=build)
+    worker.start(); worker.join()
+table = signal.getsignal(signal.SIGUSR1)
+print(json.dumps({"stack_dumps": json.loads((base / "d" / "daemon.lock").read_text()).get("stack_dumps"),
+                  "table": "ignore" if table == signal.SIG_IGN else "callable" if callable(table) else "other"}),
+      flush=True)
+if case == "off-main-exit":
+    class AtExit:
+        def __del__(self):
+            os.kill(os.getpid(), signal.SIGUSR1)          # a `daemon stacks` while the interpreter exits
+    at_exit = AtExit()                                    # dropped as the modules are torn down, the daemon open
+"""
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("host-off-main", {"stack_dumps": None, "table": "callable"}),
+    ("host-main", {"stack_dumps": True, "table": "ignore"}),
+    ("off-main-exit", {"stack_dumps": True, "table": "other"}),
+])
+def test_c3_6_a_daemon_says_stack_dumps_only_where_the_signal_stays_safe_through_exit(tmp_path, case, expected):
+    """Review of 78bfbf0, P2 (GPT) and P3-1 (Opus): a host with a Python SIGUSR1
+    handler of its own built a daemon off the main thread. libc set SIGUSR1 ignored,
+    but Python's table kept the host's handler, and Python's exit reset that to the
+    default action before faulthandler let go: a `daemon stacks` during the exit
+    ended the host (exit -30). Such a daemon now does not say `stack_dumps`. On the
+    main thread `signal.signal` puts SIG_IGN in the table too, and the daemon says
+    so. With no host handler, a daemon built off the main thread and left open
+    dumps a signal sent while the interpreter tears its modules down, and the
+    process exits 0 (the real exit, not a stand-in for it)."""
+    import os
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and not k.startswith("SUBFLEET_")}
+    env["PYTHONPATH"] = str(repo)
+    done = subprocess.run([sys.executable, "-c", HOST, str(tmp_path), case], cwd=repo, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (done.returncode, done.stderr[-2000:])
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == expected
+    if case == "off-main-exit":
+        assert "(most recent call first)" in (tmp_path / "d" / "daemon.log").read_text(errors="replace")

@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ctypes
-import ctypes.util
 import dataclasses
 import errno
 import faulthandler
@@ -569,12 +568,12 @@ class Daemon:
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
-        self._enable_stack_dumps()
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
         # says so: `daemon stacks` signals only a daemon whose lock says
-        # `stack_dumps`, never one that would die of the signal. This daemon is
-        # already one of `_ADVERTISED`, and stays until its lock stops saying so.
-        self._write_lock(stack_dumps=True)
+        # `stack_dumps`, never one that would die of the signal. A daemon saying so
+        # is already one of `_ADVERTISED`, and stays until its lock stops saying so;
+        # one that could not make the signal safe does not say so.
+        self._write_lock(stack_dumps=self._enable_stack_dumps())
         soft, hard = descriptors.open_file_limits()
         self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
                       "idle ones closed after %g s",
@@ -6713,26 +6712,37 @@ class Daemon:
         os.pwrite(self._lock_fd, json_bytes(record), 0)
         os.fsync(self._lock_fd)
 
-    def _enable_stack_dumps(self) -> None:
+    def _enable_stack_dumps(self) -> bool:
         """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
 
         `faulthandler` writes from the signal handler itself, so the dump
         arrives even when every Python thread is stuck behind a lock, the GIL
         or a pool (`subfleet daemon stacks` sends the signal). Registered as
         soon as the log is open, and before `daemon.lock` says so: SIGUSR1's
-        default action is to end the process.
+        default action is to end the process. False when the signal could not
+        be made safe: the lock must then not say `stack_dumps`.
         """
         self._dumps_token = next(_DUMPS_TOKENS)
         stream = self._log_handler.stream
         stream.flush()
         with _DUMPS_LOCK:
-            self._take_sigusr1(stream)
+            return self._take_sigusr1(stream)
 
-    def _take_sigusr1(self, stream) -> None:
+    def _take_sigusr1(self, stream) -> bool:
         """`_enable_stack_dumps`, under `_DUMPS_LOCK`: take SIGUSR1 and join
         `_ADVERTISED`, so no daemon handing the signal on in between finds this
         one missing and lets it go (review of 1efa0ef, P3)."""
         global _STACK_DUMPS
+        if threading.current_thread() is not threading.main_thread() and callable(
+                signal.getsignal(signal.SIGUSR1)):
+            # The host has a Python SIGUSR1 handler of its own. Python's exit resets
+            # it to the default action before faulthandler lets the signal go, and
+            # off the main thread nothing can put SIG_IGN in Python's table in its
+            # place: a `daemon stacks` during that exit would end the host (review
+            # of 78bfbf0, P2). So this daemon does not dump stacks.
+            self.log.warning("SIGUSR1 has a Python handler of the host's own, and this daemon was built "
+                             "off the main thread: it does not dump stacks on SIGUSR1")
+            return False
         if not _ADVERTISED:
             # Taking the signal fresh. A daemon built earlier in this process
             # (tests build several) may hold the registration still, and
@@ -6747,17 +6757,22 @@ class Daemon:
             # ends nothing (review of 2300b43, P2: the default action, saved
             # beneath a daemon built off the main thread, ended the host). A
             # child started while the handler is in place gets the default
-            # action back at exec, as with any handler.
+            # action back at exec, as with any handler; one started after the
+            # last close inherits SIGUSR1 ignored.
             try:
                 _ignore_sigusr1()
             except (OSError, AttributeError) as exc:
+                # Registered over the default action, faulthandler would put that
+                # back at the last close or at exit (review of 78bfbf0, P2).
                 self.log.warning("could not set SIGUSR1 to be ignored beneath its handler (%s): "
-                                 "a signal racing the last close may end this process", exc)
+                                 "this daemon does not dump stacks on SIGUSR1", exc)
+                return False
         # While another daemon's lock says `stack_dumps`, the handler is replaced
         # in place, never let go first (review r3, P1).
         faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
         _STACK_DUMPS = weakref.ref(self)
         _ADVERTISED[self._dumps_token] = (_STACK_DUMPS, stream)
+        return True
 
     def _disable_stack_dumps(self) -> bool:
         """C-3.6: `daemon.lock` stops saying `stack_dumps`, then this daemon leaves
@@ -6882,7 +6897,7 @@ def _ignore_sigusr1() -> None:
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         return
-    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    libc = ctypes.CDLL(None, use_errno=True)              # this process's own symbols: no ldconfig
     libc.signal.restype = ctypes.c_void_p
     libc.signal.argtypes = (ctypes.c_int, ctypes.c_void_p)
     if libc.signal(signal.SIGUSR1, 1) == ctypes.c_void_p(-1).value:   # SIG_IGN, SIG_ERR
