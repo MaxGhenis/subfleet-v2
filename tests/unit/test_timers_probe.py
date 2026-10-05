@@ -52,11 +52,13 @@ def rig(tmp_path, monkeypatch):
     with Store(tmp_path / "state.sqlite3") as store:
         timer = Timers(store, tmp_path, policy, adapter_factory=lambda _: adapter, now=clock)
 
-        def enroll(identity="codex-1", *, enabled=True, owner=LaneOwner.V2, desktop=False, account=None):
+        def enroll(identity="codex-1", *, enabled=True, owner=LaneOwner.V2, desktop=False, account=None,
+                   provider="codex"):
             home = tmp_path / identity
             home.mkdir(exist_ok=True)
             (home / "auth.json").write_text(json.dumps({"last_refresh": "first"}))
-            lane = Lane(identity, "codex", account or "codex:" + identity, Credential("codex", str(home), "home"),
+            lane = Lane(identity, provider, account or provider + ":" + identity,
+                        Credential(provider, str(home), "home"),
                         str(home), owner, desktop, enabled)
             store.put_lane(lane)
             return lane
@@ -71,21 +73,25 @@ def events(store, kind, lane_id=None):
             if (lane_id is None or row["lane_id"] == lane_id) and json.loads(row["data_json"])]
 
 
-def test_probe_once_per_idle_enabled_lane_per_window(rig):
-    """C-18.1, C-8.4, C-9.1: each idle enabled lane writes readings once per window without jobs."""
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_probe_once_per_idle_enabled_lane_per_cycle(rig, monkeypatch, provider):
+    """C-18.1, C-8.4, C-9.1: every cycle reads each enabled lane without jobs, even immediately."""
     timer, store, clock, adapter, enroll = rig
-    enroll("codex-1")
-    enroll("codex-2")
-    enroll("disabled", enabled=False)
-    enroll("legacy", owner=LaneOwner.V1)
+    monkeypatch.setattr(timer, "_pace_usage", lambda: None)
+    lane_ids = [provider + "-1", provider + "-2"]
+    for lane_id in lane_ids:
+        enroll(lane_id, provider=provider)
+    enroll("disabled", enabled=False, provider=provider)
+    enroll("legacy", owner=LaneOwner.V1, provider=provider)
+    enroll("desktop", desktop=True, provider=provider)
     timer.probe_cycle()
     timer.probe_cycle()
-    assert sorted(adapter.calls) == ["codex-1", "codex-2"]
-    assert len(store.list_readings()) == 2
+    assert sorted(adapter.calls) == sorted(lane_ids * 2)
+    assert len(store.list_readings()) == 4
     clock.advance()
     timer.probe_cycle()
-    assert sorted(adapter.calls) == ["codex-1", "codex-1", "codex-2", "codex-2"]
-    assert len(store.list_readings()) == 4
+    assert sorted(adapter.calls) == sorted(lane_ids * 3)
+    assert len(store.list_readings()) == 6
     assert store.list_jobs() == []
     assert (timer.root / "status.json").exists()
 

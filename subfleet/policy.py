@@ -157,6 +157,8 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
 #: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: `weekly_reserve` and `five_hour_reserve` are fractions remaining below which
+#: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
@@ -168,16 +170,30 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
 #: closure must end to count as a hold rather than a wait (C-11.8): seven days
 #: is the longest usage window Subfleet reads (`seven_day`).
+#: `prove_idle_s` is how long a lane may go without showing a model's answer
+#: before it is proven again by one detached attempt, its pilot, while every
+#: other detached attempt waits for that answer (C-6.14); null never holds a
+#: lane. Fifteen probe intervals: a lane in use proves itself with every
+#: attempt it starts and never waits, and a lane idle that long costs one
+#: serialized start, where an unproven lane took 37 jobs in 40 s on
+#: 2026-09-30 and failed every one. `prove_wait_s` is how long a pilot that has
+#: not answered keeps its lane to itself; after it the lane takes one more
+#: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
+#: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
+    "prove_idle_s": 900,
+    "prove_wait_s": 300,
 }
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
@@ -345,6 +361,9 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    for key in ("weekly_reserve", "five_hour_reserve"):
+        if not _fraction(settings[key]):
+            fail(f"admission.{key}", "must be a finite fraction between 0 and 1")
     recent = settings["desktop_recent_s"]
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
@@ -379,6 +398,16 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     far = settings["pin_hold_far_s"]
     if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
         fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    prove = settings["prove_idle_s"]
+    if prove is not None and (not isinstance(prove, (int, float)) or isinstance(prove, bool)
+                              or not math.isfinite(prove) or prove <= 0):
+        fail("admission.prove_idle_s", "must be a positive finite number of seconds, or null never to hold "
+                                       "a lane for its pilot (C-6.14)")
+    wait = settings["prove_wait_s"]
+    if wait is not None and (not isinstance(wait, (int, float)) or isinstance(wait, bool)
+                             or not math.isfinite(wait) or wait <= 0):
+        fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
+                                       "pilot's answer however long (C-6.14)")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
