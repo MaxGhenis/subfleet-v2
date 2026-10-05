@@ -140,7 +140,8 @@ def test_satisfied_alternatives_do_not_hold_an_unrelated_result(svc):
     svc.wakes.tick()
     assert len(rows(svc, cid)) == 2
     assert "unrelated finished" in svc.store.message_text(svc.store.message(rows(svc, cid)[1]["message_id"]))
-    assert all(r["state"] == "satisfied" for r in svc.store.query("SELECT state FROM wake_requests"))
+    assert {r["kind"]: r["state"] for r in svc.store.query("SELECT kind,state FROM wake_requests")} == {
+        "runs": "satisfied", "pr": "fired"}
 
 
 def test_upgrade_keeps_runs_that_complete_after_activation(svc):

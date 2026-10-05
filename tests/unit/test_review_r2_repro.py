@@ -204,13 +204,13 @@ def test_prior_f5_one_bad_line_keeps_the_good_line(svc):
     assert [r["kind"] for r in svc.store.query("SELECT kind FROM wake_requests WHERE conversation_id=?", (cid,))] == ["pr"]
 
 
-def test_prior_f5_timer_set_five_minutes_out_during_the_turn_is_kept(svc):
+def test_prior_f5_timer_still_five_minutes_out_at_settlement_is_kept(svc):
     cid = bound(svc)
     mid = submit(svc, cid, "work, then check back")
     with svc.store.transaction() as tx:                    # the turn started at T0
         tx.execute("UPDATE messages SET created_at=? WHERE message_id=?", (iso(T0), mid))
     svc.wakes.now = lambda: T0 + 180                       # it settles 3 minutes later
-    svc.wakes.from_final(cid, mid, f"Back soon.\nWAKE-ME: at={iso(T0 + 310)}")
+    svc.wakes.from_final(cid, mid, f"Back soon.\nWAKE-ME: at={iso(T0 + 480)}")
     assert [r["kind"] for r in svc.store.query("SELECT kind FROM wake_requests WHERE conversation_id=?", (cid,))] == ["time"]
 
 
@@ -467,6 +467,7 @@ def test_new_refused_pr_rearmed_each_turn_over_one_night(svc, tmp_path, monkeypa
             svc.wakes.from_final(cid, f"t{turns}", "Still waiting on the PR.\nWAKE-ME: prs=o/r#7")
         clock[0] += 61
     print(f"R2 N4: {turns} 'PR watch refused' turns in 8 h for one conversation")
+    assert turns == 1
 
 
 # --- N5: steady-state tick cost while 40 conversations wait overnight ---------------------------------
@@ -511,6 +512,7 @@ def test_new_final_text_timer_in_the_past_after_a_capacity_wait(svc):
     kinds = [r["kind"] for r in svc.store.query("SELECT kind FROM wake_requests WHERE conversation_id=?", (cid,))]
     svc.wakes.tick()
     print(f"R2 N6: requests={kinds} wakes={len(wake_rows(svc, cid))} (timer {(T0 + 600) - (T0 + 3 * 3600):.0f} s from now)")
+    assert kinds == [] and wake_rows(svc, cid) == []
 
 
 # --- N5b: what the per-tick commits cost a long-poll reader (the app's watch) ----------------------
@@ -561,3 +563,5 @@ def test_new_pruned_target_of_an_all_of_request_strands_the_others(svc):
     for _ in range(3):
         svc.wakes.tick()
     print(f"R2 N7: wakes={len(wake_rows(svc, cid))} after both runs finished and one was pruned")
+    assert len(wake_rows(svc, cid)) == 1
+    assert "quick finished: pruned" in wake_texts(svc, cid)[0]
