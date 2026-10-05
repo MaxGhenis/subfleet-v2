@@ -275,6 +275,13 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-9.10: the reset-card and promotional-credit sensor. It reads every login under
+#: `logins_dir` (relative to the state root) every `interval_min`, spends at most
+#: one minimal turn per `heal_interval_min` renewing an expired login that backs a
+#: lane with no operator hold (`heal`), and warns `warn_days` before anything is lost.
+CLAUDE_CARDS_DEFAULTS: dict[str, Any] = {"enabled": True, "interval_min": 360, "heal": True,
+                                         "heal_interval_min": 60, "warn_days": 5,
+                                         "logins_dir": "logins"}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300

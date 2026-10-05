@@ -272,6 +272,26 @@ def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
             for row in snapshot.get("alerts") or () if isinstance(row, Mapping) and row.get("key")]
 
 
+#: C-9.10: what `status.json` says of each account's cards and credits. No
+#: identity, token or path: the menu needs what is at risk and when.
+CARD_ACCOUNT_FIELDS = ("login", "lanes", "lanes_by", "status", "detail", "read_at", "unused_cards", "plan",
+                       "plan_ends_at", "credits", "cloud_credit_claim", "lost")
+
+
+def _cards(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """C-9.10: Claude limit-reset cards and promotional credits, read and never redeemed."""
+    view = snapshot.get("claude_cards") or {}
+    accounts = []
+    for account in view.get("accounts") or ():
+        if not isinstance(account, Mapping):
+            continue
+        row = {field: account.get(field) for field in CARD_ACCOUNT_FIELDS}
+        row["cards"] = list(((account.get("cards") or {}).get("grants")) or [])
+        accounts.append(row)
+    return {"read_at": view.get("read_at"), "disabled": bool(view.get("disabled")), "accounts": accounts,
+            "warnings": [dict(row) for row in view.get("warnings") or () if isinstance(row, Mapping)]}
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels.
 
@@ -281,6 +301,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     `snapshot["model_names"]` (policy model id to short name) labels the
     model-scoped windows; without it they carry only their scope. C-18.4 adds
     `alerts`, the alerts in force; the section is always present.
+    C-9.10 adds `claude.cards`, every login's reset cards and credits.
     """
     at = instant(now or snapshot.get("now"))
     model_names = snapshot.get("model_names") or {}
@@ -354,7 +375,8 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
             "claude": {"accounts": claude, "earliest_reset": claude_earliest_reset(claude, at),
                        "lanes": {"enrolled": sum(row["enrolled"] for row in claude),
                                  "dispatchable_now": sum(row["dispatchable"] for row in claude),
-                                 "probe_held": _probe_held(claude)}}}
+                                 "probe_held": _probe_held(claude)},
+                       "cards": _cards(snapshot)}}
 
 
 def _probe_held(rows: list[dict[str, Any]]) -> int:

@@ -125,6 +125,15 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
                           'then explicitly re-enroll its disabled binding.',
                 'login_command': f'CODEX_HOME={home} codex login',
                 'enroll_command': f'subfleet lanes enroll {home}'}
+    if args.command == 'cards':
+        # C-9.10: what the last read saw; `refresh` queues a read now. Neither
+        # path can redeem a card or claim a credit.
+        view = service.timers.cards_view()
+        if args.target == 'refresh':
+            return {**service.timers.request('claude_cards'), 'cards': view}
+        if args.target is not None:
+            raise protocol.ProtocolError("cards: the only target is 'refresh'")
+        return {'status': 'ok', 'cards': view}
     if args.command not in ('brief', 'watch', 'keepalive', 'reset'):
         raise protocol.ProtocolError('unknown operator command')
     # Display and preview never refresh credentials or call a provider.
@@ -172,11 +181,13 @@ def cmd(args) -> int:
     try:
         result = cli._client(args).call('operations', payload)
     except DaemonUnavailable as exc:
-        if command not in ('brief', 'errors'):
+        if command not in ('brief', 'errors', 'cards') or command == 'cards' and payload.get('target'):
             return cli._daemon_down(exc)
         try:
             offline = Offline(cli._root(args))
-            if command == 'brief':
+            if command == 'cards':
+                result = {'status': 'ok', 'cards': offline._cards_view(), 'offline': True}
+            elif command == 'brief':
                 result = {'text': brief(offline.status()), 'offline': True}
             else:
                 with offline.reading() as conn:
@@ -188,6 +199,14 @@ def cmd(args) -> int:
         return cli.fail(exc.code, str(exc), getattr(exc, 'fix', None))
     if getattr(args, 'json', False):
         cli.emit(result)
+    elif command == 'cards':
+        from . import render
+        if result.get('status') not in ('ok', None):
+            cli.note(f"cards: read {result['status']}" + (f" ({result['detail']})" if result.get('detail') else '')
+                     + ('; run subfleet cards again in a few minutes' if result['status'] == 'scheduled' else ''))
+        if result.get('offline'):
+            cli.note('cards: offline — the last snapshot the daemon wrote')
+        cli.out('\n'.join(render.card_lines(result.get('cards'))))
     elif command == 'brief':
         cli.out(result['text'])
     elif command == 'canonical-model':
@@ -234,6 +253,11 @@ def add_verbs(sub) -> None:
             parser.add_argument('--dry-run', action='store_true')
         if name == 'keepalive':
             parser.add_argument('--family', choices=['claude'], default='claude')
+    cards = sub.add_parser('cards', help='Claude limit-reset cards and promotional credits, per account (read only)')
+    cards.set_defaults(handler=cmd, operation='cards')
+    cards.add_argument('--refresh', dest='target', action='store_const', const='refresh',
+                       help='read every login now instead of showing the last read')
+    cards.add_argument('--json', action='store_true')
     reset = sub.add_parser('reset', help='request the daemon’s guarded gifted-credit evaluation')
     families = reset.add_subparsers(dest='reset_family', required=True)
     codex = families.add_parser('codex')
