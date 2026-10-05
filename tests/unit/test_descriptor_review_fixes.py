@@ -397,9 +397,12 @@ def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypa
                                    sleep=lambda s: None) == 0 and not absent
 
 
-def test_c3_6_a_failed_lock_write_still_lets_the_handler_go(monkeypatch):
-    """Review r2, P3: if clearing `stack_dumps` from the lock raised (ENOSPC, EIO),
-    the handler stayed registered on a stream the cleanup then closed."""
+def test_c3_6_a_lock_that_cannot_be_cleared_keeps_the_handler_and_its_stream(monkeypatch):
+    """Review r2 (GPT P1, Opus P3): if clearing `stack_dumps` from the lock raised
+    (ENOSPC, EIO), the handler stayed registered on a stream the cleanup then closed,
+    so a SIGUSR1 dumped into whatever reused the descriptor. Unregistering instead
+    would let `daemon stacks`, still told `stack_dumps`, kill the host. The handler
+    and its stream stay together: open, and a dump lands in daemon.log."""
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
     real_write = Daemon._write_lock
@@ -410,7 +413,32 @@ def test_c3_6_a_failed_lock_write_still_lets_the_handler_go(monkeypatch):
         return real_write(self, stack_dumps=stack_dumps)
     monkeypatch.setattr(Daemon, "_write_lock", write)
     monkeypatch.setattr(daemon_module, "load_policy", lambda path: (_ for _ in ()).throw(RuntimeError("bad policy")))
+    import faulthandler
+    import signal
     with tempfile.TemporaryDirectory(prefix="sfi-", dir="/tmp") as directory:
         with pytest.raises(RuntimeError, match="bad policy"):
             Daemon(Path(directory))
-    assert daemon_module._STACK_DUMPS is None
+        record = json.loads((Path(directory) / "daemon.lock").read_text())
+        assert record.get("stack_dumps") is True                   # the write that failed
+        log = Path(directory) / "daemon.log"
+        size = log.stat().st_size
+        try:
+            os_kill_self(signal.SIGUSR1)                           # as `daemon stacks` would
+            assert wait_until(lambda: log.stat().st_size > size), "the dump did not reach daemon.log"
+        finally:
+            faulthandler.unregister(signal.SIGUSR1)
+            daemon_module._STACK_DUMPS = None
+
+
+def os_kill_self(sig) -> None:
+    import os
+    os.kill(os.getpid(), sig)
+
+
+def wait_until(predicate, timeout=5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(.02)
+    return False

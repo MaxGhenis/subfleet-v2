@@ -635,10 +635,13 @@ class Daemon:
         Each step runs on its own: one that fails must neither stop the rest nor
         replace the error that made construction fail.
         """
+        revoked = [True]                    # whether the log's stream may close
+
         def closing_log():
             if (handler := self.__dict__.get("_log_handler")) is not None:
                 self.log.removeHandler(handler)
-                handler.stream.close()
+                if revoked[0]:
+                    handler.stream.close()
 
         def no_stack_dumps():
             # C-3.6, as `_disable_stack_dumps` does at a normal close: `daemon.lock`
@@ -653,7 +656,14 @@ class Daemon:
                     try:
                         self._write_lock(stack_dumps=False)
                     except OSError:
-                        pass            # as `_disable_stack_dumps`: the handler goes all the same
+                        # The lock still says `stack_dumps`. Keep the handler and the
+                        # stream it writes to together: unregistered, a SIGUSR1 sent on
+                        # the lock's word would kill the host; registered on a closed
+                        # stream, it would dump into whatever reuses the descriptor
+                        # (review r2, P1). faulthandler holds the stream open, and the
+                        # next daemon's registration replaces this one.
+                        revoked[0] = False
+                        return
                 faulthandler.unregister(signal.SIGUSR1)
                 _STACK_DUMPS = None
         steps = [no_stack_dumps, closing_log]
