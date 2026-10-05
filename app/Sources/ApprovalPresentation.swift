@@ -52,7 +52,9 @@ enum ApprovalPresentation {
         if let text = fields["input"]?.string,
            let input = text.data(using: .utf8).flatMap({ try? JSONValue.parse($0) }), input.object != nil {
             fields["input"] = input
-        } else if card.kind == "question" {
+        } else if card.kind == "question", fields["input"]?.string != nil {
+            // Truncated string summaries can repeat the question tree without
+            // valid JSON. Native input values still contain grant fields.
             fields.removeValue(forKey: "input")
         }
         return .object(fields)

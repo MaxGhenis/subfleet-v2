@@ -78,6 +78,18 @@ def test_questions_have_one_presentation_and_answers_survive_resolution(r2_model
     assert not r2_models["question_pending"]
 
 
+def test_submitted_answers_survive_event_reset_and_replay(r2_models):
+    assert r2_models["reset_answers"] == {"Which scope?": "Local"}
+    assert r2_models["reset_approval_id"] == "q"
+    assert not r2_models["reset_question_pending"]
+
+
+def test_question_summaries_preserve_unknown_object_input_grants(r2_models):
+    expected = {"input.newGrant": "/future/root"}
+    assert r2_models["question_object_input_fields"] == expected
+    assert r2_models["question_string_input_fields"] == expected
+
+
 def test_file_change_fixture_matches_the_request_schema():
     fixture = next(f for f in json.loads((ROOT / "tests/fixtures/visual/approvals.json").read_text()) if f["id"] == "codex-file-change")
     assert set(fixture["request"]["params"]) == {"threadId", "turnId", "itemId", "reason", "grantRoot"}
@@ -94,7 +106,9 @@ def r2_views(tmp_path_factory):
                           ROOT / "tests/frontend/R2ApprovalViewProbe.swift", "SUBFLEET_VIEW_TEST")
     out = Path(os.environ.get("SF_R2_SNAPSHOTS", tmp_path_factory.mktemp("r2-render")))
     result = run_probe(probe, ROOT / "tests/fixtures/visual/approval-layout.json", out,
-                       timeout=240, env={"R2_TESSERACT": ocr})
+                       # The serialized run renders 32 surfaces plus scroll tails
+                       # and waits for each OCR child, including on a loaded host.
+                       timeout=540, env={"R2_TESSERACT": ocr})
     if path := os.environ.get("SF_R2_RESULT"):
         Path(path).write_text(json.dumps(result, indent=2) + "\n")
     return result
