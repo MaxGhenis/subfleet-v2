@@ -3647,7 +3647,7 @@ class Daemon:
             # C-16.7: its client timed out and hung up while this waited for a
             # thread. A read has no one to answer; a write still runs, because a
             # client disconnect cannot cancel its durable job.
-            if not ended_here():
+            if not ended_here() and not self.stopping.is_set():   # nor close()'s own shutdown
                 self._count_connection("abandoned", req.op)
             return
         try:
@@ -3701,6 +3701,19 @@ class Daemon:
 
         def note_reply(_future) -> None:
             replied[0] = time.monotonic()
+
+        def drop_queued_reads(*, count: bool) -> None:
+            # C-16.7: no reply can reach this client any more. Its reads that no
+            # thread has reached yet are cancelled, so the connection and its
+            # place under the cap go at once instead of when a busy pool gets to
+            # them; its writes still run. Only a client that left is counted.
+            for future in pending:
+                if future in reads and future.cancel() and count:
+                    self._count_connection("abandoned", "queued read")
+
+        def ended_here() -> bool:
+            with self._connection_lock:
+                return conn in self._shut_down
         try:
             # C-16.7: reads time out instead of blocking, so a client that says
             # nothing cannot hold this reader and its descriptor for ever. The
@@ -3733,21 +3746,17 @@ class Daemon:
                 if not chunk:
                     # Not while stopping: close()'s own SHUT_RDWR also makes the
                     # peer look gone, and close() cancels what is queued itself.
-                    with self._connection_lock:
-                        ours = conn in self._shut_down
+                    # The client closed its whole socket, or this daemon ended the
+                    # stream after a broken reply.
+                    ours = ended_here()
                     if not self.stopping.is_set() and (ours or descriptors.client_gone(conn)):
-                        # C-16.7: the client closed its whole socket, or this daemon
-                        # ended the stream after a broken reply. Either way no reply
-                        # can reach it, so its reads no thread has reached yet are
-                        # cancelled now: the connection and its place under the cap
-                        # go at once instead of when a busy pool gets to them. Its
-                        # writes still run. Only a client that left is counted.
-                        for future in pending:
-                            if future in reads and future.cancel() and not ours:
-                                self._count_connection("abandoned", "queued read")
+                        drop_queued_reads(count=not ours)
                     break
         except OSError:
-            pass
+            # A stream `_decode` ended after its error reply failed part way
+            # leaves the loop here, not at end of stream.
+            if ended_here() and not self.stopping.is_set():
+                drop_queued_reads(count=False)
         finally:
             # No process waits here. Running callbacks own their response socket
             # until they finish, including after the caller closes its write half.

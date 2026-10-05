@@ -1176,8 +1176,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # would have less than the poll it asks the daemon to hold.
                 busy_polls += 1
                 pause = busy_pause(busy_polls)
-                if remaining is not None:
-                    pause = min(pause, max(0.0, remaining))
+                if timeout is not None:                 # what is left now, not before the call
+                    pause = min(pause, max(0.0, timeout - (time.monotonic() - started)))
                 time.sleep(pause)
                 continue
             except ProtocolError:

@@ -630,14 +630,16 @@ def test_c16_7_a_connection_without_a_reader_is_answered_busy(serve, monkeypatch
 
 def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve):
     """C-16.7 close()'s SHUT_RDWR makes getpeername fail as a departed client's
-    would; queued reads are then close()'s to cancel, not 'client hung up'."""
+    would. Reads queued then are close()'s to cancel, and one a thread reaches in
+    the window before the pools shut down is dropped: neither is 'client hung up'."""
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
     release = threading.Event()
     real = service.dispatch
+    ran = []
     service.dispatch = lambda op, args, **kw: (release.wait(10), {"held": True})[1] if op == "readings" \
-        else real(op, args, **kw)
+        else (ran.append(op), real(op, args, **kw))[1]
     blocker = connect(service)
     send(blocker, "readings")
     until(lambda: counts(service)["connections"] == 1)
@@ -645,14 +647,18 @@ def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(s
     for sock in waiting:
         send(sock, "daemon.status")
     until(lambda: service.requests._work_queue.qsize() == 3)
-    # The reads are still queued when close() shuts the sockets down; the blocker
-    # is released only once close() is shutting the request pool down (so none
-    # of them can reach a thread first), which lets that shutdown finish.
-    threading.Thread(target=lambda: (until(lambda: service.requests._shutdown, timeout=10),
-                                     release.set()), daemon=True).start()
+    real_stop = service.timers.stop
+
+    def stop():
+        # close() calls this after shutting every connection down and before its
+        # pools shut down: the queued reads reach the thread in that window.
+        release.set()
+        until(lambda: service.requests._work_queue.qsize() == 0)
+        real_stop()
+    service.timers.stop = stop
     service.stopping.set()
-    until(lambda: service._closed, timeout=10)
-    assert counts(service)["abandoned"] == 0
+    until(lambda: service._log_handler.stream.closed, timeout=15)   # close() has finished
+    assert counts(service)["abandoned"] == 0 and ran == []
     for sock in [blocker, *waiting]:
         sock.close()
 
@@ -846,3 +852,86 @@ def test_c16_7_a_read_reaching_a_thread_after_the_daemon_ended_its_stream_is_not
     assert ran == [] and counts(service)["abandoned"] == 1
     for sock in (ended, peer, left):
         sock.close()
+
+
+def blocked_requests(service):
+    """One request thread, held by a `list` until the returned event is set."""
+    service.requests.shutdown(wait=True)
+    service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
+    release = threading.Event()
+    real = service.dispatch
+    ran = []
+
+    def dispatch(op, args, **kw):
+        ran.append(op)
+        if op == "list":
+            release.wait(30)
+        return real(op, args, **kw)
+    service.dispatch = dispatch
+    blocker = connect(service)
+    send(blocker, "list")
+    until(lambda: ran == ["list"])
+    return blocker, release, ran
+
+
+@pytest.mark.parametrize("ending", ["broken error replies", "partial line at the end"])
+def test_c16_7_a_stream_ended_by_a_broken_error_answer_frees_its_queued_read(serve, ending):
+    """C-16.7 when an error answer fails part way the reader leaves through its
+    OSError path, not end of stream; the queued read goes at once there too, and
+    is not counted (review of #55, finding 1)."""
+    service = serve(connection_idle_s=.5)
+    blocker, release, ran = blocked_requests(service)
+    stuck = connect(service)
+    stuck.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    send(stuck, "daemon.status")                             # queued behind the blocker
+    until(lambda: service.requests._work_queue.qsize() == 1)
+    with suppress(OSError):
+        stuck.sendall(b"not json\n" * 400 + (b'{"v":1,"op":"pi' if ending.startswith("partial") else b""))
+    until(lambda: counts(service)["connections"] == 1, timeout=5)   # freed while the thread is held
+    assert counts(service)["abandoned"] == 0
+    release.set()
+    assert "jobs" in reply(blocker)["result"]
+    assert "daemon.status" not in ran
+    stuck.close()
+    blocker.close()
+
+
+def test_c16_1_a_request_id_with_no_utf8_form_is_still_answered(serve):
+    """C-16.1 a lone surrogate id (a valid JSON escape) is echoed back escaped;
+    before, encoding the reply failed and the client waited out its deadline."""
+    service = serve()
+    with connect(service) as sock:
+        sock.sendall(b'{"v":1,"id":"\\ud800","op":"ping","args":{}}\n')
+        send(sock, "ping")
+        first, second = reply_lines(sock, 2)
+    assert first["id"] == "\ud800" and first["result"]["pong"] is True
+    assert second["result"]["pong"] is True
+
+
+def test_c16_7_subfleet_wait_over_a_busy_daemon_ends_near_its_timeout(root, monkeypatch):
+    """C-15.4, C-16.7 property over seeded cases: busy answers, one of them slow,
+    never carry `subfleet wait --timeout T` more than 1 s past T, which is the
+    bound the budget allows (review of #55, finding 3)."""
+    import argparse
+    import random
+    from subfleet import cli
+    rng = random.Random(1515)
+    for case in range(200):
+        now = [1000.0]
+        monkeypatch.setattr(cli.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(cli.time, "sleep", lambda s: now.__setitem__(0, now[0] + max(0.0, s)))
+        calls = []
+        slow_at = rng.randint(1, 12)
+        limit = rng.choice([3.0, 10.0, 25.0])
+
+        def once(self, op, args, *, request_id, timeout, stated):
+            calls.append(timeout)
+            if len(calls) == slow_at:
+                now[0] += timeout - rng.uniform(0, .05)         # busy just inside the budget
+            raise DaemonError(69, "the daemon is busy: it holds 512 client connections, its limit",
+                              "try again shortly")
+        monkeypatch.setattr(Client, "_call_once", once)
+        started = now[0]
+        code = cli.wait_jobs(argparse.Namespace(json=True), ["J"], timeout=limit, quiet=True)
+        assert code == 124, (case, code)
+        assert now[0] - started <= limit + 1.0 + 1e-9, (case, limit, now[0] - started)
