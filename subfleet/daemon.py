@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -396,6 +396,11 @@ def worker_retry_delay(failures: int) -> float:
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def utcnow_ms() -> str:
+    """The conversation store's clock format (milliseconds), for C-26.14's turn windows."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def after(seconds: float) -> str:
@@ -782,6 +787,8 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
+        self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
         # by side (`_admit_turns` beside `_admit`), so a turn never waits for a
         # detached job's evaluation, workspace or probe. `_admission_lock` guards
@@ -1842,9 +1849,16 @@ class Daemon:
                                                "to run it here without writing")
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
-                # named by -C, so `/repo` and `/repo/sub` are one place to write.
-                write_target = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
+                # spelled one way (`folders.canonical`, as a conversation's workspace
+                # is): a folder outside git kept the case it was typed in, so
+                # `~/Scratch` and `~/scratch` were two keys for one folder.
+                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
+                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`).
+                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
+                               if turn is not None and write_target is None else None)
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -1961,8 +1975,8 @@ class Daemon:
                         raise
                     raise _written_by_policy(exc, args.task) from exc
             else:
-                # C-26.1, IR-12: a turn waits for its workspace at admission (the
-                # `worktree:` lease), it is never refused here.
+                # C-26.1, IR-12: a turn waits for its workspace at admission (a
+                # detached writer's `worktree:` lease, C-24.5), it is never refused here.
                 cleared = None
             if mcp_servers and mcp_found is None:
                 # Only a retry of an accepted request gets here without entries
@@ -2037,6 +2051,7 @@ class Daemon:
                             if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
+                         **({"folder": read_folder} if read_folder else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
@@ -2472,9 +2487,17 @@ class Daemon:
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
-                for key in {f"worktree:{job['workdir']}", f"worktree:{write_target or job['workdir']}"}:
-                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (key,)):
+                for folder in {job["workdir"], write_target or job["workdir"]}:
+                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
                         raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                    # C-6.5, C-24.5: a writable conversation turn holds its folder with a
+                    # row of its own (one live after its job ended, while its attempt is
+                    # quarantined, too); a detached writer never joins it there.
+                    turns = folders.turn_holds(self.store.query, folder, (folders.TURN,))
+                    if turns:
+                        raise AdapterError(f"worktree {folder} is being written by a conversation turn ({turns[0][1]})",
+                                           fix="wait for the conversation's turn to end, or run the job in its own "
+                                               "worktree (without --in-place)")
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
@@ -4149,6 +4172,8 @@ class Daemon:
         if not lock.acquire(blocking=wait):
             return
         try:
+            self._pass_seq[kind] += 1                 # C-24.4: notes of an older pass never land last
+            seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
             # A pass that raises leaves both as the last whole pass left them: half
@@ -4160,6 +4185,17 @@ class Daemon:
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
             lock.release()
+        if kind == "turn":
+            # C-24.4 (I3): every message a turn pass left waiting says why, and one it
+            # placed says it is starting. Its failure is logged, never the pass's.
+            try:
+                self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()), seq=seq)
+                self._note_error = None
+            except Exception as exc:                      # noqa: BLE001
+                error = f"{type(exc).__name__}: {exc}"[:300]
+                if error != self._note_error:             # said once, not every tick
+                    self.log.warning("admission: could not note why turns wait: %s", error)
+                self._note_error = error
         # C-6.11 over both kinds' holds. The other pass never waits for the note
         # lock, and its placements are noted next time. `_note_admission` builds a
         # view at most once per ten minutes of idleness, which delays this pass's
@@ -4509,6 +4545,7 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             try:
+                baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
@@ -4530,10 +4567,14 @@ class Daemon:
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
-                holds[job["job_id"]] = {"reason": "workspace"}
+                holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
+                                        "error": str(exc)[:200]}
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
+            # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
+            read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
+                           if job["kind"] == "turn" and write_target is None else None)
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -4708,6 +4749,11 @@ class Daemon:
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if kind == "turn" and not decision.chosen_lane:
+                                # C-24.4, C-29.11: what each lane said, for the message's
+                                # reason (`conversations.waits`), never just "capacity".
+                                from .conversations import waits as turn_waits
+                                hold["lanes"] = turn_waits.lane_summary(decision)
                             rechecks = self._capacity_wait(
                                 job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
@@ -4758,11 +4804,33 @@ class Daemon:
                             leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                         if job["out_path"]:
                             leases.append((f"out:{job['out_path']}", job["job_id"]))
-                        if job["sandbox"] == "workspace-write":
+                        # Keys this job needs free but does not take (C-6.5, C-24.5): a turn
+                        # shares its folder with other turns, so it never holds the
+                        # exclusive key, yet it may not write beside a detached writer.
+                        blockers: list[str] = []
+                        read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
+                        if job["sandbox"] == "workspace-write" and job["kind"] == "turn":
+                            # C-24.5 (the owner's ruling of 2026-09-28, "nothing should be
+                            # queued"): conversations that share a folder run at once, as
+                            # sessions of the Claude app do. Each turn holds its own row, so
+                            # retention and a detached writer still see the folder in use.
+                            leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
+                            blockers.append(folders.exclusive_key(write_target))
+                        elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
-                            # at submit.
+                            # at submit. A detached writer still writes alone: it waits
+                            # while a conversation turn writes there.
                             leases.append((f"worktree:{write_target}", job["job_id"]))
+                            blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                        elif job["kind"] == "turn" and read_folder:
+                            # C-8.4, C-13.4: a read-only turn excludes no writer, but
+                            # retention never removes a folder a turn is working in.
+                            leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
+                            fence = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                               (folders.exclusive_key(read_folder),)).fetchone()
+                            if fence and str(fence[0]).startswith("retention:"):
+                                blockers.append(folders.exclusive_key(read_folder))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -4781,20 +4849,27 @@ class Daemon:
                         current = {key: r[0] for key, _ in leases
                                    if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())}
                         contested = [key for key, holder in leases if key in current and current[key] != holder]
+                        blocked = [key for key in dict.fromkeys(blockers)
+                                   if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())
+                                   and r[0] != job["job_id"]]
                         # A lease this job already holds (a retry keeps its job-held
                         # ones) is never queued behind a job waiting for it: that job
                         # waits for this one to run and release it (review of PR #72).
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
-                        if contested or queued:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested)))
+                        if contested or blocked or queued:
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested + blocked)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
-                            hold = {"reason": "lease-held", "leases": contested,
+                            # A key it only needs free (`blocked`) is never queued for: turns
+                            # share their folder, so no turn takes it from another, and no
+                            # detached job takes a turn's row. It is among the keys the waiter
+                            # waits for, so a job holding it is never held behind the waiter.
+                            hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
@@ -4805,6 +4880,10 @@ class Daemon:
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
+                        if job["kind"] == "turn":
+                            # C-26.14: the turn's window opens before its start snapshot, and
+                            # its folder is where another turn's window may overlap it.
+                            evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
                                     json.dumps(evidence), utcnow()))
@@ -4864,6 +4943,7 @@ class Daemon:
             if status != "placed":
                 continue
             tally["placed"] += 1
+            tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
             # the next one, that is a release the next pass must still see.

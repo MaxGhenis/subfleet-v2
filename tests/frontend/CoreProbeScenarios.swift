@@ -499,6 +499,15 @@ func runFollow(_ data: Data, pages: Int, follow: Bool) throws -> [String: Any] {
 
 func extraCommand(_ arguments: [String]) throws -> Any? {
     switch arguments[1] {
+    case "diff-words":
+        // diff-words <result.json>: what the Changes pane says above a diff, and for none (C-26.14)
+        let result = try JSONDecoder().decode(DiffResult.self, from: readFile(arguments[2]))
+        return ["shared": diffSharedWords(result) as Any? ?? NSNull(), "unavailable": diffUnavailableWords(result),
+                "empty": diffEmptyWords(result)]
+    case "waiting-words":
+        // waiting-words <reasons.json>: the status strip for waiting messages (C-24.4, C-29.11)
+        let reasons = try JSONDecoder().decode([String?].self, from: readFile(arguments[2]))
+        return reasons.map { TurnTimeline.waitingWords($0) }
     case "follow":
         return try runFollow(readFile(arguments[2]), pages: Int(arguments[3]) ?? 16, follow: arguments[4] == "1")
     case "outbox":
