@@ -5675,10 +5675,12 @@ class Daemon:
     def _contain(self, a: dict):
         evidence = json.loads(a.get("evidence_json") or "{}")
         held = json.loads(a.get("quarantine_reason") or "{}")
+        # The latest observation of a pid wins: the quarantine census (and each
+        # recheck) saw it after the running attempt's owned members were recorded.
         recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in
-                    {**held.get("identities", {}), **evidence.get("owned_identities", {})}.items()}
+                    {**evidence.get("owned_identities", {}), **held.get("identities", {})}.items()}
         if a.get("guardian_pid") and a.get("boot_id") and a.get("proc_start"):
-            recorded[a["guardian_pid"]] = procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"])
+            recorded.setdefault(a["guardian_pid"], procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"]))
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"),
                                  a["attempt_id"], root=str(self.root), recorded=recorded)
 

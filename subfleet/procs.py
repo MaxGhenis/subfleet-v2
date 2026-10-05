@@ -436,9 +436,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         groups = set(seen.group(pgid))
         # A live reused group leader heads an unrelated group; an absent leader
         # can still leave its original group members behind.
+        # Only the leader's pid says so: XNU never hands out a pid that names a
+        # live group or session, so any other live member of the group is ours,
+        # whatever pid it was given (a recycled one included).
         if pgid in gone and live(pgid):
             groups.clear()
-        groups.difference_update(gone)
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
         roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0 and pid not in gone} | owned
@@ -447,7 +449,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         while frontier:
             frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
-        descendants = {pid for pid in found if live(pid) and pid not in gone}
+        descendants = {pid for pid in found if live(pid)}
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
