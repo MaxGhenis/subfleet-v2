@@ -183,7 +183,12 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_job ON decisions(job_id, evaluated_at DESC);
 
--- C-6.3 leases: lane:<lane id>:slot:<n> (a turn's: slot:turn-<n>, C-26.9) | out:<path> | worktree:<realpath> | session:<id>
+-- C-6.3 leases, among them: lane:<lane id>:slot:<n> (a turn's: slot:turn-<n>, C-26.9) | out:<path> | session:<id>
+--   | worktree:<folder>: a detached writer's, or retention's fence (C-8.4); it holds the folder alone (C-6.5)
+--   | worktree-turn:<folder>:<job id> and worktree-read:<folder>:<job id>: a writable and a read-only
+--     conversation turn's rows, one per turn, since turns share a folder (C-24.5, `subfleet/folders.py`)
+--   | conversation:<id> and native:<provider>:<session id>: one turn per conversation and one writer
+--     per native session (C-26.3). A <folder> is spelled one way (`folders.canonical`, C-6.5).
 CREATE TABLE IF NOT EXISTS leases (
   lease_key TEXT PRIMARY KEY,
   holder TEXT NOT NULL,              -- attempt id or job id

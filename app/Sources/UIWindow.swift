@@ -692,12 +692,19 @@ struct ChangesPane: View {
             if !result.available {
                 PaneNote(text: diffUnavailableWords(result), symbol: "info.circle")
             } else if result.files.isEmpty {
-                // A nested repository the snapshot left out is still a change the
-                // pane cannot show, so "No changes." is not the whole answer.
-                let notes = diffNotes(result)
-                PaneNote(text: ([notes.isEmpty ? "No changes." : "No changes to show."] + notes).joined(separator: " "),
-                         symbol: notes.isEmpty ? "checkmark.circle" : "info.circle")
+                // Overlapping edits can cancel out. Disclose the sharing and
+                // any nested repositories the snapshot could not show.
+                PaneNote(text: diffEmptyWords(result),
+                         symbol: diffNotes(result).isEmpty && diffSharedWords(result) == nil
+                             ? "checkmark.circle" : "info.circle")
             } else {
+                if let shared = diffSharedWords(result) {
+                    // C-26.14: another conversation wrote in this folder meanwhile.
+                    Label(shared, systemImage: "person.2")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10).padding(.top, 6)
+                }
                 ForEach(diffNotes(result), id: \.self) { note in
                     Label(note, systemImage: "info.circle").readingFont(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.top, 6)
