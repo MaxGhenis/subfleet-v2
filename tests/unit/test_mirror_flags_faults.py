@@ -93,6 +93,9 @@ def unreadable(patch, target) -> None:
 
 def test_an_unlisted_folder_unchanged_since_its_listing_is_read_by_name(world, monkeypatch):
     running, store = world
+    # This assertion models one decision from the saved listing. Embedded hot
+    # writes change that listing's signature; the scheduled case is tested below.
+    running.policy["sessions"]["mirror_hot_interval_s"] = 0
     seed(store, False)
     assert running.run_once().state == "ok" and base(running) is False
     rewrite(store, 0, isArchived=True)                   # the user archives in A
@@ -102,6 +105,54 @@ def test_an_unlisted_folder_unchanged_since_its_listing_is_read_by_name(world, m
     assert result.state == "ok" and result.flags_held == 0
     assert flags(store) == (True,) * 3, "C was read and written by name"
     assert running.run_once().state == "ok"
+    assert flags(store) == (True,) * 3 and base(running) is True
+
+
+def test_hot_write_to_an_unlisted_folder_preserves_its_base_while_full_holds(world, monkeypatch):
+    """C-23.28: hot sync can use an unchanged unlisted folder by name. Its
+    write then changes the directory, so the full refresh conservatively holds
+    the unknown inventory without undoing the already committed hot decision.
+    """
+    running, store = world
+    running.policy["sessions"]["mirror_hot_interval_s"] = 0
+    seed(store, False)
+    assert running.run_once().state == "ok" and base(running) is False
+    rewrite(store, 0, isArchived=True)
+    running.policy["sessions"]["mirror_hot_interval_s"] = 2
+    instant = mirror.time.monotonic()
+    offset = [0.0]
+    monkeypatch.setattr(mirror.time, "monotonic", lambda: instant + offset[0])
+    original_checkpoint = running._checkpoint
+    observed = []
+
+    def due_checkpoint(current, stage=None):
+        due = current.kind == "full" and stage == "reading entries" and not observed
+        if due:
+            offset[0] += 3
+        original_checkpoint(current, stage)
+        if due:
+            assert flags(store) == (True,) * 3, "due hot sync must finish before the full scan"
+            assert base(running) is True
+            hot = running.sidecar()["hot"]
+            assert hot["state"] == "ok" and hot["flags_held"] == 0
+            observed.append(hot)
+
+    monkeypatch.setattr(running, "_checkpoint", due_checkpoint)
+    with monkeypatch.context() as patch:
+        unlisting(patch, "acct-c/org-c")
+        result = running.run_once()
+    assert observed
+    assert result.state == "ok" and result.flags_held == 1
+    assert any(cause["path"] == str(path(store, 2).parent)
+               and cause["reason"] == "folder not listed, changed since its listing"
+               for cause in result.held_by)
+    assert flags(store) == (True,) * 3 and base(running) is True
+    sidecar = running.sidecar()
+    assert sidecar["pass"]["flags_held"] == 1
+    assert sidecar["pass"]["held_by"] == result.held_by
+    assert sidecar["hot"]["state"] == "ok"
+    retried = running.run_once()
+    assert retried.state == "ok" and retried.flags_held == 0
     assert flags(store) == (True,) * 3 and base(running) is True
 
 
@@ -501,8 +552,8 @@ def test_a_hot_pass_that_cannot_list_the_store_forgets_nothing(world, monkeypatc
     with monkeypatch.context() as patch:
         failing_scandir(patch, str(store))
         result = running.run_hot()
-    assert result.state == "ok" and not result.changed, "the full pass reports it, once a minute"
-    assert "store not listed" in (result.error or "")
+    assert result.state == "error" and not result.changed, "a failed inventory cannot report flags synced"
+    assert result.error
     assert set(running._folders) == known
 
 

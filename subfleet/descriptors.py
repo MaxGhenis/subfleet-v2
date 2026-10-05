@@ -140,7 +140,7 @@ def read_only(op: str, args: dict) -> bool:
     if op == "conversation.open":
         return isinstance(args, dict) and bool(args.get("conversation_id"))
     if op == "ping":
-        return not args.get("text")            # a ping with text records a notice
+        return not protocol.ping_writes(args)  # a ping with text records a notice (C-15.8)
     if op == "lanes":
         return args.get("action") in (None, "", "list")
     return False

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..sessions import transcripts
+from ..state_files import open_state
 from .redact import scrub
 from .store import canonical_native
 
@@ -70,8 +71,11 @@ def map_permission(mode: str | None) -> str:
 
 #: The shape of a Claude record in `catalog-cache.json`; a cached record of another
 #: version is read again. 2: the record carries `workspace` (`_workspace`), which
-#: discovery and opening share (review of 3c1a34e, finding 7).
-CLAUDE_RECORD_VERSION = 2
+#: discovery and opening share (review of 3c1a34e, finding 7). 3: `headless` is
+#: read from the writer's `entrypoint` (C-23.31, 2026-10-03); a cached record of
+#: an unchanged transcript kept the prompt rule's verdict, which hid desktop
+#: sessions one or two messages started.
+CLAUDE_RECORD_VERSION = 3
 
 
 def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
@@ -447,17 +451,19 @@ _PARSED: dict[str, tuple[tuple, dict, str]] = {}
 
 def _load(path: Path) -> tuple[dict, str]:
     try:
-        st = path.stat()
+        st = path.lstat()
     except FileNotFoundError:
         return {}, "absent"
     except OSError:
+        return {}, "unreadable"
+    if not stat.S_ISREG(st.st_mode):
         return {}, "unreadable"
     identity = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
     hit = _PARSED.get(str(path))
     if hit and hit[0] == identity:
         return hit[1], hit[2]
     try:
-        with transcripts.open_regular(path, "r") as stream:     # a FIFO here is unreadable, at once
+        with open_state(path, "r") as stream:     # a FIFO or symlink here is unreadable, at once
             catalog, state = json.loads(stream.read()), "fresh"
     except FileNotFoundError:
         return {}, "absent"

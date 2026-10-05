@@ -104,3 +104,15 @@ def test_changes_pane_rows_fill_the_pane_without_scrolling_sideways(menu_probe):
     assert widths["narrow"] == 0
     assert widths["row_width"] >= 480
     assert widths["visible_windows"] == 0
+
+
+def test_c18_4_menu_lays_out_alerts_and_marks_the_problem(menu_probe, tmp_path):
+    """C-18.4 the real menu view hosts the alerts section, keeps its width, and the
+    menu bar icon shows a problem while one is in force."""
+    from tests.frontend.test_status_model import ALERTS
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps(build_status({"lanes": [lane("codex", lane_id=f"codex-{i}") for i in range(3)],
+                                             "alerts": ALERTS}, now=NOW)))
+    result = invoke(menu_probe, path)
+    assert result["alert_count"] == 3 and result["has_problem"] is True
+    assert result["minimum_width"] == 430 and result["visible_windows"] == 0

@@ -29,7 +29,9 @@ final class ScriptedProbeTransport: DaemonTransport {
               var answer = next["answer"] as? [String: Any] else {
             throw DaemonClientError.malformed("unexpected scripted operation")
         }
-        if answer["ok"] as? Bool == true { answer["id"] = request["id"] }
+        // A recorded answer is this request's; one the daemon gives before reading a
+        // request (busy, unknown op) keeps its empty id.
+        if answer["ok"] as? Bool == true || !((answer["id"] as? String) ?? "").isEmpty { answer["id"] = request["id"] }
         return try JSONSerialization.data(withJSONObject: answer)
     }
 }
@@ -62,10 +64,30 @@ func project(_ entry: OutboxEntry) -> [String: Any] {
     ]
 }
 
+func project(_ steer: OutboxSteer) -> [String: Any] {
+    ["message_id": steer.messageID, "key": steer.key, "conversation": steer.conversation, "order": steer.order,
+     "state": steer.state.rawValue, "attempts": steer.attempts, "into": steer.into as Any? ?? NSNull(),
+     "next_attempt_at": steer.nextAttemptAt as Any? ?? NSNull(),
+     "failure": steer.failure.map { ["code": $0.code as Any? ?? NSNull(), "reason": $0.reason as Any? ?? NSNull(),
+                                     "message": $0.message, "retryable": $0.retryable] } as Any? ?? NSNull(),
+     "receipt": steer.receipt.map(jsonObject) as Any? ?? NSNull()]
+}
+
 func project(_ report: OutboxSender.Report) -> [String: Any] {
     ["sent": report.sent, "acknowledged": report.acknowledged, "failed": report.failed, "retrying": report.retrying,
      "resynced": report.resynced, "receipts": report.receipts.map(jsonObject),
-     "conversations": report.conversations.map { $0.conversation_id }]
+     "conversations": report.conversations.map { $0.conversation_id },
+     "refused": report.refused, "steers": report.steers.map(project)]
+}
+
+func project(_ outcome: ConversationEngine.RecallOutcome) -> [String: Any] {
+    switch outcome {
+    case .recalled(let text, let staged, let receipt):
+        return ["outcome": "recalled", "text": text, "staged": staged.map(\.sha256),
+                "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .tooLate(let receipt): return ["outcome": "too-late", "receipt": receipt.map(jsonObject) as Any? ?? NSNull()]
+    case .inFlight: return ["outcome": "in-flight"]
+    }
 }
 
 func project(_ outcome: OutboxSender.WithdrawOutcome) -> [String: Any] {
@@ -113,11 +135,25 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                     workspace: step["workspace"]?.string ?? "", settings: settings))
                 results.append(["do": action, "key": entry.key, "conversation": entry.conversation])
             case "submit":
+                // With `"steer": true`, the composer's Return while a turn takes steers (C-24.9).
                 let settings = try step["settings"]?.decode(ConversationSettings.self) ?? ConversationSettings(model: "opus[1m]")
                 let entry = try outbox.enqueueSubmit(conversation: resolve(step["conversation"]?.string),
                                                      messageID: step["message_id"]?.string ?? Outbox.newMessageID(),
-                                                     text: step["text"]?.string ?? "", settings: settings)
+                                                     text: step["text"]?.string ?? "", settings: settings,
+                                                     steer: step["steer"]?.bool ?? false, into: step["into"]?.string)
                 results.append(["do": action, "key": entry.key, "conversation": entry.conversation])
+            case "steer":
+                // A queued bubble's Steer: `key` is the message id.
+                let steer = try ConversationEngine(client: client, outbox: outbox)
+                    .steer(messageID: resolve(step["key"]?.string), conversationID: resolve(step["conversation"]?.string),
+                           into: step["into"]?.string)
+                results.append(["do": action, "steer": project(steer)])
+            case "recall":
+                // Esc on an unread steer, from the state the app last saw.
+                let key = resolve(step["key"]?.string)
+                let outcome = try ConversationEngine(client: client, outbox: outbox).recall(
+                    messageID: key, state: step["state"]?.string, text: step["text"]?.string)
+                results.append(["do": action, "result": project(outcome)])
             case "pump":
                 results.append(["do": action, "report": project(sender.pump())])
             case "reload":
@@ -127,6 +163,10 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
             case "begin":
                 // Journal a send as under way without sending it: the app stopped here.
                 _ = try outbox.begin(resolve(step["key"]?.string))
+                results.append(["do": action])
+            case "begin-steer":
+                // Journal a steer as under way without sending it: the app stopped here.
+                _ = try outbox.beginSteer(resolve(step["key"]?.string))
                 results.append(["do": action])
             case "send-then-crash":
                 // Send it, and lose the answer: the daemon has it, the journal says `sending`.
@@ -181,6 +221,7 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
     }
     return [
         "results": results, "calls": calls, "entries": outbox.entries.map(project),
+        "steers": outbox.steers.map(project),
         "chains": outbox.journal.chains.mapValues { $0.lastPersonMessageID as Any? ?? NSNull() },
         "journal_mode": fileMode(journal), "directory_mode": fileMode(url.deletingLastPathComponent().path),
     ]
@@ -204,6 +245,7 @@ func project(_ options: ComposerOptions) -> [String: Any] {
     ["models": options.models.map { ["label": $0.label, "value": $0.value] },
      "selected": options.selectedModel?.short as Any? ?? NSNull(), "efforts": options.efforts,
      "efforts_observed": options.effortsObserved, "fast_supported": options.fastSupported as Any? ?? NSNull(),
+     "default_effort": options.defaultEffort as Any? ?? NSNull(),
      "fast_note": options.fastNote,
      "permissions": options.permissions.map { ["policy": $0.policy.rawValue, "enabled": $0.enabled, "widens": $0.widens,
                                                 "reason": $0.disabledReason as Any? ?? NSNull()] as [String: Any] }]
@@ -225,6 +267,7 @@ func project(_ action: StopAction) -> [String: Any] {
     case .none: return ["action": "none"]
     case .withdraw(let id): return ["action": "withdraw", "message_id": id]
     case .cancel(let id): return ["action": "cancel", "message_id": id]
+    case .cancelSteer(let id): return ["action": "cancel-steer", "message_id": id]
     case .interrupt(let id): return ["action": "interrupt", "message_id": id]
     }
 }
@@ -259,6 +302,21 @@ func runStore(_ data: Data) throws -> [String: Any] {
             log.append("status")
         }
         if step["focus"] != nil { state.focus(step["focus"]?.string); log.append("focus") }
+        if let receipts = step["receipts"] {
+            // Receipts as the outbox or `message.status` hand them over (C-24.9 states included).
+            for receipt in try receipts.decode([Receipt].self) { state.apply(receipt: receipt) }
+            log.append("receipts")
+        }
+        if let local = step["local"], let cid = local["conversation_id"]?.string {
+            state.addLocalMessage(conversationID: cid, messageID: local["message_id"]?.string ?? "",
+                                  text: local["text"]?.string ?? "", steer: local["steer"]?.bool ?? false)
+            log.append("local")
+        }
+        if let steers = step["steers"] {
+            // Journaled steers, as `UIModel.open` and `pump` fold them.
+            state.apply(steers: try steers.decode([OutboxSteer].self))
+            log.append("steers")
+        }
         if let query = step["search"]?.string { state.searchQuery = query }
         if step["provider_filter"] != nil { state.providerFilter = step["provider_filter"]?.string }
         if let grouping = step["grouping"]?.string { state.grouping = SidebarGrouping(rawValue: grouping) ?? .recency }
@@ -279,14 +337,33 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                                      "last_state": $0.last_message?.state as Any? ?? NSNull()] as [String: Any] },
     ]
     var composer: [String: Any] = [:]
+    var composerPicked: [String: Any] = [:]
     var banners: [String: Any] = [:]
     var chips: [String: Any] = [:]
     var stops: [String: Any] = [:]
     var statuses: [String: Any] = [:]
+    var steerHosts: [String: Any] = [:]
+    var steerOffers: [String: Any] = [:]
+    var steerHints: [String: Any] = [:]
+    var items: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
+        // C-26.8 (review of 0eac67b4, P2): the composer's options follow a model
+        // picked but not yet saved, so its efforts and default are that model's.
+        var picked = conversation.settings
+        if let haiku = state.composerOptions(for: id)?.models.first(where: { $0.model.short == "haiku" }) {
+            picked.model = haiku.value
+            composerPicked[id] = state.composerOptions(for: id, settings: picked).map(project) ?? NSNull()
+        }
         banners[id] = state.blockedBanner(for: id).map(project) ?? NSNull()
+        // C-24.9: what the composer does, and the hint it shows for the settings a
+        // step names (the composer's picks) or else the conversation's own.
+        let host = state.steerHost(forComposerOf: id)
+        steerHosts[id] = host?.messageID as Any? ?? NSNull()
+        var hintFor = conversation.settings
+        if let picked = input["picked"]?[id] { hintFor = try picked.decode(ConversationSettings.self) }
+        steerHints[id] = host.flatMap { steerSettingsHint(picked: hintFor, host: $0) } as Any? ?? NSNull()
         if let timeline = state.timelines[id] {
             for messageID in timeline.order {
                 if let chip = state.servedChip(conversationID: id, messageID: messageID) {
@@ -295,15 +372,27 @@ func runStore(_ data: Data) throws -> [String: Any] {
                                         "warnings": chip.warnings]
                 }
                 stops[messageID] = project(stopAction(for: messageID, state: timeline.turn(messageID)?.state, outboxEntry: nil))
-                statuses[messageID] = timeline.turn(messageID)?.statusText ?? NSNull()
+                statuses[messageID] = timeline.statusText(of: messageID,
+                                                          assistant: conversation.provider == "codex" ? "Codex" : "Claude")
+                    ?? NSNull()
+                steerOffers[messageID] = state.offersSteer(conversationID: id, messageID: messageID)
+            }
+            items[id] = timeline.items.map { item -> String in
+                if case .person = item.content { return item.id }
+                return item.id.hasPrefix("steer:") ? item.id : "item"
             }
         }
     }
     out["composer"] = composer
+    out["composer_picked_haiku"] = composerPicked
     out["banners"] = banners
     out["chips"] = chips
     out["stops"] = stops
     out["statuses"] = statuses
+    out["steer_hosts"] = steerHosts
+    out["steer_offers"] = steerOffers
+    out["steer_hints"] = steerHints
+    out["items"] = items
     return out
 }
 
@@ -421,6 +510,19 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         let mode = fileMode(path)
         store.delete(arguments[3])
         return ["path": path, "mode": mode, "round_trip": loaded == draft, "deleted": store.load(arguments[3]) == nil]
+    case "recall-draft":
+        // recall-draft <directory> <key> <recall.json>: Esc took a steer back (UIModel.escape):
+        // its words and images join the conversation's draft on disk; a fresh store (the
+        // app after a quit) reads them back.
+        let input = try JSONValue.parse(readFile(arguments[4]))
+        let store = DraftStore(directory: URL(fileURLWithPath: arguments[2]))
+        if let existing = input["existing"], !existing.isNull { try store.save(try existing.decode(Draft.self), for: arguments[3]) }
+        let staged = try input["staged"]?.decode([StagedAttachment].self) ?? []
+        let draft = recalledDraft(store.load(arguments[3]), text: input["text"]?.string ?? "", staged: staged,
+                                  now: "2026-09-28T12:00:00.000Z")
+        try store.save(draft, for: arguments[3])
+        let reread = DraftStore(directory: URL(fileURLWithPath: arguments[2])).load(arguments[3])
+        return ["draft": reread.map(jsonObject) as Any? ?? NSNull(), "mode": fileMode(store.fileURL(for: arguments[3]).path)]
     case "connect-current":
         // connect-current <home> <flavor> [SUBFLEET_HOME]: what the app does at launch
         let environment = arguments.count > 4 ? ["SUBFLEET_HOME": arguments[4]] : [:]
@@ -449,9 +551,12 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return project(DaemonAvailability.check(client))
     case "watch-loop":
         return try runWatchLoop(socket: arguments[2], journal: arguments[3], turns: Int(arguments[4]) ?? 2)
+    case "steerable":
+        // steerable <texts.json>: whether Return may steer each text (DESIGN.md section 9)
+        return try JSONValue.parse(readFile(arguments[2])).array?.map { steerable(text: $0.string ?? "") } ?? []
     case "live":
         return try runLive(arguments)
     default:
-        return nil
+        return try searchProbeCommand(arguments)
     }
 }

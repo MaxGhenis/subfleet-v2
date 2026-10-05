@@ -378,8 +378,11 @@ def _continue_cold(args: argparse.Namespace) -> int:
     out(revive_module.render(attempts))
     if not opt_in and any(not item.admitted and item.fix == revive_module.OPT_IN_FIX
                           for item in attempts):
+        unknown = any(not item.admitted and item.candidate is not None and item.candidate.desktop_owned is None
+                      for item in attempts)
         note("subfleet sessions: automatic revival of desktop-owned sessions is off "
-             "(sessions.auto_revive_desktop_owned)")
+             "(sessions.auto_revive_desktop_owned)"
+             + ("; a session whose desktop record could not be read counts as one" if unknown else ""))
         note(f"  fix: {revive_module.OPT_IN_FIX}")
     refused = _fenced_refusal("sessions continue --scope cold", named,
                               conversations=bound, lanes=lanes)

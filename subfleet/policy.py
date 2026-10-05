@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS,
+    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     Closure, Decision, Exit, Lane, Reading,
 )
@@ -35,6 +35,13 @@ HANDOFF_CAPS: dict[str, int] = {
     "progress": 32_000,
     "repository": 16_000,
 }
+#: The caps of the sections a brief carries (the tool caps bound what `recent`
+#: selects), and room for its header: fixed text, three paths and a session id.
+#: The assembled brief is scrubbed whole once more (C-23.14), so together they
+#: must fit the scrubber's bound, or its final pass would exceed it (C-23.36).
+HANDOFF_BRIEF_SECTIONS = ("original_task", "recent", "progress", "repository")
+HANDOFF_HEADER_CHARS = 16 * 1024
+HANDOFF_BRIEF_MAX_CHARS = SCRUB_MAX_CHARS - HANDOFF_HEADER_CHARS
 
 #: `sessions.*` (C-6.4): the sessions kit's caps, all of them policy data rather
 #: than constants, because a restart storm or a slow host is a tuning problem.
@@ -67,20 +74,137 @@ SESSION_DEFAULTS: dict[str, Any] = {
 #: relay, then closing stdin, then C-5.6 containment, each that many seconds
 #: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
-#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
-#: on an unanswered approval.
-CONVERSATION_DEFAULTS: dict[str, float] = {
-    "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
+#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's optional
+#: bound on an unanswered tool approval; null means no limit. The two turn caps
+#: (C-26.9) are `null` by default, meaning no cap: a person's turn waits only for
+#: a lane that can take it, never for a count Subfleet imposes (Max, 2026-09-27,
+#: after a turn waited 12 minutes
+#: behind two other conversations' turns while one turn per lane was the rule).
+CONVERSATION_DEFAULTS: dict[str, float | None] = {
+    "approval_wait_s": None,         # C-26.9: no approval timeout unless policy sets one
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
-    "max_active_turns": 3,           # C-26.9: turns running at once, apart from detached jobs
-    "turn_slots_per_lane": 1,        # C-26.9: turns on one lane at once, apart from detached jobs
+    "max_active_turns": None,        # C-26.9: turns running at once, apart from detached jobs; null: no cap
+    "turn_slots_per_lane": None,     # C-26.9: turns on one lane at once, apart from detached jobs; null: no cap
     "stop_sigint_after_s": 10,       # C-24.7: a stop not honoured by then gets SIGINT
     "stop_close_after_s": 20,        # C-24.7: then stdin is closed
     "stop_contain_after_s": 30,      # C-24.7: then the attempt is contained
     "after_result_s": 135,           # C-26.5: background output allowed after `result`
 }
+
+#: C-26.9: the `conversations` keys that cap turns, each a positive whole number or null (no cap).
+TURN_CAPS = frozenset({"max_active_turns", "turn_slots_per_lane"})
+
+
+def turn_cap(conversations: Mapping[str, Any] | None, key: str) -> int | None:
+    """C-26.9: one turn cap from policy `conversations`, or None when there is none.
+
+    A section without the key has the default, which is no cap, so a missing
+    key and a null mean the same thing to every reader.
+    """
+    if key not in TURN_CAPS:
+        raise KeyError(key)
+    value = (conversations or {}).get(key, CONVERSATION_DEFAULTS[key])
+    return None if value is None else int(value)
+
+
+#: `conversations.default_effort` (C-26.8): the effort a turn runs at when its
+#: message names none, per provider. It applies only where the catalog a turn last
+#: reported for the model offers it; a provider set to null keeps its own default,
+#: and `default_effort: null` turns the default off for every provider.
+CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "codex": None}
+
+#: C-6.4: the `caps` keys that count attempts running at once, which admission
+#: reads (`scheduler.pool_capped`), and the two that count what a caller may
+#: submit (C-6.5). Each is a positive whole number or null, which is no cap and
+#: the default (Max, 2026-09-27 and 2026-09-28: "remove *all* caps").
+CONCURRENCY_CAPS = frozenset({"max_active_attempts", "max_in_flight_per_lane",
+                              "max_in_flight_unmeasured", "max_active_attempts_per_parent"})
+SUBMIT_CAPS = frozenset({"max_writable_per_session", "max_child_jobs"})
+COUNT_CAPS = CONCURRENCY_CAPS | SUBMIT_CAPS
+
+
+def cap(caps: Mapping[str, Any] | None, key: str) -> int | None:
+    """C-6.4: one count cap from policy `caps`, or None when there is none.
+
+    A missing key has the default, which is no cap, so a missing key and a null
+    mean the same thing to every reader.
+    """
+    if key not in COUNT_CAPS:
+        raise KeyError(key)
+    value = (caps or {}).get(key, DEFAULT_CAPS[key])
+    return None if value is None else int(value)
+
+
+def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
+    """C-6.4: how many detached attempts one lane may hold, or None for no cap.
+
+    A lane with a fresh `provider` reading is capped by `max_in_flight_per_lane`;
+    one without by `max_in_flight_unmeasured`, else by `max_in_flight_per_lane`,
+    whichever are set. There is no fixed 1 underneath: until 2026-09-27 an
+    unmeasured lane was held to one attempt whatever the policy said.
+    """
+    per_lane = cap(caps, "max_in_flight_per_lane")
+    if measured:
+        return per_lane
+    limits = [value for value in (per_lane, cap(caps, "max_in_flight_unmeasured")) if value is not None]
+    return min(limits) if limits else None
+
+
+#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: work once no count caps it (2026-09-27).
+#: `lane_spread` is the width of a load band: candidates are ranked by
+#: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
+#: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: `weekly_reserve` and `five_hour_reserve` are fractions remaining below which
+#: a candidate sorts later, never admission floors or reasons to wait.
+#: `desktop_recent_s` is how recently a Claude Code session on the desktop login
+#: must have been active for that login to count as in use (C-10.3).
+#: `machine_guard` holds detached jobs of a class at the door while the machine is
+#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
+#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
+#: it waits for that to change before it fails with rc 3 (C-11.8); null never
+#: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
+#: closure must end to count as a hold rather than a wait (C-11.8): seven days
+#: is the longest usage window Subfleet reads (`seven_day`).
+#: `prove_idle_s` is how long a lane may go without showing a model's answer
+#: before it is proven again by one detached attempt, its pilot, while every
+#: other detached attempt waits for that answer (C-6.14); null never holds a
+#: lane. Fifteen probe intervals: a lane in use proves itself with every
+#: attempt it starts and never waits, and a lane idle that long costs one
+#: serialized start, where an unproven lane took 37 jobs in 40 s on
+#: 2026-09-30 and failed every one. `prove_wait_s` is how long a pilot that has
+#: not answered keeps its lane to itself; after it the lane takes one more
+#: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
+#: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
+MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
+    "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
+    "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
+}
+ADMISSION_DEFAULTS: dict[str, Any] = {
+    "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
+    "desktop_recent_s": 1800,
+    "machine_guard": None,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 7 * 86400,
+    "prove_idle_s": 900,
+    "prove_wait_s": 300,
+}
+#: C-6.13: the job classes a machine guard may hold, and the memory pressure
+#: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
+GUARDED_CLASSES = ("session", "background")
+MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
+
+
+def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """The policy's `admission` section with its defaults, as the loader leaves it."""
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
@@ -217,12 +341,74 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("caps", "must be a map of positive admission bounds")
     caps = {**DEFAULT_CAPS, "reading_ttl_s": READING_TTL_S,
             "max_tokens_observed": None, **value["caps"]}
-    for name, cap in caps.items():
-        if name == "max_tokens_observed" and cap is None:
-            continue
-        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
-            fail(f"caps.{name}", "must be a positive integer")
+    for name, item in caps.items():
+        if item is None and (name == "max_tokens_observed" or name in COUNT_CAPS):
+            continue            # C-6.4: null is no cap
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            fail(f"caps.{name}", "must be a positive integer, or null for no cap" if name in COUNT_CAPS
+                 else "must be a positive integer")
     value["caps"] = caps
+
+    # `admission` (C-6.9, C-6.13, C-10.3, C-11.3): the load band, the desktop
+    # login's recency window, and the machine guard.
+    admission = value.get("admission", {})
+    if not isinstance(admission, dict):
+        fail("admission", "must be an object")
+    for key in admission:
+        if key not in ADMISSION_DEFAULTS:
+            fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
+    settings = {**ADMISSION_DEFAULTS, **admission}
+    spread = settings["lane_spread"]
+    if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
+        fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    for key in ("weekly_reserve", "five_hour_reserve"):
+        if not _fraction(settings[key]):
+            fail(f"admission.{key}", "must be a finite fraction between 0 and 1")
+    recent = settings["desktop_recent_s"]
+    if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
+        fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
+    guard = settings["machine_guard"]
+    if guard is not None:
+        if not isinstance(guard, dict):
+            fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
+        for klass, limits in guard.items():
+            where = f"admission.machine_guard.{klass}"
+            if klass not in GUARDED_CLASSES:
+                fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
+                            "a conversation turn is never held")
+            if limits is None:
+                continue
+            if not isinstance(limits, dict) or not limits:
+                fail(where, "must be an object with load_per_cpu, memory_pressure, or both")
+            for key, item in limits.items():
+                if key == "load_per_cpu":
+                    if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
+                            or item <= 0):
+                        fail(f"{where}.load_per_cpu", "must be a positive finite number")
+                elif key == "memory_pressure":
+                    if item not in ("warn", "critical"):
+                        fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
+                else:
+                    fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+    grace = settings["pin_grace_s"]
+    if grace is not None and (not isinstance(grace, (int, float)) or isinstance(grace, bool)
+                              or not math.isfinite(grace) or grace < 0):
+        fail("admission.pin_grace_s", "must be a nonnegative finite number of seconds, or null never to fail "
+                                      "a job whose pinned lane can never admit it (C-11.8)")
+    far = settings["pin_hold_far_s"]
+    if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
+        fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    prove = settings["prove_idle_s"]
+    if prove is not None and (not isinstance(prove, (int, float)) or isinstance(prove, bool)
+                              or not math.isfinite(prove) or prove <= 0):
+        fail("admission.prove_idle_s", "must be a positive finite number of seconds, or null never to hold "
+                                       "a lane for its pilot (C-6.14)")
+    wait = settings["prove_wait_s"]
+    if wait is not None and (not isinstance(wait, (int, float)) or isinstance(wait, bool)
+                             or not math.isfinite(wait) or wait <= 0):
+        fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
+                                       "pilot's answer however long (C-6.14)")
+    value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
     if not _fraction(floor):
@@ -292,6 +478,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key, item in caps.items():
         if (not isinstance(item, int) or isinstance(item, bool) or item <= 0):
             fail(f"sessions.handoff_caps.{key}", "must be a positive whole number of characters")
+    brief = sum(caps[key] for key in HANDOFF_BRIEF_SECTIONS)
+    if brief > HANDOFF_BRIEF_MAX_CHARS:
+        fail("sessions.handoff_caps",
+             f"{' + '.join(HANDOFF_BRIEF_SECTIONS)} is {brief:,} characters; the assembled brief is "
+             f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
     # `network` (d260): whether a writable Codex job's shell reaches the network.
@@ -307,10 +498,22 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # `conversations` and `retention`: whole counts where the value counts
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
-    # days kept after a turn ends).
+    # days kept after a turn ends). Turn caps and the approval wait may also be
+    # null: no cap or timeout (C-26.9).
+    # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
+    default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
+        value.get("conversations"), dict) else None
+    if default_effort is not None:
+        if not isinstance(default_effort, dict):
+            fail("conversations.default_effort", "must be an object of provider to effort or null")
+        for key, item in default_effort.items():
+            if key not in CONVERSATION_DEFAULT_EFFORT:
+                fail(f"conversations.default_effort.{key}", "is not a provider (claude, codex)")
+            if item is not None and (not isinstance(item, str) or not item or len(item) > 20):
+                fail(f"conversations.default_effort.{key}", "must be an effort name or null")
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
-             {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}),
+             {"compact_per_tick", *TURN_CAPS}),
             ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
@@ -318,6 +521,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         settings = {**defaults, **supplied}
         for key in defaults:
             item = settings[key]
+            if item is None and section == "conversations" and key in TURN_CAPS | {"approval_wait_s"}:
+                continue
             if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                     or item < 0 or (item == 0 and key not in may_be_zero)):
                 fail(f"{section}.{key}", "must be a nonnegative finite number" if key in may_be_zero
@@ -370,8 +575,9 @@ def _time(value: str | datetime) -> datetime:
 
 
 def lane_capacity(policy: Mapping[str, Any], lane_id: str,
-                  readings: Iterable[Reading | Mapping[str, Any]], *, now: datetime | str | None = None) -> int:
-    """C-6.4: an unmeasured or stale lane is limited to one in-flight attempt."""
+                  readings: Iterable[Reading | Mapping[str, Any]], *,
+                  now: datetime | str | None = None) -> int | None:
+    """C-6.4: how many detached attempts the lane may hold now (`lane_slot_cap`), None for no cap."""
     from .capacity import fresh_provider
 
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
@@ -387,7 +593,7 @@ def lane_capacity(policy: Mapping[str, Any], lane_id: str,
                 break
         except (ValueError, TypeError, KeyError):
             continue
-    return caps["max_in_flight_per_lane"] if measured else min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1)
+    return lane_slot_cap(caps, measured)
 
 
 def pick(policy: Mapping[str, Any], lanes: Iterable[Lane | Mapping[str, Any]], *,

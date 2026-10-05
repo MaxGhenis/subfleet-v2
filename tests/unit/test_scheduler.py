@@ -9,6 +9,7 @@ import pytest
 from subfleet.capacity import build_view
 from subfleet.contracts import Exit
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+from tests.caps import capped
 from subfleet.scheduler import (evaluate, exit_code, ordered_jobs, probe_required,
                                 resolve_lane, waiting_metadata)
 
@@ -22,15 +23,19 @@ SIX_DAYS = "2026-09-11T10:33:00Z"
 def policy():
     """The shipped policy with the reserve rule (C-11.7) switched off: these cases
     describe admission mechanics that the rule sits on top of. `reserve_policy`
-    below is the policy as shipped, for the reserve cases."""
-    loaded = load_policy(DEFAULT_POLICY_PATH)
+    below is the policy as shipped, for the reserve cases. Both keep the count
+    caps of before 2026-09-27 (`tests/caps.py`): most of these cases, the 06:33
+    one of C-11.6 among them, were observed or written under them, and a policy
+    may still set them. `tests/unit/test_scheduler_uncapped.py` covers the
+    shipped default, which has none."""
+    loaded = capped(load_policy(DEFAULT_POLICY_PATH))
     loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
     return loaded
 
 
 @pytest.fixture
 def reserve_policy():
-    return load_policy(DEFAULT_POLICY_PATH)
+    return capped(load_policy(DEFAULT_POLICY_PATH))
 
 
 def lane(identity="claude-1", **changes):
@@ -123,11 +128,11 @@ def test_codex_weekly_waterfall_fuller_lane_resetting_tomorrow_wins(policy):
     assert decision.evaluations[0]["candidates"] == ["codex-1", "codex-2"]
 
 
-def test_codex_in_flight_never_reorders_equal_weekly_resets(policy):
-    """C-11.3: the lane id breaks tied weekly resets even when that lane is busier."""
+def test_codex_equal_weekly_resets_prefer_more_weekly_headroom(policy):
+    """C-11.3: weekly headroom breaks tied resets before in-flight and lane id."""
     snapshot = view([lane("codex-2"), lane("codex-1")],
                     [reading("codex-1", .8), reading("codex-2", .2)], attempts=[attempt("codex-1")])
-    assert evaluate(policy, snapshot, job(pinned_model="astra")).chosen_lane == "codex-1"
+    assert evaluate(policy, snapshot, job(pinned_model="astra")).chosen_lane == "codex-2"
 
 
 @pytest.mark.parametrize("utilization", [.85, .9, 1, 1.47])
@@ -141,14 +146,14 @@ def test_codex_any_window_at_or_above_floor_is_ineligible_even_with_soon_reset(p
     assert decision.evaluations[0]["rejections"][0]["reason"] == "below-floor"
 
 
-def test_claude_worst_window_headroom_then_in_flight_then_id(policy):
-    """C-11.3: Claude uses the worst window, then fewer attempts, then lane id."""
+def test_claude_weekly_headroom_then_in_flight_then_id(policy):
+    """C-11.3: equal resets prefer weekly headroom; a short window above reserve does not reorder."""
     snapshot = view([lane("claude-4"), lane("claude-3"), lane("claude-2"), lane("claude-1")],
                     [reading("claude-1", .1), reading("claude-1", .7, window="five_hour"),
                      reading("claude-2", .3), reading("claude-3", .3), reading("claude-4", .3)],
                     attempts=[attempt("claude-2")])
     decision = evaluate(policy, snapshot, job(pinned_model="opus"))
-    assert decision.evaluations[0]["candidates"] == ["claude-3", "claude-4", "claude-2", "claude-1"]
+    assert decision.evaluations[0]["candidates"] == ["claude-1", "claude-3", "claude-4", "claude-2"]
 
 
 def test_fable_model_scoped_closure_leaves_opus_eligible(policy):
@@ -283,11 +288,15 @@ def test_fifo_within_tier_preserves_same_second_submission_order(policy):
 
 
 def test_parent_descendants_share_one_concurrency_bound(policy):
-    """C-6.4; plan amendment 11: grandchildren cannot evade their root parent's cap."""
+    """C-6.4; plan amendment 11: grandchildren cannot evade their root parent's cap,
+    when the policy sets one. By default there is none (2026-09-27)."""
     jobs = [job(job_id="parent"), job(job_id="child-a", parent_job_id="parent"),
             job(job_id="child-b", parent_job_id="parent"),
             job(job_id="grandchild-a", parent_job_id="child-a")]
     snapshot = view([lane("claude-1"), lane("claude-2")], attempts=[attempt("claude-1", "grandchild-a")], jobs=jobs)
+    uncapped = evaluate(policy, snapshot, job(job_id="grandchild-b", parent_job_id="child-b"))
+    assert uncapped.chosen_lane is not None and uncapped.evaluations[0]["capacity_blocks"] == []
+    policy["caps"]["max_active_attempts_per_parent"] = 1
     result = evaluate(policy, snapshot, job(job_id="grandchild-b", parent_job_id="child-b"))
     assert exit_code(result) == Exit.NO_LANE
     assert result.evaluations[0]["capacity_blocks"] == ["parent:parent"]
@@ -465,14 +474,14 @@ def test_c11_7_only_the_usage_sensor_measures_the_shared_window(reserve_policy):
     assert rejection(decision, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
 
 
-def test_c11_7_non_reserved_work_orders_lanes_by_slack(reserve_policy):
+def test_c11_7_slack_preserves_eligibility_but_weekly_rule_orders_candidates(reserve_policy):
     lanes = [lane("claude-1"), lane("claude-2"), lane("claude-3")]
     rows = (usage("claude-1", .50, .95) + usage("claude-2", .20, .95) + usage("claude-3", .10, .60))
     decision = decision_for(reserve_policy, lanes, rows, pinned_model="sonnet", task=None, tier=None)
     evaluation = next(e for e in decision.evaluations if e["model"] == "sonnet")
-    # slack: claude-1 .50-.10=.40; claude-2 .80-.10=.70; claude-3 .90-.80=.10
-    assert evaluation["candidates"] == ["claude-2", "claude-1", "claude-3"]
-    assert decision.chosen_lane == "claude-2"
+    # All have eligible slack; equal weekly resets prefer account headroom.
+    assert evaluation["candidates"] == ["claude-3", "claude-2", "claude-1"]
+    assert decision.chosen_lane == "claude-3"
 
 
 def test_c11_7_a_stale_usage_read_does_not_count(reserve_policy):
@@ -555,6 +564,7 @@ def test_unmeasured_reserve_authorization_preserves_other_rejections(reserve_pol
     elif guard == "lane-slot": attempts = [attempt("claude-1")]
     elif guard == "fleet-cap": attempts = [attempt("codex-1", f"active-{i}") for i in range(4)]
     elif guard == "parent-cap":
+        reserve_policy["caps"]["max_active_attempts_per_parent"] = 1
         changes["parent_job_id"] = "parent"
         attempts = [attempt("codex-1")]
         jobs = [{"job_id": "parent"}, {"job_id": "running-job", "parent_job_id": "parent"}]

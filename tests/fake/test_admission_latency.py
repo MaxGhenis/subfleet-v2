@@ -102,7 +102,7 @@ def test_c6_3_no_capacity_view_is_built_with_the_store_lock_held_across_100_rese
     service.policy["caps"].update(max_active_attempts=200, max_in_flight_per_lane=50, reading_ttl_s=3600)
     jobs = [submit(service, harness, pinned_model="astra") for _ in range(100)]
     # No git here: one subprocess per job is not what this measures.
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
     held: list[str] = []
     rows, build, evaluate = service._capacity_rows, capacity.build_view, scheduler.evaluate
 
@@ -193,13 +193,19 @@ def check_reservation(service, attempt_id):
     probes = store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
     on_lane = sum(1 for row in pool if row["lane_id"] == lane_id)
     if turn:
-        assert on_lane < turns.get("turn_slots_per_lane", 1)
-        assert len(pool) < turns.get("max_active_turns", 3)
+        # C-26.9: a null or missing cap is no cap.
+        lane_cap, fleet_cap = turns.get("turn_slots_per_lane"), turns.get("max_active_turns")
+        assert lane_cap is None or on_lane < lane_cap
+        assert fleet_cap is None or len(pool) < fleet_cap
     else:
-        slots = caps["max_in_flight_per_lane"] if measured_now(service, lane_id, now) else min(
-            caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1)
-        assert on_lane < slots, (lane_id, on_lane, slots)
-        assert len(pool) + len(probes) < caps["max_active_attempts"]
+        # C-6.4 (2026-09-27): a null or missing cap is no cap, and no fixed 1 is
+        # beneath the unmeasured cap.
+        per_lane, unmeasured = caps.get("max_in_flight_per_lane"), caps.get("max_in_flight_unmeasured")
+        limits = [per_lane] if measured_now(service, lane_id, now) else [per_lane, unmeasured]
+        limits = [value for value in limits if value is not None]
+        assert not limits or on_lane < min(limits), (lane_id, on_lane, limits)
+        fleet_cap = caps.get("max_active_attempts")
+        assert fleet_cap is None or len(pool) + len(probes) < fleet_cap
     lane = store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
     assert lane["enabled"] and lane["owner"] == "v2"
     model = attempt["model_requested"]
@@ -294,10 +300,13 @@ def admission_under_commits(data, service, harness, patch, *, checked=None):
     # Readings fresh for an hour: the checks here compare two clocks (the reservation's
     # and the oracle's, or a full evaluation's made after it), and on a starved machine
     # an example can outlast the policy's 120 s, which would move a lane between them.
-    caps.update(max_active_attempts=data.draw(st.sampled_from([1, 2, 3, 5]), label="fleet cap"),
-                max_in_flight_per_lane=data.draw(st.sampled_from([1, 2]), label="lane cap"), reading_ttl_s=3600)
-    service.policy.setdefault("conversations", {}).update(
-        max_active_turns=data.draw(st.sampled_from([1, 2]), label="turn cap"), turn_slots_per_lane=1)
+    caps.update(max_active_attempts=data.draw(st.sampled_from([None, 1, 2, 3, 5]), label="fleet cap"),
+                max_in_flight_per_lane=data.draw(st.sampled_from([None, 1, 2]), label="lane cap"),
+                max_in_flight_unmeasured=data.draw(st.sampled_from([None, None, 1]), label="unmeasured cap"),
+                reading_ttl_s=3600)
+    service.policy.setdefault("conversations", {}).update(      # C-26.9: None is no cap, the default
+        max_active_turns=data.draw(st.sampled_from([None, 1, 2]), label="turn cap"),
+        turn_slots_per_lane=data.draw(st.sampled_from([None, 1]), label="turn lane cap"))
     for lane_id in LANES:
         if data.draw(st.booleans(), label=f"{lane_id} measured"):
             measure(service, lane_id, data.draw(st.sampled_from([.1, .5, .9]), label=f"{lane_id} use"))
@@ -459,7 +468,7 @@ def test_c26_9_a_queued_turn_is_placed_before_a_detached_backlog_is_evaluated(ro
     service.policy["caps"].update(max_active_attempts=40, max_in_flight_per_lane=20, reading_ttl_s=3600)
     backlog = [submit(service, harness, pinned_model="astra", tier="trivial") for _ in range(30)]
     turn = submit_turn(service, harness, 1)
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))   # no git per job
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))   # no git per job
     pick, order = service._pick, []
 
     def recording(job, **options):
@@ -528,7 +537,7 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
                              subject="codex-3", state="confirmed",
                              request_json=json.dumps({"account_key": "codex:codex-3"}))
     job_id = submit(service, harness, pinned_model="astra", tier="hard")
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
     pick, early = service._pick, []
 
     def pick_then_commit(job, **options):

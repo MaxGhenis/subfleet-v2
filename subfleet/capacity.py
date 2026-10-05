@@ -11,7 +11,7 @@ import json
 import math
 import os
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -273,12 +273,16 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
     clock alone may change how `scheduler.evaluate` judges that lane on the
     view's rows; a lane with no such instant is left out.
 
-    `evaluate` reads the clock only through `fresh_provider` and a closure's
-    `until_at`, and a lane's verdict and detail (`scheduler.judge_lane`) read
+    `evaluate` reads the clock through `fresh_provider`, a closure's
+    `until_at`, and C-11.3's renewed-window ranking guard; a lane's verdict
+    and detail (`scheduler.judge_lane`) read
     only that lane's readings and closures. So before its horizon a lane is
     judged as the view judged it: until one of its readings turns fresh (a
-    future `observed_at`) or stops being fresh (`fresh_until`), or one of its
-    closures ends (`until_at`). Either can close a lane, not only open one (a
+    future `observed_at`) or stops being fresh (`fresh_until`), a latest provider
+    window renews within its TTL or its renewal uncertainty ages out, or one
+    of its closures ends (`until_at`).
+    A window expired at its own observation is already unusable, so its reset
+    before that observation adds no clock. Either can close a lane, not only open one (a
     reported closure on a reserved model gives its lane slack behind a probe,
     C-11.7, that turns `unmeasured` when the closure ends; review of f48df54).
 
@@ -299,10 +303,19 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
             found[lane_id] = clock
     for item in view.get("readings", ()):
         row = _row(item)
-        note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
         observed = _time(row["observed_at"])
-        if observed > instant and fresh_provider(row, now=observed, reading_ttl_s=reading_ttl_s):
-            note(row["lane_id"], observed)
+        note(row["lane_id"], fresh_until([row], now=instant, reading_ttl_s=reading_ttl_s))
+        # C-11.3's renewal uncertainty and explanatory evidence both use the
+        # recent-reading set. Even a stale-labelled row with no reset can
+        # change reading_observed_at when it enters or leaves that set.
+        if row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None:
+            expiry = observed + timedelta(seconds=reading_ttl_s)
+            if observed > instant:
+                note(row["lane_id"], observed)
+            elif instant <= expiry:
+                note(row["lane_id"], expiry)
+            if row.get("resets_at") and max(instant, observed) < (reset := _time(row["resets_at"])) <= expiry:
+                note(row["lane_id"], reset)
     for item in view.get("closures", ()):
         row = _row(item)
         if not row.get("released_at") and (until := _time(row["until_at"])) > instant:
@@ -316,10 +329,11 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
     taken on the view's rows may change with no row changing; None when nothing
     in it waits on the clock.
 
-    `scheduler.evaluate` reads the clock only through `fresh_provider` and a
-    closure's `until_at`, so its decision on these rows is the same at every
+    `scheduler.evaluate` judges and ranks through `fresh_provider`, C-11.3's
+    renewed-window guard, and a closure's `until_at`, so its decision on these rows is the same at every
     instant before the earliest of: a reading turning fresh (its future
-    `observed_at`) or no longer fresh (`fresh_until`), a closure ending (its
+    `observed_at`) or no longer fresh (`fresh_until`), a provider window's reset
+    even after its TTL, a closure ending (its
     `until_at`), and each of `ends` (a confirmed override's `weekly_reset_at`,
     which puts the readings it held out back). Any of them can close a lane,
     not only open one: an override that ends shows a reading below the floor,
@@ -345,14 +359,18 @@ def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int
 
 
 def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None,
-                 desktop_account: str | None = None) -> dict[str, Any]:
+                 desktop_account: str | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """C-10.3: set a lane row's `desktop` flag as a view does, and return the row.
 
     Only a Claude lane is the desktop app's. `desktop` (the profile endpoint's
     answer) decides when it can say anything; otherwise the recorded flag
     stands. `desktop_account` is the bare hint, for callers that have only it.
-    C-6.3's check inside a reservation marks the lane rows it reads with this,
-    so it sees each lane as the view the decision was made on did."""
+    `desktop_in_use` is whether Claude Code is using that login now
+    (`sessions.registry.desktop_login_in_use`): it is put on the desktop lane as
+    `desktop_in_use`, and a desktop lane without it is judged in use, as every
+    desktop lane was before 2026-09-27. C-6.3's check inside a reservation marks
+    the lane rows it reads with this, so it sees each lane as the view the
+    decision was made on did."""
     if lane["provider"] == "claude":
         if desktop is not None:
             if desktop.decisive:
@@ -360,14 +378,24 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
             lane["desktop_identity"] = desktop.status
         elif desktop_account is not None:
             lane["desktop"] = _account_matches(lane, desktop_account)
+        if lane.get("desktop") and desktop_in_use is not None:
+            lane["desktop_in_use"] = bool(desktop_in_use)
+        else:
+            lane.pop("desktop_in_use", None)
     return lane
+
+
+def desktop_excluded(lane: Mapping[str, Any]) -> bool:
+    """C-10.3: the desktop login's lane while Claude Code uses it (or while that is unknown)."""
+    return bool(lane.get("desktop")) and lane.get("desktop_in_use", True) is not False
 
 
 def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Iterable[Any] = (),
                attempts: Iterable[Any] = (), jobs: Iterable[Any] = (), *,
                now: str | datetime | None = None, reading_ttl_s: int = READING_TTL_S,
                desktop_account: str | None = None,
-               desktop: DesktopIdentity | None = None) -> dict[str, Any]:
+               desktop: DesktopIdentity | None = None,
+               desktop_in_use: bool | None = None) -> dict[str, Any]:
     """C-6.4, C-9.1, C-9.6, C-10.3–4: assemble an immutable-input snapshot.
 
     V1-owned and desktop lanes remain visible for status and rejection evidence.
@@ -393,7 +421,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     turn_counts = Counter(row["lane_id"] for row in active if row.get("job_id") in turn_jobs)
     roster = []
     for item in lanes:
-        lane = mark_desktop(_row(item), desktop=desktop, desktop_account=desktop_account)
+        lane = mark_desktop(_row(item), desktop=desktop, desktop_account=desktop_account,
+                            desktop_in_use=desktop_in_use)
         identity = lane["lane_id"]
         lane["readings"] = [row for row in evidence if row["lane_id"] == identity]
         lane["closures"] = [row for row in active_closures if row["lane_id"] == identity]
@@ -419,6 +448,20 @@ def credential_latched(lane: Mapping[str, Any]) -> bool:
         "revoked", "auth-revoked", "expired-token", "no-auth")
 
 
+def credential_gone(lane: Mapping[str, Any]) -> bool:
+    """C-11.8: a latched credential only a person brings back, by logging in again or
+    re-enrolling (a new credential epoch): revoked, no login at all, or a Codex
+    lane's expired token whose one heal for this epoch has run and left it expired
+    (`heal_spent`, set by the timers' probe, C-23.47). Any other expired token
+    latches the lane's slot too (`credential_latched`) but may still come back by
+    itself: before its heal, or on a Claude home lane, whose heal the timers retry
+    every 20 minutes, so it is not this."""
+    return (lane.get("revoked_epoch") is not None
+            or lane.get("probe_status") in ("revoked", "auth-revoked", "no-auth")
+            or lane.get("provider") == "codex" and lane.get("probe_status") == "expired-token"
+            and bool(lane.get("heal_spent")))
+
+
 def identity_blocked(lane: Mapping[str, Any]) -> bool:
     """C-10.6: a lane whose own credential proved to hold a different account is
     not a candidate until an operator re-enrols it. Nothing else about the lane —
@@ -426,23 +469,131 @@ def identity_blocked(lane: Mapping[str, Any]) -> bool:
     return str(lane.get("identity_status") or "") == IdentityStatus.MISMATCH.value
 
 
+#: C-11.4, C-18.1: every probe (admission's, a timer's turn or read, a
+#: re-enrolment's) holds its lane's `lane:<lane id>:slot:0` under a holder named
+#: `probe:...`, and admission honours each such lease (`Daemon._capacity_view`).
+PROBE_LEASES = "SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'"
+
+
+def mark_probe_leases(view: dict[str, Any], leases: Iterable[Any],
+                      record: Callable[[str], Mapping[str, Any] | None] | None = None) -> dict[str, Any]:
+    """C-5.7a, C-11.4, C-18.1: lay the probe leases admission honours over a view.
+
+    A lane whose slot a probe holds is unavailable (`unavailable_lanes` names the
+    holder) for as long as the lease is held: an admission probe or a timer's
+    turn for its seconds, a quarantined probe until a census finds it empty
+    (C-5.7a), however long that takes. Every probe lease counts toward the
+    fleet's `max_active_attempts` (`reserved_probes`). Each lane a probe holds
+    carries `probe_holder` and `probe_state`, the state of that holder's newest
+    record (`record(holder)`), or `uncertain` when no record names it: a
+    timer's usage read writes none, and a timer's turn writes its first only
+    after it took the lease. A turn's newest record reads `completed` from the
+    moment it is written until the timer releases the lease. A lane already
+    unavailable for another reason keeps that reason, whichever of the two is
+    laid first.
+    """
+    rows = [_row(item) for item in leases]
+    held: dict[str, str] = {}
+    for row in rows:
+        kind, _, rest = str(row["lease_key"]).partition(":")
+        if kind == "lane":
+            held.setdefault(rest.partition(":")[0], row["holder"])
+    unavailable = view.setdefault("unavailable_lanes", {})
+    for lane_id, holder in held.items():
+        unavailable.setdefault(lane_id, holder)
+    view["reserved_probes"] = len(rows)
+    for lane in view["lanes"]:
+        holder = held.get(lane["lane_id"])
+        if holder is not None:
+            lane["probe_holder"] = holder
+            lane["probe_state"] = ((record(holder) if record is not None else None) or {}).get("state", "uncertain")
+    return view
+
+
+#: C-6.14: the slot block a lane's pilot lays on it (`proving:<attempt id>`).
+PILOT_BLOCK = "proving:"
+
+
+def pilot_block(value: Any) -> bool:
+    """C-6.14: is this `unavailable_lanes` value a pilot's block, which holds detached
+    attempts only (a conversation turn is never held for a pilot)?"""
+    return isinstance(value, str) and value.startswith(PILOT_BLOCK)
+
+
+def pilot_marks(attempts: Iterable[Mapping[str, Any]], *, answered: Mapping[str, Any],
+                lane_answers: Mapping[str, float], now: float, idle_s: float | None,
+                wait_s: float | None = None) -> dict[str, str]:
+    """C-6.14: lane id -> `proving:<attempt id>` for each lane being proven.
+
+    A lane is being proven while no model has answered on it for `idle_s`
+    seconds before `now` (epoch seconds; `lane_answers` holds each lane's last
+    answer, and a lane it does not name has never answered) and a detached
+    attempt is in flight on it that has not answered yet (`answered` names the
+    attempts that have): that attempt is the lane's pilot, the least attempt id
+    when there are several. `attempts` are rows with `attempt_id`, `lane_id`,
+    `state` and `kind`, the job's (a `turn` attempt is never a pilot), and
+    `reserved_at`. With `idle_s` None (`admission.prove_idle_s` null) no lane is
+    held. An attempt reserved more than `wait_s` seconds before `now`
+    (`admission.prove_wait_s`; None, however long) that still has not answered is
+    a pilot no longer: its lane takes one more attempt, the next pilot, so a pilot
+    that hangs costs its lane one attempt per `wait_s`, not every attempt until
+    `max_wall_s`. A row with no `reserved_at`, or one that does not parse, is
+    taken as reserved now.
+
+    Pure, so the early view (`Daemon._capacity_view`) and the reservation's check
+    (`Daemon._route_rows`) lay the same marks over the same rows and clock (C-6.3).
+    """
+    if idle_s is None:
+        return {}
+    marks: dict[str, str] = {}
+    for row in sorted(attempts, key=lambda item: str(item["attempt_id"])):
+        if row.get("state") not in ACTIVE_ATTEMPT_STATES or row.get("kind") == "turn":
+            continue
+        lane_id = row["lane_id"]
+        if lane_id in marks or row["attempt_id"] in answered:
+            continue
+        if wait_s is not None and row.get("reserved_at"):
+            try:
+                if now - _time(row["reserved_at"]).timestamp() >= wait_s:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        last = lane_answers.get(lane_id)
+        if last is not None and now - last < idle_s:
+            continue
+        marks[lane_id] = PILOT_BLOCK + str(row["attempt_id"])
+    return marks
+
+
+def mark_pilots(view: dict[str, Any], marks: Mapping[str, str]) -> dict[str, Any]:
+    """C-6.14: lay pilot marks over a view's `unavailable_lanes`. A lane already
+    unavailable for another reason (a probe's lease, a latched credential) keeps
+    that reason: it holds a turn too, where a pilot does not."""
+    unavailable = view.setdefault("unavailable_lanes", {})
+    for lane_id, mark in marks.items():
+        unavailable.setdefault(lane_id, mark)
+    return view
+
+
 def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
     """C-6.11: the lanes that could take some job now, whatever its model.
 
-    Owned by v2, enabled, not the desktop login, identity not mismatched, under
-    no account-wide closure, with a slot free and no probe holding it. A lane
-    closed for one model only is open: another model may still run there. A
+    Owned by v2, enabled, not the desktop login while Claude Code uses it
+    (C-10.3), identity not mismatched, under no account-wide closure, with a slot
+    free (always, while no per-lane cap is set, C-6.4) and no probe holding it. A
+    lane closed for one model only is open: another model may still run there. A
     job can still be refused an open lane (a model-scoped closure, the reserve,
     its own exclusions); the count says capacity exists, not that it fits.
     """
+    from .policy import lane_slot_cap
+
     found = []
     for lane in view["lanes"]:
-        slots = (caps["max_in_flight_per_lane"] if lane.get("measured") else
-                 min(caps["max_in_flight_per_lane"], caps["max_in_flight_unmeasured"], 1))
-        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not lane.get("desktop")
+        slots = lane_slot_cap(caps, bool(lane.get("measured")))
+        if (lane.get("owner") == "v2" and lane.get("enabled", True) and not desktop_excluded(lane)
                 and not identity_blocked(lane)
                 and not any(row.get("scope") == "account" for row in lane.get("closures", ()))
-                and lane.get("in_flight", 0) < slots
+                and (slots is None or lane.get("in_flight", 0) < slots)
                 and lane["lane_id"] not in view.get("unavailable_lanes", {})):
             found.append(lane["lane_id"])
     return sorted(found)
@@ -466,7 +617,7 @@ def store_rows(store: Any) -> dict[str, list]:
 
 def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
-               desktop: DesktopIdentity | None = None) -> dict[str, Any]:
+               desktop: DesktopIdentity | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
     return build_view(**store_rows(store), now=now, reading_ttl_s=reading_ttl_s,
-                      desktop_account=desktop_account, desktop=desktop)
+                      desktop_account=desktop_account, desktop=desktop, desktop_in_use=desktop_in_use)

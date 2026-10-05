@@ -38,9 +38,9 @@ For the last two the delivery is reconciled from evidence (D-14):
    a person's `message.resolve` (C-24.6).
 
 A Claude turn that ends without a terminal event after delivery blocks its
-conversation `unfinished-turn` (C-24.8): the next `--resume` could continue
-it. A message with unknown delivery also blocks (as `delivery-unknown`), so a
-written message frame always holds the conversation (review IR-5).
+conversation `unfinished-turn` (C-24.8), unless the person asked to stop it:
+their stop settles the turn and lets queued messages run next. Unknown delivery
+still blocks (as `delivery-unknown`), including after a person's stop.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ from typing import Any, Callable
 
 from ..relay import read_log
 from ..sessions import transcripts
+from ..state_files import open_state
 from .store import LEGACY_OWNER
 from .turn import COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, WAITING
 
@@ -63,6 +64,9 @@ UNKNOWN = "delivery-unknown"
 # The tag both drivers give the message frame (`claude_turn.py` `_control_response`,
 # `codex_turn.py` `_thread`).
 USER_FRAME = "user-message"
+#: Claude's `get_settings`, asked right after the message so the turn records the
+#: effort the provider applied (C-26.8).
+SETTINGS_FRAME = "settings"
 
 # Refusals before the message was sent that another admission may get past (review
 # IR-23: Fast on another account; an external writer that has gone; a provider or
@@ -151,6 +155,12 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
         detail = f"{reason or 'ended'}: frame {evidence.frame}, native record {evidence.native}"
         return result(DELIVERY_UNKNOWN, detail, "delivery-unknown")
 
+    if person_stopped:
+        # C-24.7: the person's recorded stop ends this work. Whether delivery was
+        # proved or ruled out, it neither retries nor holds up queued messages.
+        # Unknown delivery above still needs the person's explicit resolution.
+        return result(INTERRUPTED, "stopped")
+
     if ended_by == "driver":
         if delivery == NOT_DELIVERED:
             # Another writer is a wait, however long it lasts (C-26.3): it never
@@ -236,7 +246,8 @@ def frame_status(attempt_dir: Path) -> str:
     `read_log`); a log it stopped reading early is `unreadable`."""
     path = Path(attempt_dir) / "stdin.jsonl"
     try:
-        data = transcripts.read_regular(path)
+        with open_state(path) as stream:
+            data = stream.read()
     except FileNotFoundError:
         return "absent"                     # the relay never logged a frame
     except OSError:
@@ -353,7 +364,8 @@ def _same_file(a: str, b: str) -> bool:
 
 def _read_json(path: Path) -> dict | None:
     try:
-        value = json.loads(transcripts.read_regular(path))
+        with open_state(path) as stream:
+            value = json.load(stream)
     except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None

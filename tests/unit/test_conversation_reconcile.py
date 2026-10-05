@@ -116,20 +116,52 @@ def test_a_model_mismatch_is_named_as_such():
 
 def test_a_delivered_claude_turn_without_a_terminal_event_blocks_unfinished():
     """C-24.8, IR-5: acknowledged or in the transcript, then no `result`: the next resume
-    could continue it. A stop that got no result is interrupted, still blocked."""
+    could continue it. A system stop that got no result is interrupted, still blocked."""
     for evidence in (Evidence(True, "written", True, "absent"), Evidence(False, "written", True, "found")):
         crashed = settle(turn(reason="ended-without-result"), provider="claude", turn_seq=0, gather=lambda: evidence)
         assert (crashed.state, crashed.reason, crashed.block, crashed.delivery) == (
             "failed", "ended-without-result", "unfinished-turn", DELIVERED)
-    stopped = settle(turn(state="interrupted", reason="stopped", stop_reason="stopped"), provider="claude",
+    stopped = settle(turn(state="interrupted", reason="stopped", stop_reason="wall-limit"), provider="claude",
                      turn_seq=0, gather=lambda: Evidence(True, "written", True, "found"))
-    assert (stopped.state, stopped.reason, stopped.block) == ("interrupted", "stopped", "unfinished-turn")
+    assert (stopped.state, stopped.reason, stopped.block) == ("interrupted", "wall-limit", "unfinished-turn")
     relay = settle(turn(reason="ended-without-result", stop_reason="relay-failed"), provider="claude", turn_seq=0,
                    gather=lambda: Evidence(True, "written", True, "found"))
     assert (relay.state, relay.reason) == ("failed", "relay-failed")
     codex = settle(turn(reason="ended-without-result"), provider="codex", turn_seq=0,
                    gather=lambda: Evidence(True, "written", True, "found"))
     assert codex.block is None and codex.state == "failed"
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("ended_by", ["driver", "eof"])
+@pytest.mark.parametrize("evidence,delivery", [
+    (Evidence(True, "written", True, "absent"), DELIVERED),
+    (Evidence(False, "written", True, "found"), DELIVERED),
+    (GONE_ABSENT, NOT_DELIVERED),
+])
+def test_a_persons_stop_settles_known_delivery_without_blocking_or_readmitting(provider, ended_by, evidence, delivery):
+    """C-24.7: the stored Stop is authoritative even if its runner's stop reason was
+    lost or another stop had already begun. No next turn retries the stopped message."""
+    stopped = settle(turn(reason="external-writer", ended_by=ended_by), provider=provider, turn_seq=0,
+                     gather=lambda: evidence, person_stopped=True)
+    assert (stopped.state, stopped.reason, stopped.block, stopped.delivery) == (
+        "interrupted", "stopped", None, delivery)
+    assert not stopped.readmit and not stopped.continue_elsewhere
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("ended_by", ["driver", "eof"])
+def test_a_persons_stop_preserves_genuinely_unknown_delivery(provider, ended_by):
+    """C-24.6: requesting a stop is not evidence of message delivery."""
+    unknown = settle(turn(reason="stopped", stop_reason="stopped", ended_by=ended_by), provider=provider,
+                     turn_seq=0, gather=lambda: Evidence(False, "written", True, "absent"), person_stopped=True)
+    assert (unknown.state, unknown.block, unknown.delivery) == ("delivery-unknown", "delivery-unknown", UNKNOWN)
+
+
+def test_a_persons_stop_that_lost_to_completion_keeps_the_providers_success():
+    done = settle(turn(state="complete", ended_by="provider", stop_too_late=True), provider="claude",
+                  turn_seq=0, gather=never, person_stopped=True)
+    assert (done.state, done.reason, done.block) == ("complete", "stop-too-late", None)
 
 
 def test_an_eof_with_nothing_delivered_or_nothing_known():

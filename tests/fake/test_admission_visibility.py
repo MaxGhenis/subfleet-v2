@@ -17,6 +17,7 @@ from subfleet import daemon as daemon_module
 from subfleet import protocol, render
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
+from tests.caps import capped
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
 
@@ -69,6 +70,7 @@ def log_lines(service):
 def test_c6_11_the_incident_why_names_the_job_a_queued_job_is_held_behind(fleet):
     """C-6.11 a job admission skipped has no decision row and is answered anyway."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     older = submit(service, harness, pinned_model="astra")
     held = submit(service, harness, pinned_model="astra")
     service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(30))
@@ -121,6 +123,10 @@ def test_c6_11_the_full_fleet_is_named(fleet):
 
 @pytest.mark.parametrize("hold,expected", [
     ({"reason": "lease-held", "leases": ["out:/r.md"]}, "a lease this job needs is held by another job: out:/r.md"),
+    ({"reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]},   # C-26.9
+     "a lease this job needs is kept for an older job that is waiting for it: worktree:/w"),
+    ({"reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]},
+     "Queued behind: t1 (an older job waiting for worktree:/w takes it first)"),
     ({"reason": "probe-pending"}, "its lane is being probed"),
     ({"reason": "reserve:fable:unmeasured"}, "no lane admits it (reserve:fable:unmeasured)"),
     ({"reason": "behind-older-job"}, "held behind ?"),                # a hold missing its fields still renders
@@ -132,11 +138,22 @@ def test_c6_11_every_hold_renders_as_a_sentence(hold, expected):
     assert expected in "\n".join(lines)
 
 
+def test_c26_9_a_lease_kept_for_an_older_turn_is_not_called_held():
+    """A queued-only lease has no holder: `why` must not say another job holds it (review of 8f14a50f)."""
+    text = "\n".join(render.why_queue({"job_id": "j", "state": "waiting", "hold": {
+        "reason": "lease-held", "leases": [], "queued": ["worktree:/w"], "queued_behind": ["t1"]}}))
+    assert "held by another job" not in text
+    both = "\n".join(render.why_queue({"job_id": "j", "state": "waiting", "hold": {
+        "reason": "lease-held", "leases": ["out:/r.md"], "queued": ["worktree:/w"], "queued_behind": ["t1"]}}))
+    assert "held by another job: out:/r.md" in both and "Queued behind: t1" in both
+
+
 # --- daemon.log and status (C-6.11) -------------------------------------------------------------
 
 def test_c6_11_the_log_says_when_jobs_are_pending_and_nothing_is_placed(fleet):
     """C-6.11 one line after a minute, not one a pass; the open lanes and the reasons on it."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     stuck = submit(service, harness, pinned_model="opus")
     behind = submit(service, harness, pinned_model="opus")
     service._admit()
@@ -148,7 +165,10 @@ def test_c6_11_the_log_says_when_jobs_are_pending_and_nothing_is_placed(fleet):
     assert len(lines) == 1
     assert re.search(r"2 jobs pending, none placed for 6\d s", lines[0])      # 61 s, or 62 on a slow runner
     assert "1 lanes open (codex-1)" in lines[0]
-    assert "behind-older-job x1" in lines[0] and "no-lanes x1" in lines[0] and f"first in line {stuck}" in lines[0]
+    # C-11.8 (intended since 2026-09-30): no Claude lane is enrolled, so no lane can
+    # ever admit the older job and it holds the newer one back no longer; each is
+    # held for what it is. Before, the newer read `behind-older-job`.
+    assert "no-lanes x2" in lines[0] and "behind-older-job" not in lines[0] and f"first in line {stuck}" in lines[0]
     age(service, daemon_module.ADMISSION_IDLE_REPEAT_S + 1)
     service._admit()
     assert len(log_lines(service)) == 2                              # and again every ten minutes while it lasts

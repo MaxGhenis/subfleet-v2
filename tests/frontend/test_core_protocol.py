@@ -23,7 +23,7 @@ from subfleet.conversations.service import CAPABILITIES
 from subfleet.conversations.store import ConversationError
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
-    ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
+    make_live, ServiceHarness, claude_assistant, claude_init, claude_result, claude_stream,
 )
 
 pytestmark = needs_swift
@@ -109,6 +109,7 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                             workspace=str(harness.workspace), settings=harness.settings()),
         "conversation.settings": harness.call("conversation.settings", conversation_id=cid,
                                               settings={"effort": "high", "fast": True}),
+        "conversation.rename": harness.call("conversation.rename", conversation_id=cid, title="Renamed fixture"),
         "conversation.history": harness.call("conversation.history", conversation_id=cid),
         "conversation.events": harness.call("conversation.events", conversation_id=cid, after=0),
         "conversation.watch": harness.call("conversation.watch", after=0),
@@ -151,9 +152,19 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     harness.store.set_state(unknown["message_id"], "delivery-unknown", reason="no-evidence")
     results["message.resolve"] = harness.call("message.resolve", message_id=unknown["message_id"],
                                               resolution="not-delivered", confirm=True)
+    # message.steer (C-24.9) answers a Receipt with `steered_into`: the daemon's own op,
+    # steering into a live runner for a turn that runs (daemon_harness.make_live).
+    steered = harness.submit(cid, "steer me", after=unknown["message_id"])
+    live = harness.submit(cid, "a running turn", after=steered["message_id"])
+    make_live(harness, cid, live["message_id"])
+    results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"],
+                                            into=live["message_id"])
+    assert results["message.steer"]["steered_into"] == live["message_id"]
     # approval.respond answers through the live runner; the harness stands in for it.
+    # A Stop ends the runner's title first (service._interrupt), so the stand-in has one.
     runner = SimpleNamespace(driver=SimpleNamespace(outcome=None), respond=lambda *a: None,
-                             interrupt=lambda reason: None, stop=lambda: None, join=lambda timeout: True,
+                             interrupt=lambda reason: None, end_title=lambda why: None,
+                             stop=lambda: None, join=lambda timeout: True,
                              message_id=fixture["second"]["message_id"], finished=threading.Event())
     harness.service.runners[harness.store.approval(approval["approval_id"])["attempt_id"]] = runner
     detail = results["approval.get"]
@@ -180,6 +191,13 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                                            "to": {"provider": "codex", "settings": {
                                                                "model": "gpt-6-astra", "permission": "read-only"}}})
     assert len(results["conversation.handoff"]["moved"]) == 1 and results["conversation.handoff"]["created"]
+    # An idempotent steer receipt exercises the fixed wire shape without launching
+    # a provider (the daemon-side steer tests cover the initial durable claim).
+    steered = harness.submit(source["conversation_id"], "already delivered",
+                             after=harness.store.messages(source["conversation_id"])[-1]["message_id"])
+    harness.store.set_state(steered["message_id"], "steered", reason=f"steered:{fixture['first']['message_id']}",
+                            served={"steered_into": fixture["first"]["message_id"]})
+    results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)
@@ -206,6 +224,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "message.submit": {"conversation_id": cid, "message_id": mid, "after_message_id": None, "text": "hi",
                            "attachments": [], "settings": settings},
         "conversation.settings": {"conversation_id": cid, "settings": {**settings, "effort": None}},
+        "conversation.rename": {"conversation_id": cid, "title": "Person's chosen title"},
         "conversation.events": {"conversation_id": cid, "after": 0, "wait_s": 0},
         "conversation.watch": {"after": 0, "wait_s": 0},
         "message.status": {"message_ids": [mid]},
@@ -216,6 +235,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "approval.list": {"conversation_id": cid},
         "conversation.history": {"conversation_id": cid},
         "turn.interrupt": {"message_id": mid},
+        "message.steer": {"message_id": mid},
     }
     for op, args in requests.items():
         line = run_probe(core_probe, "request", op, write_json(tmp_path / "args.json", args), "app-1", raw=True)
@@ -228,7 +248,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
             # The first message says it has no predecessor with an explicit null.
             assert "after_message_id" in wire["args"] and wire["args"]["after_message_id"] is None
             assert wire["args"]["settings"]["effort"] is None and "effort" in wire["args"]["settings"]
-        if op == "turn.interrupt":
+        if op in ("turn.interrupt", "message.steer"):
             with pytest.raises(Exception):         # the message is queued, not running
                 harness.call(op, **request.args)
             continue

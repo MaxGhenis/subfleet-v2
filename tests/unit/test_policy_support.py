@@ -13,6 +13,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.credentials import resolve_credential
 from subfleet.policy import DEFAULT_POLICY_PATH, lane_capacity, load_policy, pick, policy_hash
+from tests.caps import capped
 from subfleet.retention import maintenance
 from subfleet.store import Store
 
@@ -26,13 +27,17 @@ def lane(identity="codex-1", **changes):
 
 
 def test_default_policy_exact_models_and_caps():
-    """C-11.1, C-6.4: routing data keeps the plan model map and bounded default caps."""
+    """C-11.1, C-6.4: routing data keeps the plan model map; the shipped policy has
+    no count cap (2026-09-27, 2026-09-28: "remove *all* caps"), no machine guard,
+    and keeps the bounds that are not counts."""
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy["models"]["astra"] == {"provider": "codex", "id": "gpt-6-astra", "effort": "ultra"}
     assert policy["models"]["fable"]["scope"] == "fable"
-    assert policy["caps"]["max_active_attempts"] == 4
-    assert policy["caps"]["max_in_flight_per_lane"] == 2
-    assert policy["caps"]["max_wall_s"] == 21600
+    for key in ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured",
+                "max_active_attempts_per_parent", "max_writable_per_session", "max_child_jobs"):
+        assert policy["caps"][key] is None
+    assert policy["caps"]["max_wall_s"] == 21600 and policy["caps"]["max_attempts"] == 3
+    assert policy["admission"]["lane_spread"] == 2 and policy["admission"]["machine_guard"] is None
     assert policy_hash(DEFAULT_POLICY_PATH) == hashlib.sha256(DEFAULT_POLICY_PATH.read_bytes()).hexdigest()
 
 
@@ -63,8 +68,10 @@ def test_minimal_pick_filters_and_pins():
 
 
 def test_unmeasured_stale_lane_and_fleet_caps():
-    """C-6.4: one unmeasured slot expands only for fresh provider evidence."""
-    policy = load_policy(DEFAULT_POLICY_PATH)
+    """C-6.4: with the caps set, one unmeasured slot expands only for fresh provider
+    evidence; with none (the default since 2026-09-27) no lane is capped at all."""
+    assert lane_capacity(load_policy(DEFAULT_POLICY_PATH), "codex-1", [], now=NOW) is None
+    policy = capped(load_policy(DEFAULT_POLICY_PATH))
     reading = {"lane_id": "codex-1", "scope": "account", "window": "seven_day", "utilization": .2,
                "label": "provider", "observed_at": "2026-09-05T11:59:00Z", "resets_at": "2026-09-05T13:00:00Z"}
     assert lane_capacity(policy, "codex-1", [], now=NOW) == 1

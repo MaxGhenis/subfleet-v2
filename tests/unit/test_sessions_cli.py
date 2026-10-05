@@ -322,6 +322,25 @@ def test_a_cold_sweep_dispatches_nothing_without_an_explicit_recovery(monkeypatc
     assert revive_module.OPT_IN_FIX in err
 
 
+@pytest.mark.parametrize("owned", [True, None], ids=["owned", "unknown"])
+def test_the_cold_sweep_note_says_when_an_unreadable_record_held_a_session(monkeypatch, owned):
+    """C-23.35 (review of the round-2 fixes, F3): a session held because a desktop
+    record could not be read is not called desktop-owned without saying why."""
+    from subfleet.sessions import revive as revive_module
+    candidate = revive_module.Candidate(session_id=ALICE, desktop_owned=owned)
+    held = revive_module.Attempted(session_id=ALICE, admitted=False, reason="held",
+                                   fix=revive_module.OPT_IN_FIX, candidate=candidate)
+    monkeypatch.setattr(sessions_cli, "_sessions", lambda args: object())
+    monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
+    monkeypatch.setattr(sessions_cli, "_stage", lambda args, request_id: (lambda t: t))
+    monkeypatch.setattr(revive_module, "cold_candidates", lambda *a, **k: [candidate])
+    monkeypatch.setattr(revive_module, "revive", lambda *a, **k: held)
+    code, _out, err = run(["sessions", "continue", "--scope", "cold"], monkeypatch)
+    assert code == int(Exit.OK)
+    assert "automatic revival of desktop-owned sessions is off" in err
+    assert ("a session whose desktop record could not be read counts as one" in err) is (owned is None)
+
+
 def test_a_batch_cap_of_zero_means_zero(monkeypatch):
     """C-17.1 preserves `--max`: an explicit zero requests no recoveries."""
     from subfleet.sessions import revive as revive_module
@@ -423,14 +442,22 @@ def test_naming_a_lane_run_in_a_sweep_is_refused_with_the_reason(monkeypatch):
 CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 
 
+@pytest.fixture(params=["unstamped", "app-started"])
+def turns_of(request):
+    """C-26.13 whatever the transcript's shape: an unstamped conversation reads
+    as a session after two turns, one the Subfleet app started (`sdk-cli`) as a
+    lane at any length (C-23.31)."""
+    return fx.conversation_turns if request.param == "unstamped" else fx.app_conversation_turns
+
+
 @pytest.mark.parametrize("json_flag", [False, True])
 def test_naming_a_conversations_session_is_refused_with_the_apps_fix(
-        monkeypatch, tmp_path, json_flag):
+        monkeypatch, tmp_path, json_flag, turns_of):
     """C-26.13 and C-17.3: a person who names a conversation's session gets
     exit 7, the reason, and a fix that names the Subfleet app; nothing is sent."""
     home = fx.claude_home(tmp_path, monkeypatch)
     fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
-    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    fx.transcript(home, CONVERSATION, turns_of(turns=3))
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
     monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
     monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
@@ -446,11 +473,11 @@ def test_naming_a_conversations_session_is_refused_with_the_apps_fix(
 
 
 @pytest.mark.parametrize("argv", [["sessions", "--json"], ["sessions", "list", "--all", "--json"]])
-def test_a_conversations_session_is_absent_from_every_listing(argv, monkeypatch, tmp_path):
+def test_a_conversations_session_is_absent_from_every_listing(argv, monkeypatch, tmp_path, turns_of):
     """C-26.13: not listed, not even with `--all`."""
     home = fx.claude_home(tmp_path, monkeypatch)
     fx.register(home, CONVERSATION, os.getpid(), started_at=1.0)
-    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3))
+    fx.transcript(home, CONVERSATION, turns_of(turns=3))
     fx.register(home, ALICE, os.getpid(), started_at=2.0)
     fx.transcript(home, ALICE, fx.interrupted())
     monkeypatch.setattr(sessions_cli, "_sessions",
@@ -460,13 +487,13 @@ def test_a_conversations_session_is_absent_from_every_listing(argv, monkeypatch,
     assert [json.loads(row)["session_id"] for row in output.splitlines()] == [ALICE]
 
 
-def test_handoff_of_a_conversations_session_is_refused_by_the_verb(monkeypatch, tmp_path):
+def test_handoff_of_a_conversations_session_is_refused_by_the_verb(monkeypatch, tmp_path, turns_of):
     """C-26.13 through `subfleet handoff`: the verb hands the daemon's list to
     the kit, and the refusal is exit 7 with the app's fix."""
     home = fx.claude_home(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
     repo.mkdir()
-    fx.transcript(home, CONVERSATION, fx.conversation_turns(turns=3), cwd=str(repo))
+    fx.transcript(home, CONVERSATION, turns_of(turns=3), cwd=str(repo))
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
     monkeypatch.setattr(sessions_cli, "_sessions", lambda args: daemon)
     monkeypatch.setattr(sessions_cli, "_policy", lambda args: fx.policy())
@@ -480,7 +507,7 @@ def test_handoff_of_a_conversations_session_is_refused_by_the_verb(monkeypatch, 
 # --- the cold scope names a conversation's session (C-26.13) ------------------
 
 @pytest.fixture
-def cold_kit(tmp_path, monkeypatch):
+def cold_kit(tmp_path, monkeypatch, turns_of):
     """A `~/.claude` and an empty desktop store under `tmp_path`, a real repo
     directory, and the kit's daemon seams pointed at a `FakeSessions` that
     reports CONVERSATION as a conversation's and LANE as a lane run's."""
@@ -489,7 +516,7 @@ def cold_kit(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     fx.transcript(home, CONVERSATION, [{**entry, "cwd": str(repo)}
-                                       for entry in fx.conversation_turns(turns=3)])
+                                       for entry in turns_of(turns=3)])
     fx.transcript(home, ALICE, [{**entry, "cwd": str(repo)} for entry in
                                 fx.with_mode(fx.interrupted(), "bypassPermissions")])
     fx.transcript(home, LANE, [{**entry, "cwd": str(repo)} for entry in fx.headless()])
