@@ -371,7 +371,7 @@ class Daemon:
                                           else descriptors.max_connections(descriptors.open_file_limits()[0])))
         self.connection_idle_s = connection_idle_s
         self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
-                                   "abandoned": 0, "accept_failures": 0}
+                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -4192,14 +4192,16 @@ class Daemon:
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
-        try:
-            with write_lock:
+        with write_lock:
+            try:
                 conn.sendall(protocol.encode(response))
-        except OSError:
-            # A client disconnect cannot cancel its durable job. A reply that
-            # failed part way (the client stopped reading, C-16.7) leaves a
-            # broken line, so nothing more may follow it on this connection.
-            self._end_stream(conn)
+            except OSError:
+                # A client disconnect cannot cancel its durable job. A reply that
+                # failed part way (the client stopped reading, C-16.7) leaves a
+                # broken line, so nothing more may follow it on this connection:
+                # the stream is ended before the lock is let go, so a reply
+                # waiting on the lock meets a shut socket, not the broken line.
+                self._end_stream(conn)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -4216,13 +4218,14 @@ class Daemon:
             message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
                        else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
                        else f"malformed request: {exc}")
-            try:
-                with write_lock:
+            with write_lock:
+                try:
                     conn.sendall(protocol.encode(protocol.fail("", 2, message)))
-            except OSError:
-                # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
-                self._end_stream(conn)
-                raise
+                except OSError:
+                    # C-16.7: as in `_respond`, nothing may follow a reply that
+                    # failed part way, so the stream ends before the lock goes.
+                    self._end_stream(conn)
+                    raise
             return None
 
     def _connection(self, conn: socket.socket) -> None:
@@ -4271,7 +4274,17 @@ class Daemon:
                     pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
                     reads.intersection_update(pending)
-                    future = pool.submit(self._respond, conn, write_lock, req)
+                    try:
+                        future = pool.submit(self._respond, conn, write_lock, req)
+                    except RuntimeError as exc:
+                        # C-16.7: no thread could be started for it, or the pool
+                        # is shutting down. ThreadPoolExecutor queues the work
+                        # before starting a thread, so the request may still run
+                        # on a thread already there; this reader never sees that
+                        # future, so it counts the request and goes on reading
+                        # rather than dying and leaving the connection behind.
+                        self._count_connection("unscheduled", f"{req.op} ({exc})")
+                        continue
                     future.add_done_callback(note_reply)
                     pending.append(future)
                     if descriptors.read_only(req.op, req.args):
@@ -4343,9 +4356,16 @@ class Daemon:
                 self._readers.discard(threading.current_thread())
 
     def _end_stream(self, conn: socket.socket) -> None:
-        """C-16.7: shut a connection down after a reply that failed part way."""
+        """C-16.7: shut a connection down after a reply that failed part way.
+
+        Called with the connection's write lock held; it takes the connection
+        lock, which nothing holds while taking a write lock. Only a connection
+        still held is recorded: one already let go (its reader ended while a
+        queued request was still to run) would never be discarded again.
+        """
         with self._connection_lock:
-            self._shut_down.add(conn)
+            if conn in self._connections:
+                self._shut_down.add(conn)
         with contextlib.suppress(OSError):
             conn.shutdown(socket.SHUT_RDWR)
 
@@ -4368,7 +4388,8 @@ class Daemon:
     #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
     _CONNECTION_EVENTS = {"refused": "connections refused at the cap",
                           "idle_closed": "idle connections closed",
-                          "abandoned": "requests dropped because their client hung up"}
+                          "abandoned": "requests dropped because their client hung up",
+                          "unscheduled": "requests no pool thread could be started for"}
 
     def _count_connection(self, kind: str, detail: str | None = None) -> int:
         with self._connection_lock:

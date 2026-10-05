@@ -935,3 +935,88 @@ def test_c16_7_subfleet_wait_over_a_busy_daemon_ends_near_its_timeout(root, monk
         code = cli.wait_jobs(argparse.Namespace(json=True), ["J"], timeout=limit, quiet=True)
         assert code == 124, (case, code)
         assert now[0] - started <= limit + 1.0 + 1e-9, (case, limit, now[0] - started)
+
+
+# --- the release line's reconciliation reviews (Opus, Astra), 2026-09-27 ------
+
+def test_c16_7_no_reply_waiting_on_the_lock_follows_a_broken_one(serve):
+    """C-16.7 the stream is ended before the write lock is let go: a reply that was
+    waiting on the lock meets a shut socket instead of being appended to the broken
+    line. The client drains between the failed send and the stream's end, so a
+    waiting reply would have room to go out (both reconciliation reviewers
+    reproduced this with the end outside the lock)."""
+    from subfleet import protocol
+    service = serve()
+    conn, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    peer.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    conn.settimeout(.3)                                      # the send of a big reply times out
+    with service._connection_lock:
+        service._connections.add(conn)
+    received = bytearray()
+
+    def drain():
+        peer.setblocking(False)
+        with suppress(BlockingIOError):
+            while chunk := peer.recv(65536):
+                received.extend(chunk)
+    real_end = service._end_stream
+
+    def end_stream(c):
+        drain()
+        time.sleep(.3)                       # time for a reply waiting on the lock to go out, were it free
+        real_end(c)
+    service._end_stream = end_stream
+    real = service.dispatch
+    service.dispatch = lambda op, args, **kw: {"rows": ["x" * 1024] * 2048} if op == "readings" \
+        else real(op, args, **kw)
+    lock = threading.Lock()
+    first = threading.Thread(target=service._respond,
+                             args=(conn, lock, protocol.Request(op="readings", args={}, id="first")))
+    first.start()
+    until(lambda: lock.locked())
+    second = threading.Thread(target=service._respond,
+                              args=(conn, lock, protocol.Request(op="ping", args={}, id="second")))
+    second.start()
+    first.join(10)
+    second.join(10)
+    drain()
+    assert b'"id":"second"' not in received
+    assert conn in service._shut_down
+    with service._connection_lock:
+        service._connections.discard(conn)
+        service._shut_down.discard(conn)
+    conn.close()
+    peer.close()
+
+
+def test_c16_7_only_a_held_connection_is_recorded_as_ended_here(serve):
+    """C-16.7 `_end_stream` on a connection the daemon already let go records
+    nothing: it would never be discarded (Opus reconciliation review: a request
+    queued before its reader died failed its reply after the close)."""
+    service = serve()
+    gone_conn, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    gone_conn.close()
+    service._end_stream(gone_conn)
+    assert service._shut_down == set()
+    peer.close()
+
+
+def test_c16_7_a_request_no_thread_could_start_for_does_not_end_its_reader(serve):
+    """C-16.7 `submit` raising RuntimeError (no thread could start) is counted and
+    the reader goes on: the next request on the connection is still answered."""
+    service = serve()
+    real_submit = service.requests.submit
+    failures = [RuntimeError("can't start new thread")]
+
+    def submit(*args, **kwargs):
+        if failures:
+            raise failures.pop()
+        return real_submit(*args, **kwargs)
+    service.requests.submit = submit
+    with connect(service) as sock:
+        send(sock, "ping")                                   # no thread could be started for this one
+        send(sock, "readings")
+        answer = reply(sock)
+    assert answer["ok"] is True and "readings" in answer["result"]
+    assert counts(service)["unscheduled"] == 1
