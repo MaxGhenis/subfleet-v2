@@ -21,6 +21,9 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+# C-5.7: durable pacing of automatic quarantine censuses; not a force release.
+QUARANTINE_RECHECK_S = 600.0
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not
@@ -265,6 +268,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         raise PolicyError(path, "$", f"cannot read policy JSON: {error}") from error
     if not isinstance(value, dict):
         fail("$", "must be an object")
+    pace = value.setdefault("quarantine_recheck_s", QUARANTINE_RECHECK_S)
+    if (not isinstance(pace, (int, float)) or isinstance(pace, bool)
+            or not math.isfinite(pace) or pace <= 0):
+        fail("quarantine_recheck_s", "must be a positive finite number of seconds")
     required = ("tiers", "chains", "fallback", "permissions", "models", "retired",
                 "desktop_login", "caps", "reset_credits")
     for key in required:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
+from .policy import QUARANTINE_RECHECK_S
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -106,6 +108,39 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join([line(headers), line(["-" * width for width in widths]), *(line(row) for row in rows)])
 
 
+def quarantine_holds(view: Mapping[str, Any]) -> list[dict]:
+    """C-5.7: quarantines older than one pace, including the latest hold reason."""
+    now = datetime.fromisoformat(view["now"].replace("Z", "+00:00")) if view.get("now") else datetime.now(timezone.utc)
+    pace = view.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)
+    held = []
+    for a in view.get("attempts", ()):
+        if a.get("state") != "quarantined":
+            continue
+        since = a.get("finished_at") or a.get("reserved_at")
+        try:
+            seconds = max(0, (now - datetime.fromisoformat(since.replace("Z", "+00:00"))).total_seconds())
+        except (AttributeError, TypeError, ValueError):
+            seconds = None
+        if seconds is not None and seconds <= pace:
+            continue
+        raw = a.get("quarantine_reason") or "awaiting a verified-empty census"
+        try:
+            evidence = json.loads(raw)
+        except (TypeError, ValueError):
+            evidence = {}
+        if isinstance(evidence, dict) and evidence:
+            reasons = [evidence.get("reason", "writers remain or census is unverifiable")]
+            reasons.extend(evidence.get("errors", []))
+            if evidence.get("unverifiable"):
+                reasons.append("census is unverifiable")
+            if evidence.get("live_pids"):
+                reasons.append("live pids: " + ", ".join(map(str, evidence["live_pids"])))
+            raw = "; ".join(reasons)
+        held.append({"job_id": a.get("job_id"), "attempt_id": a["attempt_id"], "age_s": seconds,
+                     "reason": raw, "next_check_at": a.get("quarantine_recheck_at")})
+    return held
+
+
 def status(view: Mapping[str, Any]) -> str:
     """C-9.1, C-11.3: show evidence and attempts in the Codex reset waterfall."""
     # Rebuild only from supplied rows, for the same time, so offline and online
@@ -169,6 +204,12 @@ def status(view: Mapping[str, Any]) -> str:
                      and job.get("state") in ("queued", "waiting"))
     if turn_rows:
         lines.extend(["", "Conversation turns", _table(["Job", "Attempt", "Lane", "Model", "State"], turn_rows)])
+    held = quarantine_holds({**view, "now": snapshot["now"]})
+    if held:
+        lines.extend(["", "Quarantined attempts (older than one recheck pace)",
+                      _table(["Job", "Attempt", "Age", "Still held because"],
+                             [[a["job_id"] or "unknown", a["attempt_id"],
+                               f"{a['age_s']:.0f}s" if a["age_s"] is not None else "unknown", a["reason"]] for a in held])])
     return "\n".join(lines)
 
 
