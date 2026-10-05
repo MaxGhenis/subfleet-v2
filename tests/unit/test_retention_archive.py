@@ -956,7 +956,7 @@ def test_rebuilding_a_conversation_worktree_removes_only_its_own_registration(wo
 
 # --- every pin keeps its job ---------------------------------------------------------------
 
-PINS = ["running", "queued", "gate-review", "live-attempt", "quarantined", "unread-notice", "parent",
+PINS = ["running", "queued", "gate-review", "live-attempt", "quarantined", "quarantine-notice", "unread-notice", "parent",
         "job-lease", "attempt-lease", "worktree-lease", "salvage-unresolvable", "gate-evidence",
         "conversation", "turn-keep-days", "explicit", "resume-fence"]
 
@@ -974,8 +974,10 @@ def test_every_pin_keeps_its_job(world, pin):
     w.job("free", worktree=False)
     before = snapshot(wt)
     kwargs = {}
-    if pin in ("live-attempt", "quarantined", "attempt-lease", "salvage-unresolvable"):
+    if pin in ("live-attempt", "quarantined", "quarantine-notice", "attempt-lease", "salvage-unresolvable"):
         w.attempt("pinned", {"live-attempt": "running", "quarantined": "quarantined"}.get(pin, "succeeded"))
+    if pin == "quarantine-notice":
+        w.store.update_attempt("pinned/a1", quarantine_notice_pending=1)
     if pin == "unread-notice":
         w.store.add_notice("pinned", "done", "session-1")
     if pin == "parent":

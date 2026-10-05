@@ -269,7 +269,7 @@ def test_300_quarantines_have_bounded_pass_and_tick_cost(state_daemon, monkeypat
     start = time.perf_counter()
     daemon._recheck_quarantines()
     elapsed = time.perf_counter() - start
-    assert len(calls) == QUARANTINE_RECHECK_BATCH
+    assert len(calls) == 8  # contract bound, independent of the implementation constant
     plan = daemon.store.query("EXPLAIN QUERY PLAN SELECT * FROM attempts WHERE state='quarantined' AND quarantine_recheck_at<=? "
                               "ORDER BY quarantine_recheck_at,attempt_id LIMIT ?", (dm.quarantine_time(), QUARANTINE_RECHECK_BATCH))
     assert any("attempts_quarantine_due" in row["detail"] and "SEARCH" in row["detail"] for row in plan)

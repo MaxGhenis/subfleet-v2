@@ -186,6 +186,9 @@ def nested_hosts(jobs: Iterable[dict[str, Any]], state_root: Path) -> dict[str, 
 _PIN_QUERIES = (
     ("live-attempt", "SELECT DISTINCT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')"),
     ("quarantined", "SELECT DISTINCT job_id FROM attempts WHERE state='quarantined'"),
+    # C-5.7: a release can commit before its conversation event. Keep the
+    # outbox and manifest until delivery, including across a daemon restart.
+    ("quarantine-notice", "SELECT DISTINCT job_id FROM attempts WHERE quarantine_notice_pending=1"),
     # C-8.4, IR-17: an unread notice pins its job only when some session can
     # still read it; a notice with no session is never delivered, so it would
     # pin its job for ever.
