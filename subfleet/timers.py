@@ -99,6 +99,10 @@ class Timers:
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
                                      'retention', 'mirror', 'mirror_hot')}
         self.metadata = self._latest('timer.verdict')
+        # Failure pacing is sensor state, not a credential/admission verdict.
+        # Busy failures are withheld from metadata but still need a durable
+        # cooldown so requested cycles and restarts cannot hammer a missing sensor.
+        self._usage_backoff = self._latest('timer.usage-backoff')
         # Each lane's verdict is replaced whole, under this lock, so that putting
         # one back after a failed publication can check it is still the one in
         # place and replace it as one step (C-18.3). Only dictionary work is done
@@ -201,9 +205,9 @@ class Timers:
             self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
         finally:
             if name == 'probe':
-                # Each lane's durable debounce starts when its probe finishes.
-                # Scheduling from cycle start could therefore skip the entire
-                # next cycle whenever a request took nonzero time.
+                # The automatic cadence starts at cycle completion. Every
+                # subsequent cycle reads each usable lane; operator requests
+                # may start another cycle before the automatic deadline.
                 with self._lock:
                     interval = self.intervals[name]
                     self._due[name] = time.monotonic() + interval
@@ -476,17 +480,22 @@ class Timers:
         epoch = self._epoch(lane) if lane.provider == 'codex' else lane.credential.epoch
         if previous.get('revoked_epoch') == epoch:
             return None
-        last = previous.get('probed_at')
-        if last and (self.now() - instant(last)).total_seconds() < self.intervals['probe']:
-            return None
+        # C-18.1: a cycle reads every usable lane, even when an operator requests
+        # another cycle immediately. The cycle's completion-based cadence owns
+        # scheduling; an attempt's reading or the preceding probe never skips it.
         until = previous.get('retry_after_until')
         if until and self.now() < instant(until):
             return None     # C-9.9: the usage endpoint asked us to wait
+        if self._usage_wait(lane):
+            return None
         holder = self._claim(lane, 'probe')
         if holder is BUSY:
-            # C-18.3: a Claude attempt measures its own lane as it ends (C-9.8);
-            # a Codex attempt never does, so only a Codex lane is read at work.
-            return self._busy_read(lane) if lane.provider == 'codex' else None
+            # C-18.3: both providers have usage sensors that spend no turn. Read
+            # beside the attempts, without holding a lease or healing a token.
+            # Defer all busy reads until the idle homes have healed, published
+            # and released their slots. Busy pacing/network calls must not
+            # extend any idle lane's unavailability (C-18.3).
+            return lane, None, BUSY
         if not holder:
             return None
         quarantined = False
@@ -539,16 +548,34 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            return lane, {**probe, 'probed_at': iso(self.now())}, None
+            return self._probe_result(lane, probe, None)
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
+            return self._probe_result(lane, {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}, None)
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
+            return self._probe_result(lane, {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}, None)
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
 
+    def _usage_wait(self, lane):
+        until = self._usage_backoff.get(lane.lane_id, {}).get('next_read_at')
+        return bool(until and self.now() < instant(until))
+
+    def _probe_result(self, lane, probe, opened):
+        if lane.provider == 'claude' and (probe.get('status') not in ('ok', 'limited') or not probe.get('readings')):
+            # Reuse the existing completion-based probe cadence. Retry-After
+            # may lengthen it; no invented provider reading or auth latch.
+            delay = max(self.intervals['probe'], int(probe.get('retry_after_s') or 0))
+            # Policy intervals may be fractional. Whole-second truncation
+            # would let a requested repeat beat both cadence and Retry-After.
+            until = (self.now() + timedelta(seconds=delay)).astimezone(timezone.utc)
+            data = {'next_read_at': until.isoformat().replace('+00:00', 'Z'),
+                    'status': probe.get('status', 'unknown')}
+            self.store.add_event('timer.usage-backoff', lane_id=lane.lane_id, data=data)
+            self._usage_backoff[lane.lane_id] = data
+        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+
     def _busy_read(self, lane):
-        """C-18.3: a busy Codex lane's usage read, taken beside its attempts.
+        """C-18.3: a busy Claude or Codex lane's usage read beside its attempts.
 
         The usage GET alone. It takes no lease and writes no reservation, so it
         never holds a slot a job could take, and it runs no heal turn: the lane's
@@ -558,18 +585,24 @@ class Timers:
         (`_mark`, `_publishable`). Whatever the mark's query, the adapter or the
         request raises is a read that failed, never a cycle that failed.
         """
+        if self.cancel.is_set() or self._never_read(lane.lane_id) or self._usage_wait(lane):
+            return None
         opened = 0
         try:
             opened = self._mark()
-            adapter = self.adapter_factory('codex')
+            adapter = self.adapter_factory(lane.provider)
             if hasattr(adapter, 'timeout'):
                 adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+            if lane.provider == 'claude':
+                self._pace_usage()
             probe = {**self._read_probe(adapter, lane, resolve_credential(lane.credential))}
+            if lane.provider == 'claude' and probe.get('retry_after_s'):
+                probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
         except (TimeoutError, OSError) as exc:
             probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
         except Exception as exc:
             probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
-        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+        return self._probe_result(lane, probe, opened)
 
     def _mark(self):
         """The newest event as a busy read starts: a mark no later limit report slips past.
@@ -586,7 +619,9 @@ class Timers:
     def _publishable(self, lane, probe, opened):
         """C-18.3: what a busy read may publish, judged as it is published.
 
-        None publishes nothing. A credential verdict (`auth-dead`, `revoked`,
+        None publishes nothing. A Claude 429 publishes its Retry-After cooldown
+        only; existing provider readings keep their original observation times.
+        A credential verdict (`auth-dead`, `revoked`,
         `expired-token`, `no-auth`) or a failed read is never published from a
         busy lane: its attempts are renewing its token as it is read, and they
         report a dead credential themselves (C-23.44). A credential naming
@@ -603,7 +638,9 @@ class Timers:
         """
         account = probe.get('account_key')
         mismatch = bool(account) and account != lane.account_key
-        if not mismatch and probe.get('status') not in ('ok', 'limited'):
+        cooldown = (lane.provider == 'claude' and probe.get('status') == 'rate-limited'
+                    and bool(probe.get('retry_after_until')))
+        if not mismatch and probe.get('status') not in ('ok', 'limited') and not cooldown:
             return None
         if self._never_read(lane.lane_id):
             return None
@@ -806,6 +843,15 @@ class Timers:
             return
         self._cycle_error = None
         self._identities()
+        # An immediately requested next cycle may inherit spacing from its
+        # predecessor's last busy Claude read. Pay that wait before taking
+        # ANY idle lease, including Codex's; it cannot extend an idle hold.
+        with self._usage_lock:
+            wait = max(0.0, self._usage_next - time.monotonic())
+        if wait > 0:
+            self.cancel.wait(wait)
+        if self.cancel.is_set():
+            return
         futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
@@ -814,12 +860,15 @@ class Timers:
         # is published. A busy lane's read is judged as it is published (C-18.3);
         # what it may not publish, and what a newer limit fenced, is named on the
         # cycle's event.
-        results, failure, deferred, fenced = [], None, {}, []
+        results, failure, deferred, fenced, busy = [], None, {}, [], []
         try:
             for future in as_completed(futures):
                 try:
                     if (value := future.result()):
-                        results.append(value)
+                        if value[2] is BUSY:
+                            busy.append(value[0])
+                        else:
+                            results.append(value)
                 except Exception as exc:           # re-raised once every holder is released
                     failure = failure or exc
             if self.cancel.is_set():
@@ -837,6 +886,18 @@ class Timers:
             self._probe_holders.clear()
         if failure is not None:
             raise failure
+        # The same four-worker/read fences apply, but no idle probe lease is
+        # held across busy reads, their Claude pacing, or their publication.
+        futures = [self._lanes.submit(self._busy_read, lane) for lane in busy]
+        busy_results = [value for future in as_completed(futures) if (value := future.result())]
+        results.extend(busy_results)
+        for lane, probe, opened in busy_results:
+            if (published := self._publish_busy(lane, probe, opened)) is None:
+                deferred[lane.lane_id] = probe.get('status', 'unknown')
+            elif not published:
+                fenced.append(lane.lane_id)
+        if self.cancel.is_set():
+            return
         # Every read counts here, published or not: a busy lane's network error
         # is as much evidence of being offline as an idle one's.
         self._cycle_error = next((p['error_type'] for _, p, _ in results if p.get('error_type')), None)

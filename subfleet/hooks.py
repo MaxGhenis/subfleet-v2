@@ -79,7 +79,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, state_root
+from .client import Client, DaemonError, DaemonUnavailable, busy_pause, refused_while_busy, state_root
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -465,7 +465,9 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                     # nudge is recoverable and a blocked session is not.
     marked = True
     try:
-        client = Client(root, verify_lock=False) if client is None else client     # C-15.6
+        # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
+        # once; waiting out busy answers would only delay the prompt or the start.
+        client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
         rows = _pending(client, session)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows, marked = _offline_pending(root, session), False
@@ -585,6 +587,7 @@ _RETRY_FLOOR_S = 0.25
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
+    busy = 0
     while True:
         remaining = deadline - now()
         if remaining <= 0:
@@ -593,9 +596,22 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
-                                 timeout=poll + 10)
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+                                 timeout=poll + 10, retry_busy=False)
+        except (DaemonError, DaemonUnavailable) as exc:
+            # C-16.7: busy is an empty poll; ask again within the budget, and the
+            # next poll has its whole deadline (as #55 on main). A connect refused
+            # after a busy answer is that busy daemon's full backlog, not an
+            # absent daemon (review r2, P1).
+            # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
+            if not ((busy and refused_while_busy(client, exc) is not False)
+                    if isinstance(exc, DaemonUnavailable) else exc.busy):
+                return int(Exit.OK)
+            busy += 1
+            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+            continue
+        except (ProtocolError, OSError):
             return int(Exit.OK)
+        busy = 0
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a

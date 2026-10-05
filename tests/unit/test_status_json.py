@@ -735,6 +735,9 @@ def test_c18_1_the_daemon_hands_the_timer_its_probe_records(tmp_path, monkeypatc
     """C-18.1 wired as the daemon runs it: status.json names each held lane's probe state from the daemon's own
     records, and agrees with the daemon's capacity view on every lane's verdict and probe fields."""
     from subfleet.daemon import Daemon
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     daemon = Daemon(tmp_path / "root")
     try:
@@ -770,6 +773,9 @@ def test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published(tmp_
     above cannot see the difference."""
     import threading
     from subfleet.daemon import Daemon, utcnow
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     daemon = Daemon(tmp_path / "root")
     try:

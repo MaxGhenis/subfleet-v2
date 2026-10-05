@@ -72,8 +72,11 @@ def map_permission(mode: str | None) -> str:
 
 #: The shape of a Claude record in `catalog-cache.json`; a cached record of another
 #: version is read again. 2: the record carries `workspace` (`_workspace`), which
-#: discovery and opening share (review of 3c1a34e, finding 7).
-CLAUDE_RECORD_VERSION = 2
+#: discovery and opening share (review of 3c1a34e, finding 7). 3: `headless` is
+#: read from the writer's `entrypoint` (C-23.31, 2026-10-03); a cached record of
+#: an unchanged transcript kept the prompt rule's verdict, which hid desktop
+#: sessions one or two messages started.
+CLAUDE_RECORD_VERSION = 3
 
 
 def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:

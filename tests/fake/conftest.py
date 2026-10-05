@@ -31,6 +31,11 @@ class Harness:
         # cases describe mechanics the rule sits on top of, so the policy starts with it off.
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         policy.setdefault("reserve", {})["models"] = []
+        # C-6.14, likewise: every lane here starts never having answered, so the
+        # pilot hold would let one attempt at a time onto it until one answered.
+        # tests/fake/test_lane_pilot.py covers the hold with it on; these cases
+        # describe the mechanics it sits on top of.
+        policy.setdefault("admission", {})["prove_idle_s"] = None
         # C-30.1: these daemons run under the real HOME; a timed catalog run would
         # index the host's own sessions. The catalog is covered with an isolated
         # HOME in tests/e2e and tests/unit/test_conversation_service.py.
@@ -46,13 +51,19 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str) -> Harness:
+    def start(self, *options: str, open_files: int | None = None) -> Harness:
+        """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
         env = {**os.environ, "PYTHONPATH": str(REPO), "SUBFLEET_HOME": str(self.root)}
+
+        def limit():
+            import resource
+            resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
         self.process = subprocess.Popen(
             [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
              *options], cwd=REPO, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            preexec_fn=limit if open_files is not None else None,
         )
 
         def ready():

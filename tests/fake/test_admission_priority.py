@@ -31,19 +31,19 @@ LIVE_SESSION = "0a1b2c3d-0000-4000-8000-00000000abcd"
 
 
 def live_session(tmp_path, monkeypatch, *, pid=None, start=None):
-    """This test process, registered as a live Claude Code session (C-6.9), with its
-    real start so `registry.validated` keeps it; `start` another start: a reused pid."""
-    import subprocess
+    """A simulated live Claude Code session (C-6.9). A different recorded
+    `start` models a reused pid; registry validation still checks the table."""
     directory = tmp_path / "claude" / "sessions"
     directory.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(tmp_path / "claude"))
     monkeypatch.setattr(daemon_module, "REGISTRY_READ_TTL_S", 0)
     pid = pid or os.getpid()
+    actual_start = "fixture-session-start"
+    table = daemon_module.procs.ProcessTable({pid: (1, pid, "S", actual_start)}, boot_id="unit-test-boot")
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: table)
     (directory / f"{pid}.json").write_text(json.dumps({
         "pid": pid, "sessionId": LIVE_SESSION, "entrypoint": "sdk-cli", "status": "idle",
-        "statusUpdatedAt": 0, "procStart": start or subprocess.run(       # as Claude Code records it
-            ["/bin/ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True,
-            env={"TZ": "UTC", "LC_ALL": "C", "PATH": "/usr/bin:/bin"}).stdout.strip()}))
+        "statusUpdatedAt": 0, "procStart": start or actual_start}))
 
 
 def submit(daemon, harness, name, **overrides):

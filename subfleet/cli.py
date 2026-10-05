@@ -40,14 +40,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, descriptors, ids, protocol
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
     Client,
     DaemonError,
     DaemonUnavailable,
+    REFUSED_UNVERIFIED_MAX_S,
     busy_pause,
+    refused_while_busy,
     OutcomeUnknown,
     ResponseLost,
     same_process,
@@ -498,6 +500,8 @@ def cmd_pick(args: argparse.Namespace) -> int:
     elif data.get("best"):
         out(data["best"])
         note(f"{PROG} pick: advisory only; no lane slot is reserved")
+        for lane in data["ranked"] if args.all else data["ranked"][:1]:
+            note(f"  {lane['lane_id']}: {_format_ranking_usage(lane)}")
         if args.all:
             key = "home" if args.family == "codex" else "email"
             for lane in data["ranked"][1:]:
@@ -742,6 +746,9 @@ def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
     if result.get("refused"):
         return True, (" (found by its request id after the re-sent submission was "
                       f"refused: {result['refused']})")
+    if result.get("busy"):
+        return True, (" (found by its request id; the re-sent submission met a busy "
+                      "daemon and was not read)")
     if answered:
         return True, " (created by the re-sent submission; the first went unanswered)"
     if minted:
@@ -1128,6 +1135,25 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return worst
 
 
+def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> str:
+    """C-11.5: explain the same weekly/reserve evidence pick and why rank."""
+    def percent(key):
+        value = detail.get(key)
+        return "unknown" if value is None else f"{100 * value:.1f}%"
+    from .scheduler import ranking_reading_age
+    age = ranking_reading_age(detail, now) if now else detail.get("reading_age_s")
+    return (f"reserve={detail.get('reserve_class', 'unknown')} "
+            f"usage={'measured' if detail.get('measured') else 'unmeasured'} "
+            f"ranking={'measured' if detail.get('ranking_measured', detail.get('measured')) else 'unmeasured'} "
+            f"renewal={'pending' if detail.get('reading_renewed') else 'none'} "
+            f"admission-headroom={percent('headroom')} "
+            f"weekly-scope={detail.get('weekly_scope') or 'unknown'} "
+            f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
+            f"weekly-headroom={percent('weekly_headroom')} "
+            f"five-hour-headroom={percent('five_hour_headroom')} "
+            f"reading-age={'unknown' if age is None else f'{age:.1f}s'}")
+
+
 def _format_decision(decision: dict[str, Any]) -> str:
     if not isinstance(decision, dict):
         return json.dumps(decision, default=str)
@@ -1135,6 +1161,9 @@ def _format_decision(decision: dict[str, Any]) -> str:
     for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
+        details = evaluation.get("candidate_details") or {}
+        for identity in evaluation.get("candidates") or ():
+            lines.append(f"    + {identity}: {_format_ranking_usage(details.get(identity) or {}, now=evaluation.get('evaluated_at'))}")
         for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
@@ -1204,6 +1233,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     idle_polls = 0
     busy: DaemonError | None = None
     busy_streak = 0
+    unverified_since: float | None = None     # refused after busy, with a lock that cannot say
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -1221,19 +1251,41 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             budget = deadline + 15 if remaining is None else min(
                 deadline + 15, remaining)
             try:
-                result = client.call("wait", _asdict(poll), timeout=budget)
+                # C-16.7: busy is an empty poll here, and this loop asks again, so
+                # the next poll has its whole deadline. A retry inside `call` would
+                # ask the daemon to hold a 60 s poll with less than that left of the
+                # transport budget, and a lost answer would end even an unbounded
+                # `wait` (review of 3c8fe55, P1; #55 on main).
+                result = client.call("wait", _asdict(poll), timeout=budget, retry_busy=False)
             except ProtocolError:
                 if timeout is not None and timeout - (time.monotonic() - started) <= 0:
                     timed_out = True
                     break
                 raise
-            except DaemonError as exc:
-                # C-16.1: a daemon at its connection cap answers "try again
+            except (DaemonError, DaemonUnavailable) as exc:
+                # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
-                # inside `--timeout` (review of the descriptor hotfix, F8).
-                if not exc.busy:
+                # inside `--timeout` (review of the descriptor hotfix, F8). A
+                # connect refused after a busy answer is the same busy daemon
+                # behind a full listen backlog, never an absent one (review r2, P1).
+                if isinstance(exc, DaemonUnavailable):
+                    verdict = None if busy is None else refused_while_busy(client, exc)
+                    if busy is None or verdict is False:
+                        raise
+                    if verdict is None and timeout is None:
+                        # The lock cannot say whether the daemon lives: busy for a
+                        # bounded time only, since this loop has no deadline of its
+                        # own; with `--timeout`, that bounds it (review of 1efa0ef, P3).
+                        unverified_since = unverified_since or time.monotonic()
+                        if time.monotonic() - unverified_since > REFUSED_UNVERIFIED_MAX_S:
+                            raise
+                    else:
+                        unverified_since = None
+                elif not exc.busy:
                     raise
-                busy, busy_streak = exc, busy_streak + 1
+                else:
+                    busy, unverified_since = exc, None
+                busy_streak += 1
                 pause = busy_pause(busy_streak)
                 if timeout is not None:
                     left = timeout - (time.monotonic() - started)
@@ -1243,7 +1295,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, left)
                 time.sleep(pause)
                 continue
-            busy, busy_streak = None, 0
+            busy, busy_streak, unverified_since = None, 0, None
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
@@ -2452,12 +2504,12 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     info = client.lock_info()
     alive = client.lock_holder_alive()
     started = time.monotonic()
-    reachable, busy, detail, connections = False, False, "", None
+    reachable, busy, detail, budget = False, False, "", None
     try:
-        connections = client.call("daemon.status", {}, timeout=5.0).get("connections")
+        budget = client.call("daemon.status", {}, timeout=5.0).get("descriptors")
         reachable = True
     except DaemonError as exc:
-        # It answered, so it is running: busy at its connection cap (C-16.1), or
+        # It answered, so it is running: busy at its connection cap (C-16.7), or
         # refusing this op; not unreachable (review of the descriptor hotfix, F9).
         reachable, busy, detail = True, exc.busy, str(exc) + (f" ({exc.fix})" if exc.fix else "")
     except (DaemonUnavailable, ProtocolError) as exc:
@@ -2467,7 +2519,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
                "socket_present": client.socket_path.exists(), "lock": info,
                "lock_holder_alive": alive, "ping": reachable, "busy": busy,
                "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
-               "connections": connections}
+               "descriptors": budget}
     if args.json:
         emit(payload)
         return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2481,9 +2533,14 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
         out(f"holder      {'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
     answer = ("busy" if busy else "refused") if detail and reachable else "ok" if reachable else "unreachable"
     out(f"ping        {answer} ({elapsed_ms:.1f} ms)")
-    if isinstance(connections, dict):
-        out(f"connections {connections.get('reading')} of {connections.get('cap')} read, "
-            f"{connections.get('open')} open, {connections.get('refused_busy')} refused busy")
+    if isinstance(budget, dict):
+        # C-16.6, C-16.7: `null` limits are unlimited.
+        soft = budget.get("soft_limit")
+        out(f"connections {budget.get('connections')} of {budget.get('max_connections')} held, "
+            f"{budget.get('refused', 0)} refused busy, {budget.get('idle_closed', 0)} closed idle, "
+            f"{budget.get('abandoned', 0)} dropped for departed clients")
+        out(f"descriptors {budget.get('open')} open of {'unlimited' if soft is None else soft}, "
+            f"{budget.get('live_turns', 0)} turns running")
     if detail:
         note(f"  {detail}")
     return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2536,6 +2593,10 @@ def _plist(root: Path) -> bytes:
         # starts each provider under a `utility` clamp itself, so agent work stays below
         # the operator's apps.
         "ProcessType": "Interactive",
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
+        # connection and every pipe to a child holds one. The daemon raises its
+        # own limit too, and this covers a start where it cannot.
+        "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},
         # C-5.8a: with none set, `launchctl print` reports an exit timeout of
         # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
         "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
@@ -3070,6 +3131,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_handoff.set_defaults(handler=cmd_handoff)
     from . import operations
     operations.add_verbs(sub)
+    from . import retention_cli
+    retention_cli.add_verbs(sub)
     return parser
 
 

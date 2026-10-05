@@ -273,13 +273,7 @@ struct TurnTimeline: Equatable {
             // Codex recorded it after the model's last step: nothing answered it.
             return stateReason?.hasPrefix("steered-unanswered:") == true
                 ? "Read after the turn's last step; ask again for a reply" : TurnTimeline.read
-        case .waiting:
-            if let reason = stateReason, reason.contains("external-writer") {
-                // C-26.3, D-17: another Claude process holds the session.
-                return "Waiting: open in the Claude app or a terminal; close it there to continue here"
-            }
-            if let reason = stateReason, !reason.isEmpty { return "Waiting: \(reason)" }
-            return "Waiting for capacity"
+        case .waiting: return TurnTimeline.waitingWords(stateReason)
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
             if stopping { return "Stopping" }
@@ -310,6 +304,38 @@ struct TurnTimeline: Equatable {
             guard state == "sending" else { return state }
             if steerDeliveredIn != nil { return TurnTimeline.read }
             return steerRequested ? TurnTimeline.unreadWords(host: host, assistant: assistant) : "Sending"
+        }
+    }
+
+    /// C-24.4, C-29.11 (I3): a waiting message's `state_reason`, `<kind>: <detail>`,
+    /// in the person's words. Only a `capacity` reason reads as waiting for
+    /// capacity: on 2026-09-28 four messages read "Waiting for capacity" for hours
+    /// while another conversation's turn held their folder and lanes were free.
+    static func waitingWords(_ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else {
+            // A daemon from before 2026-09-29 left a bound message's reason empty.
+            return "Waiting; the daemon has not said why"
+        }
+        // C-26.3, D-17: another Claude process holds the session. Matched by kind,
+        // never anywhere in the text: a lease reason quotes a conversation's title,
+        // and one titled "fix the external-writer wait" is a conversation writing.
+        if reason.hasPrefix("external-writer") || reason == "readmit:external-writer" {
+            return "Waiting: open in the Claude app or a terminal; close it there to continue here"
+        }
+        if reason == "dispatching" { return "Sending to the daemon" }
+        if reason.hasPrefix("readmit:") {
+            return "Waiting to be sent again (\(reason.dropFirst("readmit:".count)))"
+        }
+        guard let split = reason.range(of: ": ") else { return "Waiting: \(reason)" }
+        let kind = reason[..<split.lowerBound]
+        let detail = String(reason[split.upperBound...])
+        switch kind {
+        case "capacity": return "Waiting for capacity: \(detail)"
+        case "placed": return "Starting the provider"
+        case "deferred": return "Waiting to be sent again: \(detail)"
+        case "lease", "closed", "usage-unknown", "no-lane", "blocked", "workspace", "route", "admission":
+            return "Waiting: \(detail)"
+        default: return "Waiting: \(reason)"
         }
     }
 

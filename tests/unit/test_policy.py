@@ -236,6 +236,7 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     assert (policy["retention"]["jobs"], policy["retention"]["bytes"]) == (500, 2 * 1024 ** 3)
     assert (policy["retention"]["turn_jobs"], policy["retention"]["turn_bytes"],
             policy["retention"]["turn_keep_days"]) == (2000, 4 * 1024 ** 3, 14)
+    assert policy["retention"]["remote_less_history_bytes"] == 64 * 1024 ** 2      # d635 N1
     policy_data["conversations"] = {"catalog_interval_s": 0, "compact_after_s": 0}
     policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0}
     policy = load_policy(write_policy(tmp_path, policy_data))
@@ -253,6 +254,8 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     ("retention", "turn_jobs", 0),
     ("retention", "bytes", "2GiB"),
     ("retention", "turn_keep_days", -1),
+    ("retention", "remote_less_history_bytes", -1),
+    ("retention", "remote_less_history_bytes", 1.5),
 ])
 def test_conversation_and_retention_values_are_validated(tmp_path, policy_data, section, key, value):
     """C-11.1: a bad value names its section and key; zero only where it means none."""
@@ -425,12 +428,21 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == ADMISSION_DEFAULTS == admission_settings(loaded)
     assert admission_settings({})["lane_spread"] == 2
+    assert admission_settings({})["weekly_reserve"] == .02
+    assert admission_settings({})["five_hour_reserve"] == .10
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
+    assert admission_settings({})["prove_idle_s"] == 900          # C-6.14: on unless a policy turns it off
+    assert admission_settings({})["prove_wait_s"] == 300          # C-6.14: how long a silent pilot holds its lane
     policy_data["admission"] = {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
+                                "prove_wait_s": None}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
-                                   "pin_grace_s": None, "pin_hold_far_s": 3600}
+                                   "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
+                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10}
+    policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
+    loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
+    assert (loaded["prove_idle_s"], loaded["prove_wait_s"]) == (0.5, 0.25)
     policy_data["admission"] = {"pin_grace_s": 0}             # C-11.8: 0 fails such a job on the pass that finds it
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
@@ -443,6 +455,12 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"lane_spread": 0}, "admission.lane_spread"),
     ({"lane_spread": 1.5}, "admission.lane_spread"),
     ({"lane_spread": True}, "admission.lane_spread"),
+    ({"weekly_reserve": -.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": 1.01}, "admission.weekly_reserve"),
+    ({"weekly_reserve": True}, "admission.weekly_reserve"),
+    ({"five_hour_reserve": None}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("nan")}, "admission.five_hour_reserve"),
+    ({"five_hour_reserve": float("inf")}, "admission.five_hour_reserve"),
     ({"desktop_recent_s": -1}, "admission.desktop_recent_s"),
     ({"desktop_recent_s": float("inf")}, "admission.desktop_recent_s"),
     ({"pin_grace_s": -1}, "admission.pin_grace_s"),
@@ -452,6 +470,14 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"pin_hold_far_s": 0}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": None}, "admission.pin_hold_far_s"),
     ({"pin_hold_far_s": float("inf")}, "admission.pin_hold_far_s"),
+    ({"prove_idle_s": 0}, "admission.prove_idle_s"),
+    ({"prove_idle_s": -60}, "admission.prove_idle_s"),
+    ({"prove_idle_s": float("nan")}, "admission.prove_idle_s"),
+    ({"prove_idle_s": True}, "admission.prove_idle_s"),
+    ({"prove_idle_s": "900"}, "admission.prove_idle_s"),
+    ({"prove_wait_s": 0}, "admission.prove_wait_s"),
+    ({"prove_wait_s": float("inf")}, "admission.prove_wait_s"),
+    ({"prove_wait_s": False}, "admission.prove_wait_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),

@@ -1,0 +1,174 @@
+"""C-6.5, C-24.5: a folder's holders as lease rows (`subfleet/folders.py`).
+
+Turns share a folder with one row each; a detached writer holds it alone. The rows
+are found by a range on the lease key and an exact check, so a folder whose name
+extends another's (`/a/b:c` beside `/a/b`) is never mistaken for it.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+
+import pytest
+from hypothesis import HealthCheck, given, settings, strategies as st
+
+from subfleet import folders
+
+# Real paths: any character but NUL, including the separators the keys use.
+SEGMENT = st.text(alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00/"),
+                  min_size=1, max_size=6)
+FOLDER = st.lists(SEGMENT, min_size=1, max_size=3).map(lambda parts: "/" + "/".join(parts))
+JOB = st.from_regex(r"20260929-[0-9]{6}-[a-z0-9-]{1,8}", fullmatch=True)
+
+
+def table(rows):
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE leases (lease_key TEXT PRIMARY KEY, holder TEXT NOT NULL)")
+    db.executemany("INSERT OR IGNORE INTO leases VALUES (?,?)", rows)
+    return lambda sql, params: db.execute(sql, params).fetchall()
+
+
+@settings(max_examples=300, deadline=None)
+@given(holds=st.lists(st.tuples(FOLDER, JOB, st.booleans()), max_size=12), probe=FOLDER)
+def test_turn_holds_names_exactly_the_rows_on_that_folder(holds, probe):
+    """For any folders (colons, semicolons and prefixes of one another included), the
+    rows found on `probe` are exactly the turn rows whose folder is `probe`, of the kinds
+    asked for, and `turn_folders` is exactly the set of folders held."""
+    rows = [(folders.turn_key(folder, job, writable=writable), job) for folder, job, writable in holds]
+    rows.append((folders.exclusive_key(probe), "detached"))          # never a turn's row
+    read = table(rows)
+    stored = {key: holder for key, holder in rows}
+    want = {(key, holder) for key, holder in stored.items()
+            if (parsed := folders.parse(key)) and parsed[1] == probe}
+    assert set(folders.turn_holds(read, probe)) == want
+    writers = {(key, holder) for key, holder in want if key.startswith(folders.TURN)}
+    assert set(folders.turn_holds(read, probe, (folders.TURN,))) == writers
+    assert folders.turn_folders(read) == {folders.parse(key)[1] for key in stored if folders.parse(key)}
+
+
+@given(folder=FOLDER, job=JOB, writable=st.booleans())
+def test_a_turn_key_round_trips(folder, job, writable):
+    prefix = folders.TURN if writable else folders.READER
+    assert folders.parse(folders.turn_key(folder, job, writable=writable)) == (prefix, folder, job)
+
+
+def test_a_job_id_with_a_colon_is_refused_and_other_keys_are_not_turns():
+    with pytest.raises(ValueError):
+        folders.turn_key("/a", "job:1", writable=True)
+    for key in ("worktree:/a", "conversation:x", "native:claude:s", "worktree-turn:", "worktree-read:/a:"):
+        assert folders.parse(key) is None
+
+
+def case_insensitive(directory) -> bool:
+    probe = directory / "CaseProbe"
+    probe.mkdir()
+    try:
+        return (directory / "caseprobe").exists()
+    finally:
+        probe.rmdir()
+
+
+@pytest.fixture
+def insensitive(tmp_path):
+    """A directory on a case-insensitive volume (APFS's default), or the test is skipped."""
+    if not case_insensitive(tmp_path):
+        pytest.skip("needs a case-insensitive volume, as APFS is by default")
+    return tmp_path
+
+
+INNER = ("Above-It", "Scratch-Folder", "Ünïcode Inner")
+
+
+@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(flips=st.lists(st.booleans(), min_size=len("".join(INNER)), max_size=len("".join(INNER))),
+       decomposed=st.booleans(), via=st.sampled_from(["path", "symlink", "dots", "tilde"]),
+       unlistable=st.sets(st.sampled_from(range(len(INNER)))))
+def test_one_folder_has_one_spelling_whatever_case_it_is_typed_in(insensitive, flips, decomposed, via, unlistable,
+                                                                    monkeypatch):
+    """Review of 5e9f2fbd (P3-4): a folder outside git kept the case it was typed in, so
+    `~/Scratch` and `~/scratch` were two lease keys and two `target`s for one folder,
+    and two conversations there were never marked as sharing it. Every spelling the
+    volume accepts (any case, either Unicode normalization, through a symlink, `..` or
+    `~`) gives one string: the folder as its directories store it. Review of b0033e5d
+    (P2): so does every mode of the directories on the way that can be searched, the
+    folder's included; any of them at 0111 (searchable, not listable) kept the names
+    below it as typed when the spelling was read from listings."""
+    import os
+    import unicodedata
+    real = insensitive.joinpath(*INNER)
+    real.mkdir(parents=True, exist_ok=True)
+    link = insensitive / "Alias"
+    if not link.is_symlink():
+        link.symlink_to(insensitive.joinpath(*INNER[:2]), target_is_directory=True)
+    want = os.path.join(folders.canonical(insensitive), *INNER)
+    assert os.path.samefile(want, real)
+    letters = iter(flips)
+    typed = [("".join(c.swapcase() if next(letters) else c for c in name)) for name in INNER]
+    if decomposed:
+        typed = [unicodedata.normalize("NFD", name) for name in typed]
+    if via == "symlink":
+        spelled = str(insensitive / "aLIAS" / typed[2])
+    elif via == "dots":
+        spelled = str(insensitive / typed[0] / typed[1] / ".." / typed[1] / "." / typed[2])
+    elif via == "tilde":
+        monkeypatch.setenv("HOME", str(insensitive))
+        spelled = "~/" + "/".join(typed)
+    else:
+        spelled = str(insensitive.joinpath(*typed))
+    locked = [insensitive.joinpath(*INNER[:depth + 1]) for depth in sorted(unlistable)]
+    for directory in locked:
+        directory.chmod(0o111)
+    try:
+        assert all(not os.access(directory, os.R_OK) for directory in locked)
+        assert os.path.isdir(os.path.expanduser(spelled))
+        assert folders.canonical(spelled) == want
+        assert folders.canonical(want) == want                   # already one spelling: unchanged
+    finally:
+        for directory in reversed(locked):
+            directory.chmod(0o755)
+
+
+def test_a_missing_name_stays_as_typed_and_one_that_cannot_be_looked_up_is_in_doubt(insensitive):
+    """What does not exist is kept as typed, with everything after it, and that is its
+    one spelling (no other names anything): a missing tail (a scratch folder deleted
+    since), or a name under a file. A name under a directory that can be searched but
+    not listed is spelled as stored (review of b0033e5d, P2: it was kept as typed). A
+    name under a directory that cannot be searched is kept as typed, and `spelling`
+    says it could not be looked up, so C-26.10 refuses rather than compares it."""
+    import os
+    (insensitive / "Present").mkdir()
+    (insensitive / "Present" / "a-file").write_text("")
+    base = folders.canonical(insensitive)
+    assert folders.spelling(insensitive / "present" / "Gone" / "deeper") == (
+        os.path.join(base, "Present", "Gone", "deeper"), None)
+    assert folders.spelling(insensitive / "PRESENT" / "A-FILE" / "x") == (os.path.join(base, "Present", "a-file", "x"),
+                                                                          None)
+    locked = insensitive / "Locked"
+    (locked / "Inner").mkdir(parents=True)
+    sealed = insensitive / "Sealed"
+    (sealed / "Inner").mkdir(parents=True)
+    locked.chmod(0o111)                         # searchable, not listable
+    sealed.chmod(0o000)                         # neither
+    try:
+        assert folders.spelling(insensitive / "LOCKED" / "inner") == (os.path.join(base, "Locked", "Inner"), None)
+        assert folders.spelling(insensitive / "LOCKED" / "gone") == (os.path.join(base, "Locked", "gone"), None)
+        spelled, doubt = folders.spelling(insensitive / "SEALED" / "inner" / "deeper")
+        assert spelled == folders.canonical(insensitive / "sealed" / "inner" / "deeper") == os.path.join(
+            base, "Sealed", "inner", "deeper")
+        assert doubt == f"{os.path.join(base, 'Sealed', 'inner')}: Permission denied"
+    finally:
+        locked.chmod(0o755)
+        sealed.chmod(0o755)
+
+
+def test_a_mount_point_and_a_firmlinked_folder_are_spelled_as_the_system_shows_them():
+    """The kernel's path, not each directory's name for itself: `/` is `/` (its
+    ATTR_CMN_NAME is the volume's name), and a folder reached through the Data
+    volume's firmlink (`/System/Volumes/Data/Users/…`) is the one under `/Users`."""
+    import os
+    assert folders.spelling("/") == ("/", None)
+    home = folders.canonical(os.path.expanduser("~"))
+    data = "/System/Volumes/Data" + home
+    if not home.startswith("/Users/") or not os.path.isdir(data) or not os.path.samefile(data, home):
+        pytest.skip("needs a home under the Data volume's /Users firmlink, as macOS has")
+    assert folders.spelling(data) == (home, None)

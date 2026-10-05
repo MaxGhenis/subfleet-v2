@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-from ..client import Client, DaemonError, DaemonUnavailable, busy_pause, state_root
+from ..client import Client, DaemonError, DaemonUnavailable, state_root
 from ..protocol import ProtocolError
 from .errors import GateError
 
@@ -62,30 +62,18 @@ def _emit(result: dict, as_json: bool) -> None:
               + (f" — {result['message']}" if result.get("message") else ""))
 
 
-#: How long the poll loop keeps asking a daemon that answers only "busy" (C-16.1):
-#: as long as it gives any one poll.
+#: How long one `gate.poll` may take, busy answers included: `Client.call` asks
+#: again after each (C-16.7), so this is how long a daemon that answers only
+#: "busy" is asked.
 POLL_TIMEOUT_S = 180
 
 
 def _poll(client, gate_id: str) -> dict:
-    """One `gate.poll`, asked again while the daemon answers busy, which it does
-    before it reads a request, for up to `POLL_TIMEOUT_S` (review of the
-    descriptor hotfix, F8: one busy answer ended the loop with exit 1 while the
-    gate carried on in the daemon)."""
-    started, streak = time.monotonic(), 0
-    remaining = POLL_TIMEOUT_S
-    while True:
-        try:
-            return client.call("gate.poll", {"gate_id": gate_id}, timeout=remaining)
-        except DaemonError as exc:
-            left = POLL_TIMEOUT_S - (time.monotonic() - started)
-            if not exc.busy or left <= 0:
-                raise
-            streak += 1
-            time.sleep(min(busy_pause(streak), left))
-            remaining = POLL_TIMEOUT_S - (time.monotonic() - started)
-            if remaining <= 0:
-                raise
+    """One `gate.poll`. A daemon at its connection cap answers "busy" before it
+    reads the request, and `Client.call` asks again until `POLL_TIMEOUT_S` is
+    spent (C-16.7; review of the descriptor hotfix, F8: one busy answer ended
+    the loop with exit 1 while the gate carried on in the daemon)."""
+    return client.call("gate.poll", {"gate_id": gate_id}, timeout=POLL_TIMEOUT_S)
 
 
 def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
