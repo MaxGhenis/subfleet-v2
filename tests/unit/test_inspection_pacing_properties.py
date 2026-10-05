@@ -69,6 +69,7 @@ def world(tmp_path, monkeypatch):
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, INTERVAL, set()
     core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
     core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
+    core._native, core._v1_unread = set(), {}     # C-5.11: the attempts known to be this daemon's own
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
     core._salvage = lambda job, a: ([], None, {})

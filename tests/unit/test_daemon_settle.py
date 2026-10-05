@@ -53,6 +53,7 @@ def daemon(tmp_path, monkeypatch):
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
     core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
     core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
+    core._native, core._worker_failures, core._v1_unread = set(), {}, {}   # C-5.11, C-5.10: what the control loop reads
     core._process_table = shared(ProcessTable({}, "boot"))
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
