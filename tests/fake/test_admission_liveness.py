@@ -578,8 +578,12 @@ def test_c24_5_a_turn_waits_for_a_detached_writer_in_its_folder(tmp_path):
     alone, so a writable turn there waits `lease-held` on `worktree:<folder>` (named, never
     capacity) and runs when it ends. A read-only turn in the same checkout is not held."""
     from subfleet import folders
+    from tests.fake.test_admission_latency import measure
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
+        # This tests folder exclusion, after capacity/probe preparation succeeds.
+        for lane in CODEX:
+            measure(service, lane)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         writer = _detached_in_place(service, harness)
         service._admit()
@@ -601,8 +605,11 @@ def test_c24_5_a_detached_writer_waits_while_a_turn_writes_in_its_folder(tmp_pat
     writable turn holds the folder (the turn pass runs first, C-26.9), naming the turn's
     row, and is placed once the turn ends; a read-only turn never holds it back."""
     from subfleet import folders
+    from tests.fake.test_admission_latency import measure
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
+        for lane in CODEX:
+            measure(service, lane)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         writer = _detached_in_place(service, harness)
         turn = _turn_in(service, harness, 0, workdir=harness.workdir)
