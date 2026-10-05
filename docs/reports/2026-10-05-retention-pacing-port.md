@@ -101,9 +101,8 @@ Limits: these are this loaded machine's synthetic timings, not a prediction for
 live content or a full 3,300-job catch-up. Holder checks return empty because no
 other process uses these fixtures; no global lsof listing is included. Idle
 waits are fast-forwarded, but archive wall time and CPU are real. Parent and
-child CPU exclude fixture creation and cleanup. Two earlier seed attempts were
-stopped within their foreground supervision budget; they yielded no benchmark
-claims. Cleanup is kept outside the measured passes. No live `~/.subfleet`,
+child CPU exclude fixture creation and cleanup. Cleanup is kept outside the
+measured passes. No live `~/.subfleet`,
 application state, running daemon or `~/chief-of-staff` was accessed.
 
 
@@ -134,8 +133,8 @@ passed again (8.00 s); a Git diff confirmed only this report remained uncommitte
 The requested globs collect 409 unique pytest items (408 before the new
 incomplete-cleanup regression). Large archive and salvage suites are run in
 slices of at most 20 collected items, and properties individually; the combined
-daemon/timer and small-suite runs are identified below. Remaining broad suites and individual
-properties use a 540 s foreground supervisor; no test runs in the background.
+daemon/timer and small-suite runs are identified below. Remaining broad suites
+and individual properties use a 540 s foreground supervisor; no test runs in the background.
 Every completed slice was under 10 minutes. The largest completed
 slice reported 437.51 s. Repeated verification of the 20 timer-retention items
 passed in 48.88 s after the final recovery change; repeated items are not counted
