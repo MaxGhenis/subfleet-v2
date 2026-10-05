@@ -246,7 +246,8 @@ def test_a_rolled_back_handoff_keeps_a_missed_steer_running_next(world, monkeypa
     world.store.set_state(missed, "queued", reason="steer-missed: interrupt-cancelled")
     assert [m["message_id"] for m in world.store.next_dispatchable()] == [missed]
     job_id = turn_job(world, missed, cid, state="waiting")
-    world.store.set_state(missed, "waiting", job_id=job_id)
+    world.store.set_state(missed, "waiting", reason="admission: sent to the daemon, which has not placed it yet",
+                          job_id=job_id)
 
     def fail_commit(*args, **kwargs):
         raise OSError("commit failed")

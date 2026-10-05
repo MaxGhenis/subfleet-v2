@@ -213,8 +213,11 @@ def test_c26_14_the_pane_says_who_else_wrote_in_the_folder(core_probe, tmp_path,
                                    started_at="2026-09-25T10:00:01Z", head_before=head, start_tree=tree,
                                    ended=n == 1)
     shared = harness.call("turn.diff", message_id=mid)
-    assert words(shared)["shared"] == ("This folder was also changed by “Scratch” (still running) and an "
-                                       "untitled conversation during this turn; the diff may include their edits.")
+    # The second conversation was created without a title; its first message names it (conversation
+    # titles, C-24), so it reads as “beside”. A conversation with no title at all is the 60-character
+    # case below.
+    assert words(shared)["shared"] == ("This folder was also changed by “Scratch” (still running) and "
+                                       "“beside” during this turn; the diff may include their edits.")
     whole = harness.call("conversation.diff", conversation_id=cid)
     assert words(whole)["shared"].endswith("since this conversation's first turn began; the diff may include "
                                            "their edits.")
