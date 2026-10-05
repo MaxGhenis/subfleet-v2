@@ -1461,3 +1461,28 @@ def test_c3_6_a_settle_prunes_only_a_member_whose_lock_may_no_longer_say_stack_d
     for stream in streams:
         stream.close()
     assert stayed == {name for name, case in cases.items() if case[-1]}, stayed
+
+
+
+def test_c3_6_a_daemon_lets_go_a_handler_a_collected_one_left_on_its_logger(tmp_path, isolated_dumps):
+    """Review of 65dcb6d, P3 (Opus): a daemon collected with its close cut short
+    left its handler on `subfleet.daemon.<id>`; a new daemon given the same `id()`
+    got that logger, handler and all, and copied its lines into the old daemon's
+    log. A new daemon now lets any handler on its logger go."""
+    import logging
+    core = Daemon.__new__(Daemon)                           # its id, before its __init__
+    logger = logging.getLogger(f"subfleet.daemon.{id(core)}")
+    stale = logging.StreamHandler(open(tmp_path / "old-daemon.log", "a"))
+    logger.addHandler(stale)
+    try:
+        core.__init__(tmp_path / "new")
+        try:
+            assert core.log is logger and logger.handlers == [core._log_handler]
+            core.log.info("a line for the new daemon only")
+            stale.flush()
+            assert (tmp_path / "old-daemon.log").read_text() == ""
+        finally:
+            core.close()
+    finally:
+        logger.removeHandler(stale)
+        stale.stream.close()

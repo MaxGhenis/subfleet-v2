@@ -564,6 +564,12 @@ class Daemon:
             raise
         self._ident = ident
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
+        # A daemon collected with its close cut short left its handler on this
+        # logger, whose `id()`-based name this one now has: its lines would go to
+        # that daemon's log too. Let it go (the stream stays open while
+        # faulthandler or `_HELD_STREAMS` holds it; review of 65dcb6d, P3).
+        for stale in list(self.log.handlers):
+            self.log.removeHandler(stale)
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
@@ -6837,8 +6843,9 @@ class Daemon:
         """C-3.6: whether this daemon's log stream may close: no hand-off can pick it
         (it is not in `_ADVERTISED`) and faulthandler cannot hold it (it is not in
         `_HELD_STREAMS`, after a settle that moves the signal off it if it is). A
-        stream that may not close stays open for good, which costs a descriptor,
-        never a dump into a closed or reused one (review of 674b99b)."""
+        stream that may not close stays open while either may still hold it,
+        which costs a descriptor, never a dump into a closed or reused one
+        (reviews of 674b99b and 65dcb6d)."""
         stream = self._log_handler.stream
         with _DUMPS_LOCK:
             if self.__dict__.get("_dumps_token", object()) in _ADVERTISED:
@@ -6941,7 +6948,7 @@ def _lock_may_say_stack_dumps(state: _DumpsState | None) -> bool:
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
 #: C-3.6: every daemon in this process whose `daemon.lock` says `stack_dumps`, in
-#: the order they said so: token -> (a weak reference to it, the log stream a dump
+#: the order they took the signal: token -> (a weak reference to it, the log stream a dump
 #: for it goes to, its `_DumpsState`). One leaves only once its lock has stopped
 #: saying so; one whose lock cannot be rewritten stays, holding its stream open,
 #: until its lock, read back by path, stops saying so. While any stands,
@@ -6970,9 +6977,9 @@ def _settle_sigusr1() -> None:
 
     Members that began to leave, or whose daemon object has been collected, and
     whose lock reads back without the flag go first (review of 8ebe6b6, P3: a
-    collected member could never be judged). Then the signal dumps into the stream of the member that said
-    so last, or, when none is left, its handler goes, back to the SIG_IGN beneath
-    it. Idempotent, and run by every take and every leave, whoever holds the
+    collected member could never be judged). Then the signal dumps into the
+    stream of the member that took it last, or, when none is left, its handler
+    goes, back to the SIG_IGN beneath it. Idempotent, and run by every take and every leave, whoever holds the
     signal: whatever an exception cut short in an earlier one, the next repairs
     (reviews of eac0706, 4fc5b49, 9a514a7 and 674b99b)."""
     global _STACK_DUMPS
