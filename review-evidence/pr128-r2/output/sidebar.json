@@ -1,0 +1,35 @@
+{
+  "sidebar" : {
+    "arrow_path" : [
+      "cv:c0",
+      "cv:c1",
+      "cv:c2",
+      "Yesterday",
+      "cv:c3",
+      "cv:c4",
+      "cv:c5",
+      "earlier",
+      "cv:c6",
+      "cv:c7",
+      "cv:c8",
+      "cv:c7",
+      "cv:c6",
+      "earlier",
+      "cv:c5"
+    ],
+    "buttons" : [
+      "SwiftUIAppKitButton '' 230,543 37x15"
+    ],
+    "filter_codex_ocr" : "@ New conversation\nQ Search 38K\nRecent v = Codexv\nToday\nConversation 1 G 2\nYesterday\nConversation 3\nConversation 5\nEarlier\nConversation 7\n",
+    "first_responder_is_table" : true,
+    "focus_shortcut_handled" : true,
+    "has_table" : true,
+    "rows" : 12,
+    "sidebar_ocr" : "@ New conversation\nQ Search 38K\nRecent v = All providers v\nToday\nConversation 0\nConversation 1 G 2\nConversation 2\nYesterday\nConversation 3\nConversation 4\nConversation 5\nEarlier\nConversation 6\nConversation 7\nConversation 8\n",
+    "synthesized_clicks" : [
+
+    ],
+    "table_class" : "SwiftUIOutlineListView"
+  },
+  "visible_windows" : 0
+}

@@ -1,0 +1,187 @@
+{
+  "amber" : {
+    "dark\/conversation" : 9.8200000000000003,
+    "dark\/hover" : 9.0500000000000007,
+    "dark\/raised" : 8.6300000000000008,
+    "dark\/selected" : 6.8600000000000003,
+    "dark\/sidebar" : 10.24,
+    "light\/conversation" : 6.6100000000000003,
+    "light\/hover" : 5.54,
+    "light\/raised" : 5.75,
+    "light\/selected" : 5.2400000000000002,
+    "light\/sidebar" : 6.0099999999999998
+  },
+  "groups" : {
+    "cancelled" : "Withdrawn after 3m 12s · 3 steps",
+    "complete" : "Worked for 3m 12s · 3 steps",
+    "failed" : "Failed after 3m 12s · 3 steps",
+    "failed-no-duration" : "Failed · 3 steps",
+    "interrupted" : "Stopped after 3m 12s · 3 steps",
+    "live" : "Ran 3 commands"
+  },
+  "labels" : {
+    "claude bash no description" : "Run a command",
+    "claude edit" : "Edit README.md",
+    "claude glob" : "Find files matching **\/*.swift",
+    "claude grep" : "Search src for TODO",
+    "claude grep no path" : "Search files for TODO",
+    "claude heredoc truncated" : "Run a command",
+    "claude heredoc yaml" : "Write the skill file",
+    "claude plain description" : "Show status",
+    "claude read" : "Read README.md",
+    "claude webfetch" : "Fetch https:\/\/example.com\/docs",
+    "claude websearch" : "Search the web for swiftui list selection",
+    "codex bash -lc python" : "bash -lc",
+    "codex cd &&" : "cd app",
+    "codex one-file edit" : "Edit a.swift",
+    "codex plain" : "git status",
+    "codex python -m" : "python -m",
+    "codex two-file edit" : "Edit 2 files (a.swift, b.swift)",
+    "codex web search" : "Search the web for swiftui list selection",
+    "codex zsh -c cat" : "\/bin\/zsh -c",
+    "codex zsh git status" : "\/bin\/zsh -lc"
+  },
+  "send" : {
+    "dark" : {
+      "disabled_fill" : [
+        22,
+        88,
+        140
+      ],
+      "enabled_fill" : [
+        0,
+        145,
+        255
+      ]
+    },
+    "light" : {
+      "disabled_fill" : [
+        160,
+        204,
+        246
+      ],
+      "enabled_fill" : [
+        0,
+        145,
+        255
+      ]
+    }
+  },
+  "turns" : {
+    "codex-finished-real" : {
+      "ocr" : "Turn: codex-finished-real 7 7 Changes max@example.com - 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nCompleted\nmax@example.com - gpt-6.1-sol - high - Fast off\nWorked for 1m 00s - 4 steps © 1 failed >\nOne test fails; checking the build next.\nBuilt.\nMessage Codex\n© GPT-6.1-sol-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Worked for 1m 00s · 4 steps | running: - | labels: [\"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\"]",
+        "item: text:m1:t0",
+        "item: text:m1:t1"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Completed"
+    },
+    "codex-live-real" : {
+      "ocr" : "Turn: codex-live-real 7 7 Changes max@example.com - 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nmax@example.com - gpt-6.1-sol - high - Fast off\nRan 3 commands ©®) 1 failed >\nOne test fails; checking the build next.\nRan1command > \/bin\/zsh -Ic\nRunning command - 2m 35s Stop\nQueue a follow-up while this turn runs\n© GPT-6.1-sol-Highy > Fast = Asky © Stop rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Ran 3 commands | running: - | labels: [\"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\"]",
+        "item: text:m1:t0",
+        "work: Ran 1 command | running: \/bin\/zsh -lc | labels: [\"\/bin\/zsh -lc\"]"
+      ],
+      "shows_acknowledgment" : false,
+      "status" : "Running command"
+    },
+    "codex-live-real-expanded" : {
+      "ocr" : "Turn: codex-live-real-expanded \/ ‘\/ Changes | max@example.com - 5h —- week —\n\/Users\/example\/subfleet\nPlease do the next step.\nmax@example.com - gpt-6.1-sol - high - Fast off\nRan 3 commands ©® 1 failed v\nV_ \/bin\/zsh -1lc command >\n® \/bin\/zsh -1c command >\nV_ \/bin\/zsh -1lc command >\nOne test fails; checking the build next.\nRan1command ~ \/bin\/zsh -Ic\n\/bin\/zsh -lc command >\nRunning command - 2m 35s Stop\nQueue a follow-up while this turn runs\n© GPT-6.1-sol-Highy > Fast = Asky © Stop rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Ran 3 commands | running: - | labels: [\"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\"]",
+        "item: text:m1:t0",
+        "work: Ran 1 command | running: \/bin\/zsh -lc | labels: [\"\/bin\/zsh -lc\"]"
+      ],
+      "shows_acknowledgment" : false,
+      "status" : "Running command"
+    },
+    "complete-text-only" : {
+      "ocr" : "Turn: complete-text-only 7 7 Changes max@example.com - 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nCompleted\nmax@example.com - claude-opus-5-5 - high - Fast off\nHere is the answer.\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "item: text:m1:0"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Completed"
+    },
+    "complete-tools" : {
+      "ocr" : "Turn: complete-tools 7 7 Changes max@example.com - 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nCompleted\nmax@example.com - claude-opus-5-5 - high - Fast off\nWorked for 25s -1step >\nDone.\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Worked for 25s · 1 step | running: - | labels: [\"Show the working tree status\"]",
+        "item: text:m1:0"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Completed"
+    },
+    "failed-continued-elsewhere" : {
+      "ocr" : "Turn: failed-continued-elsewhere .\njUsers\/example\/subfleet 7 Y%. Changes  claude-2- 5h — - week —\nPlease do the next step.\nFailed: continued-elsewhere\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Failed: continued-elsewhere"
+    },
+    "failed-model-mismatch" : {
+      "ocr" : "Tarn: felled model mismatch 7 7 Changes max@example.com - 5h — - week —\nPlease do the next step.\nFailed: model-mismatch\nmax@example.com - claude-sonnet-5-5 - high - Fast off\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Failed: model-mismatch"
+    },
+    "fast-mismatch" : {
+      "ocr" : "Turn: fast-mismatch 7 7 Changes max@example.com - 5h — - week —\nPlease do the next step.\n\nCompleted\nmax@example.com - claude-opus-5-5 - high - Fast off\n4 Fast was asked for; this turn ran at standard speed\n\nHere is the answer.\n\nMessage Claude\n\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "item: text:m1:0"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Completed"
+    },
+    "live-claude" : {
+      "ocr" : "Turn: live-claude 7 7 Changes max@example.com - 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nmax@example.com - claude-opus-5-5 - high - Fast off\nRan 2 commands > Build the app\nRunning Bash - 3m 01s Stop\nSteer the running turn - #< queues for later\nA\\ Opus 5.5-Highy > Fast = Asky rs) Vv\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Ran 2 commands | running: Build the app | labels: [\"Show the working tree status\", \"Build the app\"]"
+      ],
+      "shows_acknowledgment" : false,
+      "status" : "Running Bash"
+    },
+    "stop-too-late" : {
+      "ocr" : "Tarn: Stop too tate 7 7 Changes max@example.com - 5h — - week —\nPlease do the next step.\nCompleted before the stop took effect\nmax@example.com - claude-opus-5-5 - high - Fast off\nHere is the answer.\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "item: text:m1:0"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Completed before the stop took effect"
+    },
+    "stopped" : {
+      "ocr" : "Fae Sopp leet 7 7 Changes max@example.com - 5h — - week —\nPlease do the next step.\nStopped\nmax@example.com - claude-opus-5-5 - high - Fast off\nStopped after 25s -2 steps >\nMessage Claude\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Stopped after 25s · 2 steps | running: - | labels: [\"Show the working tree status\", \"Build the app\"]"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Stopped"
+    },
+    "withdrawn" : {
+      "ocr" : "Turn: withdrawn 7 Y%. Changes  claude-2- 5h — - week —\n\/Users\/example\/subfleet\nPlease do the next step.\nWithdrawn\n\nWithdrawn after 35s - 4 steps © 1 failed >\n\nOne test fails; checking the build next.\n\nMessage Claude\n\nA\\ Opus 5.5-Highy > Fast = Asky rs)\n",
+      "rows" : [
+        "item: person:m1",
+        "work: Withdrawn after 35s · 4 steps | running: \/bin\/zsh -lc | labels: [\"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\", \"\/bin\/zsh -lc\"]",
+        "item: text:m1:t0"
+      ],
+      "shows_acknowledgment" : true,
+      "status" : "Withdrawn"
+    }
+  },
+  "visible_windows" : 0
+}

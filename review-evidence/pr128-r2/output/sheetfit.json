@@ -1,0 +1,23 @@
+{
+  "sheetfit" : {
+    "claude-write-120-lines" : {
+      "fits_in_400" : 2469,
+      "fits_in_800" : 2469,
+      "fits_in_1117" : 2469,
+      "preferred" : 2469
+    },
+    "r1-codex-command" : {
+      "fits_in_400" : 501,
+      "fits_in_800" : 501,
+      "fits_in_1117" : 501,
+      "preferred" : 501
+    },
+    "real-claude-bash" : {
+      "fits_in_400" : 497,
+      "fits_in_800" : 785,
+      "fits_in_1117" : 1055,
+      "preferred" : 1055
+    }
+  },
+  "visible_windows" : 0
+}

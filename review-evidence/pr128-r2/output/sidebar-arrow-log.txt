@@ -1,0 +1,22 @@
+sidebar: hosted, table=Optional(SwiftUI.SwiftUIOutlineListView)
+sidebar: focus shortcut
+sidebar: focus handled
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 125
+sidebar: key 126
+sidebar: key 126
+sidebar: key 126
+sidebar: key 126
+sidebar: arrow path ["cv:c0", "cv:c1", "cv:c2", "Yesterday", "cv:c3", "cv:c4", "cv:c5", "earlier", "cv:c6", "cv:c7", "cv:c8", "cv:c7", "cv:c6", "earlier", "cv:c5"]
+sidebar: clicks done
+sidebar: filter rendered
+2026-10-04 23:15:28.202 r2probe[89033:127536123] WARNING: Application performed a reentrant operation in its NSTableView delegate. This warning will become an assert in the future.
+probe exit 0
