@@ -257,12 +257,18 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
+             and not row["in_place"]}
     # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than
-    # `worktree:` leases. Compare recorded spellings only: this function also
-    # runs inside the archive commit transaction, where filesystem work is forbidden.
+    # `worktree:` leases. A row on a job's own worktree, or on a folder inside
+    # it (a conversation in a repository nested there keys its row on that
+    # repository), keeps the job; an in-place job's folder is never removed, so
+    # a row there keeps nothing (review of 599af189, P3-1 and P3-2). Compare
+    # recorded spellings only: this function also runs inside the archive
+    # commit transaction, where filesystem work is forbidden.
     in_use = folders.turn_folders(store.query)
     for row in jobs:
-        if row["worktree"] in in_use:
+        if row["job_id"] in owned and any(folders.within(folder, row["worktree"]) for folder in in_use):
             add(row["job_id"], "turn-folder")
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
@@ -276,8 +282,6 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
             tuple(guests))] if guests else []
         if live:
             add(host, "nested-host: " + ", ".join(live))      # names the jobs it waits for
-    owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
-             and not row["in_place"]}
     for row in store.query("SELECT r.artifact_id,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                            "WHERE r.role='salvage'" + (" AND a.job_id=?" if only else ""), params):
         landed = row["job_id"] in owned if landed_salvage is None else row["artifact_id"] in landed_salvage
@@ -760,11 +764,12 @@ class _Pass:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   only=job_id, hosted=self.hosted, root=self.root).get(job_id)
-            # A turn may register after selection. Read its rows and acquire
-            # the fence atomically; daemon reservation checks this same fence
-            # before inserting either a TURN or READER row (I5).
+            # A turn may register after selection. Read its rows, on the tree
+            # and on any folder inside it (P3-1), and acquire the fence
+            # atomically; daemon reservation checks this same fence before
+            # inserting either a TURN or READER row on the tree itself (I5).
             if reason is None and folder is not None and folders.turn_holds(
-                    lambda sql, params: conn.execute(sql, params).fetchall(), folder):
+                    lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"
             if reason is None:
                 for key in keys:
