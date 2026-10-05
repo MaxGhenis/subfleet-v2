@@ -30,10 +30,12 @@ CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conve
                       "conversation.events", "conversation.watch", "conversation.runs", "message.status",
                       "approval.list", "approval.get", "turn.diff", "conversation.diff"}
 #: The conversation ops that write something a caller relies on: a conversation,
-#: a message, a stop, an answer, an attachment, a catalog run, a handoff.
+#: its title, a message, a steer, a stop, an answer, an attachment, a catalog run,
+#: a handoff.
 CONVERSATION_WRITES = {"conversation.create", "conversation.settings", "conversation.unblock",
-                       "message.submit", "message.cancel", "turn.interrupt", "message.resolve",
-                       "approval.respond", "attachment.add", "catalog.refresh", "conversation.handoff"}
+                       "conversation.rename", "message.submit", "message.steer", "message.cancel",
+                       "turn.interrupt", "message.resolve", "approval.respond", "attachment.add",
+                       "catalog.refresh", "conversation.handoff"}
 
 
 def test_c16_7_every_conversation_op_is_classified_once():
@@ -53,6 +55,12 @@ def test_c16_7_read_only_matches_the_classification_for_every_op():
         assert not descriptors.read_only(op, {"conversation_id": "c1", "text": ""}), op
 
 
+def test_c16_7_a_ping_reads_unless_its_text_has_more_than_whitespace():
+    assert descriptors.read_only("ping", {})
+    assert descriptors.read_only("ping", {"text": "   "})
+    assert not descriptors.read_only("ping", {"text": "a notice"})
+
+
 def test_c16_7_conversation_open_reads_only_when_it_names_a_conversation():
     assert descriptors.read_only("conversation.open", {"conversation_id": "c1"})
     assert not descriptors.read_only("conversation.open", {"native": {"provider": "claude", "session_id": "s"}})
@@ -67,11 +75,13 @@ def test_c16_7_conversation_open_reads_only_when_it_names_a_conversation():
 @settings(max_examples=400, deadline=None)
 def test_c16_7_property_only_the_argument_dependent_ops_depend_on_their_arguments(op, args):
     """`read_only` is a function of the op alone, except for the three C-16.7 names:
-    `ping` (a text records a notice), `lanes` (an action other than a listing) and
+    `ping` (a text that is more than whitespace records a notice, C-15.8), `lanes`
+    (an action other than a listing) and
     `conversation.open` (by native session it may create a conversation)."""
     judged = descriptors.read_only(op, args)
     if op == "ping":
-        assert judged == (not args.get("text"))
+        # C-15.8: text that is only whitespace, or not a string, records nothing.
+        assert judged == (not protocol.ping_writes(args))
     elif op == "lanes":
         assert judged == (args.get("action") in (None, "", "list"))
     elif op == "conversation.open":

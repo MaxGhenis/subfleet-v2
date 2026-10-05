@@ -366,7 +366,8 @@ class Client:
     # --- the wire ------------------------------------------------------------
 
     def call(self, op: str, args: dict[str, Any] | None = None, *,
-             request_id: str = "", timeout: float | None = None) -> dict[str, Any]:
+             request_id: str = "", timeout: float | None = None,
+             retry_busy: bool | None = None) -> dict[str, Any]:
         """Send one request, read one response, return its `result` (C-16.1).
 
         `DaemonUnavailable` before the request is sent, `ResponseLost` after it
@@ -377,7 +378,13 @@ class Client:
         least half the deadline to answer; one admitted with seconds left could
         time out and turn a clean "busy" into an unknown outcome (C-16.3). The
         first try has the whole deadline, and every message names it.
+        `retry_busy` overrides the client's own setting for this call: a long
+        poll that loops takes busy as an empty poll instead, so its next poll
+        has the whole deadline. Once a try was answered busy, a later try whose
+        connect is refused reports busy too: a full listen backlog behind a busy
+        daemon is not an absent one, and must not send a caller offline.
         """
+        retry = self.retry_busy if retry_busy is None else retry_busy
         deadline = self.timeout if timeout is None else timeout
         started = _clock()
         busy: DaemonError | None = None
@@ -392,8 +399,12 @@ class Client:
                 return self._call_once(op, args, request_id=request_id,
                                        timeout=deadline - elapsed if busy else deadline,
                                        stated=deadline)
+            except DaemonUnavailable:
+                if busy is None:
+                    raise
+                raise busy from None
             except DaemonError as exc:
-                if not exc.busy or not self.retry_busy:
+                if not exc.busy or not retry:
                     raise
                 streak += 1
                 pause = busy_pause(streak)

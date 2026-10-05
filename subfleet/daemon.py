@@ -542,7 +542,7 @@ class Daemon:
         self._pinned_max_connections = None if max_connections is None else max(1, int(max_connections))
         self.connection_idle_s = connection_idle_s
         self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
-                                   "abandoned": 0, "accept_failures": 0}
+                                   "abandoned": 0, "accept_failures": 0, "no_thread": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -641,9 +641,16 @@ class Daemon:
                 handler.stream.close()
 
         def no_stack_dumps():
-            # C-3.6: registered with the log's stream, which closes below.
+            # C-3.6, as `_disable_stack_dumps` does at a normal close: `daemon.lock`
+            # stops saying `stack_dumps` first, then the handler goes. Off the main
+            # thread no SIG_IGN stands behind it, so a lock left saying
+            # `stack_dumps` would let `daemon stacks` signal a living host to death
+            # (review of 3c8fe55, P0). The lock fd is still open here: its finalizer
+            # runs last.
             global _STACK_DUMPS
             if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
+                if "_ident" in self.__dict__ and "_lock_fd" in self.__dict__:
+                    self._write_lock(stack_dumps=False)
                 faulthandler.unregister(signal.SIGUSR1)
                 _STACK_DUMPS = None
         steps = [no_stack_dumps, closing_log]
@@ -2989,11 +2996,21 @@ class Daemon:
                     read_at = time.monotonic()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.stopping.is_set():
+                    if not read:
+                        # C-15.5: once more when the deadline passes, or the daemon
+                        # stops: a job that ended after the hub's last look, which
+                        # has not woken this waiter yet, is still answered, never
+                        # reported as a timeout (review of 3c8fe55, P0).
+                        answer = self._wait_answer(job_ids)
+                        if answer is not None:
+                            return answer
                     return {"timeout": True}
                 if client_gone is not None and client_gone():
                     # C-16.7: no one is left to read the answer. Stop now, not at
                     # the deadline, and free this thread and the client's descriptor.
-                    self._count_connection("abandoned", "wait")
+                    # A stream this daemon ended itself is not a client leaving.
+                    if not getattr(client_gone, "ended_here", lambda: False)():
+                        self._count_connection("abandoned", "wait")
                     return {"timeout": True}
                 read = ready.wait(remaining if client_gone is None
                                   else min(remaining, descriptors.CLIENT_POLL_S))
@@ -6337,12 +6354,17 @@ class Daemon:
                  arrived: float | None = None) -> None:
         def gone() -> bool:
             return descriptors.client_gone(conn)
+
+        def ended_here() -> bool:
+            return self._ended_here(conn)
+        gone.ended_here = ended_here
         if descriptors.read_only(req.op, req.args) and gone():
             # C-16.7: its client timed out and hung up while this waited for a
             # thread. A read has no one to answer; a write still runs, because a
-            # client disconnect cannot cancel its durable job. (A stopping daemon
-            # has shut the socket down itself: that is not a client leaving.)
-            if not self.stopping.is_set():
+            # client disconnect cannot cancel its durable job. A stopping daemon
+            # has shut the socket down itself, and so has one that ended the
+            # stream after a broken reply: neither is a client leaving.
+            if not self.stopping.is_set() and not ended_here():
                 self._count_connection("abandoned", req.op)
             return
         if req.op != "wait":
@@ -6376,8 +6398,15 @@ class Daemon:
             if line is descriptors.OVERSIZED:
                 raise protocol.ProtocolError("request exceeds 1 MiB")
             return protocol.decode_request(line)
-        except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-            if not send_reply(conn, write_lock, protocol.fail("", 2, str(exc)), end_stream=self._end_stream):
+        except (protocol.ProtocolError, ValueError, RecursionError) as exc:
+            # C-16.7: a malformed line is answered, never left to end the reader:
+            # ValueError covers bad UTF-8 and an integer past
+            # sys.int_max_str_digits, RecursionError nesting that parses but is
+            # too deep to render in an error message (as #55 on main).
+            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
+                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
+                       else f"malformed request: {exc}")
+            if not send_reply(conn, write_lock, protocol.fail("", 2, message), end_stream=self._end_stream):
                 raise OSError("the reply to an undecodable request failed part way")
             return None
 
@@ -6435,7 +6464,16 @@ class Daemon:
                         continue
                     pending = [f for f in pending if not f.done()]
                     reads.intersection_update(pending)
-                    future = self._start_request(conn, write_lock, req, arrived, peer)
+                    try:
+                        future = self._start_request(conn, write_lock, req, arrived, peer)
+                    except RuntimeError as exc:
+                        # The pool could not start a thread. The standard pool has
+                        # queued the call before it tried, so the request may still
+                        # run (and answer) when a worker frees, but it has no
+                        # future to wait on here. The reader goes on, and the count
+                        # says so (review of 3c8fe55, P2).
+                        self._count_connection("no_thread", f"{req.op} ({exc})")
+                        continue
                     if future is None:
                         note_reply()
                         continue
@@ -6454,13 +6492,15 @@ class Daemon:
             # leaving either.
             with self._connection_lock:
                 ours = conn in self._shut_down
-            if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
-                # C-16.7: the client closed its whole socket. Its reads that no
-                # thread has reached yet are cancelled now, so the connection and
-                # its place under the cap go at once instead of when a busy pool
-                # gets to them; its writes still run.
+            if not self.stopping.is_set() and (ours or descriptors.client_gone(conn)):
+                # C-16.7: the client closed its whole socket, or this daemon ended
+                # the stream after a broken reply. Either way no reply can reach
+                # it, so its reads no thread has reached yet are cancelled now: the
+                # connection and its place under the cap go at once instead of when
+                # a busy pool gets to them. Its writes still run. Only a client
+                # that left is counted.
                 for future in pending:
-                    if future in reads and future.cancel():
+                    if future in reads and future.cancel() and not ours:
                         self._count_connection("abandoned", "queued read")
             # No process waits here. Running callbacks own their response socket
             # until they finish, including after the caller closes its write half.
@@ -6534,10 +6574,21 @@ class Daemon:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
 
-    def _end_stream(self, conn: socket.socket) -> None:
-        """C-16.7: shut a connection down after a reply that failed part way."""
+    def _ended_here(self, conn: socket.socket) -> bool:
+        """C-16.7: whether this daemon shut the stream down after a broken reply:
+        no reply can go out, but no client left either."""
         with self._connection_lock:
-            self._shut_down.add(conn)
+            return conn in self._shut_down
+
+    def _end_stream(self, conn: socket.socket) -> None:
+        """C-16.7: shut a connection down after a reply that failed part way. Its
+        callers hold the connection's write lock, so no other reply can follow
+        the broken one. Only a connection still held is recorded: a request a
+        stalled pool ran after its reader had closed the socket and let it go
+        must not leave an entry nothing removes (review of 3c8fe55, P2)."""
+        with self._connection_lock:
+            if conn in self._connections:
+                self._shut_down.add(conn)
         with contextlib.suppress(OSError):
             conn.shutdown(socket.SHUT_RDWR)
 
@@ -6558,7 +6609,8 @@ class Daemon:
     #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
     _CONNECTION_EVENTS = {"refused": "connections refused busy",
                           "idle_closed": "idle connections closed",
-                          "abandoned": "requests dropped because their client hung up"}
+                          "abandoned": "requests dropped because their client hung up",
+                          "no_thread": "requests whose pool could not start a thread"}
 
     def _count_connection(self, kind: str, detail: str | None = None) -> int:
         with self._connection_lock:

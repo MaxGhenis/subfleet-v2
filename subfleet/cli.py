@@ -744,6 +744,9 @@ def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
     if result.get("refused"):
         return True, (" (found by its request id after the re-sent submission was "
                       f"refused: {result['refused']})")
+    if result.get("busy"):
+        return True, (" (found by its request id; the re-sent submission met a busy "
+                      "daemon and was not read)")
     if answered:
         return True, " (created by the re-sent submission; the first went unanswered)"
     if minted:
@@ -1245,14 +1248,19 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             budget = deadline + 15 if remaining is None else min(
                 deadline + 15, remaining)
             try:
-                result = client.call("wait", _asdict(poll), timeout=budget)
+                # C-16.7: busy is an empty poll here, and this loop asks again, so
+                # the next poll has its whole deadline. A retry inside `call` would
+                # ask the daemon to hold a 60 s poll with less than that left of the
+                # transport budget, and a lost answer would end even an unbounded
+                # `wait` (review of 3c8fe55, P1; #55 on main).
+                result = client.call("wait", _asdict(poll), timeout=budget, retry_busy=False)
             except ProtocolError:
                 if timeout is not None and timeout - (time.monotonic() - started) <= 0:
                     timed_out = True
                     break
                 raise
             except DaemonError as exc:
-                # C-16.1: a daemon at its connection cap answers "try again
+                # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
                 # inside `--timeout` (review of the descriptor hotfix, F8).
                 if not exc.busy:

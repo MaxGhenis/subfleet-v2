@@ -209,13 +209,17 @@ class ConversationService:
         return sum(1 for runner in list(self.runners.values()) if not runner.finished.is_set())
 
     def respond(self, conn, write_lock, req: protocol.Request, peer: int | None) -> None:
+        ended = getattr(self.daemon, "_ended_here", None)
+
         def gone() -> bool:
             return descriptors.client_gone(conn)
+        gone.ended_here = (lambda: ended(conn)) if ended is not None else (lambda: False)
         if descriptors.read_only(req.op, req.args) and gone():
             # C-16.7: the client hung up while this waited for a thread: a read
             # has no one to answer. A write still runs (C-5.2). A stopping daemon
-            # shut the socket down itself, which is not a client leaving.
-            if not self.daemon.stopping.is_set():
+            # shut the socket down itself, and so did one that ended the stream
+            # after a broken reply: neither is a client leaving.
+            if not self.daemon.stopping.is_set() and not gone.ended_here():
                 self.daemon._count_connection("abandoned", req.op)
             return
         try:
@@ -633,7 +637,8 @@ class ConversationService:
         if superseded.is_set() or (stopping is not None and stopping.is_set()):
             return True
         if client_gone is not None and client_gone():
-            self.daemon._count_connection("abandoned", op)
+            if not getattr(client_gone, "ended_here", lambda: False)():
+                self.daemon._count_connection("abandoned", op)
             return True
         return False
 

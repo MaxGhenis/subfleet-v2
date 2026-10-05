@@ -179,23 +179,26 @@ def send_reply(conn: socket.socket, write_lock, response: dict, *,
     A client disconnect cannot cancel a durable job, so a failed send is not an
     error of the request. A reply that failed part way (the client stopped
     reading, C-16.7) leaves a broken line, so nothing more may follow it: the
-    connection is shut down, by `end_stream` when given (the daemon's
+    connection is shut down, while the write lock is still held, by `end_stream` when given (the daemon's
     `_end_stream`, which also records that the daemon ended it), and its reader
     and any later reply see that.
     """
-    try:
-        with write_lock:
+    with write_lock:
+        try:
             conn.sendall(protocol.encode(response))
-        return True
-    except OSError:
-        if end_stream is not None:
-            end_stream(conn)
-        else:
-            try:
-                conn.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-        return False
+            return True
+        except OSError:
+            # Still under the write lock: a reply waiting for it would otherwise
+            # be appended to the broken line before the stream ends (review of
+            # 3c8fe55, P1). It then meets the shut-down socket and fails too.
+            if end_stream is not None:
+                end_stream(conn)
+            else:
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            return False
 
 
 class Oversized:
