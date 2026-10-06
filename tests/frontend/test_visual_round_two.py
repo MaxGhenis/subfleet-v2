@@ -136,8 +136,10 @@ def test_answered_questions_show_question_and_answer_once(r2_views):
         assert text.count(question) == 1
     assert text.count("Answer: Option 0") == 1 and text.count("Answer: Window 0") == 1
     assert "input.questions" not in text
-    # This history summary explicitly supplies a nullable scope; retain it.
-    assert "blocked_path: null" in " ".join(text.split())
+    # The summary's blocked_path: null is claude_turn's placeholder for a field
+    # the question request does not contain; history must not show it as a grant.
+    assert "blocked_path" not in text and "null" not in text
+    assert r2_views["approvals"]["question-two"]["answered_card_height"] == 184
 
 
 @pytest.mark.parametrize("mode", ["dark", "light"])

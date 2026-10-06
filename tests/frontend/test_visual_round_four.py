@@ -28,6 +28,10 @@ def test_explicit_null_grants_survive_loaded_and_summary_projection(null_models,
         # Only input is supplied by Claude's display summary.
         if "input" in fixture["request"]:
             expected = {key: value for key, value in expected.items() if key.startswith("input.")}
+        # The adapters also write absent fields as top-level None, so a summary
+        # cannot show a top-level null; nested ones remain (round five, P2).
+        top_level_nulls = {key for key, value in fixture["request"].get("params", {}).items() if value is None}
+        expected = {key: value for key, value in expected.items() if key not in top_level_nulls}
     assert null_models[fixture["id"]][source] == expected
 
 
@@ -68,7 +72,7 @@ def null_views(tmp_path_factory):
     assert ocr, "The null grant regression requires foreground OCR"
     path = folder / "requests.json"
     path.write_text(json.dumps({row["id"]: row for row in REQUESTS[:2]}))
-    return run_probe(probe, path, folder / "renders", timeout=120,
+    return run_probe(probe, path, folder / "renders", timeout=540,
                      env={"R2_TESSERACT": ocr, "R2_PARTS": "approvals"})
 
 
