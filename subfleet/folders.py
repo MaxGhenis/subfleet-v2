@@ -205,6 +205,30 @@ def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,
     return list(found.items())
 
 
+def exclusive_inside(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[tuple[str, str]]:
+    """The `worktree:` rows `(lease key, holder)` on a folder inside `folder`
+    (`within`; `folder`'s own key is not among them): a detached in-place writer
+    in a repository nested in a job's worktree holds `worktree:<that
+    repository>`, and its quarantined attempt keeps the row while retention
+    would remove the folder with the worktree (review of 31048e67, F3). One
+    range on the primary key: every key from `worktree:<folder>/` up to
+    `worktree:<folder>0` ('/' + 1) starts with `worktree:<folder>/`. `read` is as
+    for `turn_holds`."""
+    low = f"{EXCLUSIVE}{folder.rstrip('/')}/"
+    exact = exclusive_key(folder)             # `/`'s own key is in its range
+    return [(key, holder) for key, holder in map(_row, read(
+        "SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?", (low, low[:-1] + "0")))
+            if key != exact]
+
+
+def exclusive_folders(read: Callable[[str, tuple], Iterable[Any]]) -> list[tuple[str, str]]:
+    """Every `(folder, holder)` a `worktree:` row names: a detached writer's
+    folder or retention's fence (retention's pins)."""
+    return [(key[len(EXCLUSIVE):], holder) for key, holder in map(_row, read(
+        "SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+        (EXCLUSIVE, EXCLUSIVE[:-1] + ";")))]
+
+
 def turn_folders(read: Callable[[str, tuple], Iterable[Any]]) -> set[str]:
     """Every folder a live turn holds, writable or read-only (retention's pins)."""
     folders = set()
