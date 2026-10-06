@@ -1,0 +1,83 @@
+diff --git a/tests/frontend/R2PresentationProbe.swift b/tests/frontend/R2PresentationProbe.swift
+index 54f9209..cd9daf5 100644
+--- a/tests/frontend/R2PresentationProbe.swift
++++ b/tests/frontend/R2PresentationProbe.swift
+@@ -71,6 +71,32 @@ import Foundation
+         ])
+         let replayedQuestion = resetTimeline.items.compactMap(\.card).first!
+         question = timeline.items.compactMap(\.card).first!
++        // Round-three review: Codex 0.159 `kind` (command | writeStdin), parsed actions, array order, cd preludes.
++        let stdinParams: JSONValue = .object(["threadId": .string("t"), "turnId": .string("u"), "itemId": .string("i"),
++            "startedAtMs": .int(1), "command": .string("/bin/zsh -lc 'python3 manage.py migrate'"),
++            "cwd": .string("/repo"), "kind": .string("writeStdin")])
++        let commandCard = ApprovalCard(approvalID: "s", kind: "command",
++            display: ApprovalDisplay(fields: ["command": .string("/bin/zsh -lc 'python3 manage.py migrate'"),
++                                              "cwd": .string("/repo"), "input_kind": .string("writeStdin")]),
++            options: ["allow", "deny"], state: .pending)
++        func fieldMap(_ card: ApprovalCard, _ request: JSONValue?) -> [String: String] {
++            Dictionary(uniqueKeysWithValues: ApprovalPresentation.grantedFields(card, request: request).map { ($0.key, $0.value) })
++        }
++        let actions = JSONValue.array((0..<12).map { i in .object(["type": .string("read"), "command": .string("sed -n 1p part\(i).txt"),
++                                                                      "name": .string("part\(i).txt"), "path": .string("/repo/part\(i).txt")]) })
++        let chain: JSONValue = .object(["method": .string("item/commandExecution/requestApproval"), "params": .object([
++            "command": .string("/bin/zsh -lc 'sed -n 1p part0.txt && sed -n 1p part1.txt'"), "cwd": .string("/repo"),
++            "kind": .string("command"), "commandActions": actions])])
++        let roots: JSONValue = .object(["params": .object(["cwd": .string("/repo"), "permissions": .object(["fileSystem": .object([
++            "write": .array((0..<12).map { .string("/repo/out/\($0)") })])])])])
++        let review: [String: Any] = [
++            "write_stdin_fields": fieldMap(commandCard, .object(["method": .string("item/commandExecution/requestApproval"), "params": stdinParams])),
++            "write_stdin_summary": fieldMap(commandCard, nil),
++            "chain_order": ApprovalPresentation.grantedFields(commandCard, request: chain).map(\.key),
++            "roots_order": ApprovalPresentation.grantedFields(card, request: roots).map(\.key),
++            "label_cd_semicolon": ToolActivity(name: "command", summary: "/bin/zsh -lc 'cd app; rm -rf build && make'",
++                                               hidden: false, state: .running).label,
++        ]
+         print(String(data: try JSONSerialization.data(withJSONObject: [
+             "commands": commandRows, "wrappers": wrappers, "hidden": hidden, "display_hidden": displayHidden,
+             "empty_amendments": emptyAmendments,
+@@ -81,7 +107,7 @@ import Foundation
+             "question_string_input_fields": questionSummaryFields(stringQuestion),
+             "answers": question.answers, "question_pending": question.isPending,
+             "reset_answers": replayedQuestion.answers, "reset_approval_id": replayedQuestion.approvalID!,
+-            "reset_question_pending": replayedQuestion.isPending
++            "reset_question_pending": replayedQuestion.isPending, "review_r3": review
+         ]), encoding: .utf8)!)
+     }
+ }
+diff --git a/tests/frontend/test_visual_round_two.py b/tests/frontend/test_visual_round_two.py
+index 07229ed..048a4ca 100644
+--- a/tests/frontend/test_visual_round_two.py
++++ b/tests/frontend/test_visual_round_two.py
+@@ -158,3 +158,32 @@ def test_masked_confirmation_is_reachable_and_enables_allow(r2_views, mode):
+     assert confirmed["height"] <= 400
+     assert "Allow" in confirmed["ocr"] and "Cancel" in confirmed["ocr"] and "Deny" in confirmed["ocr"]
+     assert "have reviewed the masked values" in confirmed["ocr"]
++
++
++# Round-three review regressions (review job; proposed, not committed to the PR branch).
++
++def test_codex_input_to_a_running_terminal_is_shown(r2_models):
++    # Codex 0.159: kind "Distinguishes a command approval from input sent to an existing terminal" (C-27.1).
++    review = r2_models["review_r3"]
++    assert "writeStdin" in review["write_stdin_fields"].values()
++    assert "writeStdin" in review["write_stdin_summary"].values()
++
++
++def test_the_command_precedes_parsed_actions_and_arrays_keep_their_order(r2_models):
++    keys = r2_models["review_r3"]["chain_order"]
++    actions = [i for i, k in enumerate(keys) if k.startswith("params.commandActions")]
++    assert keys.index("params.command") < min(actions, default=len(keys))
++    writes = [k for k in r2_models["review_r3"]["roots_order"] if "write[" in k]
++    assert writes == sorted(writes, key=lambda k: int(k.rsplit("[", 1)[1].rstrip("]")))
++
++
++def test_a_cd_prelude_ends_at_its_own_separator(r2_models):
++    assert r2_models["review_r3"]["label_cd_semicolon"] not in ("make", "make ")
++
++
++def test_file_change_fixture_validates_against_the_vendored_codex_schema():
++    schema = json.loads((ROOT / "tests/fixtures/codex/app-server-0.153.3/ServerRequest.json").read_text())
++    params_schema = schema["definitions"]["FileChangeRequestApprovalParams"]
++    fixture = next(f for f in json.loads((ROOT / "tests/fixtures/visual/approvals.json").read_text()) if f["id"] == "codex-file-change")
++    params = fixture["request"]["params"]
++    assert set(params_schema["required"]) <= set(params) <= set(params_schema["properties"])

@@ -1,0 +1,916 @@
+{
+  "approvals" : {
+    "r3-claude-masked-write-120" : {
+      "card-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              332,
+              107,
+              27
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 415,
+        "frame_height" : 415,
+        "ocr" : "W Writing .env\n\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\n\nline @@1: export const value1 = compute(1,\n'payload');\n\nline @@2: export const value2 = compute(2,\n'payload');\n\nline @@3: export const value3 = compute(3,\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              354,
+              152,
+              39
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 460,
+        "frame_height" : 460,
+        "ocr" : "W Writing .env\n\ninput.file_path: \/Users\/example\/\nproject\/.env\n\ndecision_reason_code:\nconstructed—code\n\ninput.content: line @@0: export\n\nconst value®@ = compute(Q@,\n\nInavilnad! )-\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note ce E:\nDetails\n"
+      },
+      "card-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              405,
+              184,
+              47
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 526.5,
+        "frame_height" : 526.5,
+        "ocr" : "W Writing .env\n\ninput.file_path: \/Users\/\n\nexample\/project\/.env\n\ndecision _reason_code:\n\nconstructed-—code\n\ninput.content: line Q@@0:\n\n<® Some values are masked. Allow opens details\nfor review.\n\nAdd a note 7? GE\n\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/.env"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/.env",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing .env",
+      "sheet-confirmed-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/\nproject\/.env\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const\nvalue®@ = compute(@, 'payload');\nline @@1: export const value =\n® 1 value(s) that look like secrets are masked _ Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-confirmed-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\n\ninput.file_path: \/Users\/\n\nexample\/project\/.env\n\n@® 1 value(s) that look like veces\nsecrets are masked\n\nv | have reviewed the masked values\n\nNote to the agent (optional)\n"
+      },
+      "sheet-confirmed-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/\n@® 1 value(s) thatlook like __\nsecrets are masked\nv| have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheet-in-400-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/\nproject\/.env\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const\nvalue@ = compute(@, 'payload');\nline @@1: export const value =\n® 1 value(s) that look like secrets are masked _ Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-in-400-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/\nexample\/project\/.env\n® 1 value(s) that look like veces\nsecrets are masked\n| have reviewed the masked values\nNote to the agent (optional)\n"
+      },
+      "sheet-in-400-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_ path: \/\n@® 1 value(s) thatlook like __\nsecrets are masked\n| have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheet-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              278,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/\nproject\/.env\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const\nvalue®@ = compute(@, 'payload');\nline @@1: export const value =\n® 1 value(s) that look like secrets are masked _ Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              261,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/\nexample\/project\/.env\n@® 1 value(s) that look like veces\nsecrets are masked\n| have reviewed the masked values\nNote to the agent (optional)\n"
+      },
+      "sheet-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/\n@® 1 value(s) thatlook like __\nsecrets are masked\n| have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "r3-claude-short-bash" : {
+      "card-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              129,
+              107,
+              27
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 212.5,
+        "frame_height" : 212.5,
+        "ocr" : "W Show working tree status\ngit status --short\ndecision_reason_code: constructed—code\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              196,
+              152,
+              39
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 302.5,
+        "frame_height" : 302.5,
+        "ocr" : "W Show working tree status\n\ngit status --short\ndecision_reason_code:\nconstructed-—code\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              228,
+              184,
+              47
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 349,
+        "frame_height" : 349,
+        "ocr" : "WW Show working tree status\n\ngit status --short\n\ndecision _reason_code:\nconstructed—code\n\nAdd a note 7? GE\nDetails\n"
+      },
+      "command_key_loaded" : "input.command",
+      "fields_before_load" : [
+        "input: git status --short\ndescription: Show working tree status"
+      ],
+      "fields_loaded" : [
+        "input.command: git status --short",
+        "decision_reason_code: constructed-code"
+      ],
+      "headline" : "Show working tree status",
+      "sheet-in-400-light-1.44" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\ngit status --short\ndecision_reason_code: constructed—code\nDetails\nNote to the agent (optional)\nCancel Denyandstop Deny _— Allow\n"
+      },
+      "sheet-in-400-light-2.0736" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\n\ngit status --short\ndecision_reason_code:\nconstructed-code\n\nDetails\n\nNote to the agent (optional)\n\ncancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-light-2.48832" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\ngit status --short\ndecision _reason_code:\nconstructed-—code\n\nDetails\n\nNote to the agent (optional)\n"
+      },
+      "sheet-light-1.44" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 277,
+        "frame_height" : 277,
+        "ocr" : "Show working tree status\ngit status --short\ndecision_reason_code: constructed—code\nDetails\nNote to the agent (optional)\nCancel Denyandstop Deny _ Allow\n"
+      },
+      "sheet-light-2.0736" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 356,
+        "frame_height" : 356,
+        "ocr" : "Show working tree status\n\ngit status --short\ndecision_reason_code:\nconstructed-code\n\nDetails\n\nNote to the aaent (ovtional)\n\ncancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-2.48832" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\ngit status -—-short\ndecision_reason_code:\nconstructed-—code\n\nDetails\n\nNote to the agent (optional)\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 237
+      }
+    },
+    "r3-claude-write-120" : {
+      "card-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              299,
+              107,
+              27
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 382.5,
+        "frame_height" : 382.5,
+        "ocr" : "W Writing values.ts\n\ninput.file_path: \/Users\/example\/project\/\nsrc\/values.ts\n\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\n\nline @@1: export const value1 = compute(1,\n'payload');\n\nline @@2: export const value2 = compute(2,\n'payload');\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              311,
+              152,
+              39
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 417.5,
+        "frame_height" : 417.5,
+        "ocr" : "W Writing values.ts\n\ninput.file_path: \/Users\/example\/\nproject\/src\/values.ts\ndecision_reason_code:\nconstructed—code\n\ninput.content: line @@0: export\n\nconst value®@ = compute(Q@,\n\nInavilnad! )-\n\nAdd a note ce E:\nDetails\n"
+      },
+      "card-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              319,
+              184,
+              47
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 440,
+        "frame_height" : 440,
+        "ocr" : "W Writing values.ts\ninput.file_path: \/Users\/\nexample\/project\/src\/values.ts\ndecision _reason_code:\nconstructed-—code\n\ninput.content: line Q@@0:\n\nAdd a note a Cm\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing values.ts",
+      "sheet-in-400-light-1.44" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\n\ninput.file_path: \/Users\/example\/\nproject\/src\/values.ts\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const\nvalue@ = compute(@, 'payload');\n\nline @@1: export const value =\ncompute(1, 'payload');\n\nline @@2: export const value2 =\ncompute(2, 'payload');\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-light-2.0736" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/\nexample\/project\/src\/\nvalues.ts\ndecision_reason_code:\nconstructed—code\ninput.content: line 0@0:\nNote to the aaent (ovtional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-light-2.48832" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/\nUsers\/example\/project\/\nsrc\/values.ts\n\ndecision _reason_code:\nannnotriintad_andan\n\nNote to the agent (optional)\n"
+      },
+      "sheet-light-1.44" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\n\ninput.file_path: \/Users\/example\/\nproject\/src\/values.ts\ndecision_reason_code: constructed—code\ninput.content: line @@@: export const\nvalue®@ = compute(@, 'payload');\n\nline @@1: export const value =\ncompute(1, 'payload');\n\nline @@2: export const value2 =\ncompute(2, 'payload');\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-2.0736" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/\nexample\/project\/src\/\nvalues.ts\ndecision_reason_code:\nconstructed-code\ninput.content: line 900:\nNote to the agent (optional)\n"
+      },
+      "sheet-light-2.48832" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/\nUsers\/example\/project\/\nsrc\/values.ts\ndecision_reason_code:\naAnnaotriintad_andn\n\nNote to the agent (optional)\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-long-reason-masked" : {
+      "card-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              406,
+              107,
+              27
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 489.5,
+        "frame_height" : 489.5,
+        "ocr" : "Push the release branch so the hub can open the pull\nrequest; this needs network access to github.com and write\naccess to the remote, which the sandbox does not grant by\nW default, sol am asking first. Push the release branch so the\nhub can open the pull request; this needs network access to\ngithub.com and write access to the remote, which the\nsandbox does not grant by default, so | am asking first.\nparams.cwd: \/Users\/example\/subfleet\n\/bin\/zsh -lc 'git push origin HEAD'\nparams.commandActions[@].command: \/bin\/zsh -lc 'git\npush origin HEAD'\nparams.commandActions[@].type: unknown\n© Some values are masked. Allow opens details for review.\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              702,
+              152,
+              39
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 808.5,
+        "frame_height" : 808.5,
+        "ocr" : "Push the release branch so the hub can\nopen the pull request; this needs network\naccess to github.com and write access to\nthe remote, which the sandbox does not\nwy grant by default, so | am asking first. Push\nthe release branch so the hub can open\nthe pull request; this needs network\naccess to github.com and write access to\nthe remote, which the sandbox does not\ngrant by default, so | am asking first.\nparams.cwd: \/Users\/example\/subfleet\n\/bin\/zsh -le 'git push origin HEAD'\nparams.commandActions[@].command: \/\nbin\/zsh -le ‘git push origin HEAD'\nparams.commandActions[@].type:\nunknown\n© Some values are masked. Allow opens details for review.\nAdd a note Deny Allow\nDetails\n"
+      },
+      "card-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              969,
+              184,
+              47
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 1090.5,
+        "frame_height" : 1090.5,
+        "ocr" : "Push the release branch so the\nhub can open the pull request; this\nneeds network access to\ngithub.com and write access to\nthe remote, which the sandbox\ndoes not grant by default, so lam\n\nW asking first. Push the release\nbranch so the hub can open the\npull request; this needs network\naccess to github.com and write\naccess to the remote, which the\nsandbox does not grant by\ndefault, so | am asking first.\n\nparams.cwd: \/Users\/\n\nexample\/subfleet\n\n\/bin\/zsh -lc ‘git push\n\norigin HEAD'\n\nparams.commandActionsL@].comma\n\n<® Some values are masked. Allow opens details\nfor review.\n\nAdd a note a Cm\n\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'git push origin HEAD'"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'git push origin HEAD'",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'git push origin HEAD'",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. ",
+      "sheet-confirmed-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open\nthe pull request; this needs network access to\ngithub.com and write access to the remote...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'git push origin HEAD'\nparams.commandActions[@].command: \/bin\/\n©® 1 value(s) that look like secrets are masked _ Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-confirmed-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so th...\nparams.cwd: \/Users\/\nexamnle\/suhfleet\n\n@® 1 value(s) that look like veces\n\nsecrets are masked\n\nv | have reviewed the masked values\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-confirmed-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch...\nparams.cwd: \/Users\/\n@® 1 value(s) thatlook like __\nsecrets are masked\nvy | have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheet-in-400-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open\nthe pull request; this needs network access to\ngithub.com and write access to the remote...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'git push origin HEAD'\nparams.commandActions[@].command: \/bin\/\n© 1 value(s) that look like secrets are masked _ Reveal\n\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-in-400-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so th...\nparams.cwd: \/Users\/\nexamnle\/suhfleet\n® 1 value(s) that look like veces\nsecrets are masked\n| have reviewed the masked values\nNote to the agent (optional)\n"
+      },
+      "sheet-in-400-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch...\nparams.cwd: \/Users\/\n@® 1 value(s) thatlook like __\nsecrets are masked\n| have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheet-light-1.44" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              273,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open\nthe pull request; this needs network access to\ngithub.com and write access to the remote...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'git push origin HEAD'\nparams.commandActions[@].command: \/bin\/\n©® 1 value(s) that look like secrets are masked _ Reveal\n\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-2.0736" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              251,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so th...\nparams.cwd: \/Users\/\nexamnle\/suhfleet\n@® 1 value(s) that look like veces\nsecrets are masked\n| have reviewed the masked values\nNote to the agent (optional)\n"
+      },
+      "sheet-light-2.48832" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              226,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch...\nparams.cwd: \/Users\/\n@® 1 value(s) thatlook like __\nsecrets are masked\n| have reviewed the\nmasked values\nNote to the agent (optional)\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    }
+  },
+  "visible_windows" : 0
+}

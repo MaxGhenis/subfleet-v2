@@ -1,0 +1,247 @@
+{
+  "answers" : {
+    "a_two_messages_unique_ids" : {
+      "after_replay" : [
+        "A1|req=u-1|settled|answers=[\"Which scope?\": \"Local\"]",
+        "A2|req=u-2|pending|answers=[:]"
+      ],
+      "before_reset" : [
+        "A1|req=u-1|settled|answers=[\"Which scope?\": \"Local\"]",
+        "A2|req=u-2|pending|answers=[:]"
+      ]
+    },
+    "b_replacement_same_message" : [
+      "B1|req=u-1|settled|answers=[\"Which scope?\": \"Local\"]",
+      "B2|req=u-3|pending|answers=[:]"
+    ],
+    "c_constructed_collision" : [
+      "C2|req=dup|settled|answers=[:]"
+    ],
+    "d_compacted_request_event" : [
+
+    ]
+  },
+  "labels" : [
+    {
+      "label" : "cat \/Users\/maxghenis\/reviews\/descriptor-reconcile-2026-09-27\/review-opus.md \/Users\/maxghenis\/reviews\/descriptor-reconcile-2026-09-27\/review-astra.md",
+      "note" : "recorded[0] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "cat \/Users\/maxghenis\/reviews\/descriptor-reconcile-2026-09-27\/review-opus.md \/Use"
+    },
+    {
+      "label" : "cat \/Users\/maxghenis\/.agents\/skills\/gitnexus-pr-review\/SKILL.md",
+      "note" : "recorded[1] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "cat \/Users\/maxghenis\/.agents\/skills\/gitnexus-pr-review\/SKILL.md"
+    },
+    {
+      "label" : "git status --short",
+      "note" : "recorded[2] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git status --short; git rev-parse HEAD; rg --files -g AGENTS.md -g '*descriptor*"
+    },
+    {
+      "label" : "git show 02c63203",
+      "note" : "recorded[3] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git show 02c63203 -- subfleet\/daemon.py subfleet\/descriptors.py subfleet\/convers"
+    },
+    {
+      "label" : "git show d9b378cc",
+      "note" : "recorded[4] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git show d9b378cc --stat; git diff 3e13ecde..02c63203 --stat; git diff 3e13ecde."
+    },
+    {
+      "label" : "rg --files -g",
+      "note" : "recorded[5] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "rg --files -g AGENTS.md -g '*descriptor*' -g 'pyproject.toml' -g 'conftest.py'; "
+    },
+    {
+      "label" : "git diff 3e13ecde..02c63203",
+      "note" : "recorded[6] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git diff 3e13ecde..02c63203 -- subfleet\/daemon.py"
+    },
+    {
+      "label" : "nl -ba subfleet\/daemon.py",
+      "note" : "recorded[7] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba subfleet\/daemon.py | sed -n '6300,6820p'"
+    },
+    {
+      "label" : "for f in",
+      "note" : "recorded[8] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "for f in \/AGENTS.md \/Users\/AGENTS.md \/Users\/maxghenis\/AGENTS.md \/Users\/maxghenis"
+    },
+    {
+      "label" : "nl -ba subfleet\/descriptors.py",
+      "note" : "recorded[9] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba subfleet\/descriptors.py | sed -n '1,320p'; nl -ba subfleet\/conversations\/"
+    },
+    {
+      "label" : "nl -ba subfleet\/daemon.py",
+      "note" : "recorded[10] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba subfleet\/daemon.py | sed -n '6590,6810p'; rg -n 'sendall|send\\(|send_repl"
+    },
+    {
+      "label" : "nl -ba tests\/unit\/test_descriptor_review_fixes.py",
+      "note" : "recorded[11] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba tests\/unit\/test_descriptor_review_fixes.py | sed -n '1,520p'"
+    },
+    {
+      "label" : "nl -ba docs\/acceptance-contract.md",
+      "note" : "recorded[12] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba docs\/acceptance-contract.md | sed -n '60,88p'; nl -ba docs\/acceptance-con"
+    },
+    {
+      "label" : "ls -l .venv\/bin\/python",
+      "note" : "recorded[13] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "ls -l .venv\/bin\/python .venv\/bin\/python3; python3 --version; git diff 8cb8a7d8.."
+    },
+    {
+      "label" : "nl -ba docs\/acceptance-contract.md",
+      "note" : "recorded[14] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba docs\/acceptance-contract.md | sed -n '275,298p'; rg -n 'Review of the des"
+    },
+    {
+      "label" : "git diff 3e13ecde..02c63203",
+      "note" : "recorded[15] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git diff 3e13ecde..02c63203 -- subfleet\/conversations\/service.py; git diff 8cb8a"
+    },
+    {
+      "label" : "nl -ba docs\/acceptance-contract.md",
+      "note" : "recorded[16] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba docs\/acceptance-contract.md | sed -n '287,290p'; rg -n -F 'Review of the "
+    },
+    {
+      "label" : "Run a Python script",
+      "note" : "recorded[17] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import"
+    },
+    {
+      "label" : "Run a Python script",
+      "note" : "recorded[18] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import"
+    },
+    {
+      "label" : "nl -ba subfleet\/daemon.py",
+      "note" : "recorded[19] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba subfleet\/daemon.py | sed -n '490,690p'; git diff 3e13ecde..02c63203 -- su"
+    },
+    {
+      "label" : "git diff 3e13ecde..02c63203",
+      "note" : "recorded[20] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "git diff 3e13ecde..02c63203 -- subfleet\/protocol.py subfleet\/waits.py; git diff "
+    },
+    {
+      "label" : "nl -ba subfleet\/daemon.py",
+      "note" : "recorded[21] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "nl -ba subfleet\/daemon.py | sed -n '2448,2565p'; nl -ba subfleet\/daemon.py | sed"
+    },
+    {
+      "label" : "rg -n ^def test_|^@pytest.mark.parametrize|^OPS|^CONVERSATION",
+      "note" : "recorded[22] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "rg -n '^def test_|^@pytest.mark.parametrize|^OPS|^CONVERSATION' tests\/unit\/test_"
+    },
+    {
+      "label" : "git -c core.fsmonitor=false",
+      "note" : "recorded[23] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor=false status --short; git rev-parse H"
+    },
+    {
+      "label" : "Run a Python script",
+      "note" : "recorded[24] 20261004-221349-desc-reconcile-r2-hard",
+      "script_head" : "PYTHONDONTWRITEBYTECODE=1 SUBFLEET_HOME=\/nonexistent python3 -c 'import ast\nfrom"
+    },
+    {
+      "label" : "Run a Python script",
+      "note" : "recorded[25] 20261004-224916-desc-reconcile-r4-hard",
+      "script_head" : "env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY'\nfrom pathlib imp"
+    },
+    {
+      "label" : "python ..\/run.py 540",
+      "note" : "recorded[26] 20261004-132200-pr127-fix-review",
+      "script_head" : "cd build\/review\/base && \/Users\/maxghenis\/.subfleet\/worktrees\/20261004-132200-pr1"
+    },
+    {
+      "label" : "swift build -c",
+      "note" : "constructed: cd prelude",
+      "script_head" : "cd app && swift build -c release"
+    },
+    {
+      "label" : "rg -n TODO",
+      "note" : "constructed: cd quoted path",
+      "script_head" : "cd '\/Users\/example\/My Project' && rg -n TODO app"
+    },
+    {
+      "label" : "make",
+      "note" : "constructed: cd ; then rm && make",
+      "script_head" : "cd app; rm -rf build && make"
+    },
+    {
+      "label" : "bun run build",
+      "note" : "constructed: cd || exit newline",
+      "script_head" : "cd app || exit 1\nbun test && bun run build"
+    },
+    {
+      "label" : "set -euo pipefail",
+      "note" : "constructed: set -e first line",
+      "script_head" : "set -euo pipefail\ncd app\nswift build"
+    },
+    {
+      "label" : "cat",
+      "note" : "constructed: heredoc to cat with apostrophe body",
+      "script_head" : "cat > notes.md <<'EOF'\nDon't ship this\nEOF"
+    },
+    {
+      "label" : "git log --oneline",
+      "note" : "constructed: pipe",
+      "script_head" : "git log --oneline | head -5"
+    },
+    {
+      "label" : "(cd app",
+      "note" : "constructed: subshell",
+      "script_head" : "(cd app && swift build)"
+    },
+    {
+      "label" : "make test",
+      "note" : "constructed: env assignments",
+      "script_head" : "FOO=1 BAR=2 make test"
+    },
+    {
+      "label" : "python3 -m pytest",
+      "note" : "constructed: python -m",
+      "script_head" : "python3 -m pytest -q tests\/frontend"
+    },
+    {
+      "label" : "Run a Python script",
+      "note" : "constructed: python heredoc",
+      "script_head" : "python3 - <<'PY'\nprint(1)\nPY"
+    },
+    {
+      "label" : "rg -n foo|bar",
+      "note" : "constructed: quoted pipe char",
+      "script_head" : "rg -n 'foo|bar' app\/Sources | wc -l"
+    },
+    {
+      "label" : "git add -A",
+      "note" : "constructed: chain",
+      "script_head" : "git add -A && git commit -m 'fix: x' && git push"
+    },
+    {
+      "label" : "# check status",
+      "note" : "constructed: comment first",
+      "script_head" : "# check status\ngit status"
+    },
+    {
+      "label" : "for f in",
+      "note" : "constructed: for loop",
+      "script_head" : "for f in *.md; do wc -l \"$f\"; done"
+    },
+    {
+      "label" : "sed -n 1,200p",
+      "note" : "constructed: sed range",
+      "script_head" : "sed -n '1,200p' app\/Sources\/Timeline.swift"
+    },
+    {
+      "label" : "nl -ba subfleet\/part0.py",
+      "note" : "constructed: 2836-char script bounded by redact.bounded to INPUT_MAX=500",
+      "script_head" : "cd \/Users\/example\/subfleet && nl -ba subfleet\/part0.py | sed -n '1,400p' && nl -"
+    }
+  ],
+  "visible_windows" : 0
+}

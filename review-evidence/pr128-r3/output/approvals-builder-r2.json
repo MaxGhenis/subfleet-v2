@@ -1,0 +1,530 @@
+{
+  "approvals" : {
+    "builder-claude-short-bash" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              93,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 164,
+        "frame_height" : 164,
+        "ocr" : "W Show completion\n\necho done\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "input.command",
+      "fields_before_load" : [
+        "input: echo done"
+      ],
+      "fields_loaded" : [
+        "input.command: echo done"
+      ],
+      "headline" : "Show completion",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show completion\necho done\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 215,
+        "frame_height" : 215,
+        "ocr" : "Show completion\necho done\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 215
+      }
+    },
+    "builder-claude-write-120-lines" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "WU Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Write",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value1@ = compute(10, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value1@ = compute(10, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "builder-codex-long-command" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams.proposedExecpolicyAmendment[1]: -rf\nparams.networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams. proposedNetworkPolicyAmendments[@].action: allow\nparams. proposedNetworkPolicyAmendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'', '\\\\''subfleet\/client.py'\\\\'','\\\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "execpolicy_amendment[0]: rm",
+        "execpolicy_amendment[1]: -rf",
+        "network.host: pypi.org",
+        "network.protocol: https",
+        "network_amendments[0].action: allow",
+        "network_amendments[0].host: pypi.org",
+        "command: \/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib imp"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.proposedExecpolicyAmendment[0]: rm",
+        "params.proposedExecpolicyAmendment[1]: -rf",
+        "params.networkApprovalContext.host: pypi.org",
+        "params.networkApprovalContext.protocol: https",
+        "params.proposedNetworkPolicyAmendments[0].action: allow",
+        "params.proposedNetworkPolicyAmendments[0].host: pypi.org",
+        "params.command: \/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib imp"
+      ],
+      "headline" : "Review a recorded Codex command",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams.proposedExecpolicyAmendment[1]: -rf\nparams.networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams. proposedNetworkPolicyAmendments[@].action: allow\nparams. proposedNetworkPolicyAmendments[@].host: pypi.org\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c\n‘import ast, subprocess\n\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams.proposedExecpolicyAmendment[1]: -rf\nparams.networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams .proposedNetworkPolicyAmendments[@].action: allow\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c\n‘import ast, subprocess\n\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "builder-masked-write-120-lines" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              320,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 390.5,
+        "frame_height" : 390.5,
+        "ocr" : "W Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Write",
+      "sheet-confirmed-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\n© 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\n© 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "builder-question-two" : {
+      "answered-no-answers" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 138,
+        "frame_height" : 138,
+        "ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\nWhen should the notes go out?\n\nDetails\n"
+      },
+      "answered-with-answers" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 184,
+        "frame_height" : 184,
+        "ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\nAnswer: Option 0\nWhen should the notes go out?\nAnswer: Window 0\nDetails\n"
+      },
+      "card-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 554,
+        "frame_height" : 554,
+        "ocr" : "® AskUserQuestion\n0 of 2 questions answered 1\/2\nScope\nWhich release task should go first?\nChoose one\nO 1 Option oO\nDescription 0: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© 2 Option1\nDescription 1: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\nO 3 Option 2\nDescription 2: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+
+      ],
+      "fields_loaded" : [
+
+      ],
+      "headline" : "AskUserQuestion",
+      "question_word_tops" : {
+        "1" : 44.5,
+        "Choose" : 126.5,
+        "Details" : 522.5,
+        "Option" : 161.5
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 182,
+        "frame_height" : 182,
+        "ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 182
+      }
+    },
+    "r2-r1-codex-permissions" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              137,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 208,
+        "frame_height" : 208,
+        "ocr" : "W Fetch the docs\n\nparams.cwd: \/Users\/example\/subfleet\n\nparams.permissions.fileSystem.read[@]: \/etc\n\nparams.permissions.fileSystem.write[@]: \/Users\/example\n\nparams.permissions.network.enabled: true\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "permissions.fileSystem.read[0]: \/etc",
+        "permissions.fileSystem.write[0]: \/Users\/example",
+        "permissions.network.enabled: true"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.permissions.fileSystem.read[0]: \/etc",
+        "params.permissions.fileSystem.write[0]: \/Users\/example",
+        "params.permissions.network.enabled: true"
+      ],
+      "headline" : "Fetch the docs",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Fetch the docs\nparams.cwd: \/Users\/example\/subfleet\nparams.permissions.fileSystem.read[@]: \/etc\nparams.permissions.fileSystem.write[@]: \/Users\/example\nparams.permissions.network.enabled: true\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 265,
+        "frame_height" : 265,
+        "ocr" : "Fetch the docs\nparams.cwd: \/Users\/example\/subfleet\nparams.permissions.fileSystem.read[@]: \/etc\nparams.permissions.fileSystem.write[@]: \/Users\/example\nparams.permissions.network.enabled: true\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 265
+      }
+    },
+    "r2-real-claude-bash" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Rebuild every partition\n\ncd \/Users\/example\/project && python -m tool step@ --input data\/part®.csv\n--out out\/part®.json && python -m tool step1 --input data\/parti.csv -—-out\nout\/part1.json && python -m tool step2 --input data\/part2.csv --out out\/\npart2.json && python -m tool step3 --input data\/part3.csv --out out\/\npart3.json && python -m tool step4 --input data\/part4.csv --out out\/\npart4.json && python -m tool step5 --input data\/part5.csv --out out\/\npart5.json && python -m tool step6 --input data\/part6.csv --out out\/\npart6.json && python -m tool step7 --input data\/part7.csv --out out\/\npart7.json && python -m tool step8 --input data\/part8.csv --out out\/\npart8.json && python -m tool step9 --input data\/part9.csv --out out\/\npart9.json && python -m tool step1@ --input data\/part1@.csv --out out\/\npart1@.json && python -m tool step11 --input data\/part11.csv --out out\/\nparti1.json && python -m tool step12 --input data\/part12.csv --out out\/\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "input.command",
+      "fields_before_load" : [
+        "input: cd \/Users\/example\/project && python -m tool step0 --input data\/part0.csv --out out\/part0.j"
+      ],
+      "fields_loaded" : [
+        "input.command: cd \/Users\/example\/project && python -m tool step0 --input data\/part0.csv --out out\/part0.j"
+      ],
+      "headline" : "Rebuild every partition",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Rebuild every partition\n\ncd \/Users\/example\/project && python -m tool step@ —-\ninput data\/part®.csv --out out\/part®@.json && python -m\ntool step1 --input data\/part1.csv --out out\/part1.json\n&& python -m tool step2 --input data\/part2.csv --out\nout\/part2.json && python -m tool step3 --input data\/\npart3.csv --out out\/part3.json && python -m tool step4\n--input data\/part4.csv --out out\/part4.json && python\n-m tool step5 --input data\/part5.csv --out out\/\npart5.json && python -m tool step6 —-input data\/\npart6.csv --out out\/part6.json && python -m tool step7\n--input data\/part7.csv --out out\/part7.json && python\n-m tool step8 --input data\/part8.csv --out out\/\npart8.json && python -m tool step9 --input data\/\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Rebuild every partition\n\ncd \/Users\/example\/project && python -m tool step@ —-\ninput data\/part®.csv --out out\/part®@.json && python -m\ntool step1 --input data\/part1i.csv --out out\/part1.json\n&& python -m tool step2 --input data\/part2.csv --out\nout\/part2.json && python -m tool step3 --input data\/\npart3.csv --out out\/part3.json && python -m tool step4\n--input data\/part4.csv --out out\/part4.json && python\n-m tool step5 --input data\/part5.csv --out out\/\npart5.json && python -m tool step6 —-input data\/\npart6.csv --out out\/part6.json && python -m tool step7\n--input data\/part7.csv --out out\/part7.json && python\n-m tool step8 --input data\/part8.csv --out out\/\npart8.json && python -m tool step9 --input data\/\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r2-real-claude-question" : {
+      "answered-no-answers" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 157,
+        "frame_height" : 157,
+        "ocr" : "® AskUserQuestion Answered\nWhich part of the release should | prepare first? Which part of the release should | prepare first?\nWhich part of the release should | prepare first?\nWhen should the release notes go out?\n\nDetails\n"
+      },
+      "answered-with-answers" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 203,
+        "frame_height" : 203,
+        "ocr" : "® AskUserQuestion Answered\nWhich part of the release should | prepare first? Which part of the release should | prepare first?\nWhich part of the release should | prepare first?\nAnswer: Option 0\nWhen should the release notes go out?\nAnswer: Window 0\n\nDetails\n"
+      },
+      "card-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 574,
+        "frame_height" : 574,
+        "ocr" : "® AskUserQuestion\n0 of 2 questions answered 1\/2\nScope\nWhich part of the release should | prepare first? Which part of the release should |\nprepare first? Which part of the release should | prepare first?\nChoose one\nO 1 Option oO\nDescription 0: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© 2 Option1\nDescription 1: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\nO 3 Option 2\nDescription 2: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+
+      ],
+      "fields_loaded" : [
+
+      ],
+      "headline" : "AskUserQuestion",
+      "question_word_tops" : {
+        "1" : 44.5,
+        "Choose" : 146.5,
+        "Details" : 542.5,
+        "Option" : 181.5
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 182,
+        "frame_height" : 182,
+        "ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 182
+      }
+    }
+  },
+  "visible_windows" : 0
+}

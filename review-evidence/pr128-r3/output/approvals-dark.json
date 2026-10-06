@@ -1,0 +1,289 @@
+{
+  "approvals" : {
+    "r3-claude-masked-write-120" : {
+      "card-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              320,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 390.5,
+        "frame_height" : 390.5,
+        "ocr" : "W Writing .env\n\ninput.file_path: \/Users\/example\/project\/.env\n\ndecision_reason_code: constructed-code\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\n> Details\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/.env"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/.env",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing .env",
+      "sheet-confirmed-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@0: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@0: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-in-400-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@0: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, 'payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "r3-claude-short-bash" : {
+      "card-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              109,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 180,
+        "frame_height" : 180,
+        "ocr" : "W Show working tree status\ngit status --short\ndecision_reason_code: constructed-code\nAdd a note Deny Allow\n> Details\n"
+      },
+      "command_key_loaded" : "input.command",
+      "fields_before_load" : [
+        "input: git status --short\ndescription: Show working tree status"
+      ],
+      "fields_loaded" : [
+        "input.command: git status --short",
+        "decision_reason_code: constructed-code"
+      ],
+      "headline" : "Show working tree status",
+      "sheet-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 237,
+        "frame_height" : 237,
+        "ocr" : "Show working tree status\ngit status —-short\ndecision_reason_code: constructed-code\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\ngit status --short\ndecision_reason_code: constructed-code\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 237
+      }
+    },
+    "r3-claude-write-120" : {
+      "card-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Writing values.ts\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ndecision_reason_code: constructed-code\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nAdd a note Deny Allow\n> Details\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing values.ts",
+      "sheet-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ndecision_reason_code: constructed-code\ninput.content: line @@0: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nline @@7: export const value7 = compute(7, 'payload');\nline @@8: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ndecision_reason_code: constructed-code\ninput.content: line @@0: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, 'payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline @@7: export const value7 = compute(7, 'payload');\nline @@8: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-long-command" : {
+      "card-dark-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Check the release inputs before packaging\n\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1\npython3 - <<'\\''Py'\\'!\n\nprint('\\''step @: checking partition @ of the release inputs'\\'')\nprint('\\''step 1: checking partition 1 of the release inputs'\\'')\nprint('\\''step 2: checking partition 2 of the release inputs'\\'')\nprint('\\''step 3: checking partition 3 of the release inputs'\\'')\nprint('\\''step 4: checking partition 4 of the release inputs'\\'')\nprint('\\''step 5: checking partition 5 of the release inputs'\\'')\nprint('\\''step 6: checking partition 6 of the release inputs'\\'')\nprint('\\''step 7: checking partition 7 of the release inputs'\\'')\nprint('\\''step 8: checking partition 8 of the release inputs'\\'')\nnrint('\\'!'etan 9: checkinna nartitian 9 nf the release inniuts'\\!!)\n\nAdd a note Deny Allow\n> Details\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Check the release inputs before packaging",
+      "sheet-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Check the release inputs before packaging\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'cd \/Users\/example\/subfleet &&\nPYTHONDONTWRITEBYTECODE=1 python3 — <<'\\''PY'\\'!\nprint('\\''step @: checking partition @ of the release\ninputs'\\'')\n\nprint('\\''step 1: checking partition 1 of the release\ninputs'\\'')\n\nprint('\\''step 2: checking partition 2 of the release\ninputs'\\'')\n\nprint('\\''step 3: checking partition 3 of the release\ninputs'\\'')\n\nprint('\\''step 4: checking partition 4 of the release\ninnutes'!\\!t!)\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-in-400-dark-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Check the release inputs before packaging\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'cd \/Users\/example\/subfleet &&\nPYTHONDONTWRITEBYTECODE=1 python3 — <<'\\''PY'\\'!\nprint('\\''step @: checking partition @ of the release\ninputs'\\'')\n\nprint('\\''step 1: checking partition 1 of the release\ninputs'\\'')\n\nprint('\\''step 2: checking partition 2 of the release\ninputs'\\'')\n\nprint('\\''step 3: checking partition 3 of the release\ninputs'\\'')\n\nprint('\\''step 4: checking partition 4 of the release\ninnuts'\\!'!)\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    }
+  },
+  "visible_windows" : 0
+}

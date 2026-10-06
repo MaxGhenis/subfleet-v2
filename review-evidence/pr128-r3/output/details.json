@@ -1,0 +1,19 @@
+{
+  "details" : {
+    "buttons" : [
+
+    ],
+    "details_box_pt" : [
+      24.5,
+      98.5,
+      45.5,
+      11.5
+    ],
+    "direct_approvalID_result" : "nil",
+    "direct_problem" : "That approval is no longer pending.",
+    "disclosures_pressed" : 0,
+    "problem_after_expanding" : "nil",
+    "problem_before" : "nil"
+  },
+  "visible_windows" : 0
+}

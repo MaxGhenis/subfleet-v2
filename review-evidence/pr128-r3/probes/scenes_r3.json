@@ -1,0 +1,933 @@
+{
+ "builder-claude-write-120-lines": {
+  "kind": "tool",
+  "display": {
+   "tool": "Write",
+   "title": "Write",
+   "description": null,
+   "input": "file_path: /Users/example/project/src/values.ts",
+   "reason": null,
+   "blocked_path": null
+  },
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Write",
+   "display_name": "Write",
+   "tool_use_id": "toolu_02",
+   "input": {
+    "file_path": "/Users/example/project/src/values.ts",
+    "content": "line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');"
+   }
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "/Users/example/project/src/values.ts",
+   "line 119"
+  ]
+ },
+ "builder-codex-long-command": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet/daemon.py'\\\\'','\\\\''subfleet/conversations/service.py'\\\\'','\\\\''subfleet/cli.py'\\\\'','\\\\''subfleet/client.py'\\\\'','\\\\''subfleet/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\"",
+   "cwd": "/Users/example/subfleet",
+   "reason": "Review a recorded Codex command",
+   "input_kind": null,
+   "network": {
+    "host": "pypi.org",
+    "protocol": "https"
+   },
+   "execpolicy_amendment": [
+    "rm",
+    "-rf"
+   ],
+   "network_amendments": [
+    {
+     "host": "pypi.org",
+     "action": "allow"
+    }
+   ]
+  },
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "command": "/bin/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet/daemon.py'\\\\'','\\\\''subfleet/conversations/service.py'\\\\'','\\\\''subfleet/cli.py'\\\\'','\\\\''subfleet/client.py'\\\\'','\\\\''subfleet/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\"",
+    "cwd": "/Users/example/subfleet",
+    "reason": "Clean the build outputs",
+    "proposedExecpolicyAmendment": [
+     "rm",
+     "-rf"
+    ],
+    "networkApprovalContext": {
+     "host": "pypi.org",
+     "protocol": "https"
+    },
+    "proposedNetworkPolicyAmendments": [
+     {
+      "host": "pypi.org",
+      "action": "allow"
+     }
+    ]
+   }
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "rm -rf build && git clean -fdx",
+   "/Users/example/subfleet",
+   "pypi.org",
+   "https",
+   "allow",
+   "-rf"
+  ]
+ },
+ "builder-masked-write-120-lines": {
+  "kind": "tool",
+  "display": {
+   "tool": "Write",
+   "title": "Write",
+   "description": null,
+   "input": "file_path: /Users/example/project/src/values.ts",
+   "reason": null,
+   "blocked_path": null
+  },
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Write",
+   "display_name": "Write",
+   "tool_use_id": "toolu_02",
+   "input": {
+    "file_path": "/Users/example/project/src/values.ts",
+    "content": "line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]"
+   }
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "/Users/example/project/src/values.ts",
+   "line 119"
+  ],
+  "masked": [
+   {
+    "path": "input.content",
+    "rule": "token",
+    "length": 30,
+    "sha256": "fixture"
+   }
+  ]
+ },
+ "builder-claude-short-bash": {
+  "kind": "tool",
+  "display": {
+   "tool": "Bash",
+   "description": "Show completion",
+   "input": "echo done",
+   "blocked_path": null
+  },
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Bash",
+   "input": {
+    "command": "echo done",
+    "description": "Show completion"
+   }
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "echo [MASKED]",
+   "/private/cache",
+   "/grant/root",
+   "session",
+   "secondary scoped command"
+  ]
+ },
+ "builder-question-two": {
+  "kind": "question",
+  "display": {
+   "tool": "AskUserQuestion",
+   "title": "AskUserQuestion",
+   "description": null,
+   "input": "{\"questions\": [{\"header\": \"Scope\", \"multiSelect\": false, \"options\": [{\"description\": \"Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 0\"}, {\"description\": \"Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 1\"}, {\"description\": \"Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 2\"}], \"question\": \"Which part of the release should I prepare first? Which part of the release should I prepare first? Which part of the release should I prepare first? \"}, {\"header\": \"Timing\", \"multiSelect\": true, \"options\": [{\"description\": \"Window description 0\", \"label\": \"Window 0\"}, {\"description\": \"Window description 1\", \"label\": \"Window 1\"}, {\"description\": \"Window description 2\", \"label\": \"Window 2\"}], \"question\": \"When should the release notes go out?\"}]}",
+   "reason": null,
+   "blocked_path": null,
+   "questions": [
+    {
+     "header": "Scope",
+     "multiSelect": false,
+     "question": "Which release task should go first?",
+     "options": [
+      {
+       "label": "Option 0",
+       "description": "Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      },
+      {
+       "label": "Option 1",
+       "description": "Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      },
+      {
+       "label": "Option 2",
+       "description": "Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      }
+     ]
+    },
+    {
+     "header": "Timing",
+     "multiSelect": true,
+     "question": "When should the notes go out?",
+     "options": [
+      {
+       "label": "Window 0",
+       "description": "Window description 0"
+      },
+      {
+       "label": "Window 1",
+       "description": "Window description 1"
+      },
+      {
+       "label": "Window 2",
+       "description": "Window description 2"
+      }
+     ]
+    }
+   ]
+  },
+  "request": {
+   "display_name": "AskUserQuestion",
+   "input": {
+    "questions": [
+     {
+      "header": "Scope",
+      "multiSelect": false,
+      "question": "Which release task should go first?",
+      "options": [
+       {
+        "label": "Option 0",
+        "description": "Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       },
+       {
+        "label": "Option 1",
+        "description": "Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       },
+       {
+        "label": "Option 2",
+        "description": "Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       }
+      ]
+     },
+     {
+      "header": "Timing",
+      "multiSelect": true,
+      "question": "When should the notes go out?",
+      "options": [
+       {
+        "label": "Window 0",
+        "description": "Window description 0"
+       },
+       {
+        "label": "Window 1",
+        "description": "Window description 1"
+       },
+       {
+        "label": "Window 2",
+        "description": "Window description 2"
+       }
+      ]
+     }
+    ]
+   },
+   "requires_user_interaction": true,
+   "subtype": "can_use_tool",
+   "tool_name": "AskUserQuestion",
+   "tool_use_id": "toolu_03"
+  },
+  "options": [
+   "answer",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "Which part of the release",
+   "Option 2"
+  ]
+ },
+ "r2-real-claude-bash": {
+  "kind": "tool",
+  "display": {
+   "tool": "Bash",
+   "title": "Bash",
+   "description": "Rebuild every partition",
+   "input": "cd /Users/example/project && python -m tool step0 --input data/part0.csv --out out/part0.json && python -m tool step1 --input data/part1.csv --out out/part1.json && python -m tool step2 --input data/part2.csv --out out/part2.json && python -m tool step3 --input data/part3.csv --out out/part3.json && python -m tool step4 --input data/part4.csv --out out/part4.json && python -m tool step5 --input data/part5.csv --out out/part5.json && python -m tool step6 --input data/part6.csv --out out/part6.json && python -m tool step7 --input data/part7.csv --out out/part7.json && python -m tool step8 --input data/part8.csv --out out/part8.json && python -m tool step9 --input data/part9.csv --out out/part9.json && python -m tool step10 --input data/part10.csv --out out/part10.json && python -m tool step11 --input data/part11.csv --out out/part11.json && python -m tool step12 --input data/part12.csv --out out/part12.json && python -m tool step13 --input data/part13.csv --out out/part13.json && python -m tool step14 --input data/part14.csv --out out/part14.json && python -m tool step15 --input data/part15.csv --out out/part15.json && python -m tool step16 --input data/part16.csv --out out/part16.json && python -m tool step17 --input data/part17.csv --out out/part17.json && python -m tool step18 --input data/part18.csv --out out/part18.json && python -m tool step19 --input data/part19.csv --out out/part19.json && python -m tool step20 --input data/part20.csv --out out/part20.json && python -m tool step21 --input data/part21.csv --out out/part21.json && python -m tool step22 --input data/part22.csv --out out/part22.json && python -m tool step23 --input data/part23.csv --out out/part23.json\ndescription: Rebuild every partition",
+   "reason": "Bash command contains a cd followed by a write; requires approval under the ask policy.",
+   "blocked_path": null
+  },
+  "request": {
+   "agent_id": "agent_0123456789",
+   "classifier_approvable": true,
+   "decision_reason": "Bash command contains a cd followed by a write; requires approval under the ask policy.",
+   "decision_reason_type": "rule_based",
+   "description": "Rebuild every partition",
+   "display_name": "Bash",
+   "input": {
+    "command": "cd /Users/example/project && python -m tool step0 --input data/part0.csv --out out/part0.json && python -m tool step1 --input data/part1.csv --out out/part1.json && python -m tool step2 --input data/part2.csv --out out/part2.json && python -m tool step3 --input data/part3.csv --out out/part3.json && python -m tool step4 --input data/part4.csv --out out/part4.json && python -m tool step5 --input data/part5.csv --out out/part5.json && python -m tool step6 --input data/part6.csv --out out/part6.json && python -m tool step7 --input data/part7.csv --out out/part7.json && python -m tool step8 --input data/part8.csv --out out/part8.json && python -m tool step9 --input data/part9.csv --out out/part9.json && python -m tool step10 --input data/part10.csv --out out/part10.json && python -m tool step11 --input data/part11.csv --out out/part11.json && python -m tool step12 --input data/part12.csv --out out/part12.json && python -m tool step13 --input data/part13.csv --out out/part13.json && python -m tool step14 --input data/part14.csv --out out/part14.json && python -m tool step15 --input data/part15.csv --out out/part15.json && python -m tool step16 --input data/part16.csv --out out/part16.json && python -m tool step17 --input data/part17.csv --out out/part17.json && python -m tool step18 --input data/part18.csv --out out/part18.json && python -m tool step19 --input data/part19.csv --out out/part19.json && python -m tool step20 --input data/part20.csv --out out/part20.json && python -m tool step21 --input data/part21.csv --out out/part21.json && python -m tool step22 --input data/part22.csv --out out/part22.json && python -m tool step23 --input data/part23.csv --out out/part23.json",
+    "description": "Rebuild every partition"
+   },
+   "permission_suggestions": [],
+   "subtype": "can_use_tool",
+   "suppress_always_allow_rule": false,
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_01ABCDEF"
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "step23 --input data/part23.csv"
+  ]
+ },
+ "r2-real-claude-question": {
+  "kind": "question",
+  "display": {
+   "tool": "AskUserQuestion",
+   "title": "AskUserQuestion",
+   "description": null,
+   "input": "{\"questions\": [{\"header\": \"Scope\", \"multiSelect\": false, \"options\": [{\"description\": \"Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 0\"}, {\"description\": \"Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 1\"}, {\"description\": \"Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. \", \"label\": \"Option 2\"}], \"question\": \"Which part of the release should I prepare first? Which part of the release should I prepare first? Which part of the release should I prepare first? \"}, {\"header\": \"Timing\", \"multiSelect\": true, \"options\": [{\"description\": \"Window description 0\", \"label\": \"Window 0\"}, {\"description\": \"Window description 1\", \"label\": \"Window 1\"}, {\"description\": \"Window description 2\", \"label\": \"Window 2\"}], \"question\": \"When should the release notes go out?\"}]}",
+   "reason": null,
+   "blocked_path": null,
+   "questions": [
+    {
+     "header": "Scope",
+     "multiSelect": false,
+     "question": "Which part of the release should I prepare first? Which part of the release should I prepare first? Which part of the release should I prepare first? ",
+     "options": [
+      {
+       "label": "Option 0",
+       "description": "Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      },
+      {
+       "label": "Option 1",
+       "description": "Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      },
+      {
+       "label": "Option 2",
+       "description": "Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+      }
+     ]
+    },
+    {
+     "header": "Timing",
+     "multiSelect": true,
+     "question": "When should the release notes go out?",
+     "options": [
+      {
+       "label": "Window 0",
+       "description": "Window description 0"
+      },
+      {
+       "label": "Window 1",
+       "description": "Window description 1"
+      },
+      {
+       "label": "Window 2",
+       "description": "Window description 2"
+      }
+     ]
+    }
+   ]
+  },
+  "request": {
+   "display_name": "AskUserQuestion",
+   "input": {
+    "questions": [
+     {
+      "header": "Scope",
+      "multiSelect": false,
+      "question": "Which part of the release should I prepare first? Which part of the release should I prepare first? Which part of the release should I prepare first? ",
+      "options": [
+       {
+        "label": "Option 0",
+        "description": "Description 0: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       },
+       {
+        "label": "Option 1",
+        "description": "Description 1: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       },
+       {
+        "label": "Option 2",
+        "description": "Description 2: covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. covers a longer explanation of the trade-off. "
+       }
+      ]
+     },
+     {
+      "header": "Timing",
+      "multiSelect": true,
+      "question": "When should the release notes go out?",
+      "options": [
+       {
+        "label": "Window 0",
+        "description": "Window description 0"
+       },
+       {
+        "label": "Window 1",
+        "description": "Window description 1"
+       },
+       {
+        "label": "Window 2",
+        "description": "Window description 2"
+       }
+      ]
+     }
+    ]
+   },
+   "requires_user_interaction": true,
+   "subtype": "can_use_tool",
+   "tool_name": "AskUserQuestion",
+   "tool_use_id": "toolu_03"
+  },
+  "options": [
+   "answer",
+   "deny",
+   "cancel-turn"
+  ],
+  "grant": [
+   "Which part of the release",
+   "Option 2"
+  ]
+ },
+ "r2-r1-codex-permissions": {
+  "kind": "permissions",
+  "display": {
+   "permissions": {
+    "network": {
+     "enabled": true
+    },
+    "fileSystem": {
+     "write": [
+      "/Users/example"
+     ],
+     "read": [
+      "/etc"
+     ]
+    }
+   },
+   "reason": "Fetch the docs",
+   "cwd": "/Users/example/subfleet"
+  },
+  "request": {
+   "method": "item/permissions/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "cwd": "/Users/example/subfleet",
+    "reason": "Fetch the docs",
+    "permissions": {
+     "network": {
+      "enabled": true
+     },
+     "fileSystem": {
+      "write": [
+       "/Users/example"
+      ],
+      "read": [
+       "/etc"
+      ]
+     }
+    }
+   }
+  },
+  "options": [
+   "allow-turn",
+   "deny"
+  ],
+  "grant": [
+   "enabled: true",
+   "/Users/example",
+   "/etc",
+   "/Users/example/subfleet"
+  ]
+ },
+ "r3-claude-write-120": {
+  "kind": "tool",
+  "display": {
+   "tool": "Write",
+   "title": "Write",
+   "description": "Writing values.ts",
+   "input": "file_path: /Users/example/project/src/values.ts",
+   "reason": "constructed: asks every time",
+   "blocked_path": null
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Write",
+   "display_name": "Write",
+   "input": {
+    "file_path": "/Users/example/project/src/values.ts",
+    "content": "line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n"
+   },
+   "description": "Writing values.ts",
+   "permission_suggestions": [],
+   "blocked_path": null,
+   "decision_reason": "constructed: asks every time",
+   "decision_reason_type": "mode",
+   "decision_reason_code": "constructed-code",
+   "classifier_approvable": false,
+   "tool_use_id": "toolu_r3",
+   "agent_id": null
+  }
+ },
+ "r3-codex-long-command": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -lc 'cd /Users/example/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\''\nprint('\\''step 0: checking partition 0 of the release inputs'\\'')\nprint('\\''step 1: checking partition 1 of the release inputs'\\'')\nprint('\\''step 2: checking partition 2 of the release inputs'\\'')\nprint('\\''step 3: checking partition 3 of the release inputs'\\'')\nprint('\\''step 4: checking partition 4 of the release inputs'\\'')\nprint('\\''step 5: checking partition 5 of the release inputs'\\'')\nprint('\\''step 6: checking partition 6 of the release inputs'\\'')\nprint('\\''step 7: checking partition 7 of the release inputs'\\'')\nprint('\\''step 8: checking partition 8 of the release inputs'\\'')\nprint('\\''step 9: checking partition 9 of the release inputs'\\'')\nprint('\\''step 10: checking partition 10 of the release inputs'\\'')\nprint('\\''step 11: checking partition 11 of the release inputs'\\'')\nprint('\\''step 12: checking partition 12 of the release inputs'\\'')\nprint('\\''step 13: checking partition 13 of the release inputs'\\'')\nprint('\\''step 14: checking partition 14 of the release inputs'\\'')\nprint('\\''step 15: checking partition 15 of the release inputs'\\'')\nprint('\\''step 16: checking partition 16 of the release inputs'\\'')\nprint('\\''step 17: checking partition 17 of the release inputs'\\'')\nprint('\\''step 18: checking partition 18 of the release inputs'\\'')\nprint('\\''step 19: checking partition 19 of the release inputs'\\'')\nprint('\\''step 20: checking partition 20 of the release inputs'\\'')\nprint('\\''step 21: checking partition 21 of the release inputs'\\'')\nprint('\\''step 22: checking partition 22 of the release inputs'\\'')\nprint('\\''step 23: checking partition 23 of the release inputs'\\'')\nprint('\\''step 24: checking partition 24 of the release inputs'\\'')\nprint('\\''step 25: checking partition 25 of the release inputs'\\'')\nprint('\\''step 26: checking partition 26 of the release inputs'\\'')\nprint('\\''step 27: checking partition 27 of the release inputs'\\'')\nprint('\\''step 28: checking partition 28 of the release inputs'\\'')\nprint('\\''step 29: checking partition 29 of the release inputs'\\'')\nprint('\\''step 30: checking partition 30 of the release inputs'\\'')\nprint('\\''step 31: checking partition 31 of the release inputs'\\'')\nprint('\\''step 32: checking partition 32 of the release inputs'\\'')\nprint('\\''step 33: checking partition 33 of the release inputs'\\'')\nprint('\\''step 34: checking partition 34 of the release inputs'\\'')\nprint('\\''step 35: checking partition 35 of the release inputs'\\'')\nprint('\\''step 36: checking partition 36 of the release inputs'\\'')\nprint('\\''step 37: checking partition 37 of the release inputs'\\'')\nprint('\\''step 38: checking partition 38 of the release inputs'\\'')\nprint('\\''step 39: checking partition 39 of the release inputs'\\'')\nPY'",
+   "cwd": "/Users/example/subfleet",
+   "reason": "Check the release inputs before packaging",
+   "input_kind": "command",
+   "network": null,
+   "execpolicy_amendment": null,
+   "network_amendments": null
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "approvalId": null,
+    "reason": "Check the release inputs before packaging",
+    "command": "/bin/zsh -lc 'cd /Users/example/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\''\nprint('\\''step 0: checking partition 0 of the release inputs'\\'')\nprint('\\''step 1: checking partition 1 of the release inputs'\\'')\nprint('\\''step 2: checking partition 2 of the release inputs'\\'')\nprint('\\''step 3: checking partition 3 of the release inputs'\\'')\nprint('\\''step 4: checking partition 4 of the release inputs'\\'')\nprint('\\''step 5: checking partition 5 of the release inputs'\\'')\nprint('\\''step 6: checking partition 6 of the release inputs'\\'')\nprint('\\''step 7: checking partition 7 of the release inputs'\\'')\nprint('\\''step 8: checking partition 8 of the release inputs'\\'')\nprint('\\''step 9: checking partition 9 of the release inputs'\\'')\nprint('\\''step 10: checking partition 10 of the release inputs'\\'')\nprint('\\''step 11: checking partition 11 of the release inputs'\\'')\nprint('\\''step 12: checking partition 12 of the release inputs'\\'')\nprint('\\''step 13: checking partition 13 of the release inputs'\\'')\nprint('\\''step 14: checking partition 14 of the release inputs'\\'')\nprint('\\''step 15: checking partition 15 of the release inputs'\\'')\nprint('\\''step 16: checking partition 16 of the release inputs'\\'')\nprint('\\''step 17: checking partition 17 of the release inputs'\\'')\nprint('\\''step 18: checking partition 18 of the release inputs'\\'')\nprint('\\''step 19: checking partition 19 of the release inputs'\\'')\nprint('\\''step 20: checking partition 20 of the release inputs'\\'')\nprint('\\''step 21: checking partition 21 of the release inputs'\\'')\nprint('\\''step 22: checking partition 22 of the release inputs'\\'')\nprint('\\''step 23: checking partition 23 of the release inputs'\\'')\nprint('\\''step 24: checking partition 24 of the release inputs'\\'')\nprint('\\''step 25: checking partition 25 of the release inputs'\\'')\nprint('\\''step 26: checking partition 26 of the release inputs'\\'')\nprint('\\''step 27: checking partition 27 of the release inputs'\\'')\nprint('\\''step 28: checking partition 28 of the release inputs'\\'')\nprint('\\''step 29: checking partition 29 of the release inputs'\\'')\nprint('\\''step 30: checking partition 30 of the release inputs'\\'')\nprint('\\''step 31: checking partition 31 of the release inputs'\\'')\nprint('\\''step 32: checking partition 32 of the release inputs'\\'')\nprint('\\''step 33: checking partition 33 of the release inputs'\\'')\nprint('\\''step 34: checking partition 34 of the release inputs'\\'')\nprint('\\''step 35: checking partition 35 of the release inputs'\\'')\nprint('\\''step 36: checking partition 36 of the release inputs'\\'')\nprint('\\''step 37: checking partition 37 of the release inputs'\\'')\nprint('\\''step 38: checking partition 38 of the release inputs'\\'')\nprint('\\''step 39: checking partition 39 of the release inputs'\\'')\nPY'",
+    "cwd": "/Users/example/subfleet",
+    "commandActions": [
+     {
+      "type": "unknown",
+      "command": "/bin/zsh -lc 'cd /Users/example/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\''\nprint('\\''step 0: checking partition 0 of the release inputs'\\'')\nprint('\\''step 1: checking partition 1 of the release inputs'\\'')\nprint('\\''step 2: checking partition 2 of the release inputs'\\'')\nprint('\\''step 3: checking partition 3 of the release inputs'\\'')\nprint('\\''step 4: checking partition 4 of the release inputs'\\'')\nprint('\\''step 5: checking partition 5 of the release inputs'\\'')\nprint('\\''step 6: checking partition 6 of the release inputs'\\'')\nprint('\\''step 7: checking partition 7 of the release inputs'\\'')\nprint('\\''step 8: checking partition 8 of the release inputs'\\'')\nprint('\\''step 9: checking partition 9 of the release inputs'\\'')\nprint('\\''step 10: checking partition 10 of the release inputs'\\'')\nprint('\\''step 11: checking partition 11 of the release inputs'\\'')\nprint('\\''step 12: checking partition 12 of the release inputs'\\'')\nprint('\\''step 13: checking partition 13 of the release inputs'\\'')\nprint('\\''step 14: checking partition 14 of the release inputs'\\'')\nprint('\\''step 15: checking partition 15 of the release inputs'\\'')\nprint('\\''step 16: checking partition 16 of the release inputs'\\'')\nprint('\\''step 17: checking partition 17 of the release inputs'\\'')\nprint('\\''step 18: checking partition 18 of the release inputs'\\'')\nprint('\\''step 19: checking partition 19 of the release inputs'\\'')\nprint('\\''step 20: checking partition 20 of the release inputs'\\'')\nprint('\\''step 21: checking partition 21 of the release inputs'\\'')\nprint('\\''step 22: checking partition 22 of the release inputs'\\'')\nprint('\\''step 23: checking partition 23 of the release inputs'\\'')\nprint('\\''step 24: checking partition 24 of the release inputs'\\'')\nprint('\\''step 25: checking partition 25 of the release inputs'\\'')\nprint('\\''step 26: checking partition 26 of the release inputs'\\'')\nprint('\\''step 27: checking partition 27 of the release inputs'\\'')\nprint('\\''step 28: checking partition 28 of the release inputs'\\'')\nprint('\\''step 29: checking partition 29 of the release inputs'\\'')\nprint('\\''step 30: checking partition 30 of the release inputs'\\'')\nprint('\\''step 31: checking partition 31 of the release inputs'\\'')\nprint('\\''step 32: checking partition 32 of the release inputs'\\'')\nprint('\\''step 33: checking partition 33 of the release inputs'\\'')\nprint('\\''step 34: checking partition 34 of the release inputs'\\'')\nprint('\\''step 35: checking partition 35 of the release inputs'\\'')\nprint('\\''step 36: checking partition 36 of the release inputs'\\'')\nprint('\\''step 37: checking partition 37 of the release inputs'\\'')\nprint('\\''step 38: checking partition 38 of the release inputs'\\'')\nprint('\\''step 39: checking partition 39 of the release inputs'\\'')\nPY'"
+     }
+    ],
+    "kind": "command",
+    "environmentId": null,
+    "networkApprovalContext": null,
+    "proposedExecpolicyAmendment": null,
+    "proposedNetworkPolicyAmendments": null
+   }
+  }
+ },
+ "r3-codex-masked": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https://api.example.com/v1/items'",
+   "cwd": "/Users/example/subfleet",
+   "reason": "Fetch the item list",
+   "input_kind": "command",
+   "network": null,
+   "execpolicy_amendment": null,
+   "network_amendments": null
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "approvalId": null,
+    "reason": "Fetch the item list",
+    "command": "/bin/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https://api.example.com/v1/items'",
+    "cwd": "/Users/example/subfleet",
+    "commandActions": [
+     {
+      "type": "unknown",
+      "command": "/bin/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https://api.example.com/v1/items'"
+     }
+    ],
+    "kind": "command",
+    "environmentId": null,
+    "networkApprovalContext": null,
+    "proposedExecpolicyAmendment": null,
+    "proposedNetworkPolicyAmendments": null
+   }
+  },
+  "masked": [
+   {
+    "path": "params.command",
+    "rule": "bearer",
+    "length": 40,
+    "sha256": "constructed"
+   }
+  ]
+ },
+ "r3-claude-short-bash": {
+  "kind": "tool",
+  "display": {
+   "tool": "Bash",
+   "title": "Bash",
+   "description": "Show working tree status",
+   "input": "git status --short\ndescription: Show working tree status",
+   "reason": "constructed: asks every time",
+   "blocked_path": null
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Bash",
+   "display_name": "Bash",
+   "input": {
+    "command": "git status --short",
+    "description": "Show working tree status"
+   },
+   "description": "Show working tree status",
+   "permission_suggestions": [],
+   "blocked_path": null,
+   "decision_reason": "constructed: asks every time",
+   "decision_reason_type": "mode",
+   "decision_reason_code": "constructed-code",
+   "classifier_approvable": false,
+   "tool_use_id": "toolu_r3",
+   "agent_id": null
+  }
+ },
+ "r3-claude-masked-write-120": {
+  "kind": "tool",
+  "display": {
+   "tool": "Write",
+   "title": "Write",
+   "description": "Writing .env",
+   "input": "file_path: /Users/example/project/.env",
+   "reason": "constructed: asks every time",
+   "blocked_path": null
+  },
+  "options": [
+   "allow",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "subtype": "can_use_tool",
+   "tool_name": "Write",
+   "display_name": "Write",
+   "input": {
+    "file_path": "/Users/example/project/.env",
+    "content": "line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n"
+   },
+   "description": "Writing .env",
+   "permission_suggestions": [],
+   "blocked_path": null,
+   "decision_reason": "constructed: asks every time",
+   "decision_reason_type": "mode",
+   "decision_reason_code": "constructed-code",
+   "classifier_approvable": false,
+   "tool_use_id": "toolu_r3",
+   "agent_id": null
+  },
+  "masked": [
+   {
+    "path": "input.content",
+    "rule": "token",
+    "length": 30,
+    "sha256": "constructed"
+   }
+  ]
+ },
+ "r3-codex-write-stdin": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -lc 'python3 manage.py migrate'",
+   "cwd": "/Users/example/subfleet",
+   "reason": null,
+   "input_kind": "writeStdin",
+   "network": null,
+   "execpolicy_amendment": null,
+   "network_amendments": null
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "approvalId": "7b0c6a52-0000-4000-8000-000000000001",
+    "reason": null,
+    "command": "/bin/zsh -lc 'python3 manage.py migrate'",
+    "cwd": "/Users/example/subfleet",
+    "commandActions": [
+     {
+      "type": "unknown",
+      "command": "/bin/zsh -lc 'python3 manage.py migrate'"
+     }
+    ],
+    "kind": "writeStdin",
+    "environmentId": null,
+    "networkApprovalContext": null,
+    "proposedExecpolicyAmendment": null,
+    "proposedNetworkPolicyAmendments": null
+   }
+  }
+ },
+ "r3-codex-12-actions": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -lc \"sed -n '00,09p' part0.txt && sed -n '10,19p' part1.txt && sed -n '20,29p' part2.txt && sed -n '30,39p' part3.txt && sed -n '40,49p' part4.txt && sed -n '50,59p' part5.txt && sed -n '60,69p' part6.txt && sed -n '70,79p' part7.txt && sed -n '80,89p' part8.txt && sed -n '90,99p' part9.txt && sed -n '100,109p' part10.txt && sed -n '110,119p' part11.txt\"",
+   "cwd": "/Users/example/subfleet",
+   "reason": null,
+   "input_kind": "command",
+   "network": null,
+   "execpolicy_amendment": null,
+   "network_amendments": null
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "approvalId": null,
+    "reason": null,
+    "command": "/bin/zsh -lc \"sed -n '00,09p' part0.txt && sed -n '10,19p' part1.txt && sed -n '20,29p' part2.txt && sed -n '30,39p' part3.txt && sed -n '40,49p' part4.txt && sed -n '50,59p' part5.txt && sed -n '60,69p' part6.txt && sed -n '70,79p' part7.txt && sed -n '80,89p' part8.txt && sed -n '90,99p' part9.txt && sed -n '100,109p' part10.txt && sed -n '110,119p' part11.txt\"",
+    "cwd": "/Users/example/subfleet",
+    "commandActions": [
+     {
+      "type": "read",
+      "command": "sed -n '00,09p' part0.txt",
+      "name": "part0.txt",
+      "path": "/Users/example/subfleet/part0.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '10,19p' part1.txt",
+      "name": "part1.txt",
+      "path": "/Users/example/subfleet/part1.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '20,29p' part2.txt",
+      "name": "part2.txt",
+      "path": "/Users/example/subfleet/part2.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '30,39p' part3.txt",
+      "name": "part3.txt",
+      "path": "/Users/example/subfleet/part3.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '40,49p' part4.txt",
+      "name": "part4.txt",
+      "path": "/Users/example/subfleet/part4.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '50,59p' part5.txt",
+      "name": "part5.txt",
+      "path": "/Users/example/subfleet/part5.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '60,69p' part6.txt",
+      "name": "part6.txt",
+      "path": "/Users/example/subfleet/part6.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '70,79p' part7.txt",
+      "name": "part7.txt",
+      "path": "/Users/example/subfleet/part7.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '80,89p' part8.txt",
+      "name": "part8.txt",
+      "path": "/Users/example/subfleet/part8.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '90,99p' part9.txt",
+      "name": "part9.txt",
+      "path": "/Users/example/subfleet/part9.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '100,109p' part10.txt",
+      "name": "part10.txt",
+      "path": "/Users/example/subfleet/part10.txt"
+     },
+     {
+      "type": "read",
+      "command": "sed -n '110,119p' part11.txt",
+      "name": "part11.txt",
+      "path": "/Users/example/subfleet/part11.txt"
+     }
+    ],
+    "kind": "command",
+    "environmentId": null,
+    "networkApprovalContext": null,
+    "proposedExecpolicyAmendment": null,
+    "proposedNetworkPolicyAmendments": null
+   }
+  }
+ },
+ "r3-codex-permissions-12": {
+  "kind": "permissions",
+  "options": [
+   "allow-turn",
+   "deny"
+  ],
+  "display": {
+   "permissions": {
+    "fileSystem": {
+     "write": [
+      "/Users/example/out/00",
+      "/Users/example/out/01",
+      "/Users/example/out/02",
+      "/Users/example/out/03",
+      "/Users/example/out/04",
+      "/Users/example/out/05",
+      "/Users/example/out/06",
+      "/Users/example/out/07",
+      "/Users/example/out/08",
+      "/Users/example/out/09",
+      "/Users/example/out/10",
+      "/Users/example/out/11"
+     ]
+    }
+   },
+   "reason": "Write the release outputs",
+   "cwd": "/Users/example/subfleet"
+  },
+  "request": {
+   "method": "item/permissions/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "cwd": "/Users/example/subfleet",
+    "reason": "Write the release outputs",
+    "environmentId": null,
+    "permissions": {
+     "fileSystem": {
+      "write": [
+       "/Users/example/out/00",
+       "/Users/example/out/01",
+       "/Users/example/out/02",
+       "/Users/example/out/03",
+       "/Users/example/out/04",
+       "/Users/example/out/05",
+       "/Users/example/out/06",
+       "/Users/example/out/07",
+       "/Users/example/out/08",
+       "/Users/example/out/09",
+       "/Users/example/out/10",
+       "/Users/example/out/11"
+      ]
+     }
+    }
+   }
+  }
+ },
+ "r3-codex-long-reason-masked": {
+  "kind": "command",
+  "display": {
+   "command": "/bin/zsh -lc 'git push origin HEAD'",
+   "cwd": "/Users/example/subfleet",
+   "reason": "Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. ",
+   "input_kind": "command",
+   "network": null,
+   "execpolicy_amendment": null,
+   "network_amendments": null
+  },
+  "options": [
+   "allow",
+   "allow-session",
+   "deny",
+   "cancel-turn"
+  ],
+  "request": {
+   "method": "item/commandExecution/requestApproval",
+   "params": {
+    "threadId": "thr_01a1",
+    "turnId": "turn_01a1",
+    "itemId": "call_01a1",
+    "startedAtMs": 1791100000000,
+    "approvalId": null,
+    "reason": "Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. ",
+    "command": "/bin/zsh -lc 'git push origin HEAD'",
+    "cwd": "/Users/example/subfleet",
+    "commandActions": [
+     {
+      "type": "unknown",
+      "command": "/bin/zsh -lc 'git push origin HEAD'"
+     }
+    ],
+    "kind": "command",
+    "environmentId": null,
+    "networkApprovalContext": null,
+    "proposedExecpolicyAmendment": null,
+    "proposedNetworkPolicyAmendments": null
+   }
+  },
+  "masked": [
+   {
+    "path": "params.command",
+    "rule": "token",
+    "length": 12,
+    "sha256": "constructed"
+   }
+  ]
+ }
+}

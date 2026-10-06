@@ -1,0 +1,773 @@
+{
+  "approvals" : {
+    "r3-claude-masked-write-120" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              320,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 390.5,
+        "frame_height" : 390.5,
+        "ocr" : "W Writing .env\n\ninput.file_path: \/Users\/example\/project\/.env\n\ndecision_reason_code: constructed-code\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/.env"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/.env",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing .env",
+      "sheet-confirmed-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing .env\ninput.file_path: \/Users\/example\/project\/.env\ndecision_reason_code: constructed-code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "r3-claude-short-bash" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              109,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 180,
+        "frame_height" : 180,
+        "ocr" : "W Show working tree status\n\ngit status --short\n\ndecision_reason_code: constructed-code\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "input.command",
+      "fields_before_load" : [
+        "input: git status --short\ndescription: Show working tree status"
+      ],
+      "fields_loaded" : [
+        "input.command: git status --short",
+        "decision_reason_code: constructed-code"
+      ],
+      "headline" : "Show working tree status",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Show working tree status\n\ngit status --short\ndecision_reason_code: constructed-code\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 237,
+        "frame_height" : 237,
+        "ocr" : "Show working tree status\n\ngit status -—-short\ndecision_reason_code: constructed-code\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 237
+      }
+    },
+    "r3-claude-write-120" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Writing values.ts\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ndecision_reason_code: constructed-code\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "decision_reason_code: constructed-code",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = com"
+      ],
+      "headline" : "Writing values.ts",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ndecision_reason_code: constructed-code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 909: export const value9 = compute(9, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Writing values.ts\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ndecision_reason_code: constructed-code\ninput.content: line @@@: export const value@ =\ncompute(@, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-12-actions" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Runacommand?\nparams.commandActions[Q@].path: \/Users\/example\/subfleet\/part®.txt\nparams.commandActions[10].path: \/Users\/example\/subfleet\/part10.txt\nparams.commandActions[11].path: \/Users\/example\/subfleet\/part11.txt\nparams.commandActions[1].path: \/Users\/example\/subfleet\/part1.txt\nparams.commandActions[2].path: \/Users\/example\/subfleet\/part2.txt\nparams.commandActions[3].path: \/Users\/example\/subfleet\/part3.txt\nparams.commandActions[4].path: \/Users\/example\/subfleet\/part4.txt\nparams.commandActions[5].path: \/Users\/example\/subfleet\/part5.txt\nparams.commandActions[6].path: \/Users\/example\/subfleet\/part6.txt\nparams.commandActions[7].path: \/Users\/example\/subfleet\/part7.txt\nparams.commandActions[8].path: \/Users\/example\/subfleet\/part8.txt\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc \"sed -n '00,09p' part0.txt && sed -n '10,19p' part1.txt && sed -n '20,29p' pa"
+      ],
+      "fields_loaded" : [
+        "params.commandActions[0].path: \/Users\/example\/subfleet\/part0.txt",
+        "params.commandActions[10].path: \/Users\/example\/subfleet\/part10.txt",
+        "params.commandActions[11].path: \/Users\/example\/subfleet\/part11.txt",
+        "params.commandActions[1].path: \/Users\/example\/subfleet\/part1.txt",
+        "params.commandActions[2].path: \/Users\/example\/subfleet\/part2.txt",
+        "params.commandActions[3].path: \/Users\/example\/subfleet\/part3.txt",
+        "params.commandActions[4].path: \/Users\/example\/subfleet\/part4.txt",
+        "params.commandActions[5].path: \/Users\/example\/subfleet\/part5.txt",
+        "params.commandActions[6].path: \/Users\/example\/subfleet\/part6.txt",
+        "params.commandActions[7].path: \/Users\/example\/subfleet\/part7.txt",
+        "params.commandActions[8].path: \/Users\/example\/subfleet\/part8.txt",
+        "params.commandActions[9].path: \/Users\/example\/subfleet\/part9.txt",
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc \"sed -n '00,09p' part0.txt && sed -n '10,19p' part1.txt && sed -n '20,29p' pa",
+        "params.commandActions[0].command: sed -n '00,09p' part0.txt",
+        "params.commandActions[10].command: sed -n '100,109p' part10.txt",
+        "params.commandActions[11].command: sed -n '110,119p' part11.txt",
+        "params.commandActions[1].command: sed -n '10,19p' part1.txt",
+        "params.commandActions[2].command: sed -n '20,29p' part2.txt",
+        "params.commandActions[3].command: sed -n '30,39p' part3.txt",
+        "params.commandActions[4].command: sed -n '40,49p' part4.txt",
+        "params.commandActions[5].command: sed -n '50,59p' part5.txt",
+        "params.commandActions[6].command: sed -n '60,69p' part6.txt",
+        "params.commandActions[7].command: sed -n '70,79p' part7.txt",
+        "params.commandActions[8].command: sed -n '80,89p' part8.txt",
+        "params.commandActions[9].command: sed -n '90,99p' part9.txt",
+        "params.commandActions[0].name: part0.txt",
+        "params.commandActions[0].type: read",
+        "params.commandActions[10].name: part10.txt",
+        "params.commandActions[10].type: read",
+        "params.commandActions[11].name: part11.txt",
+        "params.commandActions[11].type: read",
+        "params.commandActions[1].name: part1.txt",
+        "params.commandActions[1].type: read",
+        "params.commandActions[2].name: part2.txt",
+        "params.commandActions[2].type: read",
+        "params.commandActions[3].name: part3.txt",
+        "params.commandActions[3].type: read",
+        "params.commandActions[4].name: part4.txt",
+        "params.commandActions[4].type: read",
+        "params.commandActions[5].name: part5.txt",
+        "params.commandActions[5].type: read",
+        "params.commandActions[6].name: part6.txt",
+        "params.commandActions[6].type: read",
+        "params.commandActions[7].name: part7.txt",
+        "params.commandActions[7].type: read",
+        "params.commandActions[8].name: part8.txt",
+        "params.commandActions[8].type: read",
+        "params.commandActions[9].name: part9.txt",
+        "params.commandActions[9].type: read"
+      ],
+      "headline" : "Run a command?",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Run a command?\nparams.commandActions[@].path: \/Users\/example\/subfleet\/\npart@.txt\nparams.commandActions[10].path: \/Users\/example\/subfleet\/\npart1®.txt\nparams.commandActions[11].path: \/Users\/example\/subfleet\/\npart11.txt\nparams.commandActions[1].path: \/Users\/example\/subfleet\/\npart1.txt\nparams.commandActions[2].path: \/Users\/example\/subfleet\/\npart2.txt\nparams.commandActions[3].path: \/Users\/example\/subfleet\/\npart3.txt\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Run a command?\nparams.commandActions[@].path: \/Users\/example\/subfleet\/\npart@.txt\nparams.commandActions[10].path: \/Users\/example\/subfleet\/\npart1@.txt\nparams.commandActions[11].path: \/Users\/example\/subfleet\/\npart11.txt\nparams.commandActions[1].path: \/Users\/example\/subfleet\/\npart1.txt\nparams.commandActions[2].path: \/Users\/example\/subfleet\/\npart2.txt\nparams.commandActions[3].path: \/Users\/example\/subfleet\/\npart3.txt\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-long-command" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Check the release inputs before packaging\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1\npython3 - <<'\\''PY'\\'!\n\nprint('\\''step @: checking partition @ of the release inputs'\\'')\nprint('\\''step 1: checking partition 1 of the release inputs'\\'')\nprint('\\''step 2: checking partition 2 of the release inputs'\\'')\nprint('\\''step 3: checking partition 3 of the release inputs'\\'')\nprint('\\''step 4: checking partition 4 of the release inputs'\\'')\nprint('\\''step 5: checking partition 5 of the release inputs'\\'')\nprint('\\''step 6: checking partition 6 of the release inputs'\\'')\nprint('\\''step 7: checking partition 7 of the release inputs'\\'')\nprint('\\''step 8: checking partition 8 of the release inputs'\\'')\nnrint('\\'!'etan 9: echeckina nartitian 9 af the release innits!\\!!)\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'cd \/Users\/example\/subfleet && PYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Check the release inputs before packaging",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Check the release inputs before packaging\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lce ‘cd \/Users\/example\/subfleet &&\nPYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\'!\nprint('\\''step @: checking partition ® of the release\ninputs'\\'')\n\nprint('\\''step 1: checking partition 1 of the release\ninputs'\\'')\n\nprint('\\''step 2: checking partition 2 of the release\ninputs'\\'')\n\nprint('\\''step 3: checking partition 3 of the release\ninputs'\\'')\n\nprint('\\''step 4: checking partition 4 of the release\ninnuts'\\!'!)\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Check the release inputs before packaging\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lce ‘cd \/Users\/example\/subfleet &&\nPYTHONDONTWRITEBYTECODE=1 python3 - <<'\\''PY'\\'!\nprint('\\''step @: checking partition ® of the release\ninputs'\\'')\n\nprint('\\''step 1: checking partition 1 of the release\ninputs'\\'')\n\nprint('\\''step 2: checking partition 2 of the release\ninputs'\\'')\n\nprint('\\''step 3: checking partition 3 of the release\ninputs'\\'')\n\nprint('\\''step 4: checking partition 4 of the release\ninnutes'!\\!t!)\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-long-reason-masked" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              256,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 326.5,
+        "frame_height" : 326.5,
+        "ocr" : "Push the release branch so the hub can open the pull request; this needs network\naccess to github.com and write access to the remote, which the sandbox does not\nW grant by default, so | am asking first. Push the release branch so the hub can open\nthe pull request; this needs network access to github.com and write access to the\nremote, which the sandbox does not grant by default, so | am asking first.\nparams.cwd: \/Users\/example\/subfleet\n\/bin\/zsh -lc ‘git push origin HEAD'\nparams.commandActions[@].command: \/bin\/zsh -lc ‘git push origin HEAD'\nparams.commandActions[@].type: unknown\n© Some values are masked. Allow opens details for review.\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'git push origin HEAD'"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'git push origin HEAD'",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'git push origin HEAD'",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. Push the release branch so the hub can open the pull request; this needs network access to github.com and write access to the remote, which the sandbox does not grant by default, so I am asking first. ",
+      "sheet-confirmed-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open the pull request;\nthis needs network access to github.com and write access to\nthe remote, which the sandbox does not grant by default, so |\nam asking first. Push the release branch so the hub can open the\npull request; this needs network access to github.com and wri...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc ‘git push origin HEAD'\nparams.commandActions[@].command: \/bin\/zsh -lc 'git push\norigin HEAD'\nnarame eammandActiane!AT twnae tinknawn\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open the pull request;\nthis needs network access to github.com and write access to\nthe remote, which the sandbox does not grant by default, so |\nam asking first. Push the release branch so the hub can open the\npull request; this needs network access to github.com and wri...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc ‘git push origin HEAD'\nparams.commandActions[@].command: \/bin\/zsh -lc 'git push\norigin HEAD'\nnarame eammandActianc!AT twnas tinknawn\n@® 1 value(s) that look like secrets are masked Reveal\n\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Push the release branch so the hub can open the pull request;\nthis needs network access to github.com and write access to\nthe remote, which the sandbox does not grant by default, so |\nam asking first. Push the release branch so the hub can open the\npull request; this needs network access to github.com and wri...\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lc ‘git push origin HEAD'\nparams.commandActions[@].command: \/bin\/zsh -lc 'git push\norigin HEAD'\nnarame eammandActiane!AT twnae tinknawn\n@® 1 value(s) that look like secrets are masked Reveal\n\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "r3-codex-masked" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              216,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 286.5,
+        "frame_height" : 286.5,
+        "ocr" : "W Fetch the item list\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lce ‘curl -H \"Authorization: Bearer [MASKED]\" https:\/\/\napi.example.com\/v1\/items'\nparams.commandActions[@].command: \/bin\/zsh -lc 'curl -H \"Authorization:\nBearer [MASKED]\" https:\/\/api.example.com\/v1\/items'\nparams.commandActions[@].type: unknown\n© Some values are masked. Allow opens details for review.\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https:\/\/api.example.com\/v1\/items'"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https:\/\/api.example.com\/v1\/items'",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'curl -H \"Authorization: Bearer [MASKED]\" https:\/\/api.example.com\/v1\/items'",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Fetch the item list",
+      "sheet-confirmed-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Fetch the item list\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -lce ‘curl -H \"Authorization: Bearer [MASKED]\"\nhttps:\/\/api.example.com\/v1\/items'\nparams.commandActions[@].command: \/bin\/zsh -lc ‘curl -H\n\"Authorization: Bearer [MASKED]\" https:\/\/\napi.example.com\/v1\/items'\nparams.commandActions[@].type: unknown\n\nDetails\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Fetch the item list\nparams.cwd: \/Users\/example\/subfleet\n\/bin\/zsh -lce ‘curl -H \"Authorization: Bearer [MASKED]\"\nhttps:\/\/api.example.com\/v1\/items'\nparams.commandActions[@].command: \/bin\/zsh -lc ‘curl -H\n\"Authorization: Bearer [MASKED]\" https:\/\/\napi.example.com\/v1\/items'\nparams.commandActions[@].type: unknown\nDetails\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "FocusRingNSButton",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          },
+          {
+            "class" : "_NSCoreHostingView<AppKitButton>",
+            "frame" : [
+              18,
+              290,
+              16,
+              16
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Fetch the item list\nparams.cwd: \/Users\/example\/subfleet\n\/bin\/zsh -lce ‘curl -H \"Authorization: Bearer [MASKED]\"\nhttps:\/\/api.example.com\/v1\/items'\nparams.commandActions[@].command: \/bin\/zsh -lc ‘curl -H\n\"Authorization: Bearer [MASKED]\" https:\/\/\napi.example.com\/v1\/items'\nparams.commandActions[@].type: unknown\nDetails\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 400
+      }
+    },
+    "r3-codex-permissions-12" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              293,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 364,
+        "frame_height" : 364,
+        "ocr" : "W Write the release outputs\nparams.cwd: \/Users\/example\/subfleet\nparams.permissions.fileSystem.write[@]: \/Users\/example\/out\/00\nparams.permissions.fileSystem.write[10]: \/Users\/example\/out\/10\nparams.permissions.fileSystem.write[11]: \/Users\/example\/out\/11\nparams.permissions.fileSystem.write[1]: \/Users\/example\/out\/@1\nparams.permissions.fileSystem.write[2]: \/Users\/example\/out\/@2\nparams.permissions.fileSystem.write[3]: \/Users\/example\/out\/03\nparams.permissions.fileSystem.write[4]: \/Users\/example\/out\/04\nparams.permissions.fileSystem.write[5]: \/Users\/example\/out\/@5\nparams.permissions.fileSystem.write[6]: \/Users\/example\/out\/06\nparams.permissions.fileSystem.write[7]: \/Users\/example\/out\/07\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : null,
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "permissions.fileSystem.write[0]: \/Users\/example\/out\/00",
+        "permissions.fileSystem.write[10]: \/Users\/example\/out\/10",
+        "permissions.fileSystem.write[11]: \/Users\/example\/out\/11",
+        "permissions.fileSystem.write[1]: \/Users\/example\/out\/01",
+        "permissions.fileSystem.write[2]: \/Users\/example\/out\/02",
+        "permissions.fileSystem.write[3]: \/Users\/example\/out\/03",
+        "permissions.fileSystem.write[4]: \/Users\/example\/out\/04",
+        "permissions.fileSystem.write[5]: \/Users\/example\/out\/05",
+        "permissions.fileSystem.write[6]: \/Users\/example\/out\/06",
+        "permissions.fileSystem.write[7]: \/Users\/example\/out\/07",
+        "permissions.fileSystem.write[8]: \/Users\/example\/out\/08",
+        "permissions.fileSystem.write[9]: \/Users\/example\/out\/09"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.permissions.fileSystem.write[0]: \/Users\/example\/out\/00",
+        "params.permissions.fileSystem.write[10]: \/Users\/example\/out\/10",
+        "params.permissions.fileSystem.write[11]: \/Users\/example\/out\/11",
+        "params.permissions.fileSystem.write[1]: \/Users\/example\/out\/01",
+        "params.permissions.fileSystem.write[2]: \/Users\/example\/out\/02",
+        "params.permissions.fileSystem.write[3]: \/Users\/example\/out\/03",
+        "params.permissions.fileSystem.write[4]: \/Users\/example\/out\/04",
+        "params.permissions.fileSystem.write[5]: \/Users\/example\/out\/05",
+        "params.permissions.fileSystem.write[6]: \/Users\/example\/out\/06",
+        "params.permissions.fileSystem.write[7]: \/Users\/example\/out\/07",
+        "params.permissions.fileSystem.write[8]: \/Users\/example\/out\/08",
+        "params.permissions.fileSystem.write[9]: \/Users\/example\/out\/09"
+      ],
+      "headline" : "Write the release outputs",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Write the release outputs\nparams.cwd: \/Users\/example\/subfleet\nparams.permissions.fileSystem.write[@]: \/Users\/example\/\nout\/e\nparams.permissions.fileSystem.write[10]: \/Users\/example\/\nout\/10\nparams.permissions.fileSystem.write[11]: \/Users\/example\/\nout\/11\nparams.permissions.fileSystem.write[1]: \/Users\/example\/\nout\/@1\nparams.permissions.fileSystem.write[2]: \/Users\/example\/\nout\/@2\nparams.permissions.fileSystem.write[3]: \/Users\/example\/\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 382,
+        "frame_height" : 382,
+        "ocr" : "Write the release outputs\nparams.cwd: \/Users\/example\/subfleet\nparams.permissions.fileSystem.write[@]: \/Users\/example\/\nout\/ee\nparams.permissions.fileSystem.write[10]: \/Users\/example\/\nout\/10\nparams.permissions.fileSystem.write[11]: \/Users\/example\/\nout\/11\nparams.permissions.fileSystem.write[1]: \/Users\/example\/\nout\/@1\nparams.permissions.fileSystem.write[2]: \/Users\/example\/\nout\/e2\nparams.permissions.fileSystem.write[3]: \/Users\/example\/\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 382
+      }
+    },
+    "r3-codex-write-stdin" : {
+      "card-light-1.0" : {
+        "controls" : [
+          {
+            "class" : "SwiftUIAppKitButton",
+            "frame" : [
+              12,
+              175,
+              78,
+              19
+            ],
+            "inside" : true,
+            "title" : ""
+          }
+        ],
+        "fitting_height" : 246,
+        "frame_height" : 246,
+        "ocr" : "W Runacommand?\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -le 'python3 manage.py migrate'\nparams.commandActions[@].command: \/bin\/zsh -lc 'python3 manage.py migrate'\nparams.approvallId: 7b@c6a52-—0000-4000-8000-000000000001\nparams.commandActions[@].type: unknown\nAdd a note Deny Allow\nDetails\n"
+      },
+      "command_key_loaded" : "params.command",
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "command: \/bin\/zsh -lc 'python3 manage.py migrate'"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.command: \/bin\/zsh -lc 'python3 manage.py migrate'",
+        "params.commandActions[0].command: \/bin\/zsh -lc 'python3 manage.py migrate'",
+        "params.approvalId: 7b0c6a52-0000-4000-8000-000000000001",
+        "params.commandActions[0].type: unknown"
+      ],
+      "headline" : "Run a command?",
+      "sheet-in-400-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 400,
+        "frame_height" : 400,
+        "ocr" : "Run a command?\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -le 'python3 manage.py migrate'\nparams.commandActions[@].command: \/bin\/zsh -lc 'python3\nmanage.py migrate'\nparams.approvallId: 7b@c6a52-—0000-4000-8000-000000000001\nparams.commandActions[@].type: unknown\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheet-light-1.0" : {
+        "controls" : [
+
+        ],
+        "fitting_height" : 321,
+        "frame_height" : 321,
+        "ocr" : "Run a command?\nparams.cwd: \/Users\/example\/subfleet\n\n\/bin\/zsh -le 'python3 manage.py migrate'\nparams.commandActions[@].command: \/bin\/zsh -lc 'python3\nmanage.py migrate'\nparams.approvallId: 7b@c6a52-0000-4000-8000-000000000001\nparams.commandActions[@].type: unknown\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow for this session Allow\n"
+      },
+      "sheetfit" : {
+        "fits_in_300" : 300,
+        "fits_in_400" : 400,
+        "fits_in_800" : 400,
+        "fits_in_1117" : 400,
+        "preferred" : 321
+      }
+    }
+  },
+  "visible_windows" : 0
+}
