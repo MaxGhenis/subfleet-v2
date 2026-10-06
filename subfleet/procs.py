@@ -330,6 +330,9 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # A matching marker can disappear before identity capture, after forking.
+    # Its observed boot still owns that possible lineage, even with no PID.
+    lineage_boot_ids: tuple[str, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -349,6 +352,7 @@ class Containment:
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
+            "lineage_boot_ids": list(self.lineage_boot_ids),
         }
 
 
@@ -486,6 +490,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
+    observed_writer = bool(groups | descendants)
+    observed_boots = set(lineage_boot_ids)
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
@@ -499,12 +505,24 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command) and (root_marker is None or root_marker.search(command)):
+                observed_writer = True
                 pid = int(pid_text)
                 state = table[pid][2] if pid in table else _stat(pid)
                 if state and not state.startswith("Z"):
                     markers.add(pid)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
+    if observed_writer:
+        try:
+            observed_boots.add(seen.boot() if seen is not None else boot_id())
+        except InspectionError:
+            # Missing boot evidence can never be discharged by a later reboot.
+            observed_boots.add("")
+    if (lineage_boot_ids and observed_boots != set(lineage_boot_ids)
+            and (seen is None or any(not rebooted(known) for known in observed_boots))):
+        error = "writer lineage requires a proven reboot or operator force release"
+        if error not in errors:
+            errors.append(error)
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers:
         try:
@@ -523,7 +541,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+                       bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

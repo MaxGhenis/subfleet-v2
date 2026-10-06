@@ -99,6 +99,24 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
     return {str(pid): [dataclasses.asdict(ident) for ident in records]
             for pid, records in _identity_union(*sources).items()}
 
+
+def _lineage_boot_union(*sources: dict) -> set[str]:
+    """Boot observations are ownership evidence, independent of display text."""
+    boots: set[str] = set()
+    for source in sources:
+        observed = source.get("lineage_boot_ids", [])
+        if not isinstance(observed, list) or any(not isinstance(boot, str) for boot in observed):
+            raise ValueError("corrupt writer lineage boot evidence")
+        boots.update(observed)
+    return boots
+
+
+def _retain_lineage(evidence: dict, census: dict) -> dict:
+    boots = _lineage_boot_union(evidence, census)
+    boots.update(ident.boot_id for records in _identity_union(census["identities"]).values()
+                 for ident in records)
+    return {**evidence, "lineage_boot_ids": sorted(boots)} if boots else evidence
+
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
 
@@ -5879,6 +5897,7 @@ class Daemon:
         lineage_boots = ()
         if a["state"] == "quarantined":
             boots = {known.boot_id for records in recorded.values() for known in records}
+            boots.update(_lineage_boot_union(evidence, held))
             if launch_boot:
                 boots.add(launch_boot)
             elif a.get("guardian_pid") or a.get("pgid") or child_pid:
@@ -6114,8 +6133,10 @@ class Daemon:
         detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
         with self.store.transaction("attempt.quarantined", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"containment": census.to_dict()}) as tx:
             job = self._job(a["job_id"])
-            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=?,quarantine_recheck_at=? WHERE attempt_id=?",
-                       (detail, utcnow(), quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
+            actual = self.store.get_attempt(a["attempt_id"])
+            evidence = _retain_lineage(json.loads(actual["evidence_json"] or "{}"), census.to_dict())
+            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,evidence_json=?,finished_at=?,quarantine_recheck_at=? WHERE attempt_id=?",
+                       (detail, json.dumps(evidence), utcnow(), quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
@@ -6186,9 +6207,13 @@ class Daemon:
                       "identities": {**previous.get("identities", {}), **current["identities"]},
                       "identity_history": _identity_history(previous.get("identity_history", {}),
                                                             previous.get("identities", {}), current["identities"])}
-            if detail != previous:
+            evidence = json.loads(a["evidence_json"] or "{}")
+            if detail != previous or _retain_lineage(evidence, current) != evidence:
                 with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=current) as tx:
-                    tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(detail), a["attempt_id"]))
+                    actual = self.store.get_attempt(a["attempt_id"])
+                    evidence = _retain_lineage(json.loads(actual["evidence_json"] or "{}"), current)
+                    tx.execute("UPDATE attempts SET quarantine_reason=?,evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(detail), json.dumps(evidence), a["attempt_id"]))
             return
         artifacts, salvage_evidence = [], {}
         job = self._job(a["job_id"])

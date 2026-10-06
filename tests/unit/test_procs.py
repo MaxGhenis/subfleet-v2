@@ -777,3 +777,21 @@ def test_reboot_must_prove_every_observed_writer_boot_gone(monkeypatch):
     result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=BOOT_OLD,
                                lineage_boot_ids=(BOOT_OLD, BOOT_NEW))
     assert not result.verified_empty
+
+
+@pytest.mark.parametrize('capture', ['gone', 'uninspectable', 'stat-gone', 'zombie'])
+def test_marked_writer_observation_keeps_its_boot_even_without_pid_identity(monkeypatch, capture):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=BOOT_NEW))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs:
+                        '600 writer SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture\n')
+    monkeypatch.setattr(procs, '_stat', lambda pid:
+                        None if capture == 'stat-gone' else 'Z' if capture == 'zombie' else 'S')
+    def identify(pid):
+        if capture == 'uninspectable':
+            raise procs.InspectionError('identity unavailable')
+        return None
+    monkeypatch.setattr(procs, 'identity', identify)
+    result = procs.containment(100, 100, None, 'job/a1', root='/fixture',
+                              launch_boot_id=BOOT_OLD, lineage_boot_ids=(BOOT_OLD,))
+    assert not result.verified_empty
+    assert BOOT_NEW in result.to_dict()['lineage_boot_ids']

@@ -247,3 +247,64 @@ def test_current_boot_marked_writer_survives_old_reboot_proof(state_daemon, monk
         assert actual['state'] == 'lost' and not leases
     finally:
         restarted.close()
+
+
+@pytest.mark.parametrize('operator', [False, True])
+@pytest.mark.parametrize('capture', ['gone', 'uninspectable'])
+def test_marker_without_pid_identity_keeps_lineage_across_restart(
+        state_daemon, monkeypatch, operator, capture):
+    from subfleet.daemon import Daemon
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness)
+    current = '7F1C0F2E-1111-4222-8333-944455556666'
+    marker = f'SUBFLEET_ATTEMPT={a["attempt_id"]} SUBFLEET_ROOT={daemon.root}'
+    # The marked parent is born after the table read, forks, then disappears
+    # before identity capture. Its unmarked child is already an orphan.
+    script_table(monkeypatch, {}, boot=current, markers=f'600 writer {marker}\n')
+    monkeypatch.setattr(procs, '_stat', lambda pid: 'S')
+    def identify(pid):
+        if capture == 'uninspectable':
+            raise procs.InspectionError('identity unavailable')
+        return None
+    monkeypatch.setattr(procs, 'identity', identify)
+    clock.advance()
+    actual, leases = resolve(daemon, a, operator)
+    assert actual['state'] == 'quarantined' and leases
+    assert '600' not in json.loads(actual['quarantine_reason'])['identities']
+    daemon.close()
+    restarted = Daemon(harness.root)
+    try:
+        restarted.policy['quarantine_recheck_s'] = 10
+        script_table(monkeypatch, {601: (1, 601, 'Ss', 'unmarked-child')}, boot=current)
+        clock.advance()
+        actual, leases = resolve(restarted, actual, operator)
+        assert actual['state'] == 'quarantined' and leases
+        script_table(monkeypatch, {}, boot='8F1C0F2E-1111-4222-8333-944455556666')
+        clock.advance()
+        actual, leases = resolve(restarted, actual, operator)
+        assert actual['state'] == 'lost' and not leases
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize('reason', ['held', 'null'])
+def test_plain_reason_cannot_erase_an_observed_current_boot_lineage(state_daemon, monkeypatch, reason):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness)
+    current = '7F1C0F2E-1111-4222-8333-944455556666'
+    marker = f'SUBFLEET_ATTEMPT={a["attempt_id"]} SUBFLEET_ROOT={daemon.root}'
+    script_table(monkeypatch, {}, boot=current, markers=f'600 writer {marker}\n')
+    monkeypatch.setattr(procs, '_stat', lambda pid: 'S')
+    monkeypatch.setattr(procs, 'identity', lambda pid: None)
+    clock.advance()
+    actual, leases = resolve(daemon, a, False)
+    assert actual['state'] == 'quarantined' and leases
+    # Legacy/unstructured display reasons remain tolerated; ownership evidence
+    # cannot be lost with the display text.
+    daemon.store.update_attempt(a['attempt_id'], quarantine_reason=reason)
+    script_table(monkeypatch, {601: (1, 601, 'Ss', 'unmarked-child')}, boot=current)
+    clock.advance()
+    actual, leases = resolve(daemon, actual, False)
+    assert actual['state'] == 'quarantined' and leases
