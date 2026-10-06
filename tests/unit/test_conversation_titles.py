@@ -143,7 +143,10 @@ def test_the_claim_is_refused_while_anything_else_of_the_conversation_waits(stor
     elif waiting is not None:
         other = submit(store, cid, "and then this", after_message_id=first)["message_id"]
         if waiting != "queued":
-            store.set_state(other, waiting, reason=f"steer:{first}" if waiting == "steering" else None)
+            # A waiting message always names its reason (C-24.4, I3, from #113).
+            reason = {"steering": f"steer:{first}",
+                      "waiting": "admission: sent to the daemon, which has not placed it yet"}.get(waiting)
+            store.set_state(other, waiting, reason=reason)
     assert claim(store, cid, first) == (waiting is None)
 
 
