@@ -1,9 +1,11 @@
-"""Review r3 of PR #127 (not for merge): the P1-2 strand with its timing recorded.
+"""Review r3 of PR #127: the P1-2 strand with its timing recorded.
 
 Same scenario as tests/e2e/test_review_r2_strand_e2e.py, but it proves the strand was
 exercised (the background waiter returned after the turn's `result` and before the turn
-process exited) and keeps the turn log and timestamps under review-r3/evidence/."""
+process exited). It keeps the turn log and timestamps under the test's own state root
+(`<root>/evidence/`), never in the checkout; set SUBFLEET_R3_EVIDENCE to a folder to keep them."""
 import json
+import os
 import shlex
 import shutil
 import sqlite3
@@ -18,7 +20,6 @@ from tests.e2e.test_conversations import Conversations
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS")
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost", "quarantined")
-EVIDENCE = Path(__file__).resolve().parents[2] / "review-r3" / "evidence"
 
 
 @pytest.mark.parametrize("final", [False, True], ids=["automatic", "wake-me"])
@@ -70,12 +71,13 @@ def test_strand_timing(e2e, final):
     record = {"case": "wake-me" if final else "automatic", "run": run, "turn_jobs": turn, "notices": notices,
               "messages": messages, "requests": requests, "waiter": background[0], "waiter_returned_at": returned,
               "turn_log": conv.turn_log()}
-    EVIDENCE.mkdir(parents=True, exist_ok=True)
-    out = EVIDENCE / f"strand-timing-{record['case']}.json"
+    evidence = Path(os.environ.get("SUBFLEET_R3_EVIDENCE") or e2e.root / "evidence")
+    evidence.mkdir(parents=True, exist_ok=True)
+    out = evidence / f"strand-timing-{record['case']}.json"
     out.write_text(json.dumps(record, indent=2, default=str))
     for name in ("daemon.log",):
         for path in e2e.root.rglob(name):
-            shutil.copy(path, EVIDENCE / f"strand-timing-{record['case']}-{name}")
+            shutil.copy(path, evidence / f"strand-timing-{record['case']}-{name}")
             break
     print(f"R3 strand ({record['case']}): wakes={len(wakes)} waiter_rc={background[0]['rc']} "
           f"waiter_returned={returned} run_finished={run['finished_at']} turn_job_finished="
