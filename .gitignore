@@ -9,3 +9,5 @@ build/
 .uv-cache/
 # A symlinked virtualenv too (`.venv/` matches only a directory).
 .venv
+# Task-local Git metadata when shared worktree metadata is read-only.
+.git-local/
