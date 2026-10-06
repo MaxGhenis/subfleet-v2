@@ -442,7 +442,7 @@ def _roster(specs):
     return lanes
 
 
-@settings(max_examples=300, deadline=None)
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(ROSTER)
 def test_c18_1_the_probe_fence_takes_out_exactly_the_held_lanes(specs):
     """C-18.1 for every roster: no held lane is dispatchable; the fence takes out the held lanes and nothing else;
@@ -603,7 +603,8 @@ def _cap(values):
     return st.one_of(st.just(ABSENT), st.none(), values)
 
 
-@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=200, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(cases=st.lists(LANE_CASE, min_size=3, max_size=3), fleet_cap=_cap(st.integers(1, 8)),
        per_lane=_cap(st.integers(1, 3)), unmeasured=_cap(st.integers(1, 2)))
 def test_c18_1_status_json_and_admission_judge_probe_leases_alike(fleet, cases, fleet_cap, per_lane, unmeasured):

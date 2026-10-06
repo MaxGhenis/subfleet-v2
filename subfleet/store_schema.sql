@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS readings (
 CREATE INDEX IF NOT EXISTS readings_latest ON readings(lane_id, scope, window, observed_at DESC);
 CREATE INDEX IF NOT EXISTS readings_weekly_history ON readings(observed_at)
   WHERE window='seven_day' AND label IN ('provider','stale-provider');
+-- Offset/fractional timestamps use parsed-time bounds in the fallback UNION.
+CREATE INDEX IF NOT EXISTS readings_weekly_history_parsed ON readings(julianday(observed_at))
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
 
 -- C-9.6
 CREATE TABLE IF NOT EXISTS closures (

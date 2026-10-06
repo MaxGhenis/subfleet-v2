@@ -163,8 +163,63 @@ def test_store_snapshot_retains_trend_and_history_query_uses_index(tmp_path):
         assert view["lanes"][0]["weekly_projections"]["account"]["projected_unused"] == pytest.approx(.52)
         assert len(view["readings"]) == 1
         steps = store.query("EXPLAIN QUERY PLAN " + WEEKLY_HISTORY_SQL, weekly_history_params(NOW))
-        assert any("SEARCH readings USING INDEX readings_weekly_history" in row["detail"] for row in steps)
-        assert not any("TEMP B-TREE" in row["detail"] for row in steps)
+        details = [row["detail"] for row in steps]
+        assert not any("SCAN" in detail or "TEMP B-TREE" in detail for detail in details), details
+        searches = [detail for detail in details if detail.startswith("SEARCH readings ")]
+        assert len(searches) == 2, details
+        assert all(
+            "USING INDEX readings_weekly_history" in detail and ">?" in detail and "<?" in detail
+            for detail in searches
+        ), details
+
+
+@pytest.mark.parametrize("existing_store", [False, True])
+def test_weekly_history_parsed_time_index_preserves_mixed_timestamps(tmp_path, existing_store):
+    path = tmp_path / "state.sqlite3"
+    if existing_store:
+        with Store(path) as store:
+            # A database from before the expression index is installed on reopen.
+            store.connection.execute("DROP INDEX readings_weekly_history_parsed")
+    start = NOW - timedelta(hours=24)
+    offset = timezone(timedelta(hours=-4))
+    samples = [
+        (start.isoformat(timespec="seconds").replace("+00:00", "Z"), True),
+        (NOW.isoformat(timespec="seconds").replace("+00:00", "Z"), True),
+        (start.astimezone(offset).isoformat(), True),
+        (NOW.astimezone(offset).isoformat(), True),
+        (start.isoformat(timespec="microseconds").replace("+00:00", "Z"), True),
+        ((NOW - timedelta(milliseconds=250)).isoformat().replace("+00:00", "Z"), True),
+        ((start - timedelta(seconds=1)).isoformat().replace("+00:00", "Z"), False),
+        ((NOW + timedelta(seconds=1)).isoformat().replace("+00:00", "Z"), False),
+        ((start - timedelta(seconds=1)).astimezone(offset).isoformat(), False),
+        ((NOW + timedelta(seconds=1)).astimezone(offset).isoformat(), False),
+        ((start - timedelta(milliseconds=250)).isoformat().replace("+00:00", "Z"), False),
+        ((NOW + timedelta(milliseconds=250)).isoformat().replace("+00:00", "Z"), False),
+        ("not-a-clock", False),
+    ]
+    with Store(path) as store:
+        lane = quota_fixture()["lanes"][0]
+        store.add_lane(Lane(lane["lane_id"], lane["provider"], lane["account_key"],
+                            Credential("codex", "/fixtures/codex-1", "home"),
+                            "/fixtures/codex-1", LaneOwner.V2, False))
+        base = {key: value for key, value in quota_fixture()["readings"][0].items()
+                if key not in {"reading_id", "age_s"}}
+        expected_ids = set()
+        for index, (observed_at, included) in enumerate(samples):
+            values = {**base, "observed_at": observed_at,
+                      "label": "stale-provider" if index % 2 else "provider"}
+            reading_id = store.add_reading(Reading(**values))
+            if included:
+                expected_ids.add(reading_id)
+        for change in ({"label": "unknown"}, {"window": "five_hour"}):
+            store.add_reading(Reading(**{**base, **change}))
+        expected = sorted((row for row in store.list_readings() if row["reading_id"] in expected_ids),
+                          key=lambda row: row["reading_id"])
+        # Compare complete rows: the UNION neither loses nor duplicates samples.
+        assert sorted(store.weekly_projection_samples(now=NOW), key=lambda row: row["reading_id"]) == expected
+        details = [row["detail"] for row in store.query(
+            "EXPLAIN QUERY PLAN " + WEEKLY_HISTORY_SQL, weekly_history_params(NOW))]
+        assert not any("SCAN" in detail or "TEMP B-TREE" in detail for detail in details), details
 
 
 def test_snapshot_weekly_history_is_bounded_and_sorted_independent_of_input_order():
