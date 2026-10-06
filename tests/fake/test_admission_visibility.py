@@ -69,7 +69,7 @@ def log_lines(service):
 
 
 @pytest.mark.parametrize("inherited", [False, True])
-def test_c6_15_why_names_priority_class_and_policy(fleet, inherited, monkeypatch, capsys):
+def test_c6_16_why_names_priority_class_and_policy(fleet, inherited, monkeypatch, capsys):
     from subfleet import cli
     service, harness = fleet
     service.policy["admission"]["priority_callers"] = ["CHOSEN"]
@@ -89,7 +89,7 @@ def test_c6_15_why_names_priority_class_and_policy(fleet, inherited, monkeypatch
 
 
 @pytest.mark.parametrize("unavailable", [False, True])
-def test_c6_15_status_lists_configured_callers_by_registry_name(fleet, monkeypatch, unavailable):
+def test_c6_16_status_lists_configured_callers_by_registry_name(fleet, monkeypatch, unavailable):
     from subfleet import cli
     from subfleet.sessions.registry import SessionRow
     service, _ = fleet
@@ -107,7 +107,7 @@ def test_c6_15_status_lists_configured_callers_by_registry_name(fleet, monkeypat
             "priority callers: Axiom promise (chosen), missing") in text
 
 
-def test_c6_15_status_with_default_callers_has_no_extra_registry_read(fleet, monkeypatch):
+def test_c6_16_status_with_default_callers_has_no_extra_registry_read(fleet, monkeypatch):
     from subfleet import cli
     service, _ = fleet
     def unexpected_read():

@@ -4442,6 +4442,25 @@ class Daemon:
         # Each waiter carries the leases it waits for another holder to release:
         # a job never waits behind a waiter for a lease the job itself holds.
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]]] = {}
+        # C-6.16: a waiting priority job holds back later competing detached jobs
+        # of every tier, as any waiter holds back its own tier's (review of PR
+        # #147: a waiting hard-tier priority job let later standard and trivial
+        # jobs take the slots it was waiting for).
+        priority_waiters: list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]] = []
+
+        def wait(tier, klass, waiter):
+            waiters.setdefault(tier, []).append(waiter)
+            if klass == "priority":
+                priority_waiters.append(waiter)
+
+        def older_waiters(tier):
+            """The waiters a job of this queue may not pass, oldest first: every
+            priority waiter, which the pass's order puts first, then its tier's."""
+            own = waiters.get(tier, ())
+            if not priority_waiters or tier.endswith("#turn"):
+                return own
+            first = {waiter[0] for waiter in priority_waiters}
+            return [*priority_waiters, *(waiter for waiter in own if waiter[0] not in first)]
         # C-6.9: job id -> its ancestors, for holds scoped to a family (`hold_scope`).
         ancestry: dict[str, frozenset[str]] = {job["job_id"]: frozenset() for job in queued
                                                if not job.get("parent_job_id")}
@@ -4480,6 +4499,8 @@ class Daemon:
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
+            klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
+                     if job["kind"] != "turn" else "attended")
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
                 self.kill(protocol.KillArgs(job["job_id"]))
                 continue
@@ -4537,8 +4558,7 @@ class Daemon:
                 # priority job. A due workspace retry is held too, before its git
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
-                busy = scheduler.machine_hold(self.policy, reading, scheduler.priority_class(
-                    job, liveness, policy=self.policy, jobs=priority_jobs))
+                busy = scheduler.machine_hold(self.policy, reading, klass)
                 if busy:
                     holds[job["job_id"]] = busy
                     continue
@@ -4584,7 +4604,7 @@ class Daemon:
                 of the same native session, the newer ordered first by class)."""
                 if scope is None:
                     return None
-                return next((waiter[0] for waiter in waiters.get(tier, ())
+                return next((waiter[0] for waiter in older_waiters(tier)
                              if scheduler.competes(models, waiter[1], lanes, waiter[2])
                              and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
                              and blocks(waiter)), None)
@@ -4617,7 +4637,7 @@ class Daemon:
                 for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
                 if job["wait_reason"] == "capacity" and not for_good:
                     waiting_for = (frozenset(known["hold"].get("leases") or ()) if lease_held else frozenset())
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
+                    wait(tier, klass, (job["job_id"], models, lanes, waiting_for))
                 if lease_held and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
                     queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
@@ -4712,7 +4732,7 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
-                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
                 current = self._job(job["job_id"])
                 clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
@@ -4809,7 +4829,7 @@ class Daemon:
                         # active slot free, so the older job can start the moment its
                         # capacity appears instead of waiting out the jobs that passed it.
                         # An uncapped pool (C-26.9) has no last slot to keep.
-                        kept = [waiter for waiter in waiters.get(tier, ()) if blocks(waiter)]
+                        kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
                         if not decision.chosen_lane or at_limit:
@@ -4820,7 +4840,7 @@ class Daemon:
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
                             if not for_good:
-                                waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                                wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
                             # is rechecked later each time and adds no decision row. On
                             # 2026-09-20 three such jobs were each re-evaluated every
@@ -4857,7 +4877,7 @@ class Daemon:
                             # The chosen identity changed after its probe; a later pass
                             # probes the new pair (`_prepare_route`). C-6.10: on a clock,
                             # or a lane whose state keeps moving is probed every tick.
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             hold = {"reason": "probe-pending"}
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
@@ -4945,7 +4965,7 @@ class Daemon:
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
                         if contested or blocked or queued:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested + blocked)))
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset(contested + blocked)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
                             # A key it only needs free (`blocked`) is never queued for: turns
@@ -5023,7 +5043,7 @@ class Daemon:
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
                 if not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):  # C-11.8
-                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
+                    wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
                 continue

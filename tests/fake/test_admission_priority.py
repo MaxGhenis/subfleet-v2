@@ -54,7 +54,7 @@ def reservation_order(daemon) -> list[str]:
     return [row["job_id"] for row in daemon.store.query("SELECT job_id FROM attempts ORDER BY rowid")]
 
 
-def test_c6_15_priority_caller_jumps_live_sessions_and_uses_fifo(state_daemon, tmp_path, monkeypatch):
+def test_c6_16_priority_caller_jumps_live_sessions_and_uses_fifo(state_daemon, tmp_path, monkeypatch):
     from tests.fake.test_resume_contract import measured_lane
     daemon, harness = state_daemon
     measured_lane(daemon)  # Keep the hard-tier probe rule separate from queue order.
@@ -70,7 +70,7 @@ def test_c6_15_priority_caller_jumps_live_sessions_and_uses_fifo(state_daemon, t
     assert reservation_order(daemon) == [hard, cheap, live, background]
 
 
-def test_c6_15_descendant_of_finished_priority_caller_bypasses_guard(state_daemon, tmp_path, monkeypatch):
+def test_c6_16_descendant_of_finished_priority_caller_bypasses_guard(state_daemon, tmp_path, monkeypatch):
     daemon, harness = state_daemon
     live_session(tmp_path, monkeypatch)
     daemon.policy["admission"].update(priority_callers=["CHOSEN"], machine_guard=copy.deepcopy(MACHINE_GUARD_PROPOSAL))
@@ -88,7 +88,7 @@ def test_c6_15_descendant_of_finished_priority_caller_bypasses_guard(state_daemo
     assert daemon._holds[background]["class"] == "background"
 
 
-def test_c6_15_stored_parent_cycle_terminates(state_daemon):
+def test_c6_16_stored_parent_cycle_terminates(state_daemon):
     daemon, harness = state_daemon
     daemon.policy["admission"]["priority_callers"] = ["chosen"]
     first = submit(daemon, harness, "first", caller_session="other")
@@ -100,7 +100,7 @@ def test_c6_15_stored_parent_cycle_terminates(state_daemon):
     assert scheduler.priority_class(family[first], policy=daemon.policy, jobs=family) == "priority"
 
 
-def test_c6_15_null_priority_callers_reads_no_ancestry(state_daemon, monkeypatch):
+def test_c6_16_null_priority_callers_reads_no_ancestry(state_daemon, monkeypatch):
     daemon, _ = state_daemon
     def unexpected_query(*args, **kwargs):
         raise AssertionError("null priority_callers must not query parents")

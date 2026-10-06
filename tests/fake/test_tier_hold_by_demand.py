@@ -104,6 +104,59 @@ def test_c6_9_a_job_that_passes_a_waiter_leaves_it_a_slot(fleet):
     assert admitted(service, passer)
 
 
+def test_c6_16_a_waiting_priority_job_holds_back_competing_jobs_of_every_tier(fleet):
+    """C-6.16 review of PR #147: a waiting hard-tier priority job held back only
+    hard-tier jobs, so later standard and trivial jobs for its model took the
+    slots it waited for. It holds back every competing detached job now,
+    priority or not, and still nothing it does not compete with."""
+    service, harness = fleet
+    service.policy["admission"]["priority_callers"] = ["CHOSEN"]
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="chosen")
+    trivial = submit(service, harness, pinned_model="astra", tier="trivial", caller_session="other")
+    standard = submit(service, harness, pinned_model="astra", tier="standard", caller_session="chosen")
+    terra = submit(service, harness, pinned_model="terra", tier="trivial", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert admitted(service, terra)
+    for held in (trivial, standard):
+        assert not service.store.list_attempts(held)
+        assert service._holds[held]["reason"] == "behind-older-job"
+        assert service._holds[held]["behind"] == older
+
+
+def test_c6_16_a_job_passing_a_priority_waiter_of_another_tier_leaves_it_the_last_slot(fleet):
+    """C-6.16 review of PR #147: with a cap, a later trivial job took the last
+    slot a waiting hard-tier priority job needed. It keeps that slot now."""
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 2
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    running = submit(service, harness, pinned_model="terra", tier="trivial")
+    service._admit()
+    assert admitted(service, running)
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="CHOSEN")
+    passer = submit(service, harness, pinned_model="terra", tier="trivial", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(passer)                 # 1 live + the kept slot = the cap of 2
+    assert service.store.get_job(passer)["state"] == "waiting"
+    service.store.update_job(older, state="cancelled")
+    service.store.update_job(passer, next_check_at=utcnow())
+    service._admit()
+    assert admitted(service, passer)
+
+
+def test_c6_16_only_a_priority_waiter_crosses_tiers(fleet):
+    """C-4.1 a waiter that is not priority still holds back only its own tier:
+    the pass looks at a trivial waiter first, and it holds no later hard job."""
+    service, harness = fleet
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    older = submit(service, harness, pinned_model="astra", tier="trivial", caller_session="other")
+    hard = submit(service, harness, pinned_model="astra", tier="hard", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert admitted(service, hard)
+
+
 def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     """C-6.4 at `max_active_attempts` nothing later is evaluated, whatever it competes for."""
     service, harness = fleet
