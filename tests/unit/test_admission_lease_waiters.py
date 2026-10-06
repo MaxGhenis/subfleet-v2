@@ -8,8 +8,10 @@ it `behind-older-job` on every look, with 0 or 1 of 5 slots live, for as long as
 lease was held. C-6.9's FIFO exists so a later job cannot take the slot an older one
 waits for; a job waiting for a lease waits for no slot. Its lease keeps its order
 through C-26.9's queue, and in a pool with a fleet count a job that passes it keeps
-the last slot for it, as for any older waiter, so it starts the moment its lease is
-let go.
+that count's last slot for it, as for any older waiter, so it starts the moment its
+lease is let go unless a per-lane or parent count, which keeps no slot, then refuses
+it (property 3 counts neither; `tests/fake/test_admission_lease_waiters.py` pins both
+as intended).
 
 Properties, for every input the strategies draw: the routing strategies' lanes,
 readings, closures and pins, a pool cap or none, and lease waits laid on random jobs,

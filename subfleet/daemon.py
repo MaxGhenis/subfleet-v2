@@ -4548,9 +4548,11 @@ class Daemon:
 
             def ahead(models, lanes):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
-                waiting for a slot. A waiter on a lease waits for no slot this job
-                could take; its lease keeps its place in `lease_queue`, and the last
-                slot is kept for it (`kept`). So this job is never held behind one
+                waiting for a slot. A waiter on a lease waits for no slot while it
+                waits for its lease; the lease keeps its place in `lease_queue`, and
+                a fleet count's last slot is kept for it (`kept`; a per-lane or parent
+                count keeps none, so this job may take a lane's or the parent's slot
+                the waiter will need, C-6.9). So this job is never held behind one
                 waiting for a lease this job holds either, which moves only once this
                 job has run (review of PR #72: a retrying resume and a newer one of
                 the same native session, the newer ordered first by class, each

@@ -161,8 +161,9 @@ sort ahead of detached jobs within their tier. A turn that cannot be placed
 never enters `waiters` for detached jobs, so it neither holds them
 `behind-older-job` nor causes `slot-kept`; turns hold back only other
 competing turns (review F-04), and only while the policy sets a turn cap
-(C-26.9, 2026-09-27); a turn waiting for a lease holds none back and
-keeps the last turn slot instead (C-6.9, 2026-10-06). Turns never
+(C-26.9, 2026-09-27); a turn waiting for a lease holds none back and,
+under `max_active_turns`, keeps the last turn slot instead (C-6.9,
+2026-10-06). Turns never
 trigger an admission probe: a lane
 whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 `requires_probe`) is not a candidate for a turn, reason `probe-required`

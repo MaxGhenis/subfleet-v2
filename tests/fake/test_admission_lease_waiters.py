@@ -164,6 +164,47 @@ def test_c6_9_the_last_slot_is_kept_for_a_job_waiting_for_a_lease(world, tmp_pat
     assert _live(service, later[2]) is (kind == "conversation"), service._holds.get(later[2])
 
 
+@pytest.mark.parametrize("kind", KINDS)
+def test_c6_9_a_lease_waiter_on_its_clock_keeps_the_last_slot(world, tmp_path, kind):
+    """The last slot is kept for a job waiting for a lease that is passed on its clock,
+    as for one the pass has just looked at: a later job that competes with it, under a
+    cap one above what is live, is held `slot-kept` for it. Review of 3ca9c9f2: a
+    mutant that left a lease waiter on its clock out of `waiters` survived every example
+    test and was killed only by the differential below."""
+    service, harness, patch, _ = world
+    older, _ = _older(kind, service, harness)
+    admit = service._admit if kind == "detached-out" else service._admit_turns
+    admit()
+    assert service._holds[older]["reason"] == "lease-held", service._holds.get(older)
+    service.store.update_job(older, next_check_at=after(3600))
+    _cap(service, patch, kind, _pool_live(service, kind) + 1)
+    later = _later(kind, service, harness, 0, tmp_path)
+    admit()
+    hold = service._holds.get(later) or {}
+    assert service._holds[older]["reason"] == "lease-held", service._holds.get(older)
+    assert not _live(service, later) and (hold.get("reason"), hold.get("kept_for")) == ("slot-kept", older), hold
+
+
+def test_c6_9_a_slot_waiter_on_its_clock_still_holds_a_later_job_back(world):
+    """The other side of the line drawn on the clock path: a turn on its clock whose last
+    look found no lane (its pinned lane closed) waits for a slot, so under a turn cap it
+    holds a later turn of its model `behind-older-job`. Review of 3ca9c9f2: a mutant that
+    took every waiter on its clock for a lease waiter was killed only by a liveness test
+    whose second pass happened to find the older turn's short clock still ahead."""
+    from tests.fake.test_admission_latency import commit, submit_turn
+    service, harness, patch, _ = world
+    _cap(service, patch, "fence", 3)
+    commit(service, "close", "codex-1", 1)
+    older = submit_turn(service, harness, 0, pinned_lane="codex-1")
+    service._admit_turns()
+    assert service._holds[older]["reason"].startswith("closed"), service._holds.get(older)
+    service.store.update_job(older, next_check_at=after(3600))
+    newer = submit_turn(service, harness, 1)
+    service._admit_turns()
+    hold = service._holds.get(newer) or {}
+    assert (hold.get("reason"), hold.get("behind")) == ("behind-older-job", older), hold
+
+
 def test_c26_9_a_lease_freed_mid_pass_goes_to_the_older_turn_even_against_one_that_competes(world):
     """C-26.9's queue keeps a lease's order with a cap too, now that C-6.9's hold-back no
     longer does it for a competing turn. An older turn waits for its conversation, which
@@ -238,6 +279,56 @@ def test_c6_9_a_turn_queued_behind_another_for_a_lease_holds_no_later_turn_back(
     hold = service._holds[queued]
     assert hold["reason"] == "lease-held" and hold["queued"] == ["conversation:shared"] and not hold["leases"], hold
     assert _live(service, later), service._holds.get(later)
+
+
+def test_intended_a_per_lane_count_keeps_no_slot_for_a_lease_waiter_beside_a_fleet_count(world, tmp_path):
+    """Intended (C-6.9): only a fleet count's last slot is kept for a job waiting for a
+    lease. With `max_active_turns` 5 and `turn_slots_per_lane` 1 on three lanes, three
+    later turns of its model take the three lanes' turn slots past a turn on retention's
+    fence (live 3, under the 4 the kept slot allows). Once the fence is let go the older
+    turn is held `no-slot`, and from then it waits for a slot and holds a newer
+    competing turn back. On 0812d5c5 the three were held `behind-older-job` for the
+    whole retirement and the older turn was placed when it ended (review of 3ca9c9f2)."""
+    service, harness, patch, _ = world
+    older, let_go = _older("fence", service, harness)
+    patch.setitem(service.policy, "conversations", {**(service.policy.get("conversations") or {}),
+                                                     "max_active_turns": 5, "turn_slots_per_lane": 1})
+    later = [_later("fence", service, harness, n, tmp_path) for n in range(3)]
+    service._admit_turns()
+    assert service._holds[older]["reason"] == "lease-held", service._holds.get(older)
+    assert all(_live(service, job) for job in later), {job: service._holds.get(job) for job in later}
+    let_go()
+    service.store.update_job(older, next_check_at=None)
+    service._admit_turns()
+    assert service._holds[older]["reason"] == "no-slot", service._holds.get(older)
+    newest = _later("fence", service, harness, 3, tmp_path)
+    service._admit_turns()
+    assert (service._holds[newest]["reason"], service._holds[newest]["behind"]) == ("behind-older-job", older), \
+        service._holds.get(newest)
+
+
+def test_intended_a_parent_count_keeps_no_slot_for_a_lease_waiter(world):
+    """Intended (C-6.9): with only `max_active_attempts_per_parent` 1, an older child
+    waiting for its output path holds a later sibling back no more than any lease waiter
+    does, and no count keeps the parent's slot for it: the sibling takes it, and once
+    the path is let go the older child is held `parent-cap`. On 0812d5c5 the sibling was
+    held `behind-older-job` and the older child was placed (review of 3ca9c9f2)."""
+    service, harness, patch, _ = world
+    parent = submit(service, harness)
+    service._admit()
+    assert _live(service, parent)
+    patch.setitem(service.policy, "caps", {**service.policy["caps"], "max_active_attempts_per_parent": 1})
+    out = str(harness.root / "shared-out.md")
+    older = submit(service, harness, out_path=out, parent_job_id=parent)
+    assert service.store.acquire_lease(f"out:{out}", "someone-else")     # submit refuses a held path
+    sibling = submit(service, harness, parent_job_id=parent)
+    service._admit()
+    assert service._holds[older]["reason"] == "lease-held", service._holds.get(older)
+    assert _live(service, sibling), service._holds.get(sibling)
+    service.store.release_leases("someone-else")
+    service.store.update_job(older, next_check_at=None)
+    service._admit()
+    assert service._holds[older]["reason"] == "parent-cap", service._holds.get(older)
 
 
 # --- the daemon against the pass model ------------------------------------------------------------
