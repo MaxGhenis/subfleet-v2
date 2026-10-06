@@ -33,6 +33,10 @@ b0033e5d, P2). The kernel's path also names a firmlinked folder one way
 (`/Users/…`, never `/System/Volumes/Data/Users/…`), which the listings did not,
 and a mount point by its own name, where ATTR_CMN_NAME gives the volume's
 (`/` is "Macintosh HD"). What a path cannot be spelled by, `spelling` says.
+
+`identity` reuses that spelling for comparison and reservations of outputs
+that may not exist yet: NFC, then casefold on a case-insensitive volume. The
+display helpers keep the kernel's spelling, including an absent name as typed.
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ import ctypes.util
 import errno
 import os
 import sys
+import unicodedata
 from typing import Any, Callable, Iterable
 
 EXCLUSIVE = "worktree:"
@@ -55,6 +60,38 @@ def canonical(path: str | os.PathLike[str]) -> str:
     the key for a folder the daemon can reach, and for one it cannot (no job can
     work in that either) the path as far as it could be spelled."""
     return spelling(path)[0]
+
+
+def identity(path: str | os.PathLike[str]) -> str:
+    """A comparison key, including names that have not been created yet.
+
+    Reuse the resolved kernel spelling that identifies folders; NFC also
+    unifies an absent filename's normalization. Fold case only on a volume
+    whose pathconf says names are case-insensitive. Display and publication
+    keep their supplied spelling (`canonical`/`spelling` are unchanged).
+    """
+    spelled = canonical(path)
+    normalized = unicodedata.normalize("NFC", spelled)
+    return normalized if _case_sensitive(spelled) else normalized.casefold()
+
+
+def _case_sensitive(path: str | os.PathLike[str]) -> bool:
+    """Darwin's _PC_CASE_SENSITIVE (sys/unistd.h); query the existing ancestor.
+
+    Other systems retain case, as their ordinary filesystems do. Unlike a
+    probe file, pathconf needs no write permission and leaves nothing behind.
+    """
+    if sys.platform != "darwin":
+        return True
+    head = os.path.realpath(os.fspath(path))
+    while True:
+        try:
+            return os.pathconf(head, 11) != 0
+        except (FileNotFoundError, NotADirectoryError):
+            parent = os.path.dirname(head)
+            if parent == head:
+                raise
+            head = parent
 
 
 def spelling(path: str | os.PathLike[str]) -> tuple[str, str | None]:
