@@ -68,6 +68,9 @@ if Path(sys.argv[0]).name == "subfleetd":
         if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
             kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
         original_init(self, *args, **kwargs)
+        clock_file = os.environ.get("SUBFLEET_FAKE_WAKE_CLOCK")
+        if clock_file:
+            self.conversations.wakes.now = lambda: time.time() + float(Path(clock_file).read_text())
     Daemon.__init__ = observed_init
 '''
 

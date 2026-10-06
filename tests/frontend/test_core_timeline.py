@@ -430,6 +430,9 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
     project = claude / "projects" / "-w"
     project.mkdir(parents=True)
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    transcript = project / f"{session}.jsonl"
+    (harness.root / "catalog.json").write_text(json.dumps({"native_records": {
+        f"claude:{session}": {"path": str(transcript), "mtime": transcript.stat().st_mtime}}}))
     history = harness.call("conversation.history", conversation_id=cid)
     assert [i["text"] for i in history["items"]][0] == "Doing it."        # newest first, all rows
     result = fold(core_probe, tmp_path, cid, [
@@ -438,14 +441,31 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
     ])
     shown = [(i["type"], i.get("role"), i.get("text") or i.get("summary"), i.get("state"), i.get("preview"))
              for i in result["items"]]
-    assert shown == [("history", "user", "native question", None, None),
+    assert shown == [("notice", None, "Made in another app", None, None),
+                     ("history", "user", "native question", None, None),
                      ("thinking", None, "look at a first", None, None),
                      ("history", "assistant", "native answer", None, None),
                      ("tool", None, "file_path: /w/a", "succeeded", "contents of a"),
                      ("tool", None, "false", "failed", "exit 1"),
                      ("tool", None, "sleep 99", "unfinished", None),          # no result: interrupted
                      ("person", None, "and now this", "complete", None), ("text", None, "Doing it.", None, None)]
-    assert result["items"][3]["name"] == "Read" and result["history_complete"] is True
+    assert result["items"][4]["name"] == "Read" and result["history_complete"] is True
+
+
+def test_outside_turns_after_binding_survive_event_replay_and_are_newest_at_bottom(core_probe, tmp_path):
+    cid, mid = "conversation", str(uuid.uuid4())
+    receipt = {"message_id": mid, "conversation_id": cid, "seq": 1, "origin": "person", "state": "complete",
+               "text": "Subfleet question", "created_at": "2026-09-28T00:00:00Z"}
+    native = {"items": [
+        {"role": "assistant", "kind": "text", "text": "Newest outside answer", "ts": "2026-10-04T05:00:10Z", "cursor": 300, "source": "other-app"},
+        {"role": "user", "kind": "text", "text": "Outside question", "ts": "2026-10-04T05:00:00Z", "cursor": 200, "source": "other-app"},
+        {"role": "assistant", "kind": "text", "text": "Duplicate native answer", "ts": "2026-09-28T00:00:10Z", "cursor": 100, "source": "subfleet"},
+    ], "next_before": None}
+    events = {"events": [{"seq": 1, "conversation_id": cid, "message_id": mid, "kind": "text", "ts": "2026-09-28T00:00:10Z",
+                          "data": {"block": "answer", "text": "Subfleet answer"}}], "next": 1, "reset": False}
+    result = fold(core_probe, tmp_path, cid, [{"receipts": [receipt]}, {"history": native}, {"page": events}, {"history": native}])
+    assert [i.get("text") for i in result["items"]] == ["Subfleet question", "Subfleet answer", "Made in another app", "Outside question", "Newest outside answer"]
+    assert result["items"][-1]["text"] == "Newest outside answer"
 
 
 def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
