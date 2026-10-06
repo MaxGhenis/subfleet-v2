@@ -105,6 +105,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import sys
@@ -188,6 +189,25 @@ PROJECTED = ("sessionId", "cliSessionId", "isArchived", "isStarred", "title",
 FLAG_FIELDS = ("cliSessionId", "isArchived", "isStarred", "title", "titleSource",
                "sessionSettings")
 FLAG_WRITES = ("isArchived", "isStarred", "title", "titleSource", "sessionSettings")
+
+#: The key every record the mirror writes carries in its `sessionSettings`:
+#: the file's lineage, a stamp the mirror mints for that write (C-23.28). The
+#: app keeps `sessionSettings` as an opaque object: it loads it and saves it
+#: untouched, and each of its own changes spreads the old object (bundle
+#: 2.9939.4, `docs/reports/2026-09-29-mirror-flag-lineage.md`). So a save from
+#: memory carries the lineage of the file that memory was loaded from, and a
+#: stale re-save shows which write it predates. A record with no stamp is of
+#: the legacy lineage "".
+LINEAGE_KEY = "subfleetLineage"
+#: The write-ahead for stamps: each stamp and the values it was written with
+#: are appended (and fsynced) before the first file carrying it lands, so a
+#: crash never leaves a copy whose lineage the mirror cannot name.
+STAMPS_NAME = "mirror-stamps.jsonl"
+#: A lineage no copy has held for this long is forgotten. The app holds a
+#: record only while it has its folder loaded (median 1.7 h between folder
+#: changes, 2026-09-14..25) or a session parked there; a memory older than
+#: this re-saved later reads as a change against the merge base, as before.
+LINEAGE_RETAIN_S = 30 * 86400.0
 
 class _Cancelled(Exception):
     pass
@@ -307,6 +327,157 @@ def _project(value: Any) -> dict[str, Any]:
     if isinstance(settings, dict):
         projected["sessionSettings"] = dict(settings)
     return projected
+
+
+def _lineage(data: dict) -> str:
+    """A record's lineage: the mirror's stamp in its settings, or "" (legacy)."""
+    settings = data.get("sessionSettings")
+    if isinstance(settings, dict):
+        value = settings.get(LINEAGE_KEY)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _title_of(data: dict) -> str:
+    return data.get("title") or ""
+
+
+def _source_of(data: dict) -> str:
+    return data.get("titleSource") or "auto"
+
+
+def _values(data: dict) -> list[Any]:
+    """What flag sync decides, as one comparable row."""
+    return [bool(data.get("isArchived")), bool(data.get("isStarred")),
+            _title_of(data), _source_of(data)]
+
+
+def _copy_key(folder: Path, name: str) -> str:
+    """A copy's name in the lineage tables: `<account>/<org>/<file>`."""
+    return f"{folder.parent.name}/{folder.name}/{name}"
+
+
+def _stamp(body: dict, lineage: str) -> dict:
+    """Put `lineage` in a record's settings, keeping every other setting."""
+    settings = body.get("sessionSettings")
+    body["sessionSettings"] = {**(settings if isinstance(settings, dict) else {}),
+                               LINEAGE_KEY: lineage}
+    return body
+
+
+def _row(value: Any) -> list[Any] | None:
+    """A stored values row, or None when it is not one."""
+    if (isinstance(value, list) and len(value) >= 4 and isinstance(value[0], bool)
+            and isinstance(value[1], bool) and isinstance(value[2], str)
+            and isinstance(value[3], str)):
+        return value[:4]
+    return None
+
+
+def reference(record: dict, key: str, lineage: str) -> list[Any] | None:
+    """What the mirror knows copy `key` held under `lineage` (C-23.28).
+
+    The last publish's read of that copy under that lineage when it differed
+    from the lineage's value; else the lineage's value (what the mirror wrote
+    with a stamp it minted, or what a lineage it did not mint held when a
+    publish first saw it); else the merge base, whose title source is unknown
+    (`None`). None when the session has no base either.
+    """
+    lin = record.get("lin") if isinstance(record.get("lin"), dict) else {}
+    seen = lin.get("seen") if isinstance(lin.get("seen"), dict) else {}
+    held = seen.get(key) if isinstance(seen.get(key), dict) else {}
+    found = _row(held.get(lineage))
+    if found is not None:
+        return found
+    known = lin.get("known") if isinstance(lin.get("known"), dict) else {}
+    found = _row(known.get(lineage))
+    if found is not None:
+        return found
+    if isinstance(record.get("isArchived"), bool) and isinstance(record.get("isStarred"), bool):
+        title = record.get("title")
+        return [record["isArchived"], record["isStarred"],
+                title if isinstance(title, str) else None, None]
+    return None
+
+
+def _with_known(record: dict, stamps: dict[str, list[Any]]) -> dict:
+    """`record` with `stamps` (lineage -> values + [minted at]) in its lineage
+    table; a lineage already there keeps its entry."""
+    lin = dict(record.get("lin")) if isinstance(record.get("lin"), dict) else {}
+    known = dict(lin.get("known")) if isinstance(lin.get("known"), dict) else {}
+    for lineage, row in stamps.items():
+        known.setdefault(lineage, row)
+    lin["known"] = known
+    return {**record, "lin": lin}
+
+
+def _first_seen(rows: list[list[Any]], decided: list[Any]) -> list[Any]:
+    """A lineage the mirror did not mint, as a publish first sees it: the row
+    most of its copies hold; a tie goes to the row that matches the decision."""
+    counts: dict[tuple, int] = {}
+    for row in rows:
+        counts[tuple(row)] = counts.get(tuple(row), 0) + 1
+    top = max(counts.values())
+    best = [list(row) for row, count in counts.items() if count == top]
+    if len(best) > 1:
+        best = [row for row in best
+                if all(want is None or have == want for have, want in zip(row, decided))] or best
+    return min(best, key=lambda row: json.dumps(row, ensure_ascii=False))
+
+
+def _commit_lineage(lin: Any, read: list[tuple[Path, str, dict]], keys: list[str],
+                    decided: list[Any], minted: dict[str, list[Any]], *, now: float,
+                    retire: bool) -> dict:
+    """A session's lineage table after a publish that went through (C-23.28).
+
+    `known` gains this publish's stamps and, for a lineage the mirror did not
+    mint, what its copies held as first read; `seen` records, per copy, what
+    this pass read under its lineage when that differs from `known`, so a
+    memory loaded before the mirror's write re-saves exactly the value on
+    record and does not vote. `retire` (a pass that read every copy) forgets
+    a lineage no copy has held for `LINEAGE_RETAIN_S`.
+    """
+    lin = lin if isinstance(lin, dict) else {}
+    known = ({key: row for key, row in lin["known"].items() if _row(row) is not None}
+             if isinstance(lin.get("known"), dict) else {})
+    for lineage, row in minted.items():
+        known.setdefault(lineage, row)
+    by_lineage: dict[str, list[list[Any]]] = {}
+    for _path, _name, data in read:
+        by_lineage.setdefault(_lineage(data), []).append(_values(data))
+    for lineage, rows in by_lineage.items():
+        if _row(known.get(lineage)) is None:
+            known[lineage] = _first_seen(rows, decided) + [now]
+    seen = ({key: dict(entry) for key, entry in lin["seen"].items() if isinstance(entry, dict)}
+            if isinstance(lin.get("seen"), dict) else {})
+    for key, (_path, _name, data) in zip(keys, read):
+        lineage, values = _lineage(data), _values(data)
+        entry = seen.setdefault(key, {})
+        if values != known[lineage][:4]:
+            entry[lineage] = values
+        else:
+            entry.pop(lineage, None)
+    gone = ({key: at for key, at in lin["gone"].items() if isinstance(at, (int, float))}
+            if isinstance(lin.get("gone"), dict) else {})
+    if retire:
+        live = set(by_lineage) | set(minted)
+        for lineage in list(known):
+            if lineage in live:
+                gone.pop(lineage, None)
+            elif lineage not in gone:
+                gone[lineage] = now
+            elif now - gone[lineage] > LINEAGE_RETAIN_S:
+                del known[lineage], gone[lineage]
+                for entry in seen.values():
+                    entry.pop(lineage, None)
+    table: dict[str, Any] = {"known": known}
+    seen = {key: entry for key, entry in seen.items() if entry}
+    if seen:
+        table["seen"] = seen
+    if gone:
+        table["gone"] = gone
+    return table
 
 
 def store_dir() -> Path:
@@ -468,7 +639,8 @@ def _install(temporary: Path, destination: Path, *, expect: tuple[int, ...] | No
 
 def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
                 mtime: float | None = None, expect: tuple[int, ...] | None = None,
-                exclusive: bool = False, sync: bool = False) -> int | None:
+                exclusive: bool = False, sync: bool = False,
+                mtime_ns: int | None = None) -> int | None:
     """Atomic write, owner-only like the app's own files.
 
     Returns the new file's inode, or None when `expect` or `exclusive` found
@@ -489,7 +661,9 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
         with open(handle, "w", encoding="utf-8") as stream:
             stream.write(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
             stream.flush()
-            if stamp is not None:
+            if mtime_ns is not None:
+                os.utime(stream.fileno(), ns=(mtime_ns, mtime_ns))
+            elif stamp is not None:
                 os.utime(stream.fileno(), (stamp, stamp))
             if sync:                           # a record the app loads: as it does
                 os.fsync(stream.fileno())
@@ -503,6 +677,12 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
             pass
         raise
     return inode
+
+
+def _read_record(source: Path) -> tuple[Any, int]:
+    """A record to copy, parsed, and its mtime (ns): read only as a regular file."""
+    with transcripts.open_regular(source, "r", encoding="utf-8") as stream:
+        return json.loads(stream.read()), os.fstat(stream.fileno()).st_mtime_ns
 
 
 def _copy_entry(source: Path, destination: Path, *, expect: tuple[int, ...] | None = None,
@@ -785,6 +965,11 @@ class Mirror:
         #: A published flag decision or copy write left standing this hot pass.
         self._flags_moved = False
         self._flags_active = False
+        #: Whether this pass stamps what it writes: flag sync is on and it is
+        #: not a dry run (C-23.28).
+        self._stamping = False
+        #: This pass's stamps for spread copies: (identity, values) -> lineage.
+        self._pass_stamps: dict[tuple[str, tuple], str] = {}
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -883,6 +1068,19 @@ class Mirror:
             return self._remember(path, signature, digest, data)
         return data
 
+    def _saved_at(self, folder: Path, name: str) -> int:
+        """When the app last saved a copy (mtime, ns), from the read's signature.
+
+        Only orders two votes that disagree; the mirror's own writes keep the
+        mtime they found, and never vote."""
+        cached = self._entries.get(os.path.join(folder, name))
+        if cached is not None:
+            return cached[0][2]
+        try:
+            return os.stat(folder / name).st_mtime_ns
+        except OSError:
+            return 0
+
     def _file(self, folder: Path, name: str) -> dict:
         """A listed entry's projection, from the cache when it holds one."""
         cached = self._entries.get(os.path.join(folder, name))
@@ -961,6 +1159,62 @@ class Mirror:
     @property
     def flags_path(self) -> Path:
         return self.dir / FLAGS_NAME
+
+    @property
+    def stamps_path(self) -> Path:
+        return self.dir / STAMPS_NAME
+
+    def _mint(self, rows: list[tuple[str, list[Any]]]) -> list[str]:
+        """A fresh stamp for each `(identity, values)` row, durable before any
+        file carries it: one appended line each, one fsync for the batch."""
+        stamps = [secrets.token_hex(8) for _row in rows]
+        at = self.now().timestamp()
+        text = "".join(json.dumps({"id": identity, "lineage": stamp, "values": list(values),
+                                   "at": at}, separators=(",", ":"), ensure_ascii=False) + "\n"
+                       for (identity, values), stamp in zip(rows, stamps))
+        self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        fd = os.open(self.stamps_path,
+                     os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            data = text.encode("utf-8")
+            while data:
+                data = data[os.write(fd, data):]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return stamps
+
+    def _stamp_for(self, identity: str, values: list[Any]) -> str:
+        """This pass's stamp for copies of `identity` holding `values`."""
+        key = (identity, tuple(values))
+        stamp = self._pass_stamps.get(key)
+        if stamp is None:
+            stamp = self._pass_stamps[key] = self._mint([(identity, values)])[0]
+        return stamp
+
+    def _read_stamps(self) -> dict[str, dict[str, list[Any]]]:
+        """The write-ahead's stamps not yet in the merge base: identity ->
+        {lineage: values + [minted at]}. A torn last line was never followed
+        by a write, so it is skipped."""
+        try:
+            with transcripts.open_regular(self.stamps_path, "r", encoding="utf-8") as stream:
+                text = stream.read()
+        except FileNotFoundError:
+            return {}
+        found: dict[str, dict[str, list[Any]]] = {}
+        for line in text.splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            identity, lineage, values = entry.get("id"), entry.get("lineage"), _row(entry.get("values"))
+            at = entry.get("at")
+            if (isinstance(identity, str) and isinstance(lineage, str) and lineage
+                    and values is not None and isinstance(at, (int, float))):
+                found.setdefault(identity, {})[lineage] = values + [float(at)]
+        return found
 
     def sidecar(self) -> dict[str, Any]:
         return _load(self.sidecar_path)
@@ -1357,18 +1611,41 @@ class Mirror:
 
     def _place(self, source: Path, destination: Path, identity: str, data: dict,
                kind: str, current: Pass, *, expect: tuple[int, ...] | None = None,
-               exclusive: bool = False) -> bool:
+               exclusive: bool = False, rename: str | None = None) -> dict | None:
+        """Copy one record into another folder; its projection as written, or None.
+
+        With flag sync on, the copy carries a stamp of its own, minted (and
+        made durable) for the values it holds: a copy of a record whose app
+        memory re-saved a value flag sync has already weighed must not vote
+        again from its new folder (C-23.28). `rename` gives the copy a
+        different record name (the collision fallback). The source's mtime
+        is kept: it orders the sidebar.
+        """
         self._invalidate_folder(destination.parent)
         try:
-            inode = _copy_entry(source, destination, expect=expect, exclusive=exclusive)
-        except OSError:
+            if not self._stamping and rename is None:
+                inode = _copy_entry(source, destination, expect=expect, exclusive=exclusive)
+                body = data
+            else:
+                body, saved = _read_record(source)
+                if not isinstance(body, dict) or (body.get("cliSessionId") or "") != identity:
+                    current.skipped += 1      # the source moved on; a later pass retries
+                    return None
+                if rename is not None:
+                    body["sessionId"] = rename  # keep it self-consistent
+                if self._stamping:
+                    _stamp(body, self._stamp_for(identity, _values(body)))
+                inode = _write_json(destination, body, mtime_ns=saved, expect=expect,
+                                    exclusive=exclusive, sync=True)
+                body = _project(body)
+        except (OSError, ValueError):
             current.skipped += 1              # the source moved; a later pass retries
-            return False
+            return None
         if inode is None:
-            return False                      # the destination moved; decide again next pass
+            return None                       # the destination moved; decide again next pass
         self._forget(destination)
-        self._journal_write(destination, inode, identity, data, kind)
-        return True
+        self._journal_write(destination, inode, identity, body, kind)
+        return body
 
     def _spread(self, identity: str, data: dict, name: str, source: Path,
                 folders: list[tuple[str, str, Path]], *,
@@ -1386,10 +1663,11 @@ class Mirror:
                 if not options.dry_run:
                     # Create-only: a name someone took since the listing is left
                     # alone, and the next pass sees who and decides again.
-                    if not self._place(source, path / name, identity, data, "added",
-                                       current, exclusive=True):
+                    placed = self._place(source, path / name, identity, data, "added",
+                                         current, exclusive=True)
+                    if placed is None:
                         continue
-                    note(path, name, data, identity)
+                    note(path, name, placed, identity)
                 current.added += 1
             elif not (present.get("cliSessionId") or ""):   # stale empty
                 # The app empties the id itself when it moves the record off
@@ -1425,10 +1703,11 @@ class Mirror:
                             continue                # unreadable is unknown, not empty
                         if still:
                             continue
-                    if not self._place(source, path / name, identity, data, "repaired",
-                                       current, expect=expect):
+                    placed = self._place(source, path / name, identity, data, "repaired",
+                                         current, expect=expect)
+                    if placed is None:
                         continue
-                    note(path, name, data, identity)
+                    note(path, name, placed, identity)
                 current.repaired += 1
             elif present.get("cliSessionId") == identity:
                 continue                  # the folder holds it; a listing raced a save
@@ -1441,25 +1720,11 @@ class Mirror:
                 if existing(path, fallback) is not None or destination.exists():
                     continue
                 if not options.dry_run:
-                    self._invalidate_folder(path)
-                    try:
-                        body = _load(source, strict=True)
-                        body["sessionId"] = f"local_{identity}"   # keep it self-consistent
-                        try:                       # preserve sidebar ordering
-                            stamp: float | None = source.stat().st_mtime
-                        except OSError:
-                            stamp = None
-                        inode = _write_json(destination, body, mtime=stamp, exclusive=True,
-                                            sync=True)
-                    except (OSError, ValueError):
-                        current.skipped += 1
-                        continue
-                    if inode is None:
+                    placed = self._place(source, destination, identity, data, "added", current,
+                                         exclusive=True, rename=f"local_{identity}")
+                    if placed is None:
                         continue                    # the name was taken meanwhile
-                    self._forget(destination)
-                    projected = _project(body)
-                    self._journal_write(destination, inode, identity, projected, "added")
-                    note(path, fallback, projected, identity)
+                    note(path, fallback, placed, identity)
                 current.added += 1
 
     # --- the steps -----------------------------------------------------------
@@ -1583,25 +1848,39 @@ class Mirror:
                    retry: set[str] | None = None) -> set[tuple[Path, str]]:
         """Propagate `isArchived`, `isStarred` and the title across every copy.
 
-        The merge base in `mirror-flags.json` holds each session's last synced
-        values: a copy that differs from the base is a user action, so the CHANGE
-        propagates and archive and un-archive both work. On first divergence with
-        no base — the historical backlog — archived-anywhere and starred-anywhere
-        win, and a divergent title prefers a manual rename, then the most recently
-        active copy.
+        **Each copy is judged by its lineage** (C-23.28). The app saves a record
+        whole from memory and never re-reads one it holds, so a value the
+        mirror writes into a folder the app holds is written back by the app's
+        next save. Every record the mirror writes therefore carries a fresh
+        stamp in `sessionSettings` (`LINEAGE_KEY`), which the app keeps, and
+        the mirror remembers per session what it knows each lineage held:
+        `known` (the values it wrote with a stamp, or, for a lineage it did not
+        mint, what that lineage's copies held when a publish first saw it) and
+        `seen` (per copy, what the last publish read under a lineage when that
+        differed from `known`). A copy votes only when it differs from that
+        reference (`reference`): a user's action does, and a re-save from
+        memory loaded before the mirror's write carries the old lineage and
+        the value recorded for it, so it does not. No vote keeps the merge
+        base; votes that agree win; a conflict goes to the latest save, and a
+        title vote from a deliberate rename before an automatic one. With no
+        base yet, agreement stands, else archived-anywhere and starred-anywhere
+        win and a divergent title prefers a deliberate one, then the most
+        recently active copy. No app log is read.
 
-        A write re-reads the whole file and patches only the synced fields, so
-        the rest of the record is the app's newest. Each session's writes are
-        all or nothing: if any copy's synced fields moved since this pass read
-        it, none is written and the session's merge base is not advanced, so the
-        next pass decides again on what is there. A save that lands after
-        that check fails the write of its copy; the copies already written
-        are then put back (any rewritten since are left alone), and the base
-        is held. What no check can catch is an app rename in the instant
-        between the last signature check and the mirror's own rename, which
-        rename(2) cannot compare first: that save is overwritten. The protocol
-        is specified in docs/formal/MirrorFlags.tla, with an executable twin
-        in tests/mirror_flags_model.py.
+        A write re-reads the whole file and patches only the synced fields and
+        the stamp, so the rest of the record is the app's newest. Every stamp
+        is appended to a write-ahead (`STAMPS_NAME`, fsynced) before a file
+        carries it, so a crash mid-publish leaves no copy whose lineage the
+        mirror cannot name. Each session's writes are all or nothing: if any
+        copy's synced fields moved since this pass read it, none is written and
+        nothing about the session is committed, so the next pass decides again
+        on what is there. A save that lands after that check fails the write of
+        its copy; the copies already written are then put back (any rewritten
+        since are left alone). What no check can catch is an app rename in the
+        instant between the last signature check and the mirror's own rename,
+        which rename(2) cannot compare first: that save is overwritten. The
+        protocol is specified in docs/formal/MirrorFlags.tla, with an
+        executable twin in tests/mirror_flags_model.py.
 
         A session is decided from every copy or not at all. `unread` names the
         copies that exist but could not be read this pass (path -> the session
@@ -1614,12 +1893,19 @@ class Mirror:
         `retry` collects only identified held sessions; blind holds wait for
         the full pass instead of enrolling the whole store in hot retries.
 
-        Known limit: the app saves a record from memory, so a folder it holds
-        (the loaded one, or one where an earlier account's session still runs)
-        can write back a value the mirror changed there, and the merge base
-        reads that re-save as a user's change. See the 2026-09-24 report.
+        Limits (docs/reports/2026-09-29-mirror-flag-lineage.md): two actions on
+        one copy before any pass reads it are one file, so a reversal of an
+        unread action is not seen; an older action saved late by a parked
+        session can outrank a newer one; a memory older than
+        `LINEAGE_RETAIN_S`, or one from before this protocol, is judged
+        against the merge base, as before.
         """
-        base_all = _load(self.flags_path)
+        loaded = _load(self.flags_path)
+        pending = {} if options.dry_run else self._read_stamps()
+        base_all: dict[str, dict] = {identity: dict(record) for identity, record in loaded.items()
+                                     if isinstance(record, dict)}
+        for identity, stamps in pending.items():
+            base_all[identity] = _with_known(base_all.get(identity) or {}, stamps)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
         for path, files in folder_files.items():
             for name, data in files.items():
@@ -1643,6 +1929,9 @@ class Mirror:
         dirty: set[tuple[Path, str]] = set()
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
+        #: identity -> (the copies as read, their table keys, the base record
+        #: to commit, the decided row).
+        plans: dict[str, tuple[list[tuple[Path, str, dict]], list[str], dict, list[Any]]] = {}
 
         def writable(path: Path, name: str) -> dict:
             # Cached/interned snapshots are shared across accounts and passes.
@@ -1653,12 +1942,6 @@ class Mirror:
                 folder_files[path][name] = dict(folder_files[path][name])
                 dirty.add((path, name))
             return folder_files[path][name]
-
-        def title_of(data: dict) -> str:
-            return data.get("title") or ""
-
-        def source_of(data: dict) -> str:
-            return data.get("titleSource") or "auto"
 
         def active_of(data: dict) -> Any:
             return data.get("lastActivityAt") or data.get("createdAt") or 0
@@ -1672,21 +1955,30 @@ class Mirror:
                 continue
             for path, name, _data in copies:
                 owners[(path, name)] = identity
-            base = base_all.get(identity) or {}
-            base = dict(base)
-            for flag, bootstrap in (("isArchived", True), ("isStarred", True)):
-                values = {bool(data.get(flag)) for _p, _n, data in copies}
-                if len(values) == 1:
-                    resolved = values.pop()
+            record = base_all.get(identity) or {}
+            read = list(copies)
+            keys = [_copy_key(path, name) for path, name, _data in read]
+            refs = [reference(record, key, _lineage(data)) for key, (_p, _n, data) in zip(keys, read)]
+            saved = [self._saved_at(path, name) for path, name, _data in read]
+            decided_row: list[Any] = [None, None, None, None]
+            for index, flag, bootstrap in ((0, "isArchived", True), (1, "isStarred", True)):
+                cast = [(saved[i], bool(data.get(flag)), str(path / name))
+                        for i, (path, name, data) in enumerate(read)
+                        if refs[i] is not None and bool(data.get(flag)) != refs[i][index]]
+                if cast:
+                    voted = {vote for _t, vote, _where in cast}
+                    resolved = voted.pop() if len(voted) == 1 else max(cast)[1]
+                elif isinstance(record.get(flag), bool):
+                    resolved = record[flag]
                 else:
-                    recorded = base.get(flag)
-                    resolved = (not recorded) if isinstance(recorded, bool) else bootstrap
+                    values = {bool(data.get(flag)) for _p, _n, data in read}
+                    resolved = values.pop() if len(values) == 1 else bootstrap
                 if any(bool(data.get(flag)) != resolved for _p, _n, data in copies):
                     for path, name, data in copies:
                         if bool(data.get(flag)) != resolved:
                             writable(path, name)[flag] = resolved
                     current.flag_synced += 1
-                base[flag] = resolved
+                decided_row[index] = resolved
 
             if options.ultracode_default:
                 # The app's spawn path never passes sessionSettings, so a spawned
@@ -1701,24 +1993,37 @@ class Mirror:
                         writable(path, name)["sessionSettings"] = {**settings, "ultracode": True}
 
             title: str | None = None
-            voices = copies
-            variants = {(title_of(data), source_of(data)) for _p, _n, data in voices}
+            variants = {(_title_of(data), _source_of(data)) for _p, _n, data in read}
+            voters = [i for i, (_p, _n, data) in enumerate(read)
+                      if refs[i] is not None and isinstance(refs[i][2], str)
+                      and _title_of(data) != refs[i][2]]
             decided: tuple[str, str] | None = None
-            if len(variants) > 1:
-                recorded = base_all.get(identity, {}).get("title")
-                candidates = [data for _p, _n, data in voices
-                              if recorded is None or title_of(data) != recorded]
-                if candidates:
-                    manual = [data for data in candidates if source_of(data) == "manual"]
-                    winner = max(manual or candidates, key=active_of)
-                    decided = (title_of(winner), source_of(winner))
-            elif variants:
+            if voters:
+                pool = [i for i in voters if _source_of(read[i][2]) != "auto"] or voters
+                winner = read[max(pool, key=lambda i: (saved[i], active_of(read[i][2]),
+                                                       str(read[i][0] / read[i][1])))][2]
+                decided = (_title_of(winner), _source_of(winner))
+            elif len(variants) == 1:
                 decided = next(iter(variants))
+            elif isinstance(record.get("title"), str):
+                recorded = record["title"]
+                if any(_title_of(data) != recorded for _p, _n, data in read):
+                    holders = [data for _p, _n, data in read if _title_of(data) == recorded]
+                    source = (_source_of(max(holders, key=active_of)) if holders
+                              else record.get("tsrc") if isinstance(record.get("tsrc"), str)
+                              else "auto")
+                    decided = (recorded, source)
+            else:
+                pool = ([data for _p, _n, data in read if _source_of(data) != "auto"]
+                        or [data for _p, _n, data in read])
+                winner = max(pool, key=active_of)
+                decided = (_title_of(winner), _source_of(winner))
             if decided is not None:
                 title = decided[0]
-                if any((title_of(data), source_of(data)) != decided for _p, _n, data in copies):
+                decided_row[2], decided_row[3] = decided
+                if any((_title_of(data), _source_of(data)) != decided for _p, _n, data in copies):
                     for path, name, data in copies:
-                        if (title_of(data), source_of(data)) != decided:
+                        if (_title_of(data), _source_of(data)) != decided:
                             target = writable(path, name)
                             target["title"], target["titleSource"] = decided
                     current.retitled += 1
@@ -1732,8 +2037,8 @@ class Mirror:
             # survives an index write the app skipped. Only a CHANGE since the
             # last sync propagates; a bootstrap merely records the base.
             transcript = stems.get(identity)
-            recorded_title = base_all.get(identity, {}).get("ttitle")
-            anchor, stamp = recorded_title, base_all.get(identity, {}).get("tmt")
+            recorded_title = record.get("ttitle")
+            anchor, stamp = recorded_title, record.get("tmt")
             if transcript is not None:
                 try:
                     mtime = transcript.stat().st_mtime
@@ -1741,28 +2046,34 @@ class Mirror:
                     mtime = None
                 if mtime is not None and mtime != stamp:
                     stamp = mtime
-                    read = self.transcript_title(transcript)
-                    if read is not None:
-                        anchor = read
+                    found = self.transcript_title(transcript)
+                    if found is not None:
+                        anchor = found
             if (anchor is not None and recorded_title is not None
                     and anchor != recorded_title and anchor != (title or "")):
                 winner = max((data for _p, _n, data in copies), key=active_of)
-                source = source_of(winner)
+                source = _source_of(winner)
                 for path, name, data in copies:
-                    if (title_of(data), source_of(data)) != (anchor, source):
+                    if (_title_of(data), _source_of(data)) != (anchor, source):
                         target = writable(path, name)
                         target["title"], target["titleSource"] = anchor, source
                 title = anchor
+                decided_row[2], decided_row[3] = anchor, source
                 current.transcript_retitled += 1
 
-            record = {"isArchived": base["isArchived"], "isStarred": base["isStarred"]}
+            committed = {"isArchived": decided_row[0], "isStarred": decided_row[1]}
             if title is not None:
-                record["title"] = title
+                committed["title"] = title
+                if isinstance(decided_row[3], str):
+                    committed["tsrc"] = decided_row[3]
             if anchor is not None:
-                record["ttitle"] = anchor
+                committed["ttitle"] = anchor
             if stamp is not None:
-                record["tmt"] = stamp
-            fresh[identity] = record
+                committed["tmt"] = stamp
+            if isinstance(record.get("lin"), dict):
+                committed["lin"] = record["lin"]
+            plans[identity] = (read, keys, committed, decided_row)
+            fresh[identity] = committed
 
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
@@ -1772,6 +2083,25 @@ class Mirror:
             batches: dict[str, list[tuple[Path, str]]] = {}
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
                 batches.setdefault(owners.get((path, name), ""), []).append((path, name))
+            # One stamp per session and written row, made durable before any
+            # copy carries it: a copy the app holds keeps the lineage it
+            # loaded, so a re-save of it cannot pass for this write.
+            rows: list[tuple[str, list[Any]]] = []
+            planned: dict[tuple[str, tuple], str] = {}
+            for identity, batch in batches.items():
+                for path, name in batch:
+                    values = _values(folder_files[path][name])
+                    if (identity, tuple(values)) not in planned:
+                        planned[(identity, tuple(values))] = ""
+                        rows.append((identity, values))
+            minted: dict[str, dict[str, list[Any]]] = {}
+            #: The stamps some file now carries (a held batch writes none).
+            carried: set[str] = set()
+            if rows:
+                at = self.now().timestamp()
+                for (identity, values), lineage in zip(rows, self._mint(rows)):
+                    planned[(identity, tuple(values))] = lineage
+                    minted.setdefault(identity, {})[lineage] = values + [at]
             for identity, batch in batches.items():
                 # Check every copy first: a session is written whole or not at all.
                 ready: list[tuple[Path, dict, dict, dict, tuple[int, ...]]] = []
@@ -1794,6 +2124,7 @@ class Mirror:
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
+                    _stamp(body, planned[(identity, tuple(_values(resolved)))])
                     ready.append((target, body, before, resolved, expect))
                 else:
                     written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
@@ -1804,6 +2135,8 @@ class Mirror:
                                                 sync=True)
                         except (OSError, ValueError):
                             inode = None
+                        if inode is not None:
+                            carried.add(_lineage(body))
                         if inode is None:
                             # The app saved this copy in the instant after the
                             # check. Put back the copies already written, so the
@@ -1847,21 +2180,46 @@ class Mirror:
                     fresh[identity] = base_all[identity]
                 else:
                     fresh.pop(identity, None)
+            # Every stamp a file carries reaches the base, held session or not;
+            # a batch held before its first write leaves the base as it was.
+            minted = {identity: {lineage: row for lineage, row in stamps.items()
+                                 if lineage in carried}
+                      for identity, stamps in minted.items()}
+            instant = self.now().timestamp()
+            for identity, (read, keys, committed, decided_row) in plans.items():
+                if identity not in held:
+                    committed["lin"] = _commit_lineage(
+                        committed.get("lin"), read, keys, decided_row, minted.get(identity, {}),
+                        now=instant, retire=complete)
+            for identity, stamps in minted.items():
+                if not stamps:
+                    continue
+                if identity in fresh:
+                    fresh[identity] = _with_known(fresh[identity], stamps)
+                elif identity in base_all or not complete:
+                    fresh[identity] = _with_known(base_all.get(identity) or {}, stamps)
             if retry is not None:
                 retry.update(held)
-            if fresh != base_all:
+            if fresh != loaded:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
                 # would hand every divergent session to the bootstrap rule.
                 published = _write_json(self.flags_path, fresh, sync=True)
                 def decision(row):
-                    return (None if row is None else
+                    return (None if not isinstance(row, dict) else
                             (row.get("isArchived"), row.get("isStarred"), row.get("title")))
                 if published is not None and any(
-                    decision(fresh.get(identity)) != decision(base_all.get(identity))
-                    for identity in fresh.keys() | base_all.keys()
+                    decision(fresh.get(identity)) != decision(loaded.get(identity))
+                    for identity in fresh.keys() | loaded.keys()
                 ):
                     self._flags_moved = True
+            if pending or rows:
+                # The base now holds every stamp the write-ahead named that a
+                # file can carry.
+                try:
+                    os.unlink(self.stamps_path)
+                except FileNotFoundError:
+                    pass
         return dirty
 
     # --- one pass ------------------------------------------------------------
@@ -2004,6 +2362,8 @@ class Mirror:
         return stream
 
     def _pass(self, current: Pass, options: Options) -> None:
+        self._stamping = options.flag_sync and not options.dry_run
+        self._pass_stamps = {}
         self._checkpoint(current, "finding accounts")
         folders = self.folders(options.exclude)
         kept, unknown = self._listing_gaps(options)
@@ -2229,6 +2589,8 @@ class Mirror:
                 inventory._flag_retry.update(held)
 
     def _hot(self, current: Pass, options: Options, *, spread: bool = True) -> None:
+        self._stamping = options.flag_sync and not options.dry_run
+        self._pass_stamps = {}
         self._checkpoint(current, "reading entries")
         self._unread, self._why = {}, {}
         folders = self.folders(options.exclude)
