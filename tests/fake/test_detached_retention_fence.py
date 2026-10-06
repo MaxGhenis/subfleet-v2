@@ -366,8 +366,8 @@ def test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_
                 taken.append(fence)
 
         if read == "early":
-            real = daemon._detached_folder
-            patch.setattr(daemon, "_detached_folder", lambda job: (take(), real(job))[1])
+            real = daemon._detached_folders
+            patch.setattr(daemon, "_detached_folders", lambda job: (take(), real(job))[1])
         else:
             patch.setattr(daemon, "_workspace", lambda job: (take(), workspaces(job))[1])
         hold = look(daemon, job_id)                       # the census was read before the fence was taken
@@ -410,28 +410,40 @@ def test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence(tmp_path, shape)
         assert daemon._capacity_waits[older]["blocked"] == (fence,)
         daemon.store.update_job(older, next_check_at=after(3600))
         newer = add("newer", tree, sandbox="workspace-write", in_place=True)
-        real = daemon._detached_folder
+        real = daemon._detached_folders
 
         def finishes(job):          # retention lets go after the older's look, before the newer's
             if job["job_id"] == newer:
                 daemon.store.release_leases("retention:retired")
             return real(job)
 
-        patch.setattr(daemon, "_detached_folder", finishes)
+        patch.setattr(daemon, "_detached_folders", finishes)
         daemon._admit()
         assert lease(daemon, fence) == newer, daemon._holds.get(newer)
         assert "queued_behind" not in (daemon._holds.get(newer) or {})
 
 
+def make_legacy(daemon, job_id: str, workdir) -> None:
+    """The job as a daemon that recorded no `folder` left it: its `job.submitted` with
+    none, and its workdir as typed (`resolve`d only; #140 spells it now)."""
+    with daemon.store.transaction("test.legacy") as tx:
+        row = tx.execute("SELECT event_id, data_json FROM events WHERE job_id=? AND kind='job.submitted'",
+                         (job_id,)).fetchone()
+        data = {k: v for k, v in json.loads(row[1] or "{}").items() if k != "folder"}
+        tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), row[0]))
+        tx.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (str(workdir), job_id))
+    assert daemon._job(job_id)["workdir"] == str(workdir) and "folder" not in recorded(daemon, job_id)
+
+
 @pytest.mark.parametrize("shape", sorted(SHAPES))
-def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_through_the_quarantine(tmp_path, shape):
+def test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine(tmp_path, shape):
     """A job queued by a daemon that recorded no `folder`, its workdir typed in another
-    case than the volume stores (`…/rETIRED/vendor/lib`), is spelled at its first look,
-    while the tree is there, and that spelling is kept (`job.folder_spelled`). Looked at
-    again while retention has the tree in quarantine, it is still held on the fence and
-    its workspace is not prepared; spelled afresh then, the missing names would keep
-    their typed case and miss the fence. The retirement is rolled back (`worktree-in-use`
-    reads the queued job's workdir) and the job runs once the fence goes.
+    case than the volume stores (`…/rETIRED/vendor/lib`), is held on the fence while
+    the tree is there, and again while retention has it in quarantine: spelled then,
+    the missing names keep their typed case, and its fence is read with names folded
+    (`folders.retiring_folded`). Its workspace is never prepared. The retirement is
+    rolled back (`worktree-in-use` reads the queued job's workdir) and the job runs
+    once the fence goes. Nothing is kept between looks.
     Failed on 23a7f1b1 (review P2): reserved while the tree was away."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
@@ -446,18 +458,12 @@ def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_throu
         def step(at):
             if "job" not in state:
                 state["job"] = job_id = detached_in(daemon, harness, typed, shape)
-                with daemon.store.transaction("test.legacy") as tx:     # as a daemon before `folder` wrote it
-                    row = tx.execute("SELECT event_id, data_json FROM events WHERE job_id=? AND kind='job.submitted'",
-                                     (job_id,)).fetchone()
-                    data = {k: v for k, v in json.loads(row[1] or "{}").items() if k != "folder"}
-                    tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), row[0]))
-                    # It also kept the workdir as typed (`resolve`d only; #140 spells it now).
-                    tx.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (typed, job_id))
-                assert daemon._job(job_id)["workdir"] == typed and "folder" not in recorded(daemon, job_id)
+                make_legacy(daemon, job_id, typed)
             hold = look(daemon, state["job"])
             assert not _live(daemon, state["job"]) and workspaces.calls == [], (at, hold)
-            assert hold.get("retiring") == [fence] and hold.get("folder") == nested, (at, hold)
-            state["looked"].append((at, Path(tree).is_dir()))
+            assert hold.get("retiring") == [fence], (at, hold)
+            assert folders.folded(hold.get("folder", "")) == folders.folded(nested), (at, hold)
+            state["looked"].append((at, Path(tree).is_dir(), hold["folder"]))
 
         for method in ("begin", "archive"):
             def wrapped(self, *args, _real=getattr(rarch.Retirement, method), _at=method, **kwargs):
@@ -466,13 +472,162 @@ def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_throu
             patch.setattr(rarch.Retirement, method, wrapped)
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                        holders=lambda watches, **_: {})
-        assert state["looked"] == [("begin", True), ("archive", False)], state
+        assert state["looked"] == [("begin", True, nested), ("archive", False, typed)], state
         assert "retired" in result["protected"], result
-        spelled = [json.loads(row["data_json"]).get("folder") for row in daemon.store.query(
-            "SELECT data_json FROM events WHERE job_id=? AND kind='job.folder_spelled'", (state["job"],))]
-        assert [folder for folder in spelled if folder] == [nested], spelled     # spelled once, while there
         daemon._admit()
         assert _live(daemon, state["job"]), daemon._holds.get(state["job"])
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence(tmp_path, shape):
+    """The review of 49651181 (P2, its test, adapted): retention's real quarantine lands
+    after admission spelled a legacy job's case-variant workdir while the tree was
+    there, within one look. The look holds the job on the fence; so does the next, the
+    tree away, since the fence is read with names folded and no spelling has to survive
+    between looks. Neither prepares the workspace.
+    Failed on 49651181: the second look reserved the reader, or prepared the writer
+    against its missing source."""
+    import threading
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        typed = nested.replace("/worktrees/retired/", "/worktrees/rETIRED/")
+        if not os.path.isdir(typed) or not os.path.samefile(typed, nested):
+            pytest.skip("this volume does not fold case")
+        fence = folders.exclusive_key(tree)
+        selected, spelled, quarantined, finish, cancel = (threading.Event() for _ in range(5))
+        failures = []
+        real_quarantine = rarch.Retirement.quarantine
+
+        def quarantine(retirement):
+            if retirement.job_id != "retired":
+                return real_quarantine(retirement)
+            selected.set()
+            assert spelled.wait(30), "admission did not spell the workdir"
+            real_quarantine(retirement)
+            quarantined.set()
+            assert finish.wait(30), "admission did not finish its two looks"
+            raise rarch.Defer("test interleaving complete", 1)
+
+        patch.setattr(rarch.Retirement, "quarantine", quarantine)
+
+        def retire():
+            try:
+                retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
+                                      holders=lambda watches, **_: {}, cancel=cancel)
+            except BaseException as exc:                     # noqa: BLE001
+                failures.append(exc)
+
+        worker = threading.Thread(target=retire, name="test-quarantine-after-spelling")
+        worker.start()
+        try:
+            assert selected.wait(30), ("retention did not reach quarantine", failures)
+            job_id = detached_in(daemon, harness, typed, shape)
+            make_legacy(daemon, job_id, typed)
+            workspaces = Workspaces(daemon, patch, real=True)
+            real_spelling, observed = folders.spelling, []
+
+            def spelling_then_quarantine(path):
+                result = real_spelling(path)
+                if str(path) == typed and not observed:
+                    assert result == (nested, None), result
+                    observed.append(result)
+                    spelled.set()
+                    assert quarantined.wait(30), ("retention did not quarantine", failures)
+                return result
+
+            patch.setattr(folders, "spelling", spelling_then_quarantine)
+            first = look(daemon, job_id)
+            assert observed and first.get("retiring") == [fence] and not _live(daemon, job_id), first
+            assert not Path(tree).exists()
+            second = look(daemon, job_id)
+            assert not _live(daemon, job_id) and workspaces.calls == [], (first, second)
+            assert second.get("retiring") == [fence], second
+            assert folders.folded(second["folder"]) == folders.folded(nested), second
+        finally:
+            spelled.set()
+            finish.set()
+            cancel.set()
+            worker.join(60)
+            assert not worker.is_alive(), "the retention worker did not stop"
+            assert not failures, failures
+
+
+@pytest.mark.parametrize("submitted", ["recorded", "legacy"])
+def test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves(tmp_path, submitted):
+    """The review of 49651181 (P2, its test, adapted, and the same for a job whose folder
+    submit recorded): a job submitted from a real checkout `outside`, which is then
+    renamed aside and replaced by a symlink into a repository nested in a tree being
+    retired, would be prepared through the link, in that tree. Admission reads the
+    fence on where the workdir resolves at the look as well as on the folder submit
+    recorded, so it is held there, its folder named, and never prepared.
+    Failed on 49651181 for `legacy` (a kept spelling hid the link); for `recorded` the
+    recorded folder alone hid it all along."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        original = tmp_path / "outside"
+        checkout(original)
+        job_id = detached_in(daemon, harness, original, "read-only")
+        if submitted == "legacy":
+            make_legacy(daemon, job_id, original)
+        else:
+            assert recorded(daemon, job_id)["folder"] == folders.canonical(original)
+        assert daemon._detached_folders(daemon._job(job_id))[0][0] == folders.canonical(original)
+        original.rename(tmp_path / "outside-aside")
+        original.symlink_to(nested, target_is_directory=True)
+        fence = folders.exclusive_key(tree)
+        assert daemon.store.acquire_lease(fence, "retention:retired")
+        workspaces = Workspaces(daemon, patch, real=True)
+        hold = look(daemon, job_id)
+        assert not _live(daemon, job_id) and workspaces.calls == [], hold
+        assert hold.get("retiring") == [fence] and hold.get("folder") == nested, hold
+        daemon.store.release_leases("retention:retired")
+        daemon._admit()
+        assert _live(daemon, job_id), daemon._holds.get(job_id)
+
+
+folder_names = st.lists(st.sampled_from(["retired", "RETIRED", "Retired", "rETIRED", "retired2", "vendor",
+                                         "Vendor", "lib", "\u00e9t\u00e9", "e\u0301te\u0301", "\u00c9T\u00c9"]),
+                        min_size=1, max_size=4)
+
+
+@settings(max_examples=300, deadline=None, derandomize=True)
+@given(folder=folder_names, fences=st.lists(st.tuples(folder_names, st.sampled_from(["retention:a", "gate-round:g"])),
+                                            max_size=4))
+def test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded(folder, fences):
+    """`folders.retiring_folded` against an oracle written apart from it: the keys
+    retention holds whose tree is the folder or a folder above it, name by name, each
+    name NFC-normalized and casefolded; nearest first. It always contains what the
+    exact `folders.retiring` finds, and equals it where every spelling is the stored
+    one."""
+    import unicodedata
+    root = "/s"
+    path = root + "/" + "/".join(folder)
+    rows = {}
+    for names, holder in fences:
+        rows.setdefault(folders.exclusive_key(root + "/" + "/".join(names)), holder)
+
+    def read(sql, params):
+        """A range read (`retiring_folded`) or an IN read (`retiring`), as SQLite answers them."""
+        if " IN (" in sql:
+            return [(key, holder) for key, holder in rows.items() if key in params]
+        return [(key, holder) for key, holder in rows.items() if params[0] <= key < params[1]]
+
+    def norm(names):
+        return [unicodedata.normalize("NFC", name).casefold() for name in names]
+
+    expected = []
+    for names, holder in fences:
+        key = folders.exclusive_key(root + "/" + "/".join(names))
+        if rows[key] == holder and holder.startswith("retention:") and norm(folder)[:len(names)] == norm(names) \
+                and key not in expected:
+            expected.append(key)
+    found = folders.retiring_folded(read, path)
+    assert sorted(found) == sorted(expected), (path, rows, found, expected)
+    assert [len(key) for key in found] == sorted((len(key) for key in found), reverse=True)
+    assert set(folders.retiring(read, path)) <= set(found)
+    assert all(folders.fences(key, path, fold=True) for key in found)
 
 
 @pytest.mark.parametrize("spelling", ["subdirectory", "symlink", "case"])

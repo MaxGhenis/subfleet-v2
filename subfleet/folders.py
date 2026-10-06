@@ -47,6 +47,7 @@ import ctypes.util
 import errno
 import os
 import sys
+import unicodedata
 from typing import Any, Callable, Iterable
 
 EXCLUSIVE = "worktree:"
@@ -210,6 +211,42 @@ def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[s
     held = dict(_row(row) for row in read(
         f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(keys))})", tuple(keys)))
     return [key for key in keys if str(held.get(key) or "").startswith(RETENTION)]
+
+
+def fences(key: str, folder: str, *, fold: bool = False) -> bool:
+    """Whether the `worktree:` key `key` is on `folder` or on a folder it is inside
+    (`within`), with names compared folded (`folded`) when `fold`, as
+    `retiring_folded` compares them."""
+    tree = key[len(EXCLUSIVE):]
+    return key.startswith(EXCLUSIVE) and (within(folded(folder), folded(tree)) if fold else within(folder, tree))
+
+
+def folded(folder: str) -> str:
+    """`folder` as a case-insensitive volume compares names (APFS's default): NFC,
+    then casefolded, so every case and Unicode form it accepts for a name is one
+    string."""
+    return unicodedata.normalize("NFC", folder).casefold()
+
+
+def retiring_folded(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:
+    """`retiring` for a folder that may not be spelled as its volume stores it: a
+    detached job's workdir that a daemon queued before submit spelled it once
+    (`canonical`), as typed, perhaps in another case. Spelled again while retention
+    has its tree in quarantine, the names that are gone keep the case they were
+    typed in, so the exact keys `retiring` reads would miss the fence (review of
+    49651181, P2). Here every fence retention holds is read, and one counts when
+    `folder` is its tree or inside it with names compared folded (`folded`). On a
+    volume that tells case apart this may hold such a job on a tree whose name
+    differs only in case, which costs it a wait, never a tree. Nearest first, as
+    `retiring`; `read(sql, params)` as for `turn_holds`; no filesystem work."""
+    mine = folded(folder)
+    found = []
+    for row in read("SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+                    (EXCLUSIVE, EXCLUSIVE[:-1] + ";")):
+        key, holder = _row(row)
+        if str(holder).startswith(RETENTION) and within(mine, folded(key[len(EXCLUSIVE):])):
+            found.append(key)
+    return sorted(found, key=lambda key: -len(key))
 
 
 def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,

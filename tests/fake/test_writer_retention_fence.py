@@ -472,7 +472,7 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
         daemon.store.update_job(older, next_check_at=after(3600))
         newer = add("newer", tree)
 
-        real = daemon._detached_folder
+        real = daemon._detached_folders
 
         def finishes(job):          # retention lets go after the older's look, before the newer's
             if job["job_id"] == newer:
@@ -480,7 +480,7 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
             return real(job)
 
         # The newer's first look at the fence is the one before its workspace (C-8.4).
-        patch.setattr(daemon, "_detached_folder", finishes)
+        patch.setattr(daemon, "_detached_folders", finishes)
         daemon._admit()
         assert lease(daemon, fence) == newer, daemon._holds.get(newer)
         assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]
