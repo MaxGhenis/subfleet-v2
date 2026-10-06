@@ -561,13 +561,25 @@ writer's work lands between the turn and it (`daemon._turn_trees`, receipt
 snapshot when the full C-5.5 census verifies its writers gone. Automatic
 resolution and `kill --confirm-dead` use exactly the same census; an empty
 same-boot quarantine releases within one pace without waiting for a reboot
-(C-5.7). Both share the census residual: an orphan that leaves the process
-group, starts a new session, scrubs `SUBFLEET_ATTEMPT` and `SUBFLEET_ROOT`
-from its environment and outlives its recorded parent is invisible. Ordinary
-detached children keep those markers and hold the quarantine. The separate
-retention `lsof` worktree-holder check still protects a job worktree while
-such a process holds files there. A legacy guardian whose launch receipt
-records no child and has no exit receipt stays held conservatively. A forced
+(C-5.7). The census retains observed lineage identities and their groups, walks descendants
+of live identities and retained group members, and takes one bounded `lsof -d cwd`
+scan for canonical cwd in or under the workdir. Either visible attempt or root
+marker holds too. Platform binaries (shells, sleep, tail) and rewritten process
+titles can hide markers from macOS `ps -E`, so markers alone are insufficient.
+Every C-5.11 inspection, kill and finalization census retains observations;
+the newest 4,096 identity/group roots are bounded per attempt, with overflow
+holding conservatively. These roots grant no authority to signal.
+Both paths share the residual: a writer never observed, outside recorded groups
+and descendant walks, never observed with cwd in the workdir at a census, and running a platform
+binary with invisible environment or removing both markers from the census-visible
+environment (including by rewriting its title), can escape after its parent exits.
+A new session is not required. Retention's separate file-holder check protects
+an invisible writer only while it holds a file, mapping or directory there;
+intermittent append-and-close from an outside cwd can evade it.
+A legacy guardian without a published child or exit receipt stays held unless
+its provider identities were observed while it lived or recorded as owned by
+the kill census; those identities, groups and descendants must be verifiably
+gone before release, without a per-attempt override. A forced
 release with writers still live records that it has no end snapshot. While git fails transiently, the end is tried at
 most three times in one daemon run (the first try and two by the finalization
 worker, whose count a restart starts again), and once when a quarantine is

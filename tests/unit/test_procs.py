@@ -262,13 +262,13 @@ def test_proc_start_retry_reraises_when_every_pass_fails(monkeypatch):
         procs.proc_start_retry(9, tries=3, delay_s=0)
 
 
-def test_containment_marker_requires_the_state_root_when_given(monkeypatch):
-    """C-5.5 a marker match from another state root is not a writer of this attempt."""
+def test_containment_either_marker_holds_even_with_a_different_root(monkeypatch):
+    """C-5.5 either marker holds conservatively, including attempt-id collisions."""
     census(monkeypatch, parents="42 1 42 S\n",
            markers=("99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/other-root\n"
                     "100 python SUBFLEET_ROOT=/tmp/this-root SUBFLEET_ATTEMPT=job/a1\n"))
     scoped = procs.containment(42, 42, None, "job/a1", root="/tmp/this-root")
-    assert scoped.marker_pids == {100}
+    assert scoped.marker_pids == {99, 100}
     unscoped = procs.containment(42, 42, None, "job/a1")
     assert unscoped.marker_pids == {99, 100}
 
@@ -770,6 +770,58 @@ def test_empty_census_releases_without_reboot_proof(monkeypatch, known, current)
     assert result.verified_empty, result.to_dict()
 
 
+def test_cwd_scan_is_one_bounded_call_and_canonical_component_match(tmp_path, monkeypatch):
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(workdir, target_is_directory=True)
+    reads = []
+    listing = (f"p42\0\nfcwd\0n{alias}/nested directory\nwith newline\0\n"
+               f"p43\0\nfcwd\0n{workdir}-other\0\n")
+    def read(argv, **kwargs):
+        reads.append(argv)
+        return listing
+    monkeypatch.setattr(procs, "_read", read)
+    assert procs.cwd_pids(str(workdir)) == {42}
+    assert reads == [procs.CWD_ARGV]
+
+
+@pytest.mark.parametrize("listing", ["pbad\0", "p0\0", "n/tmp\0", "p42\0nunknown\0", "p42\0", "junk\0", "p42\0p43\0n/tmp\0"])
+def test_malformed_cwd_scan_is_unverifiable(monkeypatch, listing):
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: listing)
+    with pytest.raises(procs.InspectionError):
+        procs.cwd_pids("/tmp/workdir")
+
+
+@pytest.mark.parametrize("marker", ["SUBFLEET_ATTEMPT=job/a1", "SUBFLEET_ROOT=/fixture"])
+def test_either_exact_marker_holds_without_disclosing_environment(monkeypatch, marker):
+    census(monkeypatch, parents=f"77 1 77 S {START}\n",
+           markers=f"77 service {marker} SECRET=never-record\n")
+    found = procs.containment(None, None, None, "job/a1", root="/fixture")
+    assert found.marker_pids == {77}
+    assert not found.verified_empty
+    assert "never-record" not in json.dumps(found.to_dict())
+
+
+@pytest.mark.parametrize("boot,start,member,empty", [
+    (BOOT_OLD, "shell", True, False),
+    (BOOT_OLD, "reused-leader", True, True),
+    (BOOT_NEW, "shell", True, True),
+    (BOOT_OLD, "shell", False, True),
+])
+def test_saved_lineage_group_handles_death_pid_reuse_and_reboot(monkeypatch, boot, start, member, empty):
+    roots = (procs.CensusRoot(200, BOOT_OLD, "shell", 200),)
+    rows = {200: (1, 200, "Ss", start)} if start == "reused-leader" else {}
+    if member:
+        rows.update({201: (1, 200, "S", "member"), 202: (201, 202, "Ss", "child")})
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, boot_id=boot))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    result = procs.containment(None, None, None, "a1", lineage_roots=roots)
+    assert result.verified_empty is empty, result.to_dict()
+    if not empty:
+        assert {201, 202} <= result.live_pids
+
+
 def test_historical_boot_observations_do_not_pin_an_empty_census(monkeypatch):
     monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=BOOT_NEW))
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
@@ -805,3 +857,27 @@ def test_marked_writer_observation_keeps_its_boot_even_without_pid_identity(monk
                               launch_boot_id=BOOT_OLD, lineage_boot_ids=(BOOT_OLD,))
     assert result.verified_empty is (capture != 'uninspectable')
     assert BOOT_NEW in result.to_dict()['lineage_boot_ids']
+
+
+def test_saved_identity_follows_a_writer_after_it_changes_group(monkeypatch):
+    rows = {200: (1, 300, "S", "shell"), 201: (200, 301, "Ss", "child")}
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, boot_id=BOOT_OLD))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    result = procs.containment(None, None, None, "a1",
+        lineage_roots=(procs.CensusRoot(200, BOOT_OLD, "shell", 200),))
+    assert {200, 201} <= result.live_pids
+
+
+def test_cwd_only_writer_participates_in_verified_empty(monkeypatch):
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({400: (1, 400, "S", "writer")}, BOOT_OLD))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({400}))
+    result = procs.containment(None, None, None, "a1", workdir="/workdir")
+    assert result.cwd_pids == {400}
+    assert not result.verified_empty
+
+
+def test_empty_cwd_listing_is_unverifiable(monkeypatch):
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    with pytest.raises(procs.InspectionError):
+        procs.cwd_pids("/workdir")

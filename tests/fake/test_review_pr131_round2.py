@@ -165,9 +165,11 @@ def test_pre_reboot_roots_do_not_own_new_boot_processes(state_daemon, monkeypatc
 @pytest.mark.parametrize('operator', [False, True])
 def test_a_writer_forking_after_the_table_read_does_not_lose_its_child(
         state_daemon, monkeypatch, operator):
-    """C-5.7 residual: an orphan that leaves its group, starts a new session,
-    scrubs both Subfleet markers and outlives its recorded parent is invisible
-    to both automatic resolution and --confirm-dead.
+    """C-5.7 residual: a process never observed by lineage/group/cwd, outside
+    retained groups and descendant walks, which runs a platform binary with
+    invisible markers (or removes both markers from ps-visible output, including
+    by rewriting its title), can escape both paths. No new
+    session is required. Here it scrubs both and never has cwd in the workdir.
     """
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
@@ -192,13 +194,13 @@ def test_a_writer_forking_after_the_table_read_does_not_lose_its_child(
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
     assert actual['state'] == 'lost' and not leases, (actual['state'], leases)
-    assert daemon._contain(actual).verified_empty  # live row 301 is outside all three sources
+    assert daemon._contain(actual).verified_empty  # live row 301 is outside lineage, group, cwd and marker sources
 
 
 @pytest.mark.parametrize('operator', [False, True])
 def test_forked_child_keeping_markers_holds_across_many_paces_after_parent_exits(
         state_daemon, monkeypatch, operator):
-    """Ordinary nohup/setsid/& children retain markers and remain in C-5.5."""
+    """A non-platform child whose title exposes either marker remains visible."""
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     a = quarantine(daemon, harness, held={'300': ident(300, 'writer-start')})

@@ -38,6 +38,7 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
+    monkeypatch.setattr(daemon_module.procs, "cwd_pids", lambda workdir: frozenset())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
     def refuse_real_launch(*args):

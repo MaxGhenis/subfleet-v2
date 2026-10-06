@@ -77,6 +77,7 @@ def test_live_shaped_v6_store_migrates_and_every_gone_attempt_is_released_fairly
             current.update(unverifiable=attempt_id in unverifiable, live=live.get(attempt_id), attempt=attempt_id)
             return ORIGINAL_CENSUS(pgid, guardian, child, attempt_id, root=root, **kwargs)
         monkeypatch.setattr(procs, "snapshot", snapshot)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset())
         monkeypatch.setattr(procs, "_read", read)
         monkeypatch.setattr(procs, "containment", census)
 
