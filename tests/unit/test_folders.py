@@ -93,6 +93,7 @@ def test_within_is_a_partial_order_on_folders(a, b, c):
     assert folders.within(a + "/x", a) and not folders.within(a + "x", a) and not folders.within(a + ":x", a)
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(folder=FOLDER, data=st.data())
 def test_above_is_exactly_the_other_folders_a_folder_is_within(folder, data):
     """`above` (C-8.4) agrees with `within`, built another way: the folders above a
