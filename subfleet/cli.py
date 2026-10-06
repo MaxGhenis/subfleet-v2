@@ -1130,12 +1130,13 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return worst
 
 
-def _format_ranking_usage(detail: dict[str, Any]) -> str:
+def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> str:
     """C-11.5: explain the same weekly/reserve evidence pick and why rank."""
     def percent(key):
         value = detail.get(key)
         return "unknown" if value is None else f"{100 * value:.1f}%"
-    age = detail.get("reading_age_s")
+    from .scheduler import ranking_reading_age
+    age = ranking_reading_age(detail, now) if now else detail.get("reading_age_s")
     return (f"reserve={detail.get('reserve_class', 'unknown')} "
             f"weekly-scope={detail.get('weekly_scope') or 'unknown'} "
             f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
@@ -1153,7 +1154,7 @@ def _format_decision(decision: dict[str, Any]) -> str:
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
         details = evaluation.get("candidate_details") or {}
         for identity in evaluation.get("candidates") or ():
-            lines.append(f"    + {identity}: {_format_ranking_usage(details.get(identity) or {})}")
+            lines.append(f"    + {identity}: {_format_ranking_usage(details.get(identity) or {}, now=evaluation.get('evaluated_at'))}")
         for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "

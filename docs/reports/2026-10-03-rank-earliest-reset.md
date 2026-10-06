@@ -112,3 +112,55 @@ There were initial overly broad exploratory runs that exceeded the user's ten-mi
 Shared Git metadata is not writable: `git add` failed creating its `index.lock` with `Operation not permitted`. Commits therefore use the preserved workspace-local `.job-git` directory on `feat/rank-earliest-reset`. The local Git directory, SQLite snapshot, dependency environments and logs are not committed.
 
 The delivery bundle is [2026-10-03-rank-earliest-reset.bundle](2026-10-03-rank-earliest-reset.bundle), with prerequisite `3e31ab7bd5bf06efbd5aa61592a542e2c7bf4d3d`. Its named head is `refs/heads/feat/rank-earliest-reset` (the final report commit, following `5110e5d4`). `git bundle verify` checks the prerequisite and object pack; `git bundle list-heads` names its exact head, which is also reported in the final delivery message. No history was rewritten, no push occurred, no live state or daemon was changed, and no task process remains.
+
+
+## Decision-horizon correction for #120 (2026-10-03)
+
+The merged PR at `026e3db8cc3b` reproduces all three reported failures in
+`tests/unit/test_decision_horizon.py` (3 failed, 2 passed). The same original
+file on release/217 `f832e6b8` passes all five tests. This is a PR regression.
+The three named test bodies and assertions are unchanged (verified by comparing
+ASTs with `026e3db8`); their generated-clock helpers now include ranking renewal.
+
+Every clock used to judge or rank a lane is accounted for:
+
+| Comparison | Effect and horizon |
+| --- | --- |
+| `0 <= now - observed_at <= reading_ttl_s` (`capacity.fresh_provider`) | Future observations become fresh at `observed_at`; fresh evidence ages out after the inclusive TTL. Horizon conservatively reports `observed_at + TTL`. This governs measured status, utilization floors, slot caps, C-11.7 model reserve, binding weekly window/headroom/reset, and both reserve preferences. |
+| `resets_at > now` (`fresh_provider`) | Either weekly or five-hour evidence stops being fresh exactly at reset. `fresh_until` takes the earlier of TTL and reset. |
+| `resets_at <= max(now, observed_at)` (`scheduler.ranking_usage`) | A latest applicable provider window renewing makes the entire ranking unmeasured, even when that observation is already stale. `lane_horizons` includes each future reset strictly after observation. A window expired at its own observation was never usable and is uncertain from the outset, even with clock skew; its reset before a future observation adds no clock. This preserves the original brief's expired-window rule without inventing readings. |
+| `until_at > now` on unreleased closures (`scheduler._future_closure`) | Closure expiration changes exclusions, Claude stranding and C-11.7 reported-closure slack/probe requirements. Each lane horizon includes its active closure ends. |
+| Confirmed override `end > now` | The override holds readings out until it ends. The fleet horizon includes supplied override ends; route checking already compares overrides per lane. |
+
+The other uses of the clock are explanation/evidence: `latest_readings` relabels
+provider observations after TTL; reading ages and `evaluated_at` advance;
+`_earliest_reset` filters future resets for the no-candidate reason. They do not
+change lane judgement or the ranking tuple. C-11.8's `until_at - now > pin_hold_far_s`
+classifies a standing refusal outside `evaluate`/`judge_lane`/`rank_key`; it is not
+a routing comparator or a horizon input.
+
+The first and third failures were caused by continuously changing
+`reading_age_s` inside lane judgement, not a missing valid reset boundary.
+Judgement now stores stable `reading_observed_at`; `ranking_reading_age` derives
+seconds at the explanation's evaluation clock. `pick` still includes age seconds,
+`why` still prints them, and old recorded decisions carrying age seconds remain
+readable. Route checking reuses stable judgement directly while continuing to
+age the underlying reading evidence. The second failure exposed a reset before
+a future observation, which could never grant fresh evidence; ranking and the
+horizon now agree that it adds no future transition. C-6.3, C-11.3 and C-11.5
+state these details explicitly.
+
+The new generated-fleet property compares the **entire tuple returned by
+`rank_key`** for all four lanes and every model of their provider across 600
+seeded fleets. It samples 0%, 30%, 70% and 99.9% of each lane's own horizon,
+regardless of earlier clocks on other lanes; lanes without a horizon are checked
+one second, five minutes and three days later. The existing 600-fleet decision
+and 400-fleet judgement properties also include renewal clocks independently
+of freshness, with current/past/future weekly and five-hour resets, TTL edges,
+future observations, closures and overrides. A deterministic regression covers
+fresh and stale weekly/five-hour resets at the exact horizon and just before it.
+All seven horizon tests pass in the final file run. The weekly-ranking generated
+laws (33 tests, 6,800 examples) and picker suite (39 tests) also pass.
+
+Full verification and bundle details will be recorded after the foreground
+file-by-file unit, fake and e2e runs finish.
