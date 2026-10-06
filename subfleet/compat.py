@@ -108,6 +108,17 @@ class Mapping:
 #: C-17.1's own additions, not v1 spellings — v1 has no `jobs` anywhere and
 #: `show` only as `runs show` — so they cannot break a v1 command, only add one.
 PERMANENT: dict[tuple[str, ...], list[str]] = {
+    ("pick",): ["pick"],
+    ("_api-lane-check",): ["_api-lane-check"],
+    ("errors",): ["errors"],
+    ("brief",): ["brief"],
+    ("watch",): ["watch"],
+    ("keepalive",): ["keepalive"],
+    ("reset",): ["reset"],
+    ("login",): ["login"],
+    ("_canonical-model",): ["_canonical-model"],
+    ("_session-hook",): ["hook"],
+    ("hooks", "uninstall"): ["_hooks-uninstall"],
     ("gate",): ["gate"],
     ("status",): ["status"],
     ("capacity",): ["status"],
@@ -166,10 +177,7 @@ RENAMED: dict[tuple[str, ...], tuple[list[str], str]] = {
 #: during the shadow period and is not something v2 can do on its behalf — so it
 #: is delegated whole rather than rewritten into a v2 verb. Without this row the
 #: `("hooks",)` rule above would quietly turn an uninstall into a `doctor` run.
-DELEGATED_PAIRS: dict[tuple[str, ...], str] = {
-    ("hooks", "uninstall"): "`hooks uninstall` removes v1's own hook entries; "
-                            "v1 owns them, so v1 removes them",
-}
+DELEGATED_PAIRS: dict[tuple[str, ...], str] = {}
 
 #: Direct provider verbs. The agent contract says never to call these from a
 #: session and v1's PreToolUse guard denies them; v2 refuses them outright.
@@ -193,22 +201,13 @@ REFUSED: dict[str, str] = {
 
 #: v1 verbs v2 has not built yet, delegated to the v1 binary with one note.
 #: The value is the sentence the note carries after "not a v2 verb yet".
-DELEGATED: dict[str, str] = {
-    "pick": "lane picking belongs to whichever side owns the lane "
-            "(`subfleet lanes list` shows the owner)",
-    "login": "lane credentials stay with v1 until `lanes transfer --to v2`",
-    "reset": "lane resets stay with v1 until `lanes transfer --to v2`",
-    "errors": "the error ledger is v1's",
-    "watch": "the watchdog is v1's",
-    "keepalive": "keepalive is v1's",
-    "brief": "the morning brief is v1's",
-}
+DELEGATED: dict[str, str] = {}
 
 #: v1's hidden verbs. Delegated like the rest but SILENTLY: every one of these
 #: is called by a v1 runner through `$SUBFLEET_RUN_SUBFLEET`,
 #: `$DELEGATE_SUBFLEET`, or `$SUBFLEET_CODEX_PICK`, and a note on stderr would
 #: land in a runner's captured `err.log` on every single record it writes.
-HIDDEN = ("_session-hook", "_tickle", "_canonical-model", "_api-lane-check",
+HIDDEN = ("_tickle",
           "_record-lane-run", "_record-run", "_record-codex-cooldown")
 
 @dataclass(frozen=True)

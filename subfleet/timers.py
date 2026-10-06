@@ -116,7 +116,8 @@ class Timers:
             if not self.started or self.cancel.is_set():
                 return
             for name, interval in self.intervals.items():
-                if name in self._running or self._due[name] > time.monotonic():
+                if (name in self._running or self._due[name] > time.monotonic()
+                        or name == 'probe' and 'reset_credits' in self._running):
                     continue
                 self._running.add(name)
                 self._due[name] = time.monotonic() + interval
@@ -126,10 +127,26 @@ class Timers:
                 pool = self._mirror if name == 'mirror' else self._cycles
                 pool.submit(self._run, name)
 
-    def _run(self, name):
+    def request(self, name, *, target=None):
+        """Queue operator maintenance on the same workers and overlap guard."""
+        if name not in ('probe', 'keepalive', 'reset_credits'):
+            raise ValueError('unknown maintenance timer')
+        with self._lock:
+            if self.cancel.is_set():
+                return {'status': 'stopping', 'timer': name}
+            if (name in self._running or name == 'reset_credits' and 'probe' in self._running
+                    or name == 'probe' and 'reset_credits' in self._running):
+                return {'status': 'already-running', 'timer': name}
+            self._running.add(name)
+            self.store.add_event('timer.requested', data={'timer': name, 'target': target})
+            callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
+            self._cycles.submit(self._run, name, callback)
+        return {'status': 'scheduled', 'timer': name, 'target': target}
+
+    def _run(self, name, callback=None):
         error = None
         try:
-            getattr(self, name + '_cycle')()
+            (callback or getattr(self, name + '_cycle'))()
             if name == 'probe':
                 error = self._cycle_error
         except Exception as exc:
@@ -168,6 +185,23 @@ class Timers:
         if self._session_mirror is None:
             self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
         self._session_mirror.run_once(options_from(self.policy))
+
+    def reset_credits_cycle(self, *, target=None):
+        snapshot = self.snapshot()
+        result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
+                                       deadline=time.monotonic() + 60, target_lane_id=target)
+        if result.get('status') == 'confirmed':
+            lane_id = result['lane_id']
+            row = next(row for row in snapshot['lanes'] if row['lane_id'] == lane_id)
+            count = row.get('reset_credits_remaining')
+            balance = {'action_id': result['action_id'],
+                       'remaining': max(0, count - 1) if isinstance(count, int) else None}
+            self.store.add_event('reset-credit.balance', lane_id=lane_id, data=balance)
+            self.balances[lane_id] = balance
+        self.store.add_event('timer.reset-credit', data=result)
+        from .status_json import write_status
+        write_status(self.root, self.snapshot(), now=self.now())
+        return result
 
     def stop(self):
         self.cancel.set()

@@ -236,6 +236,10 @@ class Daemon:
             lanes_transfer._publish(edit.path, edit.after)
 
     def _enroll_lane(self, a: protocol.LanesArgs) -> dict:
+        with self._submit_lock:
+            return self._enroll_lane_locked(a)
+
+    def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
         """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
         directory holding a `claude auth login`), a Codex home (holds `auth.json`),
         or a `claude-quota-<email>` keychain item. The adapter's enrol turn decides
@@ -250,6 +254,7 @@ class Daemon:
                                          "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
         path = Path(text).expanduser()
         if path.is_dir():
+            path = path.resolve()
             provider = "codex" if (path / "auth.json").is_file() else "claude"
             credential = Credential(provider, str(path), "home")
         elif text.startswith("claude-quota-"):
@@ -262,22 +267,52 @@ class Daemon:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
             raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
-        existing = self.store.one("SELECT lane_id FROM lanes WHERE credential_ref=?", (credential.ref,))
+        bindings = self.store.query("SELECT * FROM lanes WHERE credential_ref=? ORDER BY created_at,rowid", (credential.ref,))
+        existing = bindings[-1] if bindings else None
+        enrollment_holder = None
         if existing:
-            raise protocol.ProtocolError(
-                f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
-                Exit.INVALID_INPUT, "subfleet lanes list")
+            if any(row['enabled'] for row in bindings):
+                raise protocol.ProtocolError(
+                    f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
+                    Exit.INVALID_INPUT, "subfleet lanes list")
+            if existing['desktop'] or existing['owner'] != 'v2':
+                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED)
+            if a.owner is not None and a.owner != existing['owner']:
+                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED)
+            owner = LaneOwner(existing['owner'])
+            credential = dataclasses.replace(credential, epoch=max(row['credential_epoch'] for row in bindings) + 1)
+            enrollment_holder = 'enroll:' + str(uuid.uuid4())
+            with self.store.transaction('lane.reenroll-reserved', lane_id=existing['lane_id']):
+                for row in bindings:
+                    current = self.store.get_lane(row['lane_id'])
+                    if current.enabled or current.owner != owner:
+                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                    if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
+                                      "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
+                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                    if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ?", (f"lane:{row['lane_id']}:slot:%",)):
+                        raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED)
+                self.store.acquire_lease(f"lane:{existing['lane_id']}:slot:0", enrollment_holder)
         try:
-            info = get_adapter(credential.provider).enroll(credential)
-        except AdapterError as exc:
-            raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+            try:
+                info = get_adapter(credential.provider).enroll(credential)
+            except AdapterError as exc:
+                raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+            if existing and existing.get('identity') and info.identity_status != 'verified':
+                raise protocol.ProtocolError('re-enrollment could not verify the replacement identity', Exit.REFUSED)
+            if existing and info.account_key != existing['account_key']:
+                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+        finally:
+            if enrollment_holder:
+                self.store.release_leases(enrollment_holder)
         lane_id = self._next_lane_id(credential.provider)
         lane = Lane(lane_id, credential.provider, info.account_key, credential,
                     info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
                     info.identity, info.label)
         with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
                 "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
-                "label": info.label, "identity_status": info.identity_status}):
+                "label": info.label, "identity_status": info.identity_status,
+                "supersedes": existing['lane_id'] if existing else None}):
             self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
             for reading in info.readings:
                 self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
@@ -759,6 +794,15 @@ class Daemon:
         return result.override
 
     def dispatch(self, op: str, args: dict) -> dict:
+        if op == "pick":
+            from . import picker
+            a = protocol.coerce_args(protocol.PickArgs, args)
+            view = self._capacity_view(self._desktop_identity())
+            view["lane_leases"] = self.store.query("SELECT lease_key,holder FROM leases WHERE lease_key LIKE 'lane:%'")
+            return picker.rank(self.policy, view, **dataclasses.asdict(a))
+        if op == "operations":
+            from . import operations
+            return operations.dispatch(self, protocol.coerce_args(protocol.OperationsArgs, args))
         if op in ("gate.start", "gate.poll", "gate.continue"):
             from .gate.service import dispatch
             return dispatch(self, op, args)

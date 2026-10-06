@@ -628,7 +628,7 @@ def load_settings(path: Path) -> dict[str, Any]:
 
 
 def plan(path: Path | None = None, *, command: str | None = None,
-         timeout: int | None = None) -> dict[str, Any]:
+         timeout: int | None = None, remove: bool = False) -> dict[str, Any]:
     """What `--hooks` would do: the current file, the proposed file, the diff.
 
     Nothing is written here. `daemon install --hooks` prints this diff first and
@@ -648,10 +648,11 @@ def plan(path: Path | None = None, *, command: str | None = None,
     for event, group in desired_groups(command, timeout).items():
         existing = hooks.get(event) if isinstance(hooks.get(event), list) else []
         stripped = _strip_ours(list(existing), event, resolved)
-        updated = [*stripped, group]
+        updated = stripped if remove else [*stripped, group]
         if updated != list(existing):
             changed.append(event)
-        proposed_hooks[event] = updated
+        if updated or event in hooks:
+            proposed_hooks[event] = updated
     proposed = {**current, "hooks": proposed_hooks}
     return {
         "ok": True, "path": str(path), "changed_events": changed,
@@ -694,11 +695,11 @@ def _diff(current: dict[str, Any], proposed: dict[str, Any], label: str) -> str:
 
 
 def apply(path: Path | None = None, *, command: str | None = None,
-          timeout: int | None = None) -> dict[str, Any]:
+          timeout: int | None = None, remove: bool = False) -> dict[str, Any]:
     """Write the proposed settings, keeping a timestamped backup as v1 does."""
     from datetime import datetime
     path = settings_path() if path is None else path
-    report = plan(path, command=command, timeout=timeout)
+    report = plan(path, command=command, timeout=timeout, remove=remove)
     if not report.get("ok") or not report["changed_events"]:
         return {**report, "written": False}
     backup = None

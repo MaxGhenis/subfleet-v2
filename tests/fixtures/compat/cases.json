@@ -28,14 +28,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_api-lane-check",
      "/Users/maxghenis/.codex-api"
     ],
-    "verb": "",
+    "verb": "_api-lane-check",
     "exit_code": null,
-    "rule": "hidden:_api-lane-check",
+    "rule": "permanent:_api-lane-check",
     "note_count": 0,
     "env": {}
    }
@@ -55,14 +55,14 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_api-lane-check",
      "/Users/maxghenis/.codex-api"
     ],
-    "verb": "",
+    "verb": "_api-lane-check",
     "exit_code": null,
-    "rule": "hidden:_api-lane-check",
+    "rule": "permanent:_api-lane-check",
     "note_count": 0,
     "env": {}
    }
@@ -105,14 +105,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "brief"
     ],
-    "verb": "",
+    "verb": "brief",
     "exit_code": null,
-    "rule": "delegate:brief",
-    "note_count": 1,
+    "rule": "permanent:brief",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -179,14 +179,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "claude-fable-5"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -204,14 +204,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "claude-fable-5-1[1m]"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -229,14 +229,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "_canonical-model",
      "fable"
     ],
-    "verb": "",
+    "verb": "_canonical-model",
     "exit_code": null,
-    "rule": "hidden:_canonical-model",
+    "rule": "permanent:_canonical-model",
     "note_count": 0,
     "env": {}
    }
@@ -923,16 +923,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--hours",
      "12"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -950,16 +950,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--hours",
      "48"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -976,15 +976,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "errors",
      "--json"
     ],
-    "verb": "",
+    "verb": "errors",
     "exit_code": null,
-    "rule": "delegate:errors",
-    "note_count": 1,
+    "rule": "permanent:errors",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2705,15 +2705,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "hooks",
-     "uninstall"
+     "_hooks-uninstall"
     ],
-    "verb": "",
+    "verb": "_hooks-uninstall",
     "exit_code": null,
-    "rule": "delegate:hooks uninstall",
-    "note_count": 1,
+    "rule": "permanent:hooks uninstall",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2733,16 +2732,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "hooks",
-     "uninstall",
+     "_hooks-uninstall",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "_hooks-uninstall",
     "exit_code": null,
-    "rule": "delegate:hooks uninstall",
-    "note_count": 1,
+    "rule": "permanent:hooks uninstall",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2807,14 +2805,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2831,15 +2829,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2858,17 +2856,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--dry-run",
      "--family",
      "claude"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -2886,16 +2884,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "keepalive",
      "--family",
      "claude"
     ],
-    "verb": "",
+    "verb": "keepalive",
     "exit_code": null,
-    "rule": "delegate:keepalive",
-    "note_count": 1,
+    "rule": "permanent:keepalive",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3191,16 +3189,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
      "3"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3218,16 +3216,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
      "app"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -3247,7 +3245,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "login",
      "codex",
@@ -3255,10 +3253,10 @@
      "--no-watch",
      "--no-open"
     ],
-    "verb": "",
+    "verb": "login",
     "exit_code": null,
-    "rule": "delegate:login",
-    "note_count": 1,
+    "rule": "permanent:login",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4041,14 +4039,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4067,15 +4065,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4096,17 +4094,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--json",
      "--all"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4130,7 +4128,7 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
@@ -4142,10 +4140,10 @@
      "--exclude",
      "max@example.com"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4164,17 +4162,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--model",
      "claude-fable-5"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4193,17 +4191,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "claude",
      "--model",
      "fable"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4222,15 +4220,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4248,16 +4246,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex",
      "--cached"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4276,15 +4274,15 @@
    },
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4303,17 +4301,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "pick",
      "codex",
      "--json",
      "--all"
     ],
-    "verb": "",
+    "verb": "pick",
     "exit_code": null,
-    "rule": "delegate:pick",
-    "note_count": 1,
+    "rule": "permanent:pick",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4897,16 +4895,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "3"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4925,17 +4923,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "3",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4953,16 +4951,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "all"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -4981,17 +4979,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "all",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5011,16 +5009,16 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "--policy"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -5039,17 +5037,17 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "reset",
      "codex",
      "--policy",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "reset",
     "exit_code": null,
-    "rule": "delegate:reset",
-    "note_count": 1,
+    "rule": "permanent:reset",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -12185,14 +12183,14 @@
    "env": {},
    "v1_parses": false,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "pre-bash"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -12210,14 +12208,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "session-start"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -12237,14 +12235,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
-     "_session-hook",
+     "hook",
      "user-prompt"
     ],
-    "verb": "",
+    "verb": "hook",
     "exit_code": null,
-    "rule": "hidden:_session-hook",
+    "rule": "permanent:_session-hook",
     "note_count": 0,
     "env": {}
    }
@@ -13472,14 +13470,14 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "watch"
     ],
-    "verb": "",
+    "verb": "watch",
     "exit_code": null,
-    "rule": "delegate:watch",
-    "note_count": 1,
+    "rule": "permanent:watch",
+    "note_count": 0,
     "env": {}
    }
   },
@@ -13498,15 +13496,15 @@
    "env": {},
    "v1_parses": true,
    "expect": {
-    "disposition": "delegate",
+    "disposition": "map",
     "argv": [
      "watch",
      "--dry-run"
     ],
-    "verb": "",
+    "verb": "watch",
     "exit_code": null,
-    "rule": "delegate:watch",
-    "note_count": 1,
+    "rule": "permanent:watch",
+    "note_count": 0,
     "env": {}
    }
   },
