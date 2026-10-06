@@ -10,6 +10,9 @@ release site frees a turn's row with the job's other leases.
   while one exists, and a turn waits while `worktree:<folder>` is held.
 - `worktree-read:<folder>:<job id>`: a read-only turn. It excludes no writer;
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
+- `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
+  job's tree. No turn, writable or read-only, starts on that folder or on one
+  inside it while it is held (`retiring`, C-8.4).
 
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
@@ -48,6 +51,7 @@ EXCLUSIVE = "worktree:"
 TURN = "worktree-turn:"
 READER = "worktree-read:"
 SHARED = (TURN, READER)
+RETENTION = "retention:"                    # the holder of a retirement's fence: `retention:<job id>`
 
 
 def canonical(path: str | os.PathLike[str]) -> str:
@@ -174,6 +178,34 @@ def within(folder: str, top: str) -> bool:
     """Whether `folder` is `top` or a folder inside it, as spelled: `/a/b/c` is in
     `/a/b`, and `/a/bc` and `/a/b:c` are not."""
     return folder == top or folder.startswith(top.rstrip("/") + "/")
+
+
+def above(folder: str) -> list[str]:
+    """The folders `folder` is inside, nearest first, `/` last: `/a/b/c` is in
+    `/a/b`, `/a` and `/`. String operations only (`os.path.dirname`), so a store
+    transaction may call it: the folder is spelled once, before the transaction
+    (`canonical`). For a folder so spelled (absolute, no `.`, `..`, `//` or
+    trailing `/`) these are exactly the other folders it is `within`."""
+    found = []
+    while (parent := os.path.dirname(folder)) not in (folder, ""):
+        found.append(parent)
+        folder = parent
+    return found
+
+
+def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:
+    """The `worktree:` keys retention holds (`RETENTION`) on `folder` or on a
+    folder it is inside (`above`), nearest first. While one is held a retirement
+    is archiving and moving that tree, so no turn starts there: also not one in
+    a repository nested in the tree, whose row is keyed on that repository, not
+    on the tree (C-8.4). A detached writer's `worktree:` on a folder above is
+    not among them: a checkout's top level is the hold, and a repository nested
+    in it is a hold of its own (C-6.5). `read(sql, params)` as for `turn_holds`;
+    no filesystem work."""
+    keys = [exclusive_key(each) for each in (folder, *above(folder))]
+    held = dict(_row(row) for row in read(
+        f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(keys))})", tuple(keys)))
+    return [key for key in keys if str(held.get(key) or "").startswith(RETENTION)]
 
 
 def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,

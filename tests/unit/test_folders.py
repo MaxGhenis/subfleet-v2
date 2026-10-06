@@ -7,6 +7,7 @@ extends another's (`/a/b:c` beside `/a/b`) is never mistaken for it.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 
 import pytest
@@ -90,6 +91,79 @@ def test_within_is_a_partial_order_on_folders(a, b, c):
     if folders.within(a, b) and folders.within(b, c):
         assert folders.within(a, c)
     assert folders.within(a + "/x", a) and not folders.within(a + "x", a) and not folders.within(a + ":x", a)
+
+
+@given(folder=FOLDER, data=st.data())
+def test_above_is_exactly_the_other_folders_a_folder_is_within(folder, data):
+    """`above` (C-8.4) agrees with `within`, built another way: the folders above a
+    folder spelled one way are its leading parts up to each `/` but the first, and
+    `/`, nearest first, one per name in it; each is a folder it is `within`, and of
+    the folders it may be confused with (one inside it, one whose name extends it,
+    any other), none is above it unless `within` says so."""
+    found = folders.above(folder)
+    built = sorted({folder[:at] for at, char in enumerate(folder) if char == "/" and at} | {"/"}, key=len, reverse=True)
+    assert found == built and len(found) == folder.count("/")
+    assert all(folders.within(folder, each) and each != folder for each in found)
+    assert folders.above("/") == []
+    other = data.draw(near(folder), label="other")
+    assert (other in found) == (other != folder and folders.within(folder, other))
+
+
+HOLDER = st.one_of(JOB.map(lambda job: "retention:" + job), JOB, JOB.map(lambda job: f"{job}/a1"),
+                   JOB.map(lambda job: "gate-round:" + job), st.just("retention"), st.just("retentions:x"))
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(data=st.data())
+def test_retiring_names_exactly_retentions_fences_on_a_folder_and_above_it(data):
+    """`retiring` (C-8.4, C-6.5) against a scan of every row: the `worktree:` keys
+    whose folder `probe` is `within` and whose holder is retention's
+    (`retention:<job>`), nearest first. Not a detached writer's, an attempt's or a
+    gate round's `worktree:` above it, not a fence beside or below it, and never a
+    turn's row, whatever their folders' names."""
+    probe = data.draw(FOLDER, label="probe")
+    spots = st.one_of(st.sampled_from([probe, *folders.above(probe)]), near(probe))
+    fences = data.draw(st.lists(st.tuples(spots, HOLDER), max_size=10), label="fences")
+    turns = data.draw(st.lists(st.tuples(spots, JOB, st.booleans()), max_size=4), label="turns")
+    rows = [(folders.exclusive_key(spot), holder) for spot, holder in fences]
+    rows += [(folders.turn_key(spot, job, writable=writable), job) for spot, job, writable in turns]
+    read = table(rows)
+    stored = dict(read("SELECT lease_key, holder FROM leases", ()))
+    want = [key for key, holder in stored.items()
+            if key.startswith("worktree:") and holder.startswith("retention:")
+            and folders.within(probe, key[len("worktree:"):])]
+    assert folders.retiring(read, probe) == sorted(want, key=len, reverse=True)
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(tree=FOLDER, data=st.data(), job=JOB, writable=st.booleans())
+def test_a_fence_holds_exactly_the_turns_whose_row_would_keep_its_tree(tree, data, job, writable):
+    """The two sides of C-8.4 agree. Retention's fence on a tree holds a turn at
+    admission (`retiring`) exactly when that turn's row, had it been there first,
+    would keep the tree at selection and at the commit (`turn_holds(..., inside=True)`)
+    and in the census (`within`): a turn on the tree or in a folder inside it, never
+    one beside or above it."""
+    turn = data.draw(near(tree), label="turn")
+    fenced = bool(folders.retiring(table([(folders.exclusive_key(tree), "retention:job")]), turn))
+    kept = bool(folders.turn_holds(table([(folders.turn_key(turn, job, writable=writable), job)]), tree, inside=True))
+    assert fenced == kept == folders.within(turn, tree)
+
+
+def test_retiring_reads_no_file_system(monkeypatch):
+    """C-8.4: admission calls `retiring` inside its reserving transaction, where no
+    folder is spelled or looked up: the folder comes spelled (`canonical`, at submit),
+    and its parents are string operations. `folders` sees an `os` with nothing but
+    `path.dirname` (pytest's own `os` is untouched)."""
+    import types
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("no filesystem work in the admitting transaction")
+
+    for name in ("canonical", "spelling", "_kernel_path"):
+        monkeypatch.setattr(folders, name, unexpected)
+    monkeypatch.setattr(folders, "os", types.SimpleNamespace(path=types.SimpleNamespace(dirname=os.path.dirname)))
+    read = table([("worktree:/w", "retention:j"), ("worktree:/w/a", "detached"), ("worktree:/", "retention:k")])
+    assert folders.retiring(read, "/w/a/b") == ["worktree:/w", "worktree:/"]
 
 
 def test_inside_reads_each_rows_folder_from_its_key():

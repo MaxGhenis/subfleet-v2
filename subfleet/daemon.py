@@ -4816,6 +4816,10 @@ class Daemon:
                             # retention and a detached writer still see the folder in use.
                             leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
                             blockers.append(folders.exclusive_key(write_target))
+                            # C-8.4: nor while retention retires a tree its folder is
+                            # in, a repository nested in a job's worktree; a detached
+                            # writer above it holds another checkout (C-6.5).
+                            blockers.extend(folders.retiring(read, write_target))
                         elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
@@ -4825,12 +4829,10 @@ class Daemon:
                             blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
                         elif job["kind"] == "turn" and read_folder:
                             # C-8.4, C-13.4: a read-only turn excludes no writer, but
-                            # retention never removes a folder a turn is working in.
+                            # retention never removes a folder a turn is working in, or
+                            # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
-                            fence = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
-                                               (folders.exclusive_key(read_folder),)).fetchone()
-                            if fence and str(fence[0]).startswith("retention:"):
-                                blockers.append(folders.exclusive_key(read_folder))
+                            blockers.extend(folders.retiring(read, read_folder))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -4865,7 +4867,11 @@ class Daemon:
                             # share their folder, so no turn takes it from another, and no
                             # detached job takes a turn's row. It is among the keys the waiter
                             # waits for, so a job holding it is never held behind the waiter.
+                            # A turn's hold names its folder: a fence it waits for may be
+                            # on a tree that folder is in, which its reason says (C-6.11).
                             hold = {"reason": "lease-held", "leases": contested + blocked,
+                                    **({"folder": write_target or read_folder}
+                                       if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])

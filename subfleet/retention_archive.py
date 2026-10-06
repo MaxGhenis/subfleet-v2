@@ -759,10 +759,10 @@ class Retirement:
                     reason = self.ctx.pinned(self.job_id, landed) if self.ctx.pinned else None
                     # The pins compare `jobs.worktree` as recorded; the journal holds
                     # the canonical spelling the selecting transaction checked. A turn
-                    # row on it or on a folder inside it (admission fences only a
-                    # turn's own folder, so one may register in a repository nested in
-                    # the tree after selection) keeps the job whatever the recorded
-                    # spelling, or with none recorded (review of 31048e67, F1).
+                    # row on it or on a folder inside it keeps the job whatever the
+                    # recorded spelling, or with none recorded (review of 31048e67,
+                    # F1). Admission reserves no turn there while the fence is held
+                    # (`folders.retiring`); this is the commit's own check of the rows.
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
