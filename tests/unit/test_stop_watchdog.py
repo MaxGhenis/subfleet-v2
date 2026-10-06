@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -40,6 +41,18 @@ REPO = Path(__file__).resolve().parents[2]
 #: covers the kernel fallback margin, dump, and parent scheduling.
 SLACK_S = 5.0
 ALARM_MARGIN_S = 3.0
+
+
+def daemon_for_test(root):
+    """Stub this constructor only, leaving watchdog subprocesses untouched."""
+    from subfleet.daemon import Daemon
+    pid, real_start = os.getpid(), daemon_module.procs.proc_start
+    with pytest.MonkeyPatch.context() as identity:
+        identity.setattr(daemon_module.procs, "boot_id", lambda: "stop-watchdog-boot")
+        identity.setattr(daemon_module.procs, "proc_start", lambda found: (
+            "stop-watchdog-start" if found == pid else real_start(found)))
+        return Daemon(root, desktop_prober=lambda: None)
+
 
 CHILD = r'''
 import json, os, re, resource, signal, sys, threading, time
@@ -499,8 +512,7 @@ def test_c5_8a_main_arms_the_bound_before_anything_else_sees_the_stop(tmp_path, 
 def test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything(tmp_path, monkeypatch):
     """C-5.8a: `close()` calls `on_stop` first, before `stopping` is set and
     before it joins or drains anything, on the thread that is closing."""
-    from subfleet.daemon import Daemon
-    daemon = Daemon(tmp_path / "root", desktop_prober=lambda: None)
+    daemon = daemon_for_test(tmp_path / "root")
     calls = []
     daemon.on_stop = lambda: calls.append(
         (threading.current_thread(), daemon.stopping.is_set()))
@@ -516,8 +528,7 @@ def test_c5_8a_a_failed_arm_never_stops_close_from_draining_and_unlocking(tmp_pa
     and releases `daemon.lock`."""
     import fcntl
     import os
-    from subfleet.daemon import Daemon
-    daemon = Daemon(tmp_path / "root", desktop_prober=lambda: None)
+    daemon = daemon_for_test(tmp_path / "root")
 
     def refuse():
         raise RuntimeError("unable to start watchdog thread")

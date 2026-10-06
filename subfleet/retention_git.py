@@ -226,6 +226,34 @@ def registration_in(common: Path, tree: Path, *, named: bool = False) -> Registr
     return None
 
 
+def moved_tree(common: Path, tree: Path) -> Path | None:
+    """A live checkout under the registration id allocated for ``tree``.
+
+    Git keeps that id across ``worktree move``. Confirm both directions of
+    the registration before treating an unrelated path as a moved checkout;
+    the caller keeps the job and never acts on that checkout or registration.
+    """
+    pattern = re.compile(re.escape(tree.name) + r"[0-9]*")
+    try:
+        admins = sorted((common / "worktrees").iterdir())
+    except OSError:
+        return None
+    for admin in admins:
+        if not pattern.fullmatch(admin.name) or admin.is_symlink():
+            continue
+        try:
+            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+            gitfile = _resolve(admin, backlink)
+            if gitfile.name != ".git" or gitfile.parent == tree or not os.path.lexists(gitfile.parent):
+                continue
+            reg, _ = registration(gitfile.parent)
+        except OSError:
+            continue
+        if reg is not None and reg.admin == admin and reg.common == common:
+            return gitfile.parent
+    return None
+
+
 def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
     """For a directory that is gone: the common directory of the repository its
     nearest existing ancestor is in, or, when git cannot use that (a linked
