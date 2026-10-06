@@ -236,8 +236,8 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
 
     with monkeypatch.context() as scoped:
         # Archive git (`retention_git.run` and the `cat-file --batch` readers) starts
-        # through `subprocess.Popen`, as `subprocess.run` does; the holder scan is
-        # stubbed for every test (tests/conftest.py).
+        # through `subprocess.Popen`, as `subprocess.run` does; tests/conftest.py stubs
+        # the holder scan for every test not marked `real_lsof`, this one included.
         scoped.setattr(rgit.subprocess, "Popen", no_process)
         result = retention.maintenance(store, root, max_jobs=0)
     assert started == []
