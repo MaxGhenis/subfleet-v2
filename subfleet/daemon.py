@@ -3057,14 +3057,15 @@ class Daemon:
             if job["state"] in TERMINAL:
                 return {"job_id": args.job_id, "status": "already finished"}
             rows = tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) SELECT j.* FROM jobs j JOIN family f USING(job_id)", (args.job_id,)).fetchall()
+            now = utcnow()      # C-7.3: one cancel, one instant, for the whole family
             for raw in rows:
                 row = dict(raw)
                 if row["state"] in TERMINAL:
                     continue
-                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?", (utcnow(), row["job_id"]))
+                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?", (now, row["job_id"]))
                 active = tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (row["job_id"],)).fetchone()
                 if not active:
-                    tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (utcnow(), row["job_id"]))
+                    tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
                     tx.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
                     # C-13.1, C-15.1: a job with an attempt behind it was waiting to try again.
                     earlier = self._earlier_attempt(tx, row)
