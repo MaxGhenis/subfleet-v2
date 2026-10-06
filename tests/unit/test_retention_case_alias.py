@@ -344,11 +344,11 @@ def test_a_tree_away_only_while_git_looks_is_found_again_from_its_checkout_top(t
     """C-6.5: the narrower windows of the same race (review of fb674463, Q1 and Q1b).
     With the tree away only for git's look (`git`), git finds no checkout and the
     subdirectory is spelled in full; with it away for git's look and back only for
-    the spelling submit records (`git-and-spelling`). Either way submit marks the
-    folder `unspelled`: git found no checkout while a `.git` is above the folder
-    (`folders.under_git`), and the mark comes from the same spelling it records.
-    Admission finds the checkout's top, so a detached writer in place there is
-    refused. Before, the row was on `Job/src` and the writer ran beside the turn."""
+    the spelling submit records (`git-and-spelling`). Either way git found no
+    checkout while a `.git` is above the folder (`folders.under_git`), so submit
+    asks git once more and records the checkout's top; a detached writer in place
+    there is refused. Before, the row was on `Job/src` and the writer ran beside
+    the turn."""
     from tests.fake.test_admission_latency import fleet_daemon, measure, submit
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
     from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
@@ -387,12 +387,91 @@ def test_a_tree_away_only_while_git_looks_is_found_again_from_its_checkout_top(t
                                     settings={**SETTINGS, "permission": "accept-edits"})
         assert seen == [None] and wt.is_dir()
         recorded = daemon._submitted(turn)
-        assert recorded.get("unspelled") is True and recorded["write_target"].endswith("/src"), recorded
+        assert recorded["write_target"] == top and "unspelled" not in recorded, recorded
         daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=True)]
+        # C-6.5: refused, by the recorded target or the turn's row, whichever is checked first.
+        with pytest.raises(AdapterError, match="is held by a live writable job|is being written by a conversation turn"):
+            submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+
+
+def test_a_tree_away_again_for_admissions_look_is_found_from_its_checkout_top(tmp_path):
+    """Q1c of review 2: submit was overtaken (the tree away for all of it), so the
+    job is `unspelled`, and at admission the tree is away again for admission's own
+    git look only. Admission asks git once more, as submit does, and keys the row
+    on the checkout's top; a detached writer in place there is refused (C-6.5).
+    Before, `derived` fell back to the subdirectory and the row went on `Job/src`."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import SETTINGS
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, _, _, _ = tree_and_alias(daemon, harness, "tree")
+        (wt / "src").mkdir()
+        (wt / "src" / "a.txt").write_text("a\n")
+        folder = wt.with_name("jOB") / "src"
+        aside, target, top = wt.with_name(".Job.aside"), os.path.realpath(folder), folders.canonical(wt)
+        _, turn = submit_while_moved(daemon, harness, folder, lambda: wt.rename(aside),
+                                     {**SETTINGS, "permission": "accept-edits"})
+        aside.rename(wt)
+        assert daemon._submitted(turn).get("unspelled") is True
+        real_top, seen = daemon_module.git_toplevel, []
+
+        def top_while_away(workdir, *args, **kwargs):
+            if seen or str(workdir) != target:
+                return real_top(workdir, *args, **kwargs)
+            wt.rename(aside)
+            try:
+                seen.append(real_top(workdir, *args, **kwargs))
+            finally:
+                aside.rename(wt)
+            return seen[-1]
+
+        with pytest.MonkeyPatch.context() as inner:
+            inner.setattr(daemon_module, "git_toplevel", top_while_away)
+            daemon._admit_turns()
+        assert seen == [None]
         assert _live(daemon, turn), daemon._holds.get(turn)
         assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=True)]
         with pytest.raises(AdapterError, match="is being written by a conversation turn"):
             submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+
+
+@pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
+def test_a_git_entry_git_ignores_costs_one_more_look_and_nothing_else(tmp_path, writable):
+    """A `.git` above a folder that git does not take for a checkout (here a gitfile
+    naming no repository) makes `_row_folder` ask git once more, and git answers the
+    same: the folder is the conversation's own, as before, unmarked, and the turn is
+    placed at once. It never waits or fails for it."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        outside = tmp_path / "outside" / "broken" / "sub"
+        outside.mkdir(parents=True)
+        (outside.parent / ".git").write_text("gitdir: /nonexistent/subfleet-test\n")
+        if daemon_module.git_toplevel(str(outside)) is not None:
+            pytest.skip("git took the gitfile for a checkout here")
+        calls = []
+        real_top = daemon_module.git_toplevel
+        patch.setattr(daemon_module, "git_toplevel", lambda workdir, *a, **k: calls.append(str(workdir)) or real_top(workdir, *a, **k))
+        options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
+        _, _, turn = message_in(daemon, harness, "Ignored git", workspace=outside, settings=options)
+        recorded = daemon._submitted(turn)
+        spelled = folders.canonical(outside)
+        assert (recorded.get("write_target") or recorded.get("folder")) == spelled and "unspelled" not in recorded
+        assert calls.count(os.path.realpath(outside)) == 2, calls      # one look, and one more
+        daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(spelled, turn, writable=writable)]
 
 
 def test_an_absent_in_place_writer_names_retentions_fence_once(tmp_path):
