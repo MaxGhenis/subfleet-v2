@@ -5,8 +5,11 @@ Uses only state fixtures (no daemon/provider subprocesses); each pytest slice
 has a nine-minute bound. Output is a concise summary, never a repo artifact.
 """
 from pathlib import Path
+import os
+import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
@@ -101,27 +104,60 @@ def main():
     selected = MUTATIONS if len(sys.argv) == 1 else tuple(m for m in MUTATIONS if m[0] in sys.argv[1:])
     assert selected, "no mutations selected"
     killed = 0
+    survivors, no_control, failures = [], [], []
+    def run(node):
+        # Separate bytecode caches prevent a same-size edit in the same second
+        # from reusing the control's compiled production module.
+        with tempfile.TemporaryDirectory(prefix="sf-mutation-") as cache:
+            return subprocess.run(
+                [sys.executable, "-B", "-X", f"pycache_prefix={cache}",
+                 "-m", "pytest", "-xq", node], cwd=ROOT,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                capture_output=True, text=True, timeout=540)
+
     for name, filename, old, new, node in selected:
         path = ROOT / filename
-        original = path.read_text()
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode()
         assert original.count(old) == 1, (name, original.count(old))
         try:
+            control = run(node)
+        except subprocess.TimeoutExpired:
+            no_control.append(name)
+            print(f"NO CONTROL: {name}: baseline timed out", flush=True)
+            continue
+        if control.returncode != 0 or not re.search(r"\b[1-9]\d* passed\b", control.stdout):
+            no_control.append(name)
+            print(f"NO CONTROL: {name}: baseline did not pass", flush=True)
+            print(control.stdout[-6000:], control.stderr[-2000:], flush=True)
+            continue
+        try:
             path.write_text(original.replace(old, new))
-            result = subprocess.run([sys.executable, "-m", "pytest", "-xq", node], cwd=ROOT,
-                                    capture_output=True, text=True, timeout=540)
+            result = run(node)
             # Infrastructure errors are not mutation kills: require an actual
             # test assertion failure and pytest's tests-failed exit status.
             detected = result.returncode == 1 and "AssertionError" in result.stdout
+            if detected:
+                killed += 1
+                print(f"KILLED: {name}: {result.stdout.strip().splitlines()[-1]}", flush=True)
+            elif result.returncode == 0:
+                survivors.append(name)
+                print(f"SURVIVED: {name}", flush=True)
+            else:
+                failures.append(name)
+                print(f"INCONCLUSIVE: {name}: no assertion kill", flush=True)
             if not detected:
                 print(result.stdout[-6000:], result.stderr[-2000:], flush=True)
-            assert detected, f"mutation survived or failed to run: {name}"
-            killed += 1
-            print(f"KILLED: {name}: {result.stdout.strip().splitlines()[-1]}", flush=True)
+        except subprocess.TimeoutExpired:
+            failures.append(name)
+            print(f"INCONCLUSIVE: {name}: mutant timed out", flush=True)
         finally:
-            path.write_text(original)
-            assert path.read_text() == original
+            path.write_bytes(original_bytes)
+            assert path.read_bytes() == original_bytes
     print(f"{killed}/{len(selected)} mutations killed; production source restored", flush=True)
+    print(f"Survivors: {survivors}; no control: {no_control}; inconclusive: {failures}", flush=True)
+    return int(bool(survivors or no_control or failures))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

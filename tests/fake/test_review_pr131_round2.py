@@ -216,6 +216,7 @@ def test_forked_child_keeping_markers_holds_across_many_paces_after_parent_exits
     monkeypatch.setattr(procs, '_read', marker_read)
     monkeypatch.setattr(procs, '_stat', lambda pid: world[pid][2])
     monkeypatch.setattr(procs, 'identity', lambda pid: procs.ProcessIdentity(pid, BOOT, world[pid][3]))
+    monkeypatch.setattr(procs, 'process_group', lambda pid: world[pid][1])
     from tests.fake.test_review_pr131_probes import ORIGINAL_CENSUS
     monkeypatch.setattr(procs, 'containment', ORIGINAL_CENSUS)
     clock.advance()
