@@ -1440,6 +1440,31 @@ class Daemon:
         known[job_id] = frozenset(found)
         return known[job_id]
 
+    def _priority_jobs(self, jobs: list[dict]) -> dict[str, dict]:
+        """C-6.15: caller ancestry, including finished parents, read once per pass.
+
+        No queries when priority is off. Fetch only named parents in indexed
+        batches; missing rows and cycles terminate without scanning the store.
+        """
+        if not admission_settings(self.policy)["priority_callers"]:
+            return {}
+        family = {job["job_id"]: job for job in jobs}
+        seen = set(family)
+        pending = {job["parent_job_id"] for job in jobs if job.get("parent_job_id")} - seen
+        while pending:
+            parents = sorted(pending)
+            seen.update(parents)
+            pending = set()
+            for start in range(0, len(parents), 500):
+                chunk = parents[start:start + 500]
+                for row in self.store.query(
+                        "SELECT job_id,caller_session,parent_job_id FROM jobs "
+                        f"WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk)):
+                    family[row["job_id"]] = row
+                    if row["parent_job_id"] and row["parent_job_id"] not in seen:
+                        pending.add(row["parent_job_id"])
+        return family
+
     def _liveness(self, jobs: list[dict]) -> scheduler.Liveness | None:
         """C-6.9: who is waiting on these jobs now (`scheduler.priority_class`).
 
@@ -1464,6 +1489,20 @@ class Daemon:
                 f"SELECT job_id FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))}) "
                 "AND state IN ('queued','running','waiting')", tuple(chunk)))
         return scheduler.Liveness(sessions=sessions, jobs=frozenset(live_jobs))
+
+    def _priority_callers_status(self) -> list[dict]:
+        """C-6.15: configured callers, with registry names when available."""
+        callers = admission_settings(self.policy)["priority_callers"] or ()
+        if not callers:
+            return []
+        found = self._session_rows()
+        rows = sorted((found or {}).get("rows", ()), key=lambda row: row.rank, reverse=True)
+        names: dict[str, str] = {}
+        for row in rows:
+            if row.name:
+                names.setdefault(row.session_id.strip().lower(), row.name)
+        return [{"session_id": caller.strip().lower(), "name": names.get(caller.strip().lower())}
+                for caller in callers]
 
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
         """Read-only advisory identity: a warm profile or conservative cached hints."""
@@ -2793,6 +2832,7 @@ class Daemon:
                     "claude_cards": self.timers.cards_view(),  # C-9.10
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
+                    "priority_callers": self._priority_callers_status(),
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
@@ -2831,6 +2871,9 @@ class Daemon:
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
         standing = {"job_id": job["job_id"], "kind": job["kind"], "state": job["state"], "tier": job["tier"],
+                    "class": scheduler.priority_class(
+                        job, None if job["kind"] == "turn" else self._liveness([job]), policy=self.policy,
+                        jobs={} if job["kind"] == "turn" else self._priority_jobs([job])),
                     # C-26.12: a turn is named `turn-<conversation id>` (design §3).
                     "conversation_id": (job["name"][len("turn-"):] if job["kind"] == "turn"
                                         and str(job["name"] or "").startswith("turn-") else None),
@@ -4386,6 +4429,7 @@ class Daemon:
         # machine is, each read once for the pass. A turn is always `attended` and
         # never held by the guard, so the turn pass reads neither and stays cheap.
         liveness = self._liveness(queued) if kind == "detached" else None
+        priority_jobs = self._priority_jobs(queued) if kind == "detached" else {}
         reading = machine.read() if kind == "detached" else None
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
@@ -4428,9 +4472,9 @@ class Daemon:
         # an uncapped pool is never full.
         saturated: dict[str, bool] = {}
         turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
-        # C-6.9: attended turns, then jobs someone is waiting on, then background
-        # work; tier, then oldest first, within each.
-        for job in scheduler.ordered_jobs(self.policy, queued, liveness):
+        # C-6.9, C-6.15: attended, priority, session, background. Priority is
+        # FIFO across tiers; the other classes keep tier then FIFO.
+        for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
@@ -4486,11 +4530,12 @@ class Daemon:
             if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
                     and (due or job["wait_reason"] != "workspace")):
                 # C-6.13: at the door, before any git: a saturated machine holds the
-                # detached jobs of the classes its guard names. Never a turn. A due
-                # workspace retry is held too, before it prepares its workspace
+                # detached jobs of the classes its guard names. Never a turn or
+                # priority job. A due workspace retry is held too, before its git
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
-                busy = scheduler.machine_hold(self.policy, reading, scheduler.priority_class(job, liveness))
+                busy = scheduler.machine_hold(self.policy, reading, scheduler.priority_class(
+                    job, liveness, policy=self.policy, jobs=priority_jobs))
                 if busy:
                     holds[job["job_id"]] = busy
                     continue
