@@ -205,8 +205,9 @@ _PIN_QUERIES = (
     # directory is compared without ASCII case, the tree itself as one inside it
     # (LIKE): a native session's cwd may spell the tree `jOB` for `Job`, and its
     # queued turn, which waits on retention's fence (`folders.retiring`, folded),
-    # keeps the tree (review of 8a112986, finding 1).
-    ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
+    # keeps the tree (review of 8a112986, finding 1). These fold ASCII only; the
+    # folded comparison in `_pin_reasons` keeps the rest (`_IN_USE_FOLDERS`).
+    ("worktree-in-use","SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                         "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
                         "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
@@ -219,6 +220,27 @@ _UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.
                       "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
                       "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
                       "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
+#: Every job not yet ended with the folders it names: its directory, its
+#: worktree, and what submit spelled beside the row (`job.submitted`), as
+#: `Daemon._submitted` reads it.
+_IN_USE_FOLDERS = ("SELECT j.job_id, j.workdir, j.worktree, "
+                   "(SELECT e.data_json FROM events e WHERE e.job_id = j.job_id AND +e.kind = 'job.submitted' "
+                   "ORDER BY e.event_id LIMIT 1) AS submitted "
+                   "FROM jobs j WHERE j.state NOT IN ('succeeded','failed','cancelled','lost')")
+
+
+def _named_folders(row: Any) -> set[str]:
+    """The folders a job not yet ended names (`_IN_USE_FOLDERS`), folded: its
+    directory, its worktree, and the folder submit spelled for its row, a turn's
+    or an in-place writer's (`write_target`, or a read-only turn's `folder`)."""
+    named = [row["workdir"], row["worktree"]]
+    try:
+        submitted = json.loads(row["submitted"] or "{}")
+    except (TypeError, ValueError):
+        submitted = {}
+    if isinstance(submitted, dict):
+        named += [submitted.get("write_target"), submitted.get("folder")]
+    return {folders.fold(each) for each in named if isinstance(each, str) and each}
 
 
 def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | None, *,
@@ -277,6 +299,25 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
+    # C-8.4: a job not yet ended keeps a tree a folder it names is in, compared
+    # as the volume compares names (`folders.fold`), as admission compares a
+    # folder with retention's fence when a name of it was not there to look up
+    # (`folders.retiring(..., folded=True)`): such a job waits on the fence, so
+    # the tree must be kept at the commit. SQLite folds ASCII only. A job id
+    # typed with `ﬁ`, `ſ` or the Kelvin sign for its letters, which the volume
+    # finds, and a directory submit kept through the Data volume's firmlink
+    # while it spelled the folder, kept no tree (review of 3410b4f0, P3). Strings
+    # only: this also runs in the commit transaction.
+    trees = {row["job_id"]: folders.fold(row["worktree"]) for row in jobs if row["job_id"] in owned}
+    if root is not None:
+        trees.update((row["job_id"], folders.fold(str(Path(root) / "worktrees" / row["job_id"]))) for row in jobs
+                     if not row["worktree"] and row["sandbox"] == "workspace-write" and not row["in_place"])
+    if trees:
+        for row in store.query(_IN_USE_FOLDERS):
+            named = _named_folders(row)
+            for job_id, tree in trees.items():
+                if job_id != row["job_id"] and any(folders.within(each, tree) for each in named):
+                    add(job_id, "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that
     # tree while it has rows: it retires first, with its own anchor (N4).
     for host in ([only] if only else sorted(hosted or ())):
