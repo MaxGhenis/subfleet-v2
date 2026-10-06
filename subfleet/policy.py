@@ -68,8 +68,10 @@ SESSION_DEFAULTS: dict[str, Any] = {
 #: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
 #: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
-#: on an unanswered approval.
-CONVERSATION_DEFAULTS: dict[str, float] = {
+#: on an unanswered approval. `turn_provider_qos` is where a turn's provider runs
+#: (C-26.9): `inherit`, at the daemon's QoS, as the operator's own interactive work,
+#: or `utility`, under C-5.1's clamp with the agent work the daemon runs detached.
+CONVERSATION_DEFAULTS: dict[str, Any] = {
     "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
@@ -80,7 +82,10 @@ CONVERSATION_DEFAULTS: dict[str, float] = {
     "stop_close_after_s": 20,        # C-24.7: then stdin is closed
     "stop_contain_after_s": 30,      # C-24.7: then the attempt is contained
     "after_result_s": 135,           # C-26.5: background output allowed after `result`
+    "turn_provider_qos": "inherit",  # C-26.9: a turn's provider is not clamped to utility
 }
+#: The `conversations.*` keys that name one of a few settings rather than a number.
+CONVERSATION_CHOICES: dict[str, tuple[str, ...]] = {"turn_provider_qos": ("inherit", "utility")}
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
@@ -308,16 +313,20 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
     # days kept after a turn ends).
-    for section, defaults, may_be_zero, whole in (
+    for section, defaults, may_be_zero, whole, choices in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
-             {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}),
-            ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
+             {"compact_per_tick", "max_active_turns", "turn_slots_per_lane"}, CONVERSATION_CHOICES),
+            ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"}, {})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")
         settings = {**defaults, **supplied}
         for key in defaults:
             item = settings[key]
+            if key in choices:
+                if not isinstance(item, str) or item not in choices[key]:
+                    fail(f"{section}.{key}", "must be one of " + ", ".join(choices[key]))
+                continue
             if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                     or item < 0 or (item == 0 and key not in may_be_zero)):
                 fail(f"{section}.{key}", "must be a nonnegative finite number" if key in may_be_zero
