@@ -809,8 +809,10 @@ descriptors, and deliberately adversarial same-user tricks):
   re-reading its hash when the recorded identity changed; a failed check moves
   the source to `retention-conflicts`, including after row deletion and across
   a restart. This closes the interval during the final-check loop and from
-  final check through commit, publish and the rest of reclamation. There is
-  still no atomic filesystem operation coupling the copy check to the source
+  final check through commit, publish and the rest of reclamation.
+  A final source stat follows the copy check, so a source write during a slow
+  copy readback also goes to conflicts. There is still no atomic filesystem
+  operation coupling the copy check to the source
   unlink: external damage in that narrow interval can lose the bytes if no
   other source link survives. Damage to the archive after that source unlink
   (including after commit) has the same consequence: its stored copy may be

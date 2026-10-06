@@ -389,3 +389,27 @@ def test_each_source_hardlink_rechecks_shared_stored_copy(world, monkeypatch):
     outcome = run(w)
     assert {c['job_id'] for c in outcome['conflicts']} == {'job'}, outcome
     assert (w.root / 'retention-conflicts/job/worktree' / REL).read_bytes() == DATA
+
+
+def test_source_write_during_copy_readback_is_preserved(world, monkeypatch):
+    w, _ = world
+    original_publish = ra.Retirement.publish
+    target = []
+    def publish_then_change_copy_identity(self):
+        original_publish(self)
+        entry = next(e for e in self.manifest()['trees']['worktree']['entries'] if e['p'] == REL)
+        copy = self.published_dir() / 'files' / entry['store']
+        copy.touch()  # still good bytes, but reclamation must re-read them
+        target.append((entry['store'], self.q_worktree / REL))
+    original_read = ra._read_back
+    new = b'new source bytes during the slow archive readback'
+    def read_then_write_source(fd, name, entry, check):
+        result = original_read(fd, name, entry, check)
+        if target and name == target[0][0]:
+            target[0][1].write_bytes(new)
+        return result
+    monkeypatch.setattr(ra.Retirement, 'publish', publish_then_change_copy_identity)
+    monkeypatch.setattr(ra, '_read_back', read_then_write_source)
+    outcome = run(w)
+    assert {c['job_id'] for c in outcome['conflicts']} == {'job'}, outcome
+    assert (w.root / 'retention-conflicts/job/worktree' / REL).read_bytes() == new

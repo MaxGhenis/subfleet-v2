@@ -1276,6 +1276,17 @@ class Reclaim:
         if self.preserved is not None and not self.preserved(record):
             self._set_aside_fd(fd, name, path, "archive-unavailable")
             return
+        if self.preserved is not None:
+            # A changed copy may have needed a long readback. Do not enlarge
+            # the source-write race to include that read: pair the final copy
+            # check with one final source stat before the unlink.
+            try:
+                latest = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            if not unchanged(signature(st), latest):
+                self._set_aside_fd(fd, name, path, "changed")
+                return
         try:
             os.unlink(name, dir_fd=fd)
         except FileNotFoundError:
