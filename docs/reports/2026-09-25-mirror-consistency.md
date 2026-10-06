@@ -103,18 +103,43 @@ the machine from starving the daemon.
 The flag protocol covers one session and one boolean flag. The flag is
 `isArchived`; `isStarred` runs through the same loop with its own no-base
 value, starred-anywhere, which `test_starred_anywhere_wins_with_no_base` pins.
-Each account folder holds a copy, and the merge base in `mirror-flags.json`
-holds the last synced value.
+Each account folder holds a copy. The merge base in `mirror-flags.json` holds
+the last decision and, for each copy, its reference: the value that decision
+gave the copy or read there. It stores only the references that differ from
+the decision, which is none once a publish goes through (2026-09-29, review
+round 5 finding F2; see below).
 
-- **Decide.** A pass reads every copy, then decides. Agreement wins; otherwise
-  the change from the base wins. With no base yet, archived-anywhere wins
-  (v1's rule for the historical backlog).
+- **Decide.** A pass reads every copy, then decides. A copy votes only when it
+  differs from its own reference. Votes that agree win; with no vote the last
+  decision stands; votes that disagree fall back to the change from the last
+  decision. With no base yet every copy votes, and archived-anywhere wins
+  (v1's rule for the historical backlog). While every reference is the base,
+  which is always so except after a publish that did not go through, this is
+  the rule of 2026-09-25: agreement wins, otherwise the change from the base.
 - **Check.** It re-reads every copy it will write. If any no longer holds the
-  value it read, nothing is written and the base is kept.
-- **Write.** It writes the copies one at a time, in path order. A write that
-  finds its copy rewritten since the check fails, and the copies already
-  written are put back, except any rewritten since then. The base is kept.
-- **Advance.** After the last write, the base takes the decided value.
+  value it read, nothing is written or recorded, and the base is kept.
+- **Record.** It writes each copy's next version to a temporary file beside
+  the copy, then appends the publish to `mirror-publish.jsonl` and fsyncs it.
+  The record holds the session's merge-base record before and after, and each
+  copy with its temporary and the flags the pass read there. Only then is
+  anything renamed into place.
+- **Write.** It renames the copies into place one at a time, in path order. A
+  rename that finds its copy rewritten since the check stops the publish. The
+  copies already written are then put back, except any rewritten since, and
+  the put-backs are recorded before they run. No temporary is removed before
+  the publish is resolved, so one still standing proves its rename never ran.
+- **Resolve.** The publish is resolved by what landed.
+  - No copy reached (none renamed, or every one put back): nothing changes.
+  - Every copy reached: the base and every reference take the decided value.
+  - Otherwise the decision stands for the copies it reached. A copy it did
+    not reach keeps, as its reference, the value its file holds.
+- **Advance.** The journal is saved first, then the merge base, and only then
+  are the record and its temporaries dropped.
+- **Recover.** A record left behind by a crash or a failed base write is
+  resolved the same way at the start of the next flag sync, before anything
+  is decided. The temporaries still standing say what landed, and the pass's
+  own read of each copy says what a copy the publish did not reach holds. The
+  mirror's writes that still stand are journaled.
 - **Every copy or none.** A session is decided from every copy or not at all.
   - A folder that fails to list is read by name from its last listing, but
     only if its directory is unchanged since that listing. A folder that has
@@ -151,15 +176,26 @@ holds the last synced value.
 
 | Invariant | Statement |
 |---|---|
-| Convergence | A pass with nothing written in between leaves every copy and the base equal to the value decided. |
-| Change wins, both ways | When every copy that differs from the base holds the same value, that value is decided (archive or unarchive). |
-| Idempotence | A converged state with its base decides itself and writes nothing. |
-| Cancellation safety | A cancelled pass changes no copy and no base. |
-| No lost update | The mirror writes only a copy that nobody has rewritten since it last checked or wrote it. |
-| All or nothing | A held session writes nothing and keeps its base. A write that fails puts back every copy the publish wrote, except one rewritten since, and keeps the base. |
-| Base agreement | After a publish that went through, the base is the decided value. Every copy the pass read differently holds that value, unless the app or the user rewrote it since. |
-| Intent wins | With a base, if the user set only one value since the last publish that converged, a pass decides that value. This is the brief's "no resurrection" for a user's change. A user who set both values since then is exempt, because the merge base cannot order them. |
-| Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is "no resurrection" for a value every copy agreed on. It cannot fire with an honest app (a user action clears it), which is why intent wins exists. |
+| Convergence | A pass with nothing written in between leaves every copy, the base and every reference equal to the value decided. |
+| Change wins, both ways | When every copy that differs from its reference holds the same value, that value is decided (archive or unarchive). |
+| Idempotence | A converged state, with every copy and every reference at the base, decides itself and writes nothing. |
+| Cancellation safety | A cancelled pass changes no copy, no base and no reference. |
+| No lost update | The mirror writes only a copy that nobody has rewritten since it last checked or wrote it. Resolving a record, a failed base write and a crash write no copy. |
+| The record comes first | No copy write moves the base or a reference, and a publish starts only once its record is durable. |
+| All or nothing | A held session writes and records nothing. A write that fails puts back every copy the publish wrote, except one rewritten since. A publish every write of which was put back keeps the base and every reference. |
+| Base agreement | After a publish that went through, the base and every reference are the decided value. Every copy the pass read differently holds that value, unless the app or the user rewrote it since. |
+| The mirror's own writes do not vote | A copy whose file is the mirror's own last write holds its reference, so it never reads as a change, whatever became of the pass that wrote it (F2). |
+| Intent wins | With a base, if the user set only one value since the last publish that converged, a pass decides that value. This is the brief's "no resurrection" for a user's change. A user who set both values since then is exempt. |
+| Latest wins | With a base, a pass decides the value of the user's latest action, unless some copy, a decision in flight or a value a rollback could put back still holds the other value from an action the user did not know of when they acted. Knowledge follows values: acting on a copy knows what its value came from, and a value the mirror writes comes from the copies it read holding it. This is what F2 broke, and intent wins could not see it, since a user who reverts has set both values. |
+| Never undo a settled value | Once a clean publish converged every copy and no user has acted since, no pass writes any other value. This is "no resurrection" for a value every copy agreed on. It cannot fire with an honest app (a user action clears it), which is why intent wins and latest wins exist. |
+
+Both user ghosts exempt the bootstrap rule, which may override the user by
+design:
+- they are checked only by a pass with a base;
+- a decision taken with no base clears `intent`;
+- `latest` guards only actions taken while a base is recorded;
+- a bootstrap decision counts as an actor of its own, known only where its
+  writes are seen.
 
 Review rounds 5, 6 and 7 found that passes used to decide over whichever
 copies they had read. A copy skipped because its folder did not list, or because its read
@@ -173,17 +209,78 @@ the mirror's own rename, because rename(2) cannot compare first. That save is
 then overwritten. The model leaves this window of one syscall out. The code
 re-checks right before the rename to keep it that narrow.
 
+### The mirror's own writes after a failure (F2)
+
+Review round 5 found three failures that left copies ahead of the merge base:
+- a put-back write that raises;
+- a crash between a session's first copy write and its base write;
+- a base write that raises. Since PR #41 this fails the pass, but its copies
+  are already written.
+
+If the user then reverted before the next pass, that pass read the mirror's
+own writes as a change from the base and undid the revert, in every account.
+On 2026-09-29 the reviewer's reproductions still did so on `release/217`.
+
+The design first proposed was that a copy whose current file is the one the
+journal records the mirror writing does not vote. The model with the faults
+added refuted it in two cases:
+- **A revert where the archive was seen.** Every copy is written and the
+  process dies at the base write. The user unarchives in B, where they saw
+  the mirror's archive. B is now the user's file, so it votes, and so does
+  A's original archive; against the base the crash left behind, the archive
+  wins.
+- **A skipped put-back, with no fault at all.** The app saves B right after
+  the mirror's write and C before it, so C's write fails and B's put-back is
+  skipped. The user then unarchives in B, and A's archive outvotes it. The
+  rule of 2026-09-25 loses this case too; it needs only a racing app save.
+
+What the user saw in B was the mirror's decision. So the mirror has to know,
+per copy, which decision the copy last received. A file's identity cannot tell
+it that; a reference per copy can. With references, an honest app's save of
+the mirror's value (B above, before the user's unarchive) does not vote
+either, which file identity could not give.
+
+The journal is not part of the protocol. It still comes before the base,
+because once the base is written the record goes, and the load-gap report
+must still read the pass's writes as the mirror's after a crash.
+`test_a_flag_write_is_journaled_before_the_publish_record_goes` holds that
+order.
+
+A publish that did not reach every copy used to keep the old base. Now its
+decision stands for the copies it reached, the case that fixes F2. The same
+holds for a bootstrap publish, one decided with no base. Voiding it instead
+would bring F2 back for sessions never synced. Say the user archived in A,
+the publish reached B and the process died, and then the user unarchived A.
+With no base, archived-anywhere would count B, the mirror's own write
+(`test_an_incomplete_bootstrap_publish_stands_and_a_revert_stands`).
+
 ### How they are established
 
 | Method | Where | Result |
 |---|---|---|
-| Specification | `docs/formal/MirrorFlags.tla`, with configs `MirrorFlags.cfg` (honest app), `MirrorFlagsStale.cfg` (stale saves: what should still hold) and `MirrorFlagsStaleUndo.cfg` (the two that should fail) | Written, not run under TLC. On 2026-09-25 Max ruled to skip TLC for now. Running it needs `tla2tools.jar`, which is not installed; a Homebrew OpenJDK is, off `PATH`. The twin below checks the same properties. TLC can join CI later. |
-| Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: all 22,038 states, and every property holds; "intent wins" is exercised on 218 of 1,053 decisions. Stale saves allowed: 44,058 states, and only "intent wins" and "never undo a settled value" fail. |
-| Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag and the merge base equal the model's. See below for the steps and coverage. |
-| Examples | `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
-| Mutation | 38 hand-written mutants of `sync_flags`, its writes, its journal and its inventory, each run against the mirror's four test files | All 38 killed; see the table below. |
+| Specification | `docs/formal/MirrorFlags.tla`, with every fault on, and configs `MirrorFlags.cfg` (honest app), `MirrorFlagsStale.cfg` (stale saves: what should still hold) and `MirrorFlagsStaleUndo.cfg` (the three that should fail) | Written, not run under TLC. On 2026-09-25 Max ruled to skip TLC for now. Running it needs `tla2tools.jar`, which is not installed; a Homebrew OpenJDK is, off `PATH`. The action ids behind "latest wins" are unbounded, so TLC would need a view that renumbers them. The twin below checks the same properties. |
+| Exhaustive model check | `tests/mirror_flags_model.py`, the spec's executable twin, explored breadth-first by `tests/unit/test_mirror_flags_model.py` (three accounts, every reachable state and action) | Honest app: 146,927 states without faults and 255,385 with every fault, and every property holds. Stale saves allowed: 269,278 states, and only "intent wins" and "never undo a settled value" fail. |
+| Bounded model check | The same twin with the causal ghost behind "latest wins" | The full space runs to tens of gigabytes (an uncapped run reached 17 GB on 2026-09-29), so it is explored to 150,000 states (about 0.35 GB), every fault on. Nothing breaks. |
+| Rules compared | `tests/unit/test_mirror_flags_model.py`, replaying fixed traces under each rule | Under the rule of 2026-09-25, a crash breaks "the mirror's own writes do not vote" and "latest wins", and "intent wins" does not notice. The design first proposed breaks "latest wins" on a revert where the archive was seen. Both break it on a skipped put-back with no fault. The per-copy references break nothing on any of the three. |
+| Differential | `tests/unit/test_mirror_flags_stateful.py`: a Hypothesis state machine drives the real `Mirror` on real files in lockstep with the model | After every step, every file's flag, the merge base, every copy's reference and the pending record equal the model's. See below for the steps and coverage. `test_mirror_flags_publish.py` also holds `_decide_flag` and `_resolve_publish` to the model's `decide` and `resolve` on random inputs. |
+| Examples | `tests/unit/test_mirror_flags_publish.py`, `tests/unit/test_sessions_mirror_load_gap.py`, `tests/unit/test_mirror_flags_faults.py` | See the list below. |
+| Mutation | 22 mutants of the F2 fix, and 10 earlier mutants of the publish, each run against the mirror's tests | All 32 killed; see the table below. The other 28 of the 38 earlier mutants (inventory, holds and the journal's guards) were not run again. The tests that killed them are unchanged and pass. |
 
 The example tests check:
+- F2's three failures, each followed by a revert that must stand;
+- a revert where the user saw the mirror's archive, after a crash at the base
+  write;
+- a revert after a put-back the app's save made the mirror skip, with no fault;
+- an incomplete bootstrap publish;
+- the record is durable before the first rename;
+- a rename that finds its copy rewritten keeps its temporary;
+- put-backs are recorded before they run;
+- temporaries outlive a crash at the base write;
+- a sweep never removes a pending record's temporaries;
+- recovery resolves by what the pass read, not by a newer save;
+- a record the base already holds is not resolved again;
+- the journal is saved before the record goes, and recovery journals the
+  writes that still stand;
 - the rollback leaves an app save made after the mirror's write;
 - a rolled-back copy still counts in the load-gap report;
 - the journal guards against misreading the app's saves;
@@ -206,16 +303,51 @@ The differential test's steps are:
 - stale re-saves;
 - full passes;
 - passes with writes between the read and the check;
-- passes with writes between two of the publish's writes;
+- passes with writes between two of the publish's writes, some whose
+  put-backs then fail;
+- passes whose base write fails;
+- passes whose process dies before a copy's rename, at the first base write,
+  or once the base is written and before the record is dropped, each followed
+  by a new process;
 - passes that cannot list a folder or read a copy, with a second, untouched
   session that such a hold must not take unless the folder's contents are
   unknown;
 - cancelled passes.
 
-One run of 100 examples reaches 535 publishes, 39 of them rolled back.
+One run of 100 examples resolves 565 publishes. Of those, 462 went through,
+76 stood for the copies they reached, and 27 changed nothing. In the same
+run:
+- 20 renames found their copy rewritten;
+- 63 base writes failed;
+- the process died 32 and 27 times before a copy's rename, 47 times at the
+  base write, and 72 times after it.
+
+The test fails if any of these happens fewer than five times.
 
 | Mutant | What it breaks | Killed by |
 |---|---|---|
+| votes ignore references | the rule of 2026-09-25: the mirror's surviving writes vote | `test_a_rename_that_finds_its_copy_rewritten_keeps_its_temporary` |
+| no write-ahead record | a crash or failed base write leaves writes nothing can attribute | `test_a_base_that_cannot_be_written_leaves_the_record_and_a_revert_stands` |
+| record after the first rename | a crash in between leaves a write the record does not name | `test_the_record_is_durable_before_the_first_rename` |
+| rename drops its temporary | a copy the publish did not reach reads as reached | `test_a_rename_that_finds_its_copy_rewritten_keeps_its_temporary` |
+| put-backs not recorded | a put-back reads as the mirror's write standing | `test_put_backs_are_recorded_before_they_run` |
+| temporaries removed before the base | a crash at the base write loses what landed | `test_temporaries_outlive_a_crash_at_the_base_write` |
+| a failed publish keeps its prior record | F2 itself: the mirror's surviving writes vote | `test_a_put_back_that_fails_leaves_a_write_that_does_not_vote` |
+| unreached copies take the decision as reference | an old value the publish did not reach votes | `test_a_revert_after_a_skipped_put_back_stands_without_any_fault` |
+| unreached copies keep the value first read | a later save at a copy the publish did not reach is lost | `test_the_resolution_is_the_models` |
+| no recovery | a record left behind is never resolved | `test_a_base_that_cannot_be_written_leaves_the_record_and_a_revert_stands` |
+| recovery ignores put-backs | a copy put back reads as reached | `test_put_backs_are_recorded_before_they_run` |
+| journal after the record goes (journal before base) | a crash then loses the journal rows; the report misreads the writes | `test_a_flag_write_is_journaled_before_the_publish_record_goes` |
+| recovery does not journal | the report misreads writes a crashed pass left | `test_recovery_journals_the_writes_that_still_stand` |
+| sweep removes a pending record's temporaries | an old unrenamed temporary is taken for a landed write | `test_a_sweep_leaves_the_temporaries_of_a_pending_record` |
+| a resolved record is resolved again | a crash after the base write resolves it again from moved files | `test_a_record_the_base_already_holds_is_not_resolved_again` |
+| an incomplete bootstrap publish changes nothing | F2 again for a session never synced | `test_an_incomplete_bootstrap_publish_stands_and_a_revert_stands` |
+| recovery reads files, not the pass's read | a newer save makes the pass's older read vote | `test_recovery_resolves_by_what_the_pass_read_not_by_a_newer_save` |
+| prepared copies not synced | a copy can reach the folder unwritten | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
+| record not synced | the record can be lost to a crash | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
+| record's folder not synced | the record's name can be lost to a power failure | `test_the_mirror_syncs_what_it_writes_before_the_rename` |
+| disagreeing votes fall to the bootstrap value | a conflict ignores the last decision | `test_the_decision_is_the_models` |
+| no vote returns the bootstrap value | an untouched session flips to archived | `test_a_revert_after_a_skipped_put_back_stands_without_any_fault` |
 | no pre-check | writes over a copy that changed since the read | the stateful differential test |
 | write ignores its check | a write replaces a copy rewritten since the check | the stateful differential test |
 | no rollback | a failed write leaves the copies before it written | the stateful differential test |
@@ -250,6 +382,16 @@ One run of 100 examples reaches 535 publishes, 39 of them rolled back.
 | repair over an unreadable copy | an EMFILE read is taken for an empty record and replaced | `test_an_unreadable_copy_is_never_repaired_over` |
 | base write failure swallowed | a pass that did not write the base reports ok | `test_a_base_that_cannot_be_written_fails_the_pass` |
 
+On the F2 commit the ten rows from "no pre-check" to "base not synced" were
+run again, with these results:
+- killed by the new publish tests: no pre-check (by the load-gap batch test),
+  "write ignores its check", no rollback, both bootstrap flips, and "change
+  loses";
+- killed by the load-gap tests: "rollback ignores its check" and "held
+  advances base";
+- killed by the stateful test: no cancellation point;
+- killed by the sync count: "base not synced".
+
 "Honest app" means an app save never changes the flag in the file, as when the
 app's memory is current. The real app serializes each record from memory, so
 it is honest only while its memory is current. With stale saves allowed, the
@@ -278,18 +420,21 @@ session, so it holds every session until it can be read. For a copy that keeps
 failing (EIO, say), that lasts until someone acts. It is visible in `held_by`
 and `sessions mirror --status`, and mirror-watch alerts after 15 minutes.
 
-Three failures leave copies ahead of the merge base:
-- a rollback write that fails;
-- a crash between a session's first copy write and the base write;
-- a base write that fails (this one now fails the pass, but its copies are
-  already written).
-
-If the user reverts before the next pass, that pass reads the mirror's own
-writes as a change and undoes the revert. Each needs an I/O failure or a crash
-inside the publish. The fix is to treat the mirror's own writes as the
-mirror's: a copy whose current file is the one the journal records the mirror
-writing does not vote. That needs the journal saved before the base, and a
-write-ahead record for crashes. It is a follow-up (review round 5, finding F2).
+Three limits of the F2 fix:
+- **A flip made twice at a copy the publish did not reach.** Take a copy the
+  publish did not reach. If the user changes it and changes it back before
+  the next pass, it holds its reference again, and no value can show the
+  flip. The user did not see the decision there, so the model counts this
+  as a conflict. The mirror resolves it for the decision it already
+  published.
+- **Power failure.** The record's durability before the renames rests on
+  fsync. On macOS fsync without F_FULLFSYNC does not promise that across a
+  power failure. The copies themselves have always relied on the same fsync.
+  A process crash, the failure seen in practice, is covered.
+- **Only the flags have references.** Titles and settings are written in the
+  same batch but still decide against the one recorded title. A title write
+  stopped partway can therefore still read as a candidate on the next pass.
+  That is a follow-up.
 
 ## Design question: an authoritative intent ledger
 
@@ -325,7 +470,8 @@ it. Logpile would read it and not own it.
   mirror lock serves both.
 
 **Recommendation.** Keep the merge base. It is the account-agnostic register,
-and it is now specified, model-checked and property-tested. A last-writer-wins
+and it is now specified, model-checked and property-tested. Since 2026-09-29
+it is kept per copy, where a publish left copies apart (see F2 above). A last-writer-wins
 ledger by file time would fix nothing on the known limit and would lose to
 honest saves elsewhere. Attribute intent by load intervals as its own design,
 specified first. The design target is this spec with `StaleSaves = TRUE`:
