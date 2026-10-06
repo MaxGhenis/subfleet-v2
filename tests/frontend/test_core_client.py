@@ -7,6 +7,7 @@ daemon's own code gives.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ import pytest
 
 from subfleet import protocol
 from subfleet.daemon import busy_answer
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness, ServiceServer
 
 pytestmark = needs_swift
@@ -181,10 +182,9 @@ def test_c29_4_the_development_build_refuses_the_installed_state_root(core_probe
     assert "ready" in endpoint(core_probe, home, "development", str(tmp_path / "dev-root"))
 
 
-def test_c29_4_the_refused_development_build_never_connects(core_probe, tmp_path):
+def test_c29_4_the_refused_development_build_never_connects(request, core_probe, tmp_path):
     """The refusal comes before any socket: a listener at ~/.subfleet/daemon.sock sees nothing."""
-    home = Path(tempfile.mkdtemp(prefix="sf-h-", dir="/tmp"))
-    try:
+    with state_root(request, "sf-h-") as home:
         (home / ".subfleet").mkdir()
         server = RawServer(home / ".subfleet" / "daemon.sock")
         try:
@@ -198,10 +198,6 @@ def test_c29_4_the_refused_development_build_never_connects(core_probe, tmp_path
             server.close()
         down = run_probe(core_probe, "connect-current", home, "development", str(home / "dev"))
         assert "down" in down and down["banner"] == "The Subfleet daemon is not reachable"
-    finally:
-        for path in sorted(home.rglob("*"), reverse=True):
-            path.unlink() if not path.is_dir() else path.rmdir()
-        home.rmdir()
 
 
 # --- a daemon at its connection cap (C-16.7) ----------------------------------
@@ -235,12 +231,10 @@ def test_c29_2_a_busy_daemon_is_busy_not_incompatible(core_probe, tmp_path, shor
 
 
 @pytest.fixture
-def service():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-wl-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+def service(request):
+    with (state_root(request, "sf-wl-") as root, closing(ServiceHarness(root)) as harness,
+          closing(ServiceServer(harness)) as server):
+        yield harness, server
 
 
 def test_c29_2_the_first_watch_after_a_failure_checks_again(core_probe, tmp_path, service):
