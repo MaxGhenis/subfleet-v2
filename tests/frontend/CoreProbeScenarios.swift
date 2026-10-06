@@ -582,6 +582,9 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return try runWatchLoop(socket: arguments[2], journal: arguments[3], turns: Int(arguments[4]) ?? 2)
     case "live":
         return try runLive(arguments)
+    case "send-layout":
+        // send-layout <input.json>: where a send's notice shows (CoreProbeSendFailures.swift)
+        return try runSendLayout(readFile(arguments[2]))
     default:
         return nil
     }

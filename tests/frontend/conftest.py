@@ -15,7 +15,7 @@ from tests.frontend.swift import ROOT, compile_probe
 
 CORE_PROBE = [ROOT / "tests/frontend/CoreProbe.swift", ROOT / "tests/frontend/CoreProbeScenarios.swift",
               ROOT / "tests/frontend/CoreProbeLive.swift", ROOT / "tests/frontend/CoreProbeQueue.swift",
-              ROOT / "tests/frontend/CoreProbeQueueEngine.swift"]
+              ROOT / "tests/frontend/CoreProbeQueueEngine.swift", ROOT / "tests/frontend/CoreProbeSendFailures.swift"]
 needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun") is None,
                                  reason="native Swift frontend validation requires macOS developer tools")
 
