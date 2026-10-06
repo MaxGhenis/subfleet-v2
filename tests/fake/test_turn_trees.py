@@ -320,3 +320,149 @@ def test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it(state_daemon, tur
         assert "provider_verdict" not in json.loads(finished["evidence_json"])
     else:
         assert job["state"] == "cancelled" and finished["outcome_class"] != "ok"
+
+
+def turn_of(daemon, harness, title, baseline_at, *, first=False):
+    """A writable turn of a conversation of its own in the harness's checkout, reserved by
+    admission and given what admission records for a turn: its start snapshot, and in its
+    evidence the folder it writes in and when that snapshot began (C-26.14)."""
+    work = harness.workdir
+    if first:
+        git(work, "init", "-b", "feature/turn")
+        git(work, "config", "user.name", "Test User")
+        git(work, "config", "user.email", "test@example.invalid")
+        (work / "tracked.txt").write_text("baseline\n")
+        git(work, "add", ".")
+        git(work, "commit", "-m", "baseline")
+    job_id, attempt, adir = reserve(daemon, harness)
+    head = git(work, "rev-parse", "HEAD")
+    conversations = daemon.conversations.store
+    conversation, _ = conversations.create_conversation(provider="claude", workspace=str(work), title=title,
+                                                        workspace_kind="in-place", settings=SETTINGS, origin="new")
+    mid = str(uuid.uuid4())
+    conversations.submit_message(conversation_id=conversation["conversation_id"], message_id=mid,
+                                 after_message_id=None, text="edit", attachments=[], settings=SETTINGS)
+    evidence = {"baseline_commit": head, "baseline_at": baseline_at, "folder": str(work.resolve())}
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE jobs SET kind='turn', sandbox='workspace-write', in_place=1, worktree=? WHERE job_id=?",
+                   (str(work), job_id))
+        tx.execute("UPDATE attempts SET baseline_tree=?, evidence_json=? WHERE attempt_id=?",
+                   (working_tree(work, head), json.dumps(evidence), attempt["attempt_id"]))
+    manifest = daemon.root / "jobs" / job_id / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data["turn"] = {"conversation_id": conversation["conversation_id"], "message_id": mid, "provider": "claude",
+                    "cwd": str(work), "settings": SETTINGS}
+    manifest.write_text(json.dumps(data))
+    return conversation["conversation_id"], mid, daemon.store.get_attempt(attempt["attempt_id"]), adir
+
+
+def test_c26_14_i4_a_turn_s_changes_name_the_conversation_that_wrote_beside_it(state_daemon):
+    """I4 end to end, through the daemon's finalization and the diff ops: conversation B's
+    turn began its snapshot before A's turn ended, but was recorded only after (its runner
+    adopted late). Each turn's `turn.diff` names the other conversation, with its title and
+    when it wrote; A's diff holds B's edit and says it may. C's turn, begun after both ended,
+    names nobody. `conversation.diff`, which runs to the working tree now, names every other
+    conversation that wrote there since its first turn began."""
+    from subfleet.daemon import utcnow_ms
+    daemon, harness = state_daemon
+    service = daemon.conversations
+    a_cid, a_mid, a_attempt, a_dir = turn_of(daemon, harness, "Alpha", utcnow_ms(), first=True)
+    (harness.workdir / "by-alpha.txt").write_text("a\n")
+    b_began = utcnow_ms()                          # B's snapshot begins while A is running
+    (harness.workdir / "by-beta.txt").write_text("b\n")
+    daemon._finalize(receipt_fixture(daemon, a_attempt, a_dir))
+    assert service.store.turn_trees(a_mid)["shared"] == []           # B not recorded yet
+    b_cid, b_mid, b_attempt, b_dir = turn_of(daemon, harness, "Beta", b_began)
+    daemon._finalize(receipt_fixture(daemon, b_attempt, b_dir))
+    c_cid, c_mid, c_attempt, c_dir = turn_of(daemon, harness, "Gamma", utcnow_ms())
+    daemon._finalize(receipt_fixture(daemon, c_attempt, c_dir))
+
+    a_diff = service.op_turn_diff({"message_id": a_mid}, None)
+    assert {f["path"] for f in a_diff["files"]} == {"by-alpha.txt", "by-beta.txt"}
+    assert [(s["conversation_id"], s["title"], s["message_ids"]) for s in a_diff["shared"]] == [(b_cid, "Beta", [b_mid])]
+    assert a_diff["shared"][0]["from"] == b_began and a_diff["shared"][0]["to"]
+    b_diff = service.op_turn_diff({"message_id": b_mid}, None)
+    assert [(s["conversation_id"], s["title"]) for s in b_diff["shared"]] == [(a_cid, "Alpha")]
+    assert service.op_turn_diff({"message_id": c_mid}, None)["shared"] == []
+    whole = service.op_conversation_diff({"conversation_id": a_cid}, None)
+    assert [s["title"] for s in whole["shared"]] == ["Beta", "Gamma"]
+    assert service.op_conversation_diff({"conversation_id": c_cid}, None)["shared"] == []
+
+
+def started(daemon, attempt: dict, adir) -> dict:
+    """What `service._adopt` does for a turn attempt in `starting`: its runner records the
+    start (C-26.14), from the attempt joined with its job's sandbox."""
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE attempts SET state='starting' WHERE attempt_id=?", (attempt["attempt_id"],))
+        tx.execute("UPDATE jobs SET max_attempts=1 WHERE job_id=?", (attempt["job_id"],))   # as a turn job is
+    turn = json.loads((daemon.root / "jobs" / attempt["job_id"] / "manifest.json").read_text())["turn"]
+    daemon.conversations._record_start(turn, {**daemon.store.get_attempt(attempt["attempt_id"]),
+                                              "job_sandbox": "workspace-write"})
+    return daemon.store.get_attempt(attempt["attempt_id"])
+
+
+def test_c26_14_i4_a_turn_that_ended_unrecorded_stops_sharing_its_folder(state_daemon, monkeypatch):
+    """Review P3-5 of 5e9f2fbd, through the daemon's own paths: Alpha's runner recorded
+    its start, then its guardian never answered and nothing was there, so the attempt
+    ended `failed` (`starting-no-receipt`, `_unlaunched`) with no end recorded. Beta,
+    begun seconds after it ended, was marked as sharing the folder with Alpha "still
+    running". The service's tick closes Alpha's window at its attempt's `finished_at`
+    and unmarks Beta; Gamma, begun while Alpha was starting, keeps its mark; Alpha's
+    `turn.diff` says why it has no end snapshot. A quarantined turn's window stays open
+    (its writers may be live), and a row whose job retention has removed is closed now.
+    The step is one of the tick's."""
+    from datetime import datetime, timedelta
+    from subfleet.daemon import utcnow_ms
+    daemon, harness = state_daemon
+    service = daemon.conversations
+    alpha_began = utcnow_ms()
+    a_cid, a_mid, a_attempt, a_dir = turn_of(daemon, harness, "Alpha", alpha_began, first=True)
+    a_attempt = started(daemon, a_attempt, a_dir)
+    g_cid, g_mid, g_attempt, g_dir = turn_of(daemon, harness, "Gamma", alpha_began)
+    started(daemon, g_attempt, g_dir)
+    daemon._unlaunched(a_attempt, "starting-no-receipt")
+    ended = daemon.store.get_attempt(a_attempt["attempt_id"])
+    assert ended["state"] == "failed" and ended["finished_at"]
+    assert service.store.turn_trees(a_mid)["ended_at"] is None             # nothing recorded its end
+    later = (datetime.fromisoformat(ended["finished_at"].replace("Z", "+00:00")) + timedelta(seconds=2)
+             ).isoformat(timespec="milliseconds").replace("+00:00", "Z")        # past the second it ended in
+    b_cid, b_mid, b_attempt, b_dir = turn_of(daemon, harness, "Beta", later)
+    started(daemon, b_attempt, b_dir)
+    assert [s["title"] for s in service.op_turn_diff({"message_id": b_mid}, None)["shared"]] == ["Alpha", "Gamma"]
+    assert service.op_turn_diff({"message_id": b_mid}, None)["shared"][0]["to"] is None      # "still running"
+
+    q_cid, q_mid, q_attempt, q_dir = turn_of(daemon, harness, "Held", later)
+    q_attempt = started(daemon, q_attempt, q_dir)
+    daemon._quarantine(q_attempt, Containment(marker_pids=frozenset({42099})), "fixture")
+    service.store.record_trees(attempt_id="20260901-000000-pruned/a1", message_id="pruned", conversation_id="gone",
+                               workspace=str(harness.workdir), writable=True, started_at="2026-09-01T00:00:00Z",
+                               start_tree="t", target="/a/folder/of/its/own")
+    feed = service.store.changes_after(0)["next"]
+    swept: list[str] = []
+    real = service._close_ended_windows
+    for name in ("_lift_stale_fences", "_catalog_tick", "_dispatch", "_adopt_runners", "_replay_unsettled",
+                 "_settle_unstarted", "_reap_runners", "_compact"):
+        monkeypatch.setattr(service, name, lambda: None)
+    monkeypatch.setattr(service, "_close_ended_windows", lambda: (swept.append("tick"), real()))
+    service.tick()
+    assert swept == ["tick"]
+
+    alpha = service.store.turn_trees(a_mid)
+    assert alpha["ended_at"] == ended["finished_at"].replace("Z", ".999Z")
+    assert alpha["error"] == "the turn's attempt ended (failed) with no end recorded; no end snapshot"
+    a_diff = service.op_turn_diff({"message_id": a_mid}, None)
+    assert (a_diff["available"], a_diff["reason"]) == (False, "snapshot-failed")
+    assert [s["title"] for s in a_diff["shared"]] == ["Gamma"]
+    assert [s["title"] for s in service.op_turn_diff({"message_id": b_mid}, None)["shared"]] == ["Gamma", "Held"]
+    assert "Alpha" in [s["title"] for s in service.op_turn_diff({"message_id": g_mid}, None)["shared"]]
+    assert service.store.turn_trees(q_mid)["ended_at"] is None                 # quarantined: not ended
+    pruned = service.store.turn_trees("pruned")
+    assert pruned["ended_at"] and "no longer in the job store" in pruned["error"]
+    changes = service.store.changes_after(feed)
+    changed = {c["message_id"]: c for c in changes["changes"]}
+    assert {a_mid, b_mid, "pruned"} <= changed.keys()
+    assert changed[a_mid]["title"] == "Alpha"
+    assert changed["pruned"]["title"] is None
+    assert changes["next"] > feed
+    assert service.store.open_windows() == [g_attempt["attempt_id"], b_attempt["attempt_id"],
+                                            q_attempt["attempt_id"]]

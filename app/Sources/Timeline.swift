@@ -86,6 +86,8 @@ enum TimelineContent: Equatable {
     case approval(ApprovalCard)
     case error(message: String, kind: String?, willRetry: Bool)
     case notice(String)
+    /// A whole Claude user transcript turn containing a background completion.
+    case taskNotification(TaskNotification)
     /// Where the provider took a steered message into this turn (`steer.delivered`).
     /// `Timeline.items` draws that message's bubble here instead, so it is never shown.
     case steered(messageID: String)
@@ -135,6 +137,7 @@ struct TurnTimeline: Equatable {
     var origin: String?
     var continues: String?
     var personText: String?
+    var createdTS: String?
     var attachments: [String] = []
     /// A message state, or `sending` before the first receipt.
     var state: String
@@ -267,13 +270,7 @@ struct TurnTimeline: Equatable {
             // Codex recorded it after the model's last step: nothing answered it.
             return stateReason?.hasPrefix("steered-unanswered:") == true
                 ? "Read after the turn's last step; ask again for a reply" : TurnTimeline.read
-        case .waiting:
-            if let reason = stateReason, reason.contains("external-writer") {
-                // C-26.3, D-17: another Claude process holds the session.
-                return "Waiting: open in the Claude app or a terminal; close it there to continue here"
-            }
-            if let reason = stateReason, !reason.isEmpty { return "Waiting: \(reason)" }
-            return "Waiting for capacity"
+        case .waiting: return TurnTimeline.waitingWords(stateReason)
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
             if stopping { return "Stopping" }
@@ -304,6 +301,38 @@ struct TurnTimeline: Equatable {
             guard state == "sending" else { return state }
             if steerDeliveredIn != nil { return TurnTimeline.read }
             return steerRequested ? TurnTimeline.unreadWords(host: host, assistant: assistant) : "Sending"
+        }
+    }
+
+    /// C-24.4, C-29.11 (I3): a waiting message's `state_reason`, `<kind>: <detail>`,
+    /// in the person's words. Only a `capacity` reason reads as waiting for
+    /// capacity: on 2026-09-28 four messages read "Waiting for capacity" for hours
+    /// while another conversation's turn held their folder and lanes were free.
+    static func waitingWords(_ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else {
+            // A daemon from before 2026-09-29 left a bound message's reason empty.
+            return "Waiting; the daemon has not said why"
+        }
+        // C-26.3, D-17: another Claude process holds the session. Matched by kind,
+        // never anywhere in the text: a lease reason quotes a conversation's title,
+        // and one titled "fix the external-writer wait" is a conversation writing.
+        if reason.hasPrefix("external-writer") || reason == "readmit:external-writer" {
+            return "Waiting: open in the Claude app or a terminal; close it there to continue here"
+        }
+        if reason == "dispatching" { return "Sending to the daemon" }
+        if reason.hasPrefix("readmit:") {
+            return "Waiting to be sent again (\(reason.dropFirst("readmit:".count)))"
+        }
+        guard let split = reason.range(of: ": ") else { return "Waiting: \(reason)" }
+        let kind = reason[..<split.lowerBound]
+        let detail = String(reason[split.upperBound...])
+        switch kind {
+        case "capacity": return "Waiting for capacity: \(detail)"
+        case "placed": return "Starting the provider"
+        case "deferred": return "Waiting to be sent again: \(detail)"
+        case "lease", "closed", "usage-unknown", "no-lane", "blocked", "workspace", "route", "admission":
+            return "Waiting: \(detail)"
+        default: return "Waiting: \(reason)"
         }
     }
 
@@ -348,6 +377,7 @@ struct Timeline: Equatable {
     private var arrival: [String: Int] = [:]
     /// Transcript items older than the first Subfleet turn, oldest first.
     private(set) var history: [TimelineItem] = []
+    private var outsideHistoryIDs: Set<String> = []
     private(set) var historyBefore: Int?
     private(set) var historyComplete = false
     private(set) var historyPagesLoaded = 0
@@ -487,6 +517,10 @@ struct Timeline: Equatable {
                 turn.items.append(TimelineItem(id: "compacted:\(event.seq)", messageID: id,
                                                content: .notice(words + "; the model now works from a summary of it"),
                                                ts: event.ts))
+            }
+            if data["phase"]?.string == "wake-refused", let detail = data["detail"]?.string {
+                turn.items.append(TimelineItem(id: "wake-refused:\(event.seq)", messageID: id,
+                                               content: .notice(detail), ts: event.ts))
             }
         case "accepted":
             turn.accepted = true
@@ -714,6 +748,7 @@ struct Timeline: Equatable {
         }
         turn.seq = receipt.seq ?? turn.seq
         turn.origin = receipt.origin ?? turn.origin
+        turn.createdTS = receipt.created_at ?? turn.createdTS
         turn.continues = receipt.continues ?? turn.continues
         turn.settings = receipt.settings ?? turn.settings
         turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
@@ -916,7 +951,7 @@ struct Timeline: Equatable {
     /// conversation's message ids (a Claude user row's uuid is the message id),
     /// and anything stamped at or after the conversation's first event. Such a
     /// user row gives its message the person's text.
-    mutating func apply(history page: HistoryPage) {
+    mutating func apply(history page: HistoryPage, provider: String = "claude") {
         historyPagesLoaded += 1
         historyBefore = page.next_before
         historyComplete = page.next_before == nil
@@ -931,14 +966,25 @@ struct Timeline: Equatable {
                 setPersonText(item.text, for: id)
                 continue
             }
-            if let lastSubfleetRow, index <= lastSubfleetRow { continue }
-            if afterBoundary(item.ts) { continue }
+            if item.source == "subfleet" { continue }
+            let outside = item.source == "other-app"
+            if !outside, let lastSubfleetRow, index <= lastSubfleetRow { continue }
+            if !outside, afterBoundary(item.ts) { continue }
             let cursor = item.cursor ?? -1
             let index = perCursor[cursor, default: 0]
             perCursor[cursor] = index + 1
             let itemID = "history:\(cursor):\(index)"
             guard !history.contains(where: { $0.id == itemID }) else { continue }
-            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item), ts: item.ts))
+            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item, provider: provider), ts: item.ts))
+            if outside {
+                outsideHistoryIDs.insert(itemID)
+                if item.role == "user", item.kind == "text" {
+                    let labelID = "other-app:\(cursor)"
+                    outsideHistoryIDs.insert(labelID)
+                    older.append(TimelineItem(id: labelID, messageID: nil,
+                                              content: .notice("Made in another app"), ts: item.ts))
+                }
+            }
         }
         history = older.reversed() + history
         historyAddedByLastPage = older.count
@@ -946,7 +992,7 @@ struct Timeline: Equatable {
 
     /// A history row drawn as the live row of its kind: a tool call with its
     /// result and outcome, a thought, an answer; the person's words as a bubble.
-    static func content(of item: HistoryItem) -> TimelineContent {
+    static func content(of item: HistoryItem, provider: String = "claude") -> TimelineContent {
         switch item.kind {
         case "tool":
             let state: ToolActivity.State = item.is_error == true ? .failed : item.preview != nil ? .succeeded : .unfinished
@@ -955,6 +1001,9 @@ struct Timeline: Equatable {
         case "thinking":
             return .thinking(item.text, final: true)
         default:
+            if provider == "claude", item.role == "user", item.kind == "text", let notice = TaskNotification.parse(item.text) {
+                return .taskNotification(notice)
+            }
             return .history(role: item.role, text: item.text, tool: nil)
         }
     }
@@ -970,7 +1019,7 @@ struct Timeline: Equatable {
 
     private mutating func trimHistory() {
         let boundary = firstEventTS
-        history.removeAll { Timeline.after($0.ts, boundary: boundary) }
+        history.removeAll { !outsideHistoryIDs.contains($0.id) && Timeline.after($0.ts, boundary: boundary) }
     }
 
     // MARK: Display
@@ -994,6 +1043,20 @@ struct Timeline: Equatable {
                       let message = turns[steered], let person = personItem(message) else { continue }
                 out.append(person)
             }
+        }
+        // Native rows from another app can fall between or after Subfleet turns.
+        // Stable merge keeps the events within each turn and the queue's order.
+        let outside = out.filter { outsideHistoryIDs.contains($0.id) }
+        out.removeAll { outsideHistoryIDs.contains($0.id) }
+        for item in outside {
+            var index = out.count
+            if let time = item.ts.flatMap(parseTimestamp) {
+                index = out.firstIndex { row in
+                    guard let stamp = row.ts.flatMap(parseTimestamp) else { return false }
+                    return stamp > time
+                } ?? out.count
+            }
+            out.insert(item, at: index)
         }
         return out
     }
@@ -1095,10 +1158,13 @@ struct Timeline: Equatable {
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .notice("The stopped turn was left; the next turn starts without resuming it"),
                                 ts: nil)
+        case "wake":
+            return TimelineItem(id: id, messageID: turn.messageID,
+                                content: .notice(turn.personText ?? "Subfleet check-back"), ts: turn.createdTS)
         default:
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .person(text: turn.personText, attachments: turn.attachments, state: turn.state),
-                                ts: nil)
+                                ts: turn.createdTS)
         }
     }
 

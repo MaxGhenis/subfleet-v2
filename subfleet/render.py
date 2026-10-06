@@ -11,6 +11,31 @@ from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
+from .quota_projection import instant, weekly_projections
+
+
+def projection_text(projection: Mapping[str, Any]) -> str:
+    reset = instant(projection["resets_at"]).strftime("%a %H:%MZ")
+    basis = "; rate unknown" if projection["basis"] == "rate unknown" else ""
+    return (f"~{projection['projected_unused'] * 100:.0f}% unused at reset {reset} "
+            f"(projection{basis})")
+
+
+def projection_totals(lanes: Any) -> list[str]:
+    """Sum account windows once per lane; model scopes do not add lane-weeks."""
+    providers: dict[str, list[Mapping[str, Any]]] = {}
+    for lane in lanes:
+        projection = lane.get("weekly_projections", {}).get("account")
+        if projection is not None:
+            providers.setdefault(lane["provider"], []).append(projection)
+    lines = []
+    for provider, projections in sorted(providers.items()):
+        total = math.fsum(row["projected_unused"] for row in projections)
+        through = max(instant(row["resets_at"]) for row in projections).strftime("%a %H:%MZ")
+        unknown = sum(row["basis"] == "rate unknown" for row in projections)
+        suffix = f" ({unknown} rate unknown)" if unknown else ""
+        lines.append(f"{provider}: ~{total:.1f} of {len(projections)} lane-weeks projected unused by {through}{suffix}")
+    return lines
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -114,7 +139,8 @@ def status(view: Mapping[str, Any]) -> str:
     readings = view.get("readings", [row for lane in lanes for row in lane.get("readings", ())])
     closures = view.get("closures", [row for lane in lanes for row in lane.get("closures", ())])
     snapshot = build_view(lanes, readings, closures, view.get("attempts", ()), view.get("jobs", ()),
-                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S))
+                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
+                          weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     rows = []
     for lane in snapshot["lanes"]:
@@ -134,10 +160,14 @@ def status(view: Mapping[str, Any]) -> str:
         rows.append([lane["lane_id"], lane["provider"], lane.get("account_key", "unknown"),
                      _label(lane.get("owner", "unknown")), ", ".join(flags) or "-",
                      str(lane["in_flight"]), min(weekly, default="unknown"),
-                     "; ".join(reading_text(row) for row in lane["readings"]) or "unknown",
+                     "; ".join(reading_text(row) + (
+                         " · " + projection_text(lane["weekly_projections"][row["scope"]])
+                         if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
+                         for row in lane["readings"]) or "unknown",
                      "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
+    lines.extend(projection_totals(snapshot["lanes"]))
     jobs = {row["job_id"]: row for row in snapshot["jobs"]}
     # C-26.12: turn jobs hold lane slots like any job, so they are shown, but
     # under their own heading: they are conversations' turns, not detached work.
@@ -420,7 +450,8 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
     """C-9.10: one line per login: its cards, credits and plan, or why they are unknown.
 
     Cards and credits are shown from the last read that saw them, with that
-    read's time when the latest one failed; nothing here is ever redeemed.
+    read's time when the latest one failed or listed no cards; nothing here is
+    ever redeemed.
     `compact` (what `status` prints) shows only the logins holding something
     that can be lost and counts the rest by status; `subfleet cards` shows all.
     """
@@ -469,19 +500,26 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
             ended = [grant for grant in grants if grant.get("resets_left", 0) > 0 and grant.get("ended")]
             for grant in ended:
                 parts.append(f"reset card ended unused ({grant['id']}, ended {grant.get('ends_at')})")
-            if unused:
-                for grant in unused:
-                    note = ("usable now" if grant.get("usable_now")
-                            else "paused" if grant.get("paused") else "not usable now")
-                    parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
-                                 f"{grant.get('ends_at') or 'unknown'}, {note}"
-                                 + (", account at its limit" if cards.get("at_limit") else ""))
-            elif grants and not ended:
-                parts.append("reset card used")
+            for grant in unused:
+                note = ("usable now" if grant.get("usable_now")
+                        else "paused" if grant.get("paused") else "not usable now")
+                parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
+                             f"{grant.get('ends_at') or 'unknown'}, {note}"
+                             + (", account at its limit" if cards.get("at_limit") else ""))
+            # "No reset card" only when none is listed: a card that ended unused is one.
+            if grants:
+                if not unused and not ended:
+                    parts.append("reset card used")
             elif cards and not cards.get("eligible"):
                 parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
             elif cards:
                 parts.append("no reset card")
+            unlisted = account.get("cards_unlisted") or {}
+            if unlisted:
+                why = ("no cards block" if unlisted.get("missing")
+                       else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}")
+                parts.append(f"cards as listed {unlisted.get('listed_at') or 'before'}; "
+                             f"the read at {unlisted.get('at')} listed none ({why})")
             for credit in account.get("credits") or []:
                 parts.append(f"{credit.get('label')} {_money(credit.get('remaining_dollars'))} of "
                              f"{_money(credit.get('limit_dollars'))} left, expires {credit.get('expires_at') or 'unknown'}")
@@ -500,7 +538,15 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
         lines.append(head + ": " + ("; ".join(parts) or status))
     lines.extend(others)
     for warning in view.get("warnings") or ():
-        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} "
-                     + (f"{warning.get('grant') or warning.get('credit') or ''} ").lstrip()
+        items = _warned_items(warning)
+        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} " + (f"{items} " if items else "")
                      + (f"at {warning['at']}" if warning.get("at") else ""))
     return lines
+
+
+def _warned_items(warning: Mapping[str, Any]) -> str:
+    """The card or credit a warning names: `grant` or `credit`, or a loss's `grants` and `credits`."""
+    credits = warning.get("credits") or ()
+    names = [warning.get("grant"), warning.get("credit"), *(warning.get("grants") or ()),
+             *(row.get("key") if isinstance(row, Mapping) else row for row in credits)]
+    return ", ".join(str(name) for name in names if name)

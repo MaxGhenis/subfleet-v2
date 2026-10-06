@@ -37,6 +37,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -115,7 +116,22 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 def session_id(env: dict[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
-    return (env.get("CLAUDE_CODE_SESSION_ID") or "").strip() or None
+    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID") or "").strip() or None
+
+
+def cmd_wake(args: argparse.Namespace) -> int:
+    session = session_id()
+    if not session and not os.environ.get("SUBFLEET_TURN_JOB"):
+        return fail(Exit.INVALID_INPUT, "wake needs the calling conversation's session id")
+    try:
+        result = Client(_root(args)).call("conversation.wake", {
+            "session_id": session, "request_id": args.request_id or str(uuid.uuid4()),
+            "calling_job": os.environ.get("SUBFLEET_TURN_JOB"),
+            "runs": args.runs, "prs": args.pr, "at": args.at, "note": args.note})
+    except (DaemonError, DaemonUnavailable) as exc:
+        return fail(getattr(exc, "code", Exit.OPERATIONAL), str(exc))
+    emit(result) if args.json else out("Wake recorded: " + result["request_id"])
+    return 0
 
 
 def in_claude_session(env: dict[str, str] | None = None) -> bool:
@@ -321,8 +337,9 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
-    lanes = rows_of(data.get("lanes"))
-    readings = rows_of(data.get("readings"))
+    lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
+    readings = [dict(row) for row in rows_of(data.get("readings"))]
+    at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
     # `daemon.status` carries every job the store holds as `jobs` (it is the
     # capacity view); only the live ones belong under this heading. A turn job
@@ -337,7 +354,7 @@ def format_status(data: dict[str, Any]) -> str:
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
         reading["label"] = age_adjusted_label(reading.get("label"),
-                                              reading.get("observed_at"))
+                                              reading.get("observed_at"), now=at)
 
     if not lanes:
         lines.append("no lanes enrolled — subfleet lanes enroll <credential>")
@@ -346,13 +363,19 @@ def format_status(data: dict[str, Any]) -> str:
                      f"{'flight':>6}  windows")
         for lane in lanes:
             marks = []
+            lane["weekly_projections"] = render.weekly_projections(
+                {**lane, "readings": by_lane.get(str(lane.get("lane_id")), [])}, now=at,
+                samples=data.get("weekly_samples"))
             for reading in sorted(by_lane.get(str(lane.get("lane_id")), []),
                                   key=lambda r: str(r.get("window"))):
                 label = reading.get("label")
                 stale = " stale" if label == "stale-provider" else ""
                 if label in {"provider", "stale-provider"}:
-                    marks.append(f"{reading.get('window')} "
-                                 f"{_percent(reading.get('utilization'))}{stale}")
+                    mark = f"{reading.get('window')} {_percent(reading.get('utilization'))}{stale}"
+                    projection = lane["weekly_projections"].get(reading.get("scope", "account"))
+                    if reading.get("window") == "seven_day" and projection is not None:
+                        mark += " · " + render.projection_text(projection)
+                    marks.append(mark)
                 else:
                     marks.append(f"{reading.get('window')} {label}")
             flags = []
@@ -372,6 +395,7 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
+    lines.extend(render.projection_totals(lanes))
     cards = data.get("claude_cards")
     if isinstance(cards, dict):
         # C-9.10: what each Claude account holds that can be lost.
@@ -714,7 +738,7 @@ def _prepare_submit(args: argparse.Namespace,
         allow_tmp=bool(args.allow_tmp),
         in_place=bool(args.in_place),
         independent=bool(args.independent),
-        parent_job_id=args.parent,
+        parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(),
         caller_pid=caller_pid(),
         no_preamble=bool(args.no_preamble),
@@ -1598,7 +1622,7 @@ def _format_job(job: dict[str, Any]) -> str:
 
 
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
-    """C-15.3 a notice is acknowledged when its session runs `runs show <job>`.
+    """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
     Best effort: the job was already shown, so a failed acknowledgement must not
     change what the caller sees or the exit code.
@@ -2992,6 +3016,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_reap, nested=True)
 
     p_wait = sub.add_parser("wait", help="long-poll until jobs are terminal")
+    p_wake = sub.add_parser("wake", help="wake this conversation on runs, PR changes, or a time")
+    p_wake.add_argument("--runs", nargs="+")
+    p_wake.add_argument("--pr", nargs="+", action="extend")
+    p_wake.add_argument("--at")
+    p_wake.add_argument("--note", default="")
+    p_wake.add_argument("--request-id")
+    _add_json(p_wake, nested=True)
+    p_wake.set_defaults(handler=cmd_wake)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")
     p_wait.add_argument("--last", action="store_true", help="the most recent job")
@@ -3136,6 +3168,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_handoff.set_defaults(handler=cmd_handoff)
     from . import operations
     operations.add_verbs(sub)
+    from . import retention_cli
+    retention_cli.add_verbs(sub)
     return parser
 
 

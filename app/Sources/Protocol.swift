@@ -123,6 +123,7 @@ enum Ops {
     /// file pool, so it gets the diff ops' longer floor.
     static let conversationHandoff = DaemonOperation<ConversationHandoffArgs, ConversationHandoffResult>(
         name: "conversation.handoff", minimumTimeout: 120)
+    static let conversationWake = DaemonOperation<ConversationWakeArgs, ConversationWakeResult>(name: "conversation.wake")
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -132,7 +133,7 @@ enum Ops {
         messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
         approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name,
+        conversationHandoff.name, workspaceCheck.name, conversationWake.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -269,6 +270,9 @@ struct Conversation: Codable, Equatable, Identifiable {
     var blocked_by: String?
     var created_at: String
     var updated_at: String
+    /// The later of the stored update and native transcript activity in the
+    /// daemon's cached catalog; older daemons leave this absent.
+    var last_activity: String? = nil
     var last_message: LastMessage?
     var pending_approvals: Int
     var active: Bool
@@ -277,6 +281,10 @@ struct Conversation: Codable, Equatable, Identifiable {
     var live_elsewhere: Bool?
 
     var id: String { conversation_id }
+
+    var lastActivityDate: Date? {
+        [updated_at, last_activity].compactMap { $0 }.compactMap(parseTimestamp).max()
+    }
 }
 
 struct LastMessage: Codable, Equatable {
@@ -307,6 +315,7 @@ struct Receipt: Codable, Equatable {
     var text_truncated: Bool?
     /// C-24.9: the running turn's message this one was steered into, or null.
     var steered_into: String?
+    var created_at: String? = nil
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -382,6 +391,7 @@ struct ModelsListArgs: Codable, Equatable {
 struct ModelsListResult: Codable, Equatable {
     var models: [ModelEntry]
     var source: String?
+    var default_models: [String: String]?
 }
 
 /// `op_models_list`: a policy model and what a provider's catalog last said of it.
@@ -399,6 +409,8 @@ struct ModelEntry: Codable, Equatable, Identifiable {
     var fast: ModelFast
     var image_input: Bool?
     var observed_at: String?
+    /// The loaded policy retires this alias or model id; older daemons omit it.
+    var retired: Bool?
 }
 
 struct ModelFast: Codable, Equatable {
@@ -481,6 +493,22 @@ struct ConversationOpenResult: Codable, Equatable {
     var messages: [Receipt]
     var events_cursor: Int
     var pending_approvals: [ApprovalView]
+    var history: HistoryPage? = nil
+}
+
+struct ConversationWakeArgs: Codable, Equatable {
+    var request_id: String
+    var session_id: String?
+    var calling_job: String?
+    var runs: [String]?
+    var prs: [String]?
+    var at: String?
+    var note: String = ""
+}
+
+struct ConversationWakeResult: Codable, Equatable {
+    var request_id: String
+    var kinds: [String]
 }
 
 struct ConversationCreateArgs: Codable, Equatable {
@@ -608,9 +636,25 @@ struct DiffResult: Codable, Equatable {
     var diff: String
     var truncated: Bool
     var scrubbed: Int
+    /// Other conversations whose turns wrote in the same folder while this turn ran
+    /// (or, for the whole conversation, since its first turn began): the diff may
+    /// hold their edits (C-26.14). Absent from a daemon older than 2026-09-29.
+    var shared: [DiffSharer]?
 
     /// Compared with the working tree now, not a turn's end snapshot.
     var isLive: Bool { to?.live == true }
+}
+
+/// One conversation that also wrote in the folder: its title now, its messages
+/// whose turns overlapped, and when (`to` is null while one of them still runs).
+struct DiffSharer: Codable, Equatable, Identifiable {
+    var conversation_id: String
+    var title: String?
+    var message_ids: [String]
+    var from: String?
+    var to: String?
+
+    var id: String { conversation_id }
 }
 
 /// One side of a comparison: a snapshot's tree and HEAD, and when it was taken.
@@ -711,6 +755,7 @@ struct HistoryItem: Codable, Equatable {
     var hidden: Bool?
     var preview: String?
     var is_error: Bool?
+    var source: String? = nil
 }
 
 // MARK: - conversation.events, conversation.watch

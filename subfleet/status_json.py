@@ -11,6 +11,7 @@ from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
 from .guardian import atomic_publish
+from .quota_projection import weekly_projections
 
 
 def instant(value: str | datetime | None = None) -> datetime:
@@ -275,7 +276,8 @@ def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
 #: C-9.10: what `status.json` says of each account's cards and credits. No
 #: identity, token or path: the menu needs what is at risk and when.
 CARD_ACCOUNT_FIELDS = ("login", "lanes", "lanes_by", "status", "detail", "read_at", "unused_cards", "plan",
-                       "plan_ends_at", "credits", "cloud_credit_claim", "claimable", "recently_lost")
+                       "plan_ends_at", "credits", "cloud_credit_claim", "claimable", "recently_lost",
+                       "cards_unlisted")
 
 
 def _cards(snapshot: Mapping[str, Any]) -> dict[str, Any]:
@@ -315,6 +317,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                   "dispatchable": dispatchable(lane),
                   # C-18.1: the probe holding this lane's slot, if one does.
                   "probe_state": lane.get("probe_state"), "probe_holder": lane.get("probe_holder")}
+        common["weekly_projections"] = weekly_projections(lane, now=at, samples=snapshot.get("weekly_samples"))
         if lane.get("identity_status") is not None:
             common["identity_status"] = lane["identity_status"]
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")

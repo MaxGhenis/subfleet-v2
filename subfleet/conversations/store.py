@@ -21,14 +21,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import APPROVAL_NEEDED, CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES, WAITING
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   worktree_json     TEXT,
   request_id        TEXT UNIQUE,
   blocked_by        TEXT,
+  blocked_at        TEXT,
+  wake_streak       INTEGER NOT NULL DEFAULT 0,
+  last_wake_at      REAL,
   legacy_hold       TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
@@ -87,6 +90,10 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (conversation_id, seq)
 );
 CREATE INDEX IF NOT EXISTS messages_by_state ON messages(conversation_id, state, seq);
+CREATE TABLE IF NOT EXISTS final_wake_intents (
+  message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
+  final_text TEXT NOT NULL, settled_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id         TEXT PRIMARY KEY,
   message_id          TEXT NOT NULL REFERENCES messages(message_id),
@@ -333,13 +340,16 @@ class ConversationStore:
             if version is not None and version < SCHEMA_VERSION:
                 self._migrate(version)
             self._db.executescript(SCHEMA)
+            from .wakes import SCHEMA as WAKE_SCHEMA
+            self._db.executescript(WAKE_SCHEMA)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
             if "worktree_json" not in columns:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
             for name, kind in (("title_source", "TEXT"), ("title_message_id", "TEXT"),
-                               ("title_requested_at", "REAL")):
+                               ("title_requested_at", "REAL"), ("blocked_at", "TEXT"),
+                               ("wake_streak", "INTEGER NOT NULL DEFAULT 0"), ("last_wake_at", "REAL")):
                 if name not in columns:
                     self._db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {kind}")
             # Preserve every pre-existing name; its authorship cannot be recovered.
@@ -349,9 +359,15 @@ class ConversationStore:
             # app with its state (design §12).
             if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
+            self._add_turn_windows()
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
             self._add_legacy_hold()
+            # A pre-upgrade block's own settled message predates later queued input.
+            self._db.execute("UPDATE conversations SET blocked_at=COALESCE((SELECT MAX(updated_at) FROM messages "
+                             "WHERE messages.conversation_id=conversations.conversation_id AND state IN "
+                             "('failed','delivery-unknown','interrupted')),updated_at) "
+                             "WHERE blocked_by IS NOT NULL AND blocked_at IS NULL")
         self.changed = threading.Condition()
 
     def _migrate(self, version: int) -> None:
@@ -367,6 +383,23 @@ class ConversationStore:
             self._db.execute("ROLLBACK")
             raise
         self._db.execute("COMMIT")
+
+    def _add_turn_windows(self) -> None:
+        """C-26.14 (2026-09-29): who else wrote in a turn's folder during it. Additive
+        columns, as `worktree_json`: `target` (the folder, C-6.5's write target),
+        `window_start` (when admission began the turn's start snapshot) and
+        `shared_json` (the attempt ids of the other writable turns whose windows
+        overlapped it). A row written before them keeps its workspace as its folder."""
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(turn_trees)")}
+        for column in ("target", "window_start", "shared_json"):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE turn_trees ADD COLUMN {column} TEXT")
+        self._db.execute("CREATE INDEX IF NOT EXISTS turn_trees_by_target ON turn_trees(target, ended_at)")
+        # The rows with no end yet, which the service looks at on every tick (`open_windows`).
+        self._db.execute("CREATE INDEX IF NOT EXISTS turn_trees_open ON turn_trees(attempt_id) WHERE ended_at IS NULL")
+        # Every open, not only the one that added the column: an open cut short
+        # between the two statements leaves no row without its folder for long.
+        self._db.execute("UPDATE turn_trees SET target=workspace WHERE target IS NULL")
 
     def _add_legacy_hold(self) -> None:
         """A schema 1 store written before `legacy_hold` gains the column (C-30.4).
@@ -441,6 +474,16 @@ class ConversationStore:
             _publish(path, data)
 
     # --- plumbing --------------------------------------------------------------
+
+    @contextlib.contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """Inspect under the store lock without a write or reader notification.
+
+        Any later mutation must recheck its guards in its own transaction.
+        """
+        with self._lock:
+            self._open()
+            yield self._db
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -813,6 +856,9 @@ class ConversationStore:
         sets, params = [], []
         if "title" in fields:
             sets.append("title_source='person'")
+        if "blocked_by" in fields:
+            sets.append("blocked_at=?")
+            params.append(utcnow() if fields["blocked_by"] else None)
         for key, value in fields.items():
             if key == "native_session_id":
                 value = canonical_native(value)
@@ -834,6 +880,26 @@ class ConversationStore:
             tx.execute(f"UPDATE conversations SET {','.join(sets)} WHERE conversation_id=?", (*params, conversation_id))
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
+
+    def clear_moot_block(self, conversation_id: str, *, expected_block: str, expected_at: str, mtime: float) -> bool:
+        """Clear only the block observed by the check; preserve an import's hold."""
+        with self.transaction() as tx:
+            changed = tx.execute("UPDATE conversations SET blocked_by=NULL,blocked_at=NULL,updated_at=? "
+                                 "WHERE conversation_id=? AND blocked_by=? AND blocked_at=?",
+                                 (utcnow(), conversation_id, expected_block, expected_at)).rowcount
+            if changed:
+                unknowns = [r[0] for r in tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND state='delivery-unknown'",
+                                                   (conversation_id,))]
+                tx.execute("UPDATE messages SET state='failed',state_reason='continued-elsewhere',updated_at=? "
+                           "WHERE conversation_id=? AND state='delivery-unknown'", (utcnow(), conversation_id))
+                for message_id in unknowns:
+                    self._change(tx, conversation_id, message_id, FAILED)
+                tx.execute("INSERT INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,data_json,ts) "
+                           "VALUES(?,NULL,?,'system',?,0,'conversation.unblocked',?,?)",
+                           (conversation_id, f"system:{conversation_id}", str(uuid.uuid4()),
+                            json.dumps({"reason": "continued-elsewhere", "mtime": mtime}), utcnow()))
+                self._change(tx, conversation_id, None, None)
+        return bool(changed)
 
     def set_legacy_hold(self, conversation_id: str, reason: str | None) -> dict:
         """Set (a reason) or lift (None) the legacy import's hold (C-30.4).
@@ -890,20 +956,23 @@ class ConversationStore:
             return None
         return {"blocked_by": row["blocked_by"], "legacy_hold": row["legacy_hold"]}
 
-    def list_conversations(self, *, provider: str | None = None, limit: int = 200) -> list[dict]:
+    def list_conversations(self, *, provider: str | None = None, limit: int | None = 200) -> list[dict]:
         sql = "SELECT * FROM conversations WHERE archived_at IS NULL"
         params: list[Any] = []
         if provider:
             sql += " AND provider=?"
             params.append(provider)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        sql += " ORDER BY updated_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, min(int(limit), 1000)))
         return [_decode_conversation(r) for r in self.query(sql, tuple(params))]
 
     # --- messages --------------------------------------------------------------
 
     def submit_message(self, *, conversation_id: str, message_id: str, after_message_id: str | None,
                        text: str, attachments: list[str], settings: dict, origin: str = "person",
+                       wake_claim: dict | None = None,
                        continues: str | None = None, state: str = QUEUED,
                        state_reason: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
@@ -940,6 +1009,9 @@ class ConversationStore:
                 if again["digest"] != digest:
                     raise ConversationError("message-id-conflict", "message id already used with different content")
                 return _decode_message(dict(again)), False
+            if wake_claim is not None:
+                from .wakes import claim
+                claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
             last = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation_id,)).fetchone()
             if origin == "person" and (last["message_id"] if last else None) != after_message_id:
@@ -959,6 +1031,9 @@ class ConversationStore:
                  json.dumps(list(attachments)), json.dumps(settings), state, state_reason, now, now))
             tx.execute("UPDATE conversations SET updated_at=?, settings_json=? WHERE conversation_id=?",
                        (now, json.dumps(settings), conversation_id))
+            if origin == "person":
+                tx.execute("UPDATE conversations SET wake_streak=0,last_wake_at=NULL WHERE conversation_id=?",
+                           (conversation_id,))
             if origin == "person" and last is None:
                 from .titles import fallback_title
                 tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
@@ -1058,13 +1133,21 @@ class ConversationStore:
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
                   expect: tuple[str, ...] | None = None, unbound: bool = False,
-                  expect_turn_seq: int | None = None, **fields: Any) -> bool:
+                  expect_turn_seq: int | None = None,
+                  final_wake: tuple[str, float] | None = None, **fields: Any) -> bool:
         """Move a message; with `expect`, only from those states, with `unbound`,
         only while no job is bound to it, and with `expect_turn_seq`, only at that
-        turn sequence. Returns whether it moved."""
+        turn sequence. Returns whether it moved. `final_wake` records final text
+        and its settlement time for wake registration in the completion transaction.
+        """
+        if final_wake is not None and state != COMPLETE:
+            raise ValueError("final wakes require a complete message")
         with self.transaction() as tx:
-            return self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
-                                   expect_turn_seq=expect_turn_seq, **fields)
+            changed = self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
+                                      expect_turn_seq=expect_turn_seq, **fields)
+            if changed and final_wake is not None:
+                tx.execute("INSERT INTO final_wake_intents VALUES(?,?,?)", (message_id, *final_wake))
+            return changed
 
     def _set_state(self, tx: sqlite3.Connection, message_id: str, state: str, *, reason: str | None = None,
                    expect: tuple[str, ...] | None = None, unbound: bool = False,
@@ -1072,6 +1155,10 @@ class ConversationStore:
         """`set_state` inside a transaction the caller holds."""
         if state not in MESSAGE_STATES:
             raise ValueError(f"unknown state {state}")
+        if state == WAITING and not reason:
+            # C-24.4, I3: a waiting message always says why; the app never guesses
+            # (it had shown "Waiting for capacity" for a lease another turn held).
+            raise ValueError("a waiting message needs its reason")
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
         sets, params = ["state=?", "state_reason=?", "updated_at=?"], [state, reason, utcnow()]
         for key, value in fields.items():
@@ -1094,6 +1181,24 @@ class ConversationStore:
             row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
             self._change(tx, row["conversation_id"], message_id, state, reason=reason)
         return bool(cur.rowcount)
+
+    def note_wait(self, message_id: str, job_id: str, reason: str) -> bool:
+        """C-24.4, I3: why a waiting message's turn job is not placed yet, written while
+        that job still carries it and only when it changes, with a change-feed row so
+        the app shows it. Returns whether the message is waiting on that job (so the
+        reason now stands), changed or not."""
+        if not reason:
+            raise ValueError("a waiting message needs its reason")
+        with self.transaction() as tx:
+            cur = tx.execute("UPDATE messages SET state_reason=?, updated_at=? WHERE message_id=? AND state=? "
+                             "AND job_id=? AND COALESCE(state_reason,'')<>?",
+                             (reason, utcnow(), message_id, WAITING, job_id, reason))
+            if cur.rowcount:
+                row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+                self._change(tx, row["conversation_id"], message_id, WAITING, reason=reason)
+                return True
+            return tx.execute("SELECT 1 FROM messages WHERE message_id=? AND state=? AND job_id=?",
+                              (message_id, WAITING, job_id)).fetchone() is not None
 
     def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
@@ -1140,7 +1245,7 @@ class ConversationStore:
             f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
             f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, "
-            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.seq LIMIT 1) "
+            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.origin='wake', q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]
@@ -1441,28 +1546,160 @@ class ConversationStore:
     def record_trees(self, *, attempt_id: str, message_id: str, conversation_id: str, workspace: str,
                      writable: bool, started_at: str, head_before: str | None = None, start_tree: str | None = None,
                      head_after: str | None = None, end_tree: str | None = None, error: str | None = None,
-                     ended: bool = False) -> None:
+                     ended: bool = False, target: str | None = None, window_start: str | None = None) -> None:
         """Record a turn attempt's start, its end, or both. Idempotent: the start is
-        written once, the end fills in; a replayed record changes nothing."""
+        written once, the end fills in; a replayed record changes nothing.
+
+        `target` is the folder the turn writes in (C-6.5's write target; the
+        workspace when not given) and `window_start` when its start snapshot began
+        (`started_at` when not given). Every record also notes, in the same
+        transaction, which other writable turns in that folder overlapped this one
+        in time (`_note_overlaps`, C-26.14)."""
         with self.transaction() as tx:
             before = tx.execute("SELECT ended_at FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
             tx.execute(
                 "INSERT INTO turn_trees(attempt_id,message_id,conversation_id,workspace,writable,head_before,start_tree,"
-                "head_after,end_tree,error,started_at,ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                "head_after,end_tree,error,started_at,ended_at,target,window_start) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(attempt_id) DO UPDATE SET "
                 "head_before=COALESCE(turn_trees.head_before,excluded.head_before), "
                 "start_tree=COALESCE(turn_trees.start_tree,excluded.start_tree), "
                 "head_after=COALESCE(turn_trees.head_after,excluded.head_after), "
                 "end_tree=COALESCE(turn_trees.end_tree,excluded.end_tree), "
                 "error=COALESCE(turn_trees.error,excluded.error), "
-                "ended_at=COALESCE(turn_trees.ended_at,excluded.ended_at)",
+                "ended_at=COALESCE(turn_trees.ended_at,excluded.ended_at), "
+                "target=COALESCE(turn_trees.target,excluded.target), "
+                "window_start=COALESCE(turn_trees.window_start,excluded.window_start)",
                 (attempt_id, message_id, conversation_id, workspace, int(bool(writable)), head_before, start_tree,
-                 head_after, end_tree, error, started_at, utcnow() if ended else None))
+                 head_after, end_tree, error, started_at, utcnow() if ended else None, target or workspace,
+                 _stamp(window_start)))
+            if target and target != workspace:
+                # A row written before `target` took its workspace as its folder; a
+                # conversation keeps one workspace for its life (C-24.1), so its folder
+                # is this one, and `conversation.diff` compares the right rows (review
+                # of 52c73076: a conversation in `/repo/sub` never met turns in `/repo`).
+                tx.execute("UPDATE turn_trees SET target=? WHERE conversation_id=? AND target=workspace "
+                           "AND workspace=?", (target, conversation_id, workspace))
+            grown = self._note_overlaps(tx, attempt_id)
             if ended and not (before and before["ended_at"]):
                 # One change-feed row with `state` null, as an approval writes: it
                 # carries no kind, and tells a watcher to fetch this message again,
                 # its `turn.diff` included (C-26.14, design D-24, §5).
                 self._change(tx, conversation_id, message_id, None)
+                grown.discard((conversation_id, message_id))
+            for other_conversation, other_message in sorted(grown):
+                # A turn found to share its folder: its changes now say so.
+                self._change(tx, other_conversation, other_message, None)
+
+    def _note_overlaps(self, tx: sqlite3.Connection, attempt_id: str) -> set[tuple[str, str]]:
+        """C-26.14, I4: mark this writable turn and every writable turn of another
+        conversation in its folder whose time window overlaps its own as sharing
+        the folder, each in
+        the other's `shared_json`. A window runs from `window_start` to `ended_at`,
+        and is open while `ended_at` is null. Checked on every record, in the
+        recording transaction, so whichever of two turns is recorded second sees
+        the first: a pair is marked when its later row is written, whatever order
+        the starts and ends arrive in (a start is recorded when its runner is
+        adopted, possibly after another turn has ended). Here marks are only ever
+        added, since a recorded window only ever gains its end; a window closed
+        after the fact at an earlier end drops the marks it no longer meets
+        (`end_unrecorded`). Returns the messages whose marks grew."""
+        row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+        if row is None or not row["writable"]:
+            return set()
+        start, end = _window(row)
+        # `ended_at` is always this store's millisecond stamp, so the prefilter compares
+        # like with like; the exact test is on parsed instants below.
+        # Another conversation's: two turns of one conversation never run at once (C-24.5,
+        # I2), each starting after the one before it has ended and been recorded.
+        others = tx.execute("SELECT * FROM turn_trees WHERE target=? AND conversation_id<>? AND writable=1 "
+                            "AND (ended_at IS NULL OR ended_at>=?)",
+                            (row["target"], row["conversation_id"], _stamp(start))).fetchall()
+        mine = set(json.loads(row["shared_json"] or "[]"))
+        grown: set[tuple[str, str]] = set()
+        for other in others:
+            other_start, other_end = _window(other)
+            if not overlaps(start, end, other_start, other_end):
+                continue
+            theirs = set(json.loads(other["shared_json"] or "[]"))
+            if attempt_id not in theirs:
+                tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?",
+                           (json.dumps(sorted(theirs | {attempt_id})), other["attempt_id"]))
+                grown.add((other["conversation_id"], other["message_id"]))
+            if other["attempt_id"] not in mine:
+                mine.add(other["attempt_id"])
+                grown.add((row["conversation_id"], row["message_id"]))
+        if (row["conversation_id"], row["message_id"]) in grown:
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?", (json.dumps(sorted(mine)), attempt_id))
+        return grown
+
+    def open_windows(self) -> list[str]:
+        """The attempts whose turn has no recorded end, oldest first."""
+        return [row["attempt_id"] for row in
+                self.query("SELECT attempt_id FROM turn_trees WHERE ended_at IS NULL ORDER BY rowid")]
+
+    def end_unrecorded(self, attempt_id: str, *, ended_at: str, error: str) -> bool:
+        """C-26.14, I4: close the window of a turn whose attempt ended with no end
+        recorded, at the end the job store gave the attempt (`finished_at`), with
+        `error` as why it has no end snapshot. The window had been open, so every
+        writable turn of another conversation in its folder that began after it
+        was marked as sharing it; the marks the closed window no longer meets are
+        dropped, on both sides (review P3-5 of 5e9f2fbd: a turn a day later read
+        as sharing the folder with one "still running"). One change-feed row goes
+        to its message and to each message whose marks changed, `state` null, as
+        a recorded end's does. A stamp in whole seconds (the job store's) is taken
+        to its last millisecond, so no turn that met the attempt goes unmarked.
+        False when the row has an end already (it was recorded meanwhile) or none."""
+        with self.transaction() as tx:
+            row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if row is None or row["ended_at"]:
+                return False
+            tx.execute("UPDATE turn_trees SET ended_at=?, error=COALESCE(error, ?) WHERE attempt_id=?",
+                       (_last_millisecond(ended_at), error, attempt_id))
+            changed = self._drop_unmet(tx, attempt_id)
+            changed.discard((row["conversation_id"], row["message_id"]))
+            self._change(tx, row["conversation_id"], row["message_id"], None)
+            for other_conversation, other_message in sorted(changed):
+                self._change(tx, other_conversation, other_message, None)
+        return True
+
+    def _drop_unmet(self, tx: sqlite3.Connection, attempt_id: str) -> set[tuple[str, str]]:
+        """Unmark this turn and each turn marked as sharing its folder whose window
+        no longer meets its own; the messages whose marks changed."""
+        row = tx.execute("SELECT * FROM turn_trees WHERE attempt_id=?", (attempt_id,)).fetchone()
+        mine = set(json.loads(row["shared_json"] or "[]"))
+        if not mine:
+            return set()
+        start, end = _window(row)
+        changed: set[tuple[str, str]] = set()
+        for other in tx.execute(f"SELECT * FROM turn_trees WHERE attempt_id IN ({','.join('?' * len(mine))})",
+                                tuple(mine)).fetchall():
+            if overlaps(start, end, *_window(other)):
+                continue
+            mine.discard(other["attempt_id"])
+            theirs = set(json.loads(other["shared_json"] or "[]")) - {attempt_id}
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?",
+                       (json.dumps(sorted(theirs)), other["attempt_id"]))
+            changed |= {(other["conversation_id"], other["message_id"]), (row["conversation_id"], row["message_id"])}
+        if changed:
+            tx.execute("UPDATE turn_trees SET shared_json=? WHERE attempt_id=?", (json.dumps(sorted(mine)), attempt_id))
+        return changed
+
+    def overlapping(self, target: str, start: str, *, besides_conversation: str) -> list[dict]:
+        """The writable turns of other conversations in `target` whose windows reach
+        into the time since `start` (C-26.14's `conversation.diff`, to now)."""
+        since = _instant(start)
+        rows = self.query("SELECT * FROM turn_trees WHERE target=? AND writable=1 AND conversation_id<>? "
+                          "AND (ended_at IS NULL OR ended_at>=?) ORDER BY rowid",
+                          (target, besides_conversation, _stamp(since)))
+        return [_decode_trees(row) for row in rows if overlaps(since, None, *_window(row))]
+
+    def trees_by_attempt(self, attempt_ids: list[str]) -> list[dict]:
+        """The snapshot rows of these attempts, in the order they were first written."""
+        if not attempt_ids:
+            return []
+        marks = ",".join("?" * len(attempt_ids))
+        return [_decode_trees(row) for row in
+                self.query(f"SELECT * FROM turn_trees WHERE attempt_id IN ({marks}) ORDER BY rowid", tuple(attempt_ids))]
 
     # Attempts are ordered by `rowid`, the order their rows were first written: a
     # row is written when its turn's runner starts (`service._record_start`) or, at
@@ -1499,8 +1736,10 @@ class ConversationStore:
                    "VALUES (?,?,?,?,?,?)", (conversation_id, message_id, state, pending, utcnow(), reason))
 
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
+        # Titles enrich the feed; missing catalog metadata must not hide a
+        # snapshot/overlap notification or prevent its cursor from advancing.
         rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
-                          "JOIN conversations c ON c.conversation_id=ch.conversation_id "
+                          "LEFT JOIN conversations c ON c.conversation_id=ch.conversation_id "
                           "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
         for row in rows:
             row["steered_into"] = steered_into(row.get("state_reason"))
@@ -1682,7 +1921,52 @@ def steered_into(reason: str | None) -> str | None:
 def _decode_trees(row: dict) -> dict:
     out = dict(row)
     out["writable"] = bool(out["writable"])
+    out["shared"] = json.loads(out.pop("shared_json", None) or "[]")
     return out
+
+
+def _instant(value: str | datetime) -> datetime:
+    """An ISO instant, either store's stamp (seconds or milliseconds, `Z` or an offset)."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _stamp(value: str | datetime | None) -> str | None:
+    """This store's millisecond stamp for an instant; None for none or one that does
+    not parse (the window then starts at `started_at`)."""
+    if value is None:
+        return None
+    try:
+        return _instant(value).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    except (TypeError, ValueError):
+        return None
+
+
+def _last_millisecond(value: str) -> str:
+    """This store's stamp for an end the job store stamped: one in whole seconds fell
+    somewhere in that second, so it is taken to the second's last millisecond. One that
+    does not parse is now, which drops no mark the open window made."""
+    try:
+        instant = _instant(value)
+    except (TypeError, ValueError):
+        return utcnow()
+    if "." not in value:
+        instant += timedelta(milliseconds=999)
+    return _stamp(instant)
+
+
+def _window(row) -> tuple[datetime, datetime | None]:
+    """C-26.14: a turn's time window, from before its start snapshot to its recorded
+    end; open (None) while it has none."""
+    start = _instant(row["window_start"] or row["started_at"])
+    return start, (_instant(row["ended_at"]) if row["ended_at"] else None)
+
+
+def overlaps(a_start: datetime, a_end: datetime | None, b_start: datetime, b_end: datetime | None) -> bool:
+    """Two closed windows meet; an open end reaches to any later time (I4)."""
+    return (b_end is None or a_start <= b_end) and (a_end is None or b_start <= a_end)
 
 
 def _decode_approval(row: dict) -> dict:

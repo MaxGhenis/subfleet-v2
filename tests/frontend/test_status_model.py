@@ -214,14 +214,15 @@ def test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions(probe
 
 
 def test_auto_provider_follows_the_lanes_ready_now(probe, tmp_path):
-    """A new conversation's Auto choice: the provider with more lanes admission
-    could place work on now, from the daemon's own status.json; Claude on a tie."""
+    """Auto prefers any ready Claude lane, or Claude when readiness is unknown."""
     payload = build_status({"lanes": [lane("codex"), lane("claude")], "offline": False}, now=NOW)
     payload["claude"]["lanes"] = {"dispatchable_now": 1}
     payload["codex"]["fleet"]["dispatchable_now"] = 1
     tie = project(probe, tmp_path, payload)
     assert tie["dispatchable"] == {"claude": 1, "codex": 1} and tie["auto_provider"] == "claude"
     payload["codex"]["fleet"]["dispatchable_now"] = 4
+    assert project(probe, tmp_path, payload)["auto_provider"] == "claude"
+    payload["claude"]["lanes"]["dispatchable_now"] = 0
     assert project(probe, tmp_path, payload)["auto_provider"] == "codex"
     del payload["claude"]["lanes"]
     payload["codex"]["fleet"]["dispatchable_now"] = 0

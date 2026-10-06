@@ -103,6 +103,7 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     results = {
         "capabilities": harness.call("capabilities"),
         "models.list": harness.call("models.list", provider="claude"),
+        "workspace.check": harness.call("workspace.check", workspace=str(harness.workspace), permission="ask"),
         "conversation.list": harness.call("conversation.list", limit=2),
         "conversation.open": harness.call("conversation.open", conversation_id=cid),
         "conversation.create": harness.call("conversation.create", request_id="fixed-id", provider="claude",
@@ -198,6 +199,8 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     harness.store.set_state(steered["message_id"], "steered", reason=f"steered:{fixture['first']['message_id']}",
                             served={"steered_into": fixture["first"]["message_id"]})
     results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
+    results["conversation.wake"] = harness.call("conversation.wake", session_id="s-runs", request_id=str(uuid.uuid4()),
+                                                prs=["owner/repo#1"], note="Inspect the merge")
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)
@@ -231,6 +234,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "conversation.open": {"conversation_id": cid},
         "conversation.list": {"query": "fix", "limit": 5, "include_catalog": True},
         "models.list": {"provider": "claude"},
+        "workspace.check": {"workspace": str(harness.workspace), "provider": "claude", "permission": "ask"},
         "capabilities": {},
         "approval.list": {"conversation_id": cid},
         "conversation.history": {"conversation_id": cid},

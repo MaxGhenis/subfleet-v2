@@ -131,6 +131,8 @@ struct OutboxChain: Codable, Equatable {
 
 struct OutboxJournal: Codable, Equatable {
     var version = 1
+    /// Additive 2.1.10 migration; old journals gain recovery rows on first load.
+    var draftRecoveryVersion = 1
     var nextOrder = 1
     var entries: [OutboxEntry] = []
     /// Present for a conversation whose predecessor chain is known.
@@ -140,11 +142,12 @@ struct OutboxJournal: Codable, Equatable {
 
     init() {}
 
-    private enum CodingKeys: String, CodingKey { case version, nextOrder, entries, chains, steers }
+    private enum CodingKeys: String, CodingKey { case version, draftRecoveryVersion, nextOrder, entries, chains, steers }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version)
+        draftRecoveryVersion = try c.decodeIfPresent(Int.self, forKey: .draftRecoveryVersion) ?? 0
         nextOrder = try c.decode(Int.self, forKey: .nextOrder)
         entries = try c.decode([OutboxEntry].self, forKey: .entries)
         chains = try c.decode([String: OutboxChain].self, forKey: .chains)
@@ -209,6 +212,10 @@ final class Outbox {
             let data = try Data(contentsOf: url)
             journal = try JSONDecoder().decode(OutboxJournal.self, from: data)
             var recovered = false
+            if journal.draftRecoveryVersion == 0 {
+                journal.draftRecoveryVersion = 1
+                recovered = true
+            }
             for index in journal.entries.indices where journal.entries[index].state == .sending {
                 journal.entries[index].state = .queued
                 recovered = true
@@ -224,6 +231,56 @@ final class Outbox {
     }
 
     var entries: [OutboxEntry] { journal.entries }
+
+    /// Refusals are shown even before connecting to the daemon. Messages remain
+    /// queued and are retried with their original ids when the folder is fixed.
+    var failedDrafts: [FailedConversationDraft] {
+        journal.entries.sorted { $0.order > $1.order }.compactMap { entry in
+            guard entry.kind == .conversationCreate, entry.state == .failed,
+                  entry.conversationID == nil, let create = entry.create,
+                  let failure = entry.failure, !failure.retryable else { return nil }
+            let messages = journal.entries.filter {
+                $0.conversation == Outbox.draftKey(entry.key) && $0.kind == .messageSubmit && $0.isOpen
+            }.sorted { $0.order < $1.order }
+            return FailedConversationDraft(id: entry.key, create: create, failure: failure,
+                                           messages: messages, createdAt: entry.createdAt)
+        }
+    }
+
+    /// Editing a refused create retains every queued message and its id. A
+    /// retryable/unknown create may already exist and cannot be edited here.
+    func retryFailedCreate(_ key: String, args: ConversationCreateArgs, text: String,
+                           staged: [StagedAttachment]) throws {
+        guard let draft = failedDrafts.first(where: { $0.id == key }), args.request_id == key else {
+            throw OutboxError.invalidState("only a refused conversation can be changed")
+        }
+        let createIndex = try index(key)
+        journal.entries[createIndex].create = args
+        journal.entries[createIndex].state = .queued
+        journal.entries[createIndex].failure = nil
+        journal.entries[createIndex].nextAttemptAt = nil
+        if let first = draft.messages.first {
+            let firstIndex = try index(first.key)
+            let old = journal.entries[firstIndex].message!
+            let retained = old.attachments.filter { !(old.staged ?? []).map(\.sha256).contains($0) }
+            journal.entries[firstIndex].message = OutboxMessage(text: text, attachments: retained + staged.map(\.sha256),
+                                                               settings: args.settings, staged: staged.isEmpty ? nil : staged)
+            try save()
+        } else {
+            try enqueueSubmit(conversation: Outbox.draftKey(key), text: text, staged: staged, settings: args.settings)
+        }
+    }
+
+    func discardFailedDraft(_ key: String) throws {
+        guard failedDrafts.contains(where: { $0.id == key }) else {
+            throw OutboxError.invalidState("only a refused conversation can be discarded")
+        }
+        let draftKey = Outbox.draftKey(key)
+        for index in journal.entries.indices where journal.entries[index].conversation == draftKey {
+            journal.entries[index].state = .withdrawn
+        }
+        try save()
+    }
 
     func entry(_ key: String) -> OutboxEntry? { journal.entries.first { $0.key == key } }
 

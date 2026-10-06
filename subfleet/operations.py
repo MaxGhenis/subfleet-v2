@@ -254,10 +254,19 @@ def add_verbs(sub) -> None:
             parser.add_argument('--dry-run', action='store_true')
         if name == 'keepalive':
             parser.add_argument('--family', choices=['claude'], default='claude')
-    cards = sub.add_parser('cards', help='Claude limit-reset cards and promotional credits, per account (read only)')
+    cards = sub.add_parser(
+        'cards', help='Claude limit-reset cards and promotional credits, per account; never redeems or claims',
+        description='Claude limit-reset cards and promotional credits, per account, as the last read found them '
+                    '(C-9.10). Subfleet never redeems a card or claims a credit. A read is not free, though: '
+                    '--refresh, like the daemon\'s timer, may spend one minimal Claude Code turn (a heal) on '
+                    'each expired login that backs a lane, unless an operator hold covers one of its lanes, at '
+                    'most once per claude_cards.heal_interval_min per login, so the CLI renews that login '
+                    '(claude_cards.heal false turns heals off). Without --refresh it shows the last read and '
+                    'spends nothing.')
     cards.set_defaults(handler=cmd, operation='cards')
     cards.add_argument('--refresh', dest='target', action='store_const', const='refresh',
-                       help='read every login now instead of showing the last read')
+                       help='read every login now instead of showing the last read; may spend a heal turn '
+                            'on each expired login, as above')
     cards.add_argument('--json', action='store_true')
     reset = sub.add_parser('reset', help='request the daemon’s guarded gifted-credit evaluation')
     families = reset.add_subparsers(dest='reset_family', required=True)

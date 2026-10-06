@@ -24,6 +24,8 @@ CONVERSATION_OPS = (
     "conversation.runs",
     "turn.diff", "conversation.diff",
     "conversation.handoff",
+    "workspace.check",
+    "conversation.wake",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client

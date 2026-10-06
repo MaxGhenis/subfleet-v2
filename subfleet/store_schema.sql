@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS readings (
   attempt_id TEXT
 );
 CREATE INDEX IF NOT EXISTS readings_latest ON readings(lane_id, scope, window, observed_at DESC);
+CREATE INDEX IF NOT EXISTS readings_weekly_history ON readings(observed_at)
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
+-- Offset/fractional timestamps use parsed-time bounds in the fallback UNION.
+CREATE INDEX IF NOT EXISTS readings_weekly_history_parsed ON readings(julianday(observed_at))
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
 
 -- C-9.6
 CREATE TABLE IF NOT EXISTS closures (
@@ -109,6 +114,9 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_caller ON jobs(caller_session, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_parent ON jobs(parent_job_id);
+-- C-3.7: the capacity snapshot reads every job in this order; without an index
+-- SQLite sorts the table in a temp file (about 3 MB a snapshot on the live store).
+CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
 
 -- C-4.2, C-5
 CREATE TABLE IF NOT EXISTS attempts (
@@ -143,6 +151,10 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_live ON attempts(state) WHERE state IN ('reserved','starting','running','finalizing');
 CREATE INDEX IF NOT EXISTS attempts_lane ON attempts(lane_id, state);
+-- C-3.7: `list_attempts` reads every attempt in this order; without an index each
+-- capacity snapshot sorted the table (39 MB with its evidence on 2026-10-06) in a
+-- temp file, and the 2.1.10 daemon wrote about 30 MB/s to the disk doing it.
+CREATE INDEX IF NOT EXISTS attempts_reserved ON attempts(reserved_at, seq);
 
 -- C-8.2, C-13.1
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -171,6 +183,7 @@ CREATE TABLE IF NOT EXISTS notices (
   acknowledged_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
+CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 
 -- C-11.5
 CREATE TABLE IF NOT EXISTS decisions (
@@ -183,7 +196,12 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_job ON decisions(job_id, evaluated_at DESC);
 
--- C-6.3 leases: lane:<lane id>:slot:<n> (a turn's: slot:turn-<n>, C-26.9) | out:<path> | worktree:<realpath> | session:<id>
+-- C-6.3 leases, among them: lane:<lane id>:slot:<n> (a turn's: slot:turn-<n>, C-26.9) | out:<path> | session:<id>
+--   | worktree:<folder>: a detached writer's, or retention's fence (C-8.4); it holds the folder alone (C-6.5)
+--   | worktree-turn:<folder>:<job id> and worktree-read:<folder>:<job id>: a writable and a read-only
+--     conversation turn's rows, one per turn, since turns share a folder (C-24.5, `subfleet/folders.py`)
+--   | conversation:<id> and native:<provider>:<session id>: one turn per conversation and one writer
+--     per native session (C-26.3). A <folder> is spelled one way (`folders.canonical`, C-6.5).
 CREATE TABLE IF NOT EXISTS leases (
   lease_key TEXT PRIMARY KEY,
   holder TEXT NOT NULL,              -- attempt id or job id

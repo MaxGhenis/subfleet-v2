@@ -187,6 +187,18 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
             case "retry":
                 try outbox.retry(resolve(step["key"]?.string))
                 results.append(["do": action])
+            case "failed-drafts":
+                results.append(["do": action, "drafts": outbox.failedDrafts.map(jsonObject)])
+            case "retry-draft":
+                let key = resolve(step["key"]?.string)
+                guard var args = outbox.entry(key)?.create else { throw OutboxError.unknownEntry(key) }
+                args.workspace = step["workspace"]?.string ?? args.workspace
+                if let settings = step["settings"] { args.settings = try settings.decode(ConversationSettings.self) }
+                try outbox.retryFailedCreate(key, args: args, text: step["text"]?.string ?? "", staged: [])
+                results.append(["do": action])
+            case "discard-draft":
+                try outbox.discardFailedDraft(resolve(step["key"]?.string))
+                results.append(["do": action])
             case "advance":
                 clock.now = clock.now.addingTimeInterval(step["seconds"]?.double ?? 0)
                 results.append(["do": action])
@@ -221,6 +233,7 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
     }
     return [
         "results": results, "calls": calls, "entries": outbox.entries.map(project),
+        "failed_drafts": outbox.failedDrafts.map(jsonObject),
         "steers": outbox.steers.map(project),
         "chains": outbox.journal.chains.mapValues { $0.lastPersonMessageID as Any? ?? NSNull() },
         "journal_mode": fileMode(journal), "directory_mode": fileMode(url.deletingLastPathComponent().path),
@@ -238,7 +251,8 @@ func project(_ entry: SidebarEntry) -> [String: Any] {
     return ["id": entry.id, "target": target, "provider": entry.provider, "title": entry.title, "subtitle": entry.subtitle,
             "pending": entry.pendingApprovals, "active": entry.active, "blocked_by": entry.blockedBy as Any? ?? NSNull(),
             "live_elsewhere": entry.liveElsewhere, "continuable": entry.continuable,
-            "continue_blocker": entry.continueBlocker as Any? ?? NSNull()]
+            "continue_blocker": entry.continueBlocker as Any? ?? NSNull(),
+            "needs_you": entry.needsYouLabel as Any? ?? NSNull()]
 }
 
 func project(_ options: ComposerOptions) -> [String: Any] {
@@ -346,6 +360,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var steerOffers: [String: Any] = [:]
     var steerHints: [String: Any] = [:]
     var items: [String: Any] = [:]
+    var projected: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
@@ -377,6 +392,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
                     ?? NSNull()
                 steerOffers[messageID] = state.offersSteer(conversationID: id, messageID: messageID)
             }
+            projected[id] = timeline.items.map { (item: TimelineItem) -> [String: Any] in project(item) }
             items[id] = timeline.items.map { item -> String in
                 if case .person = item.content { return item.id }
                 return item.id.hasPrefix("steer:") ? item.id : "item"
@@ -393,6 +409,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["steer_offers"] = steerOffers
     out["steer_hints"] = steerHints
     out["items"] = items
+    out["timeline"] = projected
     return out
 }
 
@@ -485,6 +502,15 @@ func runFollow(_ data: Data, pages: Int, follow: Bool) throws -> [String: Any] {
 
 func extraCommand(_ arguments: [String]) throws -> Any? {
     switch arguments[1] {
+    case "diff-words":
+        // diff-words <result.json>: what the Changes pane says above a diff, and for none (C-26.14)
+        let result = try JSONDecoder().decode(DiffResult.self, from: readFile(arguments[2]))
+        return ["shared": diffSharedWords(result) as Any? ?? NSNull(), "unavailable": diffUnavailableWords(result),
+                "empty": diffEmptyWords(result)]
+    case "waiting-words":
+        // waiting-words <reasons.json>: the status strip for waiting messages (C-24.4, C-29.11)
+        let reasons = try JSONDecoder().decode([String?].self, from: readFile(arguments[2]))
+        return reasons.map { TurnTimeline.waitingWords($0) }
     case "follow":
         return try runFollow(readFile(arguments[2]), pages: Int(arguments[3]) ?? 16, follow: arguments[4] == "1")
     case "outbox":

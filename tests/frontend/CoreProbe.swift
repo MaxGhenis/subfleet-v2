@@ -81,7 +81,7 @@ let codecs: [String: OpCodec] = {
         codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
         codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
-        codec(Ops.conversationHandoff),
+        codec(Ops.conversationHandoff), codec(Ops.workspaceCheck), codec(Ops.conversationWake),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
@@ -166,6 +166,9 @@ func project(_ item: TimelineItem) -> [String: Any] {
         out["type"] = "error"; out["message"] = message; out["kind"] = kind as Any? ?? NSNull(); out["will_retry"] = willRetry
     case .notice(let text):
         out["type"] = "notice"; out["text"] = text
+    case .taskNotification(let notice):
+        out["type"] = "task_notification"; out["summary"] = notice.summary; out["status"] = notice.status
+        out["exit_code"] = notice.exitCode as Any? ?? NSNull(); out["detail"] = notice.detail
     case .steered(let messageID):
         out["type"] = "steered"; out["steered"] = messageID
     }
@@ -257,7 +260,7 @@ func runFold(_ data: Data) throws -> [String: Any] {
             results.append("reopen")
         } else if let history = step["history"] {
             let asked = timeline.historyBefore
-            timeline.apply(history: try history.decode(HistoryPage.self))
+            timeline.apply(history: try history.decode(HistoryPage.self), provider: input["provider"]?.string ?? "claude")
             results.append(timeline.shouldFollowHistory(askedBefore: asked) ? "history:follow" : "history")
         } else if let local = step["local"] {
             timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "",

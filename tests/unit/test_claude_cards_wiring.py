@@ -275,3 +275,19 @@ def test_offline_status_reads_the_last_snapshot(tmp_path):
     cc.write_snapshot(tmp_path / cc.SNAPSHOT_FILE, {"version": 1, "read_at": "2026-10-05T15:30:00Z", "accounts": []})
     view = Offline(tmp_path).status()["claude_cards"]
     assert view["read_at"] == "2026-10-05T15:30:00Z" and view["accounts"] == []
+
+
+def test_cards_help_says_what_a_read_may_spend():
+    """C-9.10: `cards` never calls itself read only: a read, `--refresh`'s or the timer's, may spend
+    one heal turn on an expired login. The help says so, and that nothing is redeemed or claimed."""
+    import argparse
+    parser = cli.build_parser()
+    verbs = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
+    listing = " ".join(parser.format_help().split())
+    own = " ".join(verbs.choices["cards"].format_help().split())
+    assert "read only" not in listing and "read only" not in own
+    assert "never redeems" in listing and "never redeems a card or claims a credit" in own
+    assert "one minimal Claude Code turn (a heal)" in own and "claude_cards.heal_interval_min" in own
+    assert "--refresh read every login now" in own and "may spend a heal turn" in own
+    assert "unless an operator hold covers one of its lanes" in own
+    assert "Without --refresh it shows the last read and spends nothing." in own

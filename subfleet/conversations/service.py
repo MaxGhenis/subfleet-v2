@@ -32,6 +32,7 @@ from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
+from ..retention_git import discard_registration
 from ..salvage import SalvageError
 from ..state_files import open_state, read_state
 from . import attachments as attachment_store
@@ -39,14 +40,15 @@ from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
-from . import codex_brief
+from . import codex_brief, waits
+from .. import folders
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, canonical_native,
+    LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, _instant, canonical_native,
     canonical_uuid, steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
@@ -63,7 +65,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1")
+                "handoff.v1", "workspace.check.v1", "wake.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -73,7 +75,7 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff"})
+                      "conversation.create", "conversation.handoff", "workspace.check"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
                          "message.steer"})
 MAX_WAIT_S = 50.0
@@ -91,6 +93,11 @@ EXTERNAL_WRITER_RECHECK_S = 5.0
 #: A Codex thread's other writer is seen only by starting a provider: every 30 s.
 CODEX_WRITER_RECHECK_S = 30.0
 DEFER_MAX_S = 300.0
+#: C-24.4 (I3): a held turn's reason is looked at again this often while its hold
+#: stands, so a lease's new holder or a renamed conversation reaches the message.
+NOTE_REFRESH_S = 30.0
+#: A note whose message was not yet bound to its job is tried again this soon.
+NOTE_UNBOUND_RETRY_S = 1.0
 # The handover locks (`ConversationService._handover`, C-24.7).
 HANDOVER_STRIPES = 64
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
@@ -121,14 +128,19 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
+        from .wakes import WakeEngine
+        self.wakes = WakeEngine(self)
         # C-25.4, C-16.7: a long poll holds its thread for up to MAX_WAIT_S, so there
         # is one for every connection the daemon may hold, as for `wait`: a poll
         # queued behind others could outlast the app's deadline (wait_s + 15 s).
         self.polls = concurrent.futures.ThreadPoolExecutor(descriptors.CONNECTIONS_CEILING,
                                                            thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.history_reads = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-history")
+        self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._replaying_final_wakes = False
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
         # the service lock: a merge waits for the store's write guard, which another
         # file write can hold across two fsyncs, and every poll, dispatch claim and
@@ -157,6 +169,11 @@ class ConversationService:
         self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
         self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
         self._replayed: set[str] = set()       # ended attempts `_replay_unsettled` has replayed
+        # C-24.4 (I3): turn job id -> (the hold it was last noted for, when); a note is
+        # written only when the hold changes or NOTE_REFRESH_S has passed.
+        self._noted: dict[str, tuple[str, float]] = {}    # job id -> (hold signature, look again after)
+        self._note_seq = 0                                  # the newest turn pass whose notes were written
+        self._note_lock = threading.Lock()
         self._closed = False
 
     def close(self) -> None:
@@ -174,6 +191,8 @@ class ConversationService:
         # the pool takes none after. Each is bounded (a capped file read, git under
         # its caps), as the ops the daemon's own pools wait for are.
         self.files.shutdown(wait=True, cancel_futures=True)
+        self.history_reads.shutdown(wait=True, cancel_futures=True)
+        self.wakes.close()
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
         # returned made the removed root again. Each finishes that iteration here, within
@@ -199,6 +218,8 @@ class ConversationService:
     def pool_for(self, op: str):
         if op in POLL_OPS:
             return self.polls
+        if op in ("conversation.open", "conversation.history"):
+            return self.history_reads
         if op in FILE_OPS:
             return self.files
         return self.daemon.requests
@@ -300,6 +321,7 @@ class ConversationService:
         provider = args.get("provider")
         policy = self.daemon.policy
         observed = self._catalog_cache()
+        retired = policy.get("retired") or {}
         models = []
         for short, entry in policy["models"].items():
             if provider and entry["provider"] != provider:
@@ -308,6 +330,7 @@ class ConversationService:
             # `default` is whatever one account's settings pick; a conversation names a model.
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
+                           "retired": short in retired or entry["id"] in retired,
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
@@ -317,7 +340,22 @@ class ConversationService:
                            "fast": {"supported": seen.get("fast"),
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
-        return {"models": models, "source": "policy, and each provider's catalog as a turn last reported it"}
+        defaults = {}
+        hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
+        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard]
+        for name in ("claude", "codex"):
+            offered = [m for m in models if m["provider"] == name and not m["retired"]]
+            preferred = ["opus"] if name == "claude" else hard_models
+            default = next((m for short in preferred for m in offered if m["short"] == short), None)
+            # Retirement is defined by the loaded policy, for every model id.
+            fallback = offered
+            if default is None and fallback:
+                default = next((m for m in fallback if not policy["models"][m["short"]].get("scope")), fallback[0])
+            if default:
+                defaults[name] = default["id"]
+        return {"models": models, "default_models": defaults,
+                "source": "policy, and each provider's catalog as a turn last reported it"}
 
     def _default_effort(self, provider: str, model_id: str) -> str | None:
         """C-26.8: the effort a turn of `model_id` runs at when its message names
@@ -374,8 +412,14 @@ class ConversationService:
         return {**CONVERSATION_DEFAULTS, **(self.daemon.policy.get("conversations") or {})}
 
     def op_conversation_list(self, args, peer) -> dict:
-        conversations = [self._view(c) for c in self.store.list_conversations(
-            provider=args.get("provider"), limit=int(args.get("limit") or 200))]
+        from .catalog import activity_times
+        activity = activity_times(self.root)
+        rows = self.store.list_conversations(provider=args.get("provider"), limit=None)
+        for row in rows:
+            row["last_activity"] = self._last_activity(row, activity)
+        rows.sort(key=lambda c: c["last_activity"], reverse=True)
+        limit = max(1, min(int(args.get("limit") or 200), 1000))
+        conversations = [self._view(c) for c in rows[:limit]]
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
             from .catalog import read_catalog, refresh_running
@@ -403,12 +447,23 @@ class ConversationService:
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
                                                     "updated_at")},
+                "last_activity": conversation.get("last_activity") or conversation.get("updated_at"),
                 # C-30.4: the legacy import's hold is its own column, so no outcome
                 # lifts it, but to a client it is a block like any other (the app
                 # shows a conversation with `blocked_by` as needing a decision).
                 "blocked_by": conversation.get("blocked_by") or (LEGACY_OWNER if conversation.get("legacy_hold") else None),
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
+
+    @staticmethod
+    def _last_activity(conversation: dict, activity: dict) -> str:
+        """The row or its native transcript at the last catalog run; never a scan."""
+        updated = datetime.fromisoformat(conversation["updated_at"].replace("Z", "+00:00"))
+        native = conversation.get("native_session_id")
+        mtime = activity.get((conversation["provider"], canonical_native(native))) if native else None
+        if mtime is not None:
+            updated = max(updated, datetime.fromtimestamp(mtime, UTC))
+        return updated.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def _view_live(self, conversation: dict) -> dict:
         """`_view` plus `live_elsewhere`, from the last catalog run (D-23: no scan)."""
@@ -430,7 +485,8 @@ class ConversationService:
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
         return {"conversation": self._view_live(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
                 "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
-                                                               self.store.approvals(conversation_id=cid)]}
+                                                               self.store.approvals(conversation_id=cid)],
+                "history": self.op_conversation_history({"conversation_id": cid}, peer)}
 
     def _open_native(self, native: dict) -> dict:
         from .catalog import native_session
@@ -456,7 +512,7 @@ class ConversationService:
         return conversation
 
     def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider")
+        provider = args.get("provider") or "claude"
         request_id = args.get("request_id")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
@@ -477,12 +533,8 @@ class ConversationService:
             with self.store.writing():
                 workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
         else:
-            workspace = os.path.realpath(os.path.expanduser(str(args["workspace"])))
-        if not os.path.isdir(workspace):
-            raise ConversationError("bad-workspace", "workspace must be an existing directory")
-        if kind not in ("in-place", "worktree"):
-            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
-        self._check_workspace(provider, workspace, settings)
+            workspace = folders.canonical(str(args["workspace"]))
+        workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=allow_main)
         existing = self.store.one("SELECT conversation_id FROM conversations WHERE request_id=?", (request_id,))
         if kind == "worktree" and existing is None and self._git_toplevel(workspace) is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
@@ -494,6 +546,57 @@ class ConversationService:
             # cut short by a crash: the same request id finishes the same worktree.
             conversation = self._cut_worktree(conversation)
         return {"conversation": self._view(conversation), "created": created}
+
+    def op_workspace_check(self, args, peer) -> dict:
+        """A read-only preview of create's folder checks, on the same file pool."""
+        workspace = args.get("workspace")
+        try:
+            provider = args.get("provider") or "claude"
+            if provider not in PROVIDERS:
+                raise ConversationError("bad-provider", "provider is claude or codex")
+            settings = validate_settings(provider, {"model": "workspace-check", "permission": args.get("permission") or "ask"})
+            self._check_codex_policy(provider, settings)
+            kind = args.get("workspace_kind") or "in-place"
+            planned = not workspace
+            if planned:
+                if kind != "in-place":
+                    raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+                # Preview the private scratch location without making a folder.
+                workspace = str(self.root / "conversations/workspaces/workspace-check")
+            workspace = self._validate_workspace(provider, workspace, settings,
+                                                 kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
+            return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
+        except ConversationError as exc:
+            return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
+
+    def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
+                            kind: str, allow_main: bool, planned: bool = False) -> str:
+        """C-26.10 and C-13.2: check and create take precisely this path."""
+        if not isinstance(workspace, str) or not workspace:
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        workspace = folders.canonical(workspace)
+        if not planned and not os.path.isdir(workspace):
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        if kind not in ("in-place", "worktree"):
+            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
+        self._check_workspace(provider, workspace, settings)
+        if kind == "worktree" and self._git_toplevel(workspace) is None:
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
+        if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
+            from ..salvage import validate_writable_workdir
+            try:
+                existing = Path(workspace)
+                while planned and not existing.exists() and existing != existing.parent:
+                    existing = existing.parent
+                validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
+            except AdapterError as exc:
+                raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
+            except SalvageError as exc:
+                raise ConversationError("git-unavailable", f"could not inspect {workspace}: {exc}", code=1,
+                                        fix="try again") from exc
+        return workspace
 
     def _git_toplevel(self, directory: str) -> str | None:
         from ..salvage import git_toplevel
@@ -537,8 +640,10 @@ class ConversationService:
             else:
                 # Not a worktree on this branch (an add cut short). No turn ever ran
                 # in it: a conversation dispatches only once its worktree is recorded.
+                # Only its own registration goes: a repository-wide `git worktree
+                # prune` would drop every other one whose tree is missing (d635).
                 shutil.rmtree(target, ignore_errors=True)
-                git("worktree", "prune")
+                discard_registration(top, target, timeout=timeout)
         if not adopted:
             has_branch = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
@@ -569,6 +674,7 @@ class ConversationService:
                 self._person(peer, "working on main")
             fields["allow_main"] = bool(args["allow_main"])
         self._check_codex_policy(conversation["provider"], after)
+        self._check_workspace(conversation["provider"], conversation["workspace"], after)
         return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"], **fields))}
 
     def op_conversation_rename(self, args, peer) -> dict:
@@ -611,8 +717,15 @@ class ConversationService:
     def op_conversation_history(self, args, peer) -> dict:
         from .history import page
         conversation = self.store.conversation(args["conversation_id"])
+        messages = self.store.query("SELECT message_id,turn_ref FROM messages WHERE conversation_id=?", (conversation["conversation_id"],))
+        attempt = self.daemon.store.one(
+            "SELECT a.transcript_path FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE j.kind='turn' AND j.name=? AND a.native_session_id=? AND a.transcript_path IS NOT NULL "
+            "ORDER BY a.reserved_at DESC LIMIT 1", (f"turn-{conversation['conversation_id']}", conversation["native_session_id"]))
         return page(conversation, root=self.root, before=args.get("before"), limit=int(args.get("limit") or 50),
-                    lanes=self.daemon.store.lane_rows())
+                    lanes=self.daemon.store.lane_rows(), resolved_only=True,
+                    known_path=attempt["transcript_path"] if attempt else None,
+                    owned={m["message_id"] for m in messages}, owned_turns={m["turn_ref"] for m in messages if m["turn_ref"]})
 
     # --- ops: events -----------------------------------------------------------
 
@@ -702,8 +815,42 @@ class ConversationService:
             after_message_id=args.get("after_message_id"), text=str(args.get("text") or ""),
             attachments=attachments, settings=settings)
         if created:
+            self._yield_wakes(conversation["conversation_id"])
             self.daemon._notify()
         return self._receipt(message, created=created)
+
+    def _yield_wakes(self, cid: str) -> None:
+        """A queued wake yields to newly accepted person input, even at capacity.
+        The ordinary guarded cancellation refuses once an attempt has started.
+        """
+        for m in self.store.query("SELECT * FROM messages WHERE conversation_id=? AND origin='wake' "
+                                  "AND state IN ('queued','waiting')", (cid,)):
+            job = self._turn_job(m)
+            if job and not self._cancel_job_without_attempt(job["job_id"]):
+                continue
+            self.store.set_state(m["message_id"], QUEUED, reason="person-message-priority", expect=(QUEUED, WAITING),
+                                 turn_seq=m["turn_seq"] + 1, job_id=None)
+
+    def op_conversation_wake(self, args, peer) -> dict:
+        from .wakes import normalize
+        session = args.get("session_id")
+        conversation = self.bound_session(session) if isinstance(session, str) else None
+        if conversation is None and args.get("calling_job"):
+            job = self.daemon.store.one("SELECT name FROM jobs WHERE job_id=? AND kind='turn'", (args["calling_job"],))
+            if job and job["name"].startswith("turn-"):
+                conversation = self.store.conversation(job["name"][5:])
+        if conversation is None:
+            raise ConversationError("no-conversation", "wake needs a calling session bound to a conversation")
+        request_id = canonical_uuid(args["request_id"])
+        with self._lock:
+            accepted = self.store.one("SELECT created_at FROM wake_requests WHERE conversation_id=? AND request_id=?",
+                                      (conversation["conversation_id"], request_id))
+            validation_time = datetime.fromisoformat(accepted["created_at"].replace("Z", "+00:00")).timestamp() if accepted else self.wakes.now()
+            spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
+                             now=validation_time)
+            # Older completion intents must register before this newer re-arm.
+            self._replay_final_wakes()
+            return self.wakes.register(conversation["conversation_id"], request_id, spec)
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -967,7 +1114,7 @@ class ConversationService:
 
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
-                                           "state_reason", "settings", "served", "turn_ref", "updated_at")}
+                                           "state_reason", "settings", "served", "turn_ref", "created_at", "updated_at")}
         out["steered_into"] = steered_into(message.get("state_reason"))
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:
@@ -1044,6 +1191,9 @@ class ConversationService:
         row = self.store.turn_trees(message["message_id"])
         if row is None:
             return {**head, **_unavailable("no-turn", "the message has not started a turn")}
+        # C-26.14, I4: the other conversations whose turns wrote in this folder while
+        # this one ran; its diff may hold their edits, and says so.
+        head["shared"] = self._shared_view(self.store.trees_by_attempt(row["shared"]))
         if not row["writable"]:
             return {**head, **_unavailable("read-only-turn", "a read-only turn does not write")}
         if not row["start_tree"]:
@@ -1072,6 +1222,10 @@ class ConversationService:
                                                           "in a git checkout with a commit")}
         start = {"tree": row["start_tree"], "head": row["head_before"], "message_id": row["message_id"],
                  "at": row["started_at"]}
+        # C-26.14: other conversations' turns in the same folder since this one began.
+        head["shared"] = self._shared_view(self.store.overlapping(
+            row["target"] or row["workspace"], row["window_start"] or row["started_at"],
+            besides_conversation=conversation["conversation_id"]))
         return {**head, **self._compare(conversation["workspace"], start, None, path)}
 
     def _compare(self, workspace: str, start: dict, end: dict | None, path: str | None) -> dict:
@@ -1098,24 +1252,85 @@ class ConversationService:
 
     def record_trees(self, turn: dict, attempt: dict, receipt: dict) -> None:
         """The daemon's finalization seam: a turn attempt's end (C-26.10, C-26.14)."""
+        evidence = _evidence(attempt)
         self.store.record_trees(
             attempt_id=attempt["attempt_id"], message_id=turn["message_id"], conversation_id=turn["conversation_id"],
             workspace=receipt.get("workspace") or turn["cwd"], writable=bool(receipt.get("writable")),
             started_at=attempt.get("reserved_at") or utcnow(), head_before=receipt.get("head_before"),
             start_tree=receipt.get("start_tree"), head_after=receipt.get("head_after"),
-            end_tree=receipt.get("end_tree"), error=receipt.get("error"), ended=True)
+            end_tree=receipt.get("end_tree"), error=receipt.get("error"), ended=True,
+            target=evidence.get("folder"), window_start=evidence.get("baseline_at"))
 
     def _record_start(self, turn: dict, attempt: dict) -> None:
         """A turn attempt's start, as admission recorded it (C-6.8's snapshot is the
         attempt's `baseline_tree` for a writable job; a read-only one keeps HEAD's tree,
         which is not a snapshot of the working tree and is not recorded here)."""
         writable = attempt.get("job_sandbox") == "workspace-write"
-        evidence = json.loads(attempt.get("evidence_json") or "{}")
+        evidence = _evidence(attempt)
         self.store.record_trees(
             attempt_id=attempt["attempt_id"], message_id=turn["message_id"], conversation_id=turn["conversation_id"],
             workspace=turn["cwd"], writable=writable, started_at=attempt.get("reserved_at") or utcnow(),
             head_before=evidence.get("baseline_commit"),
-            start_tree=attempt.get("baseline_tree") if writable else None)
+            start_tree=attempt.get("baseline_tree") if writable else None,
+            target=evidence.get("folder"), window_start=evidence.get("baseline_at"))
+
+    def _close_ended_windows(self) -> None:
+        """C-26.14, I4: a turn whose attempt has ended has an end (review P3-5 of 5e9f2fbd).
+
+        Finalization and a quarantine's release record a turn's end. An attempt can
+        end by another path (one never launched, `daemon._unlaunched`, after its
+        runner recorded the start), and a row from an earlier build may have lost
+        its end. Its window stayed open for good, so every later writable turn of
+        another conversation in its folder read as sharing it with a turn "still
+        running". Each tick closes such a window at the attempt's `finished_at`
+        and drops the marks it no longer meets (`store.end_unrecorded`); the first
+        tick after the daemon starts does it for the rows it finds. A quarantined
+        attempt has not ended: its writers may still be live, and its folder is
+        still held, so its window stays open until its release records the end.
+        One whose job retention has since removed is closed now, which keeps every
+        mark its open window made, as its end is not known."""
+        open_ids = self.store.open_windows()
+        attempts: dict[str, dict] = {}
+        for first in range(0, len(open_ids), 500):
+            chunk = open_ids[first:first + 500]
+            attempts.update((row["attempt_id"], row) for row in self.daemon.store.query(
+                f"SELECT attempt_id, state, finished_at FROM attempts WHERE attempt_id IN ({','.join('?' * len(chunk))})",
+                tuple(chunk)))
+        for aid in open_ids:
+            attempt = attempts.get(aid)
+            if attempt is None:
+                self.store.end_unrecorded(aid, ended_at=utcnow(), error="the turn's end was never recorded, and "
+                                          "its job is no longer in the job store; no end snapshot")
+            elif attempt["state"] in ATTEMPT_ENDED:
+                self.store.end_unrecorded(aid, ended_at=attempt["finished_at"] or utcnow(),
+                                          error=f"the turn's attempt ended ({attempt['state']}) with no end "
+                                                "recorded; no end snapshot")
+
+    def _shared_view(self, rows: list[dict]) -> list[dict]:
+        """C-26.14: the turns another conversation ran in the folder, one entry per
+        conversation, oldest first: its title now, its messages, and when it wrote
+        (`to` null while one of its turns is still running)."""
+        by_conversation: dict[str, dict] = {}
+        for row in rows:
+            entry = by_conversation.setdefault(row["conversation_id"], {
+                "conversation_id": row["conversation_id"], "title": None, "message_ids": [],
+                "from": None, "to": None, "running": False})
+            if row["message_id"] not in entry["message_ids"]:
+                entry["message_ids"].append(row["message_id"])
+            began = row["window_start"] or row["started_at"]
+            if entry["from"] is None or _later(entry["from"], began):
+                entry["from"] = began
+            if row["ended_at"] is None:
+                entry["running"] = True
+            elif entry["to"] is None or _later(row["ended_at"], entry["to"]):
+                entry["to"] = row["ended_at"]
+        for entry in by_conversation.values():
+            conversation = self.store.one("SELECT title FROM conversations WHERE conversation_id=?",
+                                          (entry["conversation_id"],))
+            entry["title"] = conversation["title"] if conversation else None
+            if entry.pop("running"):
+                entry["to"] = None
+        return sorted(by_conversation.values(), key=lambda entry: entry["from"] or "")
 
     # --- ops: handoff (C-30.3, design D-18, review IR-28) ----------------------
 
@@ -1263,8 +1478,9 @@ class ConversationService:
 
     @staticmethod
     def _handoff_workspace(requested: Any, source_cwd: str | None) -> str:
-        """D-18: the source's workspace unless the request names another."""
-        workspace = os.path.realpath(os.path.expanduser(str(requested or source_cwd or "")))
+        """D-18: the source's workspace unless the request names another, spelled one way
+        (`folders.canonical`, as `conversation.create` spells it)."""
+        workspace = folders.canonical(str(requested or source_cwd or ""))
         if not os.path.isdir(workspace):
             raise ConversationError("bad-workspace", "the handoff's workspace must be an existing directory",
                                     fix="pass to.workspace")
@@ -1510,14 +1726,18 @@ class ConversationService:
 
     def _check_workspace(self, provider: str, workspace: str, settings: dict) -> None:
         """C-26.10: a writable turn may not own the state root or a provider home."""
-        writable = settings["permission"] == "accept-edits" or (provider == "codex" and settings["permission"] != "read-only")
+        writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
         protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
         protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
-        real = Path(workspace).resolve()
+        # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
+        # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
+        # it (review of 5e9f2fbd, P3-4). A side whose spelling cannot be established is
+        # refused, never compared as typed (review of b0033e5d, P2).
+        real = Path(_spelled_or_refused(workspace, workspace))
         for path in protected:
-            p = path.expanduser().resolve()
+            p = Path(_spelled_or_refused(path, workspace))
             if real == p or real in p.parents:
                 raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
                                         fix="choose a narrower directory, or Ask or read-only")
@@ -1528,8 +1748,10 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
-                     self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
+        for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self._replay_final_wakes,
+                     self.wakes.control_tick, self._dispatch, self._adopt_runners,
+                     self._replay_unsettled, self._settle_unstarted, self._close_ended_windows, self._reap_runners,
+                     self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
             try:
@@ -1543,6 +1765,34 @@ class ConversationService:
                 self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
+
+    def _moot_blocks(self) -> None:
+        from .catalog import external_writers, transcript_record
+        blocked = self.store.query("SELECT * FROM conversations WHERE blocked_by IN "
+                                   "('unfinished-turn','delivery-unknown','quarantined-turn') AND native_session_id IS NOT NULL")
+        active = {c["conversation_id"] for c in blocked}
+        self._moot_next = {cid: value for cid, value in self._moot_next.items() if cid in active}
+        for c in blocked:
+            if c["provider"] != "claude" or not c["blocked_at"]:
+                continue
+            previous = self._moot_next.get(c["conversation_id"])
+            if previous and previous[0] == c["blocked_at"] and self.clock() < previous[1]:
+                continue
+            self._moot_next[c["conversation_id"]] = (c["blocked_at"], self.clock() + EXTERNAL_WRITER_RECHECK_S)
+            record = transcript_record(self.root, c["provider"], c["native_session_id"])
+            if not record or record.get("mtime", 0) <= datetime.fromisoformat(c["blocked_at"].replace("Z", "+00:00")).timestamp():
+                continue
+            # Reuse admission's fresh C-26.3 check, never a stale catalog live flag.
+            if external_writers(c["native_session_id"]):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM leases WHERE lease_key IN (?,?)",
+                                     (f"conversation:{c['conversation_id']}", f"native:claude:{c['native_session_id']}")):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM jobs WHERE kind='turn' AND name=? AND state NOT IN "
+                                     "('succeeded','failed','cancelled','lost')", (f"turn-{c['conversation_id']}",)):
+                continue
+            self.store.clear_moot_block(c["conversation_id"], expected_block=c["blocked_by"],
+                                       expected_at=c["blocked_at"], mtime=record["mtime"])
 
     def _catalog_tick(self) -> None:
         """Start a catalog run every `catalog_interval_s`. Never waits for one: the
@@ -1737,6 +1987,99 @@ class ConversationService:
             return {"reason": "conversation-blocked", "conversation_id": conversation_id, **hold}
         return None
 
+    # --- why a message waits (C-24.4, C-29.11; I3) --------------------------------
+
+    def note_holds(self, holds: dict[str, dict], *, placed=(), seq: int | None = None) -> None:
+        """After each turn pass: every waiting message whose turn job admission left
+        unplaced says why in its `state_reason` (`waits.hold_reason`), and one whose
+        job it placed says it is starting. Written only when the reason changes, and
+        looked at again at most once a hold per NOTE_REFRESH_S while it stands (a
+        lease's holder, a title, may change under the same hold).
+
+        `seq` numbers the turn passes (`Daemon._admit_kind`). Two workers run turn
+        passes and each notes after releasing the pass lock, so an older pass's
+        notes can arrive after a newer one's: they are dropped, never written over
+        the newer (review of 63698f1e: a turn placed by the newer pass read "lease"
+        again). One job's failure leaves the others' notes written; the first is
+        raised after them."""
+        with self._note_lock:
+            if seq is not None:
+                if seq <= self._note_seq:
+                    return
+                self._note_seq = seq
+            now = self.clock()
+            live = set(holds) | set(placed)
+            self._noted = {job_id: value for job_id, value in self._noted.items() if job_id in live}
+            failure: Exception | None = None
+            notes = [(job_id, "placed", lambda: waits.PLACED) for job_id in placed]
+            notes += [(job_id, json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
+                                          sort_keys=True, default=str),
+                       lambda hold=hold: waits.hold_reason(hold, describe=self._describe_lease, who=self._who))
+                      for job_id, hold in holds.items()]
+            for job_id, signature, reason_of in notes:
+                try:
+                    self._note(job_id, signature, reason_of, now)
+                except Exception as exc:                 # noqa: BLE001
+                    failure = failure or exc
+            if failure is not None:
+                raise failure
+
+    def _note(self, job_id: str, signature: str, reason_of, now: float) -> None:
+        """Under `_note_lock`. A note is remembered for NOTE_REFRESH_S once it reached its
+        message; one whose message is not bound to the job yet (the dispatcher binds it
+        just after submit returns) is tried again after NOTE_UNBOUND_RETRY_S."""
+        last = self._noted.get(job_id)
+        if last and last[0] == signature and now < last[1]:
+            return
+        job = self.daemon.store.one("SELECT request_id, kind FROM jobs WHERE job_id=?", (job_id,))
+        request = str((job or {}).get("request_id") or "")
+        if not job or job["kind"] != "turn" or not request.startswith("turn:"):
+            self._noted[job_id] = (signature, now + NOTE_REFRESH_S)
+            return
+        reason = reason_of()
+        bound = bool(reason) and self.store.note_wait(request.split(":")[1], job_id, reason[:500])
+        self._noted[job_id] = (signature, now + (NOTE_REFRESH_S if bound or not reason else NOTE_UNBOUND_RETRY_S))
+
+    def _who(self, job_id: str) -> str:
+        """A job as a person knows it: a turn by its conversation's title."""
+        job = self.daemon.store.one("SELECT job_id, kind, name FROM jobs WHERE job_id=?", (job_id,))
+        if job is None:
+            return f"job {job_id}"
+        if job["kind"] == "turn" and str(job["name"] or "").startswith("turn-"):
+            return self._conversation_words(job["name"][len("turn-"):])
+        kind = {"dispatch": "detached job", "gate-review": "gate review"}.get(job["kind"], f"{job['kind']} job")
+        return f"{kind} {job_id}"
+
+    def _conversation_words(self, conversation_id: str) -> str:
+        row = self.store.one("SELECT title FROM conversations WHERE conversation_id=?", (conversation_id,))
+        title = (row or {}).get("title")
+        return f"conversation \u201c{title}\u201d" if title else f"conversation {conversation_id}"
+
+    def _describe_lease(self, key: str) -> str:
+        """Who holds one lease a turn waits for, and what that means for it."""
+        row = self.daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))
+        holder = str(row["holder"]) if row else None
+        owner = holder.split(":", 1)[1] if holder and holder.startswith(("retention:", "gate-round:")) else holder
+        job_id = owner.split("/", 1)[0] if owner else None
+        parsed = folders.parse(key)
+        if parsed:
+            return f"{self._who(parsed[2])} is writing in this folder"
+        if holder is None:
+            return "what it waited for was just released; it starts at the next look"
+        if key.startswith(folders.EXCLUSIVE):
+            if holder.startswith("retention:"):
+                return "retention is removing a finished job's worktree in this folder"
+            job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
+            if job and job["kind"] == "turn":
+                # A turn a daemon before 2026-09-29 admitted still holds the folder alone.
+                return f"{self._who(job_id)} is writing in this folder"
+            return f"{self._who(job_id)} is writing in this folder, and a detached writer works alone"
+        if key.startswith("conversation:"):
+            return f"this conversation's previous turn ({job_id}) has not finished"
+        if key.startswith(("native:", "native-session:")):
+            return f"its session is in use by {self._who(job_id)}"
+        return f"{key} is held by {self._who(job_id)}"
+
     def bound_session(self, session_id: str | None) -> dict | None:
         """C-26.3: the conversation a native session is bound to, of either provider."""
         if not session_id:
@@ -1844,8 +2187,8 @@ class ConversationService:
                         # or handed off while it waits; a claim recovered after a crash
                         # goes back to `queued` (review of 6290a51, finding 2).
                         back = QUEUED if prior_state == QUEUED or prior_reason == CLAIMED else WAITING
-                        self.store.set_state(mid, back, reason=prior_reason if back == WAITING
-                                             else self._missed_mark(mid, prior_reason),
+                        self.store.set_state(mid, back, reason=(prior_reason or f"deferred: {why}"[:200])
+                                             if back == WAITING else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
                     self._defer(self.store.message(mid), why)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
@@ -1857,6 +2200,8 @@ class ConversationService:
         reason = prior_reason
         if reason and not reason.startswith("readmit:"):
             reason = None                       # a claim or a deferral is over once the job exists
+        # I3: until admission looks at the job and says what holds it (`note_holds`).
+        reason = reason or waits.SUBMITTED
         if self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), job_id=job["job_id"],
                                 expect_turn_seq=message["turn_seq"]):
             return
@@ -1968,6 +2313,8 @@ class ConversationService:
         daemon = self.daemon
         provider = conversation["provider"]
         settings = message["settings"]
+        # Recheck persisted/native conversations and paths that changed since creation.
+        self._check_workspace(provider, conversation["workspace"], settings)
         short = policy_model(daemon.policy, provider, settings["model"])
         effort_default = None
         if not settings.get("effort"):
@@ -2019,6 +2366,19 @@ class ConversationService:
             if not self._adopt(attempt):
                 return                      # close() overtook
 
+    def _replay_final_wakes(self) -> None:
+        """Apply recorded re-arms in message order before evaluating wakes."""
+        with self._lock:
+            # A nested evaluation during registration must keep the intent fence,
+            # rather than recursively replaying the same unfinished final batch.
+            if self._replaying_final_wakes:
+                return
+            self._replaying_final_wakes = True
+            try:
+                self.wakes.replay_final()
+            finally:
+                self._replaying_final_wakes = False
+
     def _replay_unsettled(self) -> None:
         """Settle a live message whose turn attempt has ended with no runner left to
         settle it (C-25.3, C-26.6). Only a runner settles a delivered message, at its
@@ -2028,6 +2388,9 @@ class ConversationService:
         good, and its conversation with it (review of 585ea41..4d3d3ea). Each such
         attempt is replayed once by a runner that takes its provider as gone; one
         never started is `_settle_unstarted`'s."""
+        # Completion and this intent commit together. A completed message needs
+        # no runner replay, but its final-text requests may still need registering.
+        self._replay_final_wakes()
         live = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED)
         rows = self.store.query(f"SELECT message_id, job_id FROM messages WHERE state IN ({','.join('?' * len(live))}) "
                                 "AND job_id IS NOT NULL", live)
@@ -2298,8 +2661,14 @@ class ConversationService:
             fields: dict[str, Any] = {"served": served}
             if settlement.state == COMPLETE:
                 fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
+                if turn.get("final_text"):
+                    fields["final_wake"] = (turn["final_text"], self.wakes.now())
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
+        if settlement.state == COMPLETE and turn.get("final_text"):
+            # Drain in message order: a pending older final cannot later replace
+            # the requests from this turn. The service lock serializes re-arms.
+            self._replay_final_wakes()
         self.daemon._notify()
 
     def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:
@@ -2436,6 +2805,20 @@ def _refusal(exc: BaseException) -> tuple[bool, str]:
     return False, f"{type(exc).__name__}: {exc}"
 
 
+def _spelled_or_refused(path: str | Path, workspace: str) -> str:
+    """C-26.10: `path`'s one spelling, for comparing `workspace` with a protected
+    path; when it cannot be established (a directory above it that cannot be
+    searched), the writable workspace is refused, as one that may contain it."""
+    spelled, doubt = folders.spelling(path)
+    if doubt is None:
+        return spelled
+    what = (f"what {workspace} contains" if os.fspath(path) == workspace
+            else f"whether {workspace} contains {path}")
+    raise ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
+                            f"({doubt})", code=7,
+                            fix="make every directory above it searchable, or choose Ask or read-only")
+
+
 def _iso_ago(seconds: float) -> str:
     """UTC ISO time `seconds` ago, in the conversation store's format."""
     stamp = datetime.now(UTC) - timedelta(seconds=seconds)
@@ -2450,6 +2833,20 @@ def _handoff_marker(request_id: str) -> dict:
 def _handoff_id(request_id: str, part: str) -> str:
     """A message id a handoff mints, the same on every retry of one request (C-24.2)."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"subfleet:handoff:{request_id}:{part}"))
+
+
+def _evidence(attempt: dict) -> dict:
+    """An attempt's evidence as admission wrote it; nothing when it cannot be read."""
+    try:
+        value = json.loads(attempt.get("evidence_json") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _later(a: str, b: str) -> bool:
+    """Whether instant `a` is after `b`, whichever store's stamp either is in."""
+    return _instant(a) > _instant(b)
 
 
 def _read_json(path: Path) -> dict | None:

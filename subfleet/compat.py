@@ -123,6 +123,7 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("jobs",): ["runs"],                                # C-17.1, not v1
     ("show",): ["runs", "show"],                        # C-17.1, not v1
     ("wait",): ["wait"],
+    ("wake",): ["wake"],
     ("kill",): ["kill"],
     ("resume",): ["resume"],
     ("resume-codex",): ["resume"],
