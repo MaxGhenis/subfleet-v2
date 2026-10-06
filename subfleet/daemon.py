@@ -4825,8 +4825,14 @@ class Daemon:
                             # place, so it takes no lease; its instances are told apart
                             # at submit. A detached writer still writes alone: it waits
                             # while a conversation turn writes there.
-                            leases.append((f"worktree:{write_target}", job["job_id"]))
+                            own = folders.exclusive_key(write_target)
+                            leases.append((own, job["job_id"]))
                             blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                            # C-8.4: nor while retention retires a tree its folder is in,
+                            # a repository nested in a job's worktree (its own fence is
+                            # `own`, contested above). A detached writer above it holds
+                            # another checkout, not this one (C-6.5).
+                            blockers.extend(key for key in folders.retiring(read, write_target) if key != own)
                         elif job["kind"] == "turn" and read_folder:
                             # C-8.4, C-13.4: a read-only turn excludes no writer, but
                             # retention never removes a folder a turn is working in, or

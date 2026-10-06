@@ -767,8 +767,9 @@ class _Pass:
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
-            # inserting either a TURN or READER row on the tree or on any
-            # folder inside it (I5, `folders.retiring`).
+            # inserting a TURN or READER row, or a detached writer's
+            # `worktree:` lease, on the tree or on any folder inside it (I5,
+            # `folders.retiring`).
             if reason is None and folder is not None and folders.turn_holds(
                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"

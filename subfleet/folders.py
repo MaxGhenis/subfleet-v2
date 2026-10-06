@@ -11,8 +11,8 @@ release site frees a turn's row with the job's other leases.
 - `worktree-read:<folder>:<job id>`: a read-only turn. It excludes no writer;
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
-  job's tree. No turn, writable or read-only, starts on that folder or on one
-  inside it while it is held (`retiring`, C-8.4).
+  job's tree. No turn, writable or read-only, and no detached writer starts on
+  that folder or on one inside it while it is held (`retiring`, C-8.4).
 
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
@@ -196,12 +196,12 @@ def above(folder: str) -> list[str]:
 def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:
     """The `worktree:` keys retention holds (`RETENTION`) on `folder` or on a
     folder it is inside (`above`), nearest first. While one is held a retirement
-    is archiving and moving that tree, so no turn starts there: also not one in
-    a repository nested in the tree, whose row is keyed on that repository, not
-    on the tree (C-8.4). A detached writer's `worktree:` on a folder above is
-    not among them: a checkout's top level is the hold, and a repository nested
-    in it is a hold of its own (C-6.5). `read(sql, params)` as for `turn_holds`;
-    no filesystem work."""
+    is archiving and moving that tree, so no turn or detached writer starts
+    there: also not one in a repository nested in the tree, whose row or lease
+    is keyed on that repository, not on the tree (C-8.4). A detached writer's
+    `worktree:` on a folder above is not among them: a checkout's top level is
+    the hold, and a repository nested in it is a hold of its own (C-6.5).
+    `read(sql, params)` as for `turn_holds`; no filesystem work."""
     keys = [exclusive_key(each) for each in (folder, *above(folder))]
     held = dict(_row(row) for row in read(
         f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(keys))})", tuple(keys)))
