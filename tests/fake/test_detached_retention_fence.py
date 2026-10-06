@@ -407,6 +407,8 @@ def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_throu
                                      (job_id,)).fetchone()
                     data = {k: v for k, v in json.loads(row[1] or "{}").items() if k != "folder"}
                     tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), row[0]))
+                    # It also kept the workdir as typed (`resolve`d only; #140 spells it now).
+                    tx.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (typed, job_id))
                 assert daemon._job(job_id)["workdir"] == typed and "folder" not in recorded(daemon, job_id)
             hold = look(daemon, state["job"])
             assert not _live(daemon, state["job"]) and workspaces.calls == [], (at, hold)
