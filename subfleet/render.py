@@ -300,6 +300,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                  "Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)"]
     else:
         lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
+    if standing.get("class") == "priority":
+        lines.append("class priority (admission.priority_callers)")
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines

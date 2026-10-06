@@ -162,9 +162,12 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
+#: `priority_callers` names Claude Code caller session ids whose detached work,
+#: including descendants, goes first in FIFO order (C-6.15); null is no override.
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
-#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
-#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: saturated (C-6.13). It never holds `attended` turns or `priority` jobs,
+#: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and
+#: "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
 #: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
 #: it waits for that to change before it fails with rc 3 (C-11.8); null never
@@ -191,6 +194,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
@@ -370,6 +374,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
     guard = settings["machine_guard"]
+    callers = settings["priority_callers"]
+    if callers is not None:
+        if not isinstance(callers, list) or any(not isinstance(item, str) or not item.strip() for item in callers):
+            fail("admission.priority_callers", "must be a list of nonempty caller session ids, or null")
+        settings["priority_callers"] = [item.strip().lower() for item in callers]
     if guard is not None:
         if not isinstance(guard, dict):
             fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
@@ -377,7 +386,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             where = f"admission.machine_guard.{klass}"
             if klass not in GUARDED_CLASSES:
                 fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
-                            "a conversation turn is never held")
+                            "attended turns and priority jobs are never held")
             if limits is None:
                 continue
             if not isinstance(limits, dict) or not limits:
