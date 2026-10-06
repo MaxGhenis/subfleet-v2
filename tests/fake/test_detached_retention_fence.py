@@ -220,6 +220,87 @@ def test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above(tmp_path)
         assert workspaces.calls == [writer] and lease(daemon, folders.exclusive_key(nested)) == writer
 
 
+def test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest(tmp_path):
+    """The intended difference from the transaction's hold, as for turns: while
+    retention's fence covers a detached job's folder, the look before its workspace is
+    prepared holds it on the fence alone, whatever else it would also wait for. A
+    writer in place in a nested repository where a writable turn is working is held on
+    the fence above (`retiring`), not on the turn's row; once the fence goes, the next
+    look finds the row, a lease another job holds (no `retiring`, and `why` says so);
+    once the turn ends, the writer runs."""
+    from tests.fake.test_admission_liveness import _turn_in
+    from tests.fake.test_writer_retention_fence import writer_in
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        Workspaces(daemon, patch, real=False)
+        writer = writer_in(daemon, harness, nested)        # queued: no lease yet, so the turn may start
+        turn = _turn_in(daemon, harness, 0, workdir=nested)
+        daemon._admit_turns()
+        assert _live(daemon, turn)
+        row = folders.turn_key(nested, turn, writable=True)
+        fence = folders.exclusive_key(tree)
+        assert daemon.store.acquire_lease(fence, "retention:retired")
+        fenced = look(daemon, writer)
+        assert not _live(daemon, writer)
+        assert {key: fenced.get(key) for key in ("leases", "retiring", "folder")} == {
+            "leases": [fence], "retiring": [fence], "folder": nested}, fenced
+        daemon.store.release_leases("retention:retired")
+        rest = look(daemon, writer)
+        assert not _live(daemon, writer) and rest["leases"] == [row] and "retiring" not in rest, rest
+        assert f"a lease this job needs is held by another job: {row}" in daemon._why_job(daemon._job(writer))["text"]
+        _end(daemon, turn)
+        daemon._admit()
+        assert _live(daemon, writer), daemon._holds.get(writer)
+
+
+def test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions(tmp_path):
+    """`retiring` names only retention's fences: a writable turn waiting for a detached
+    writer's `worktree:` on its folder is held on that key with no `retiring`, and `why`
+    says another job holds it, never that retention is removing a worktree. Passes on
+    5253faa2 (no `retiring` at all); fails a fix that counts any `worktree:` holder."""
+    from tests.fake.test_admission_liveness import _turn_in
+    from tests.fake.test_writer_retention_fence import writer_in
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        Workspaces(daemon, patch, real=False)
+        writer = writer_in(daemon, harness, harness.workdir)
+        daemon._admit()
+        assert _live(daemon, writer)
+        target = folders.exclusive_key(folders.canonical(harness.workdir))
+        turn = _turn_in(daemon, harness, 0, workdir=harness.workdir)
+        daemon._admit_turns()
+        hold = dict(daemon._holds.get(turn) or {})
+        assert not _live(daemon, turn) and hold["leases"] == [target] and "retiring" not in hold, hold
+        text = daemon._why_job(daemon._job(turn))["text"]
+        assert f"a lease this job needs is held by another job: {target}" in text and "retention" not in text, text
+
+
+def test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once(tmp_path):
+    """The transaction's own read for an in-place writer is the writer fix's: its own
+    `worktree:` key, contested, and the fences above it. A fence on its own folder that
+    lands after the look before its workspace is named once in its hold, as retention's,
+    with its write target as its folder; the transaction's check for a job that takes no
+    folder lease is not also applied to it."""
+    from tests.fake.test_writer_retention_fence import writer_in
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        own = folders.exclusive_key(nested)
+        workspaces = Workspaces(daemon, patch, real=False)
+
+        def lands(job):
+            assert daemon.store.acquire_lease(own, "retention:other")
+            return workspaces(job)
+
+        writer = writer_in(daemon, harness, nested)
+        patch.setattr(daemon, "_workspace", lands)
+        hold = look(daemon, writer)
+        assert not _live(daemon, writer)
+        assert {key: hold.get(key) for key in ("leases", "retiring", "folder")} == {
+            "leases": [own], "retiring": [own], "folder": nested}, hold
+
+
 @pytest.mark.parametrize("where", ["tree", "nested"])
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction(tmp_path, shape, where):
