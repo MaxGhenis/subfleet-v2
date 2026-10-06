@@ -879,6 +879,37 @@ def test_an_unknown_model_fails_before_submit(svc):
     assert svc.daemon.submits == []
 
 
+def test_a_persisted_writable_conversation_refuses_an_unspellable_protected_home_before_submit(svc, tmp_path,
+                                                                                             monkeypatch):
+    """C-26.10, review of b0033e5d (P2): existing conversations also fail closed.
+    If a provider home's spelling cannot be established when a queued turn is
+    dispatched, the message fails as never delivered, without creating a job or
+    repeatedly trying admission. Creating the row directly models a conversation
+    persisted before this check, or opened from a native session."""
+    sealed = tmp_path / "Sealed"
+    home = sealed / "User-Home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    writable = {**SETTINGS, "permission": "accept-edits"}
+    cid = conversation(svc, settings=writable)
+    mid = str(uuid.uuid4())
+    svc.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="edit",
+                             attachments=[], settings=writable)
+    sealed.chmod(0o000)
+    try:
+        assert not os.access(sealed, os.X_OK)
+        svc._dispatch()
+        message = svc.store.message(mid)
+        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: protected-workspace")
+        assert message["job_id"] is None
+        svc.clock.now += 1000
+        svc._dispatch()
+        assert svc.daemon.submits == []
+        assert svc.daemon.store.one("SELECT COUNT(*) AS n FROM jobs")["n"] == 0
+    finally:
+        sealed.chmod(0o755)
+
+
 def test_one_conversations_defect_never_holds_up_another(svc, caplog):
     """C-26.1: an unexpected error submitting one message defers that message (logged)
     and the next conversation's message is still submitted in the same pass."""

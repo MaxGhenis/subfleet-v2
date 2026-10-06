@@ -211,18 +211,21 @@ func diffStatsWords(_ stats: DiffStats) -> String {
 /// Why a diff has nothing to show, in the person's words; the daemon's own
 /// detail follows where it says more than the reason.
 func diffUnavailableWords(_ result: DiffResult) -> String {
+    let words: String
     switch result.reason {
-    case "no-turn": return "This message has not started a turn yet."
-    case "read-only-turn": return "This turn was read-only: it could not change files."
+    case "no-turn": words = "This message has not started a turn yet."
+    case "read-only-turn": words = "This turn was read-only: it could not change files."
     case "no-snapshot":
-        return result.message_id == nil
+        words = result.message_id == nil
             ? "No writable turn of this conversation has started in a git checkout with a commit."
             : "The workspace was not a git checkout with a commit when this turn started, so there is nothing to compare."
-    case "snapshot-failed": return "The snapshot could not be taken: \(result.detail ?? "no detail")."
-    case "snapshot-pruned": return "The repository no longer holds this snapshot, so the changes cannot be shown."
-    case "workspace-gone": return "The workspace is no longer a git checkout (moved or removed)."
-    default: return result.detail ?? "Nothing to compare."
+    case "snapshot-failed": words = "The snapshot could not be taken: \(result.detail ?? "no detail")."
+    case "snapshot-pruned": words = "The repository no longer holds this snapshot, so the changes cannot be shown."
+    case "workspace-gone": words = "The workspace is no longer a git checkout (moved or removed)."
+    default: words = result.detail ?? "Nothing to compare."
     }
+    let sharing = diffSharedWords(result).map { [$0] } ?? []
+    return ([words] + sharing).joined(separator: " ")
 }
 
 /// C-26.14 (2026-09-29): conversations share folders, so a diff never claims one
@@ -278,6 +281,14 @@ func diffNotes(_ result: DiffResult) -> [String] {
         notes.append("\(skipped.count) nested repositor\(one ? "y" : "ies") with no commit \(one ? "is" : "are") not shown: \(names).")
     }
     return notes
+}
+
+/// An empty comparison still discloses other conversations' overlapping writes:
+/// edits can cancel out, leaving no net changes to show (C-26.14).
+func diffEmptyWords(_ result: DiffResult) -> String {
+    let notes = diffNotes(result)
+    let sharing = diffSharedWords(result).map { [$0] } ?? []
+    return ([notes.isEmpty ? "No changes." : "No changes to show."] + sharing + notes).joined(separator: " ")
 }
 
 /// How many left-out repositories `diffNotes` names, as the daemon's notice does.

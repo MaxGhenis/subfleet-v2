@@ -220,6 +220,42 @@ def test_c26_14_the_pane_says_who_else_wrote_in_the_folder(core_probe, tmp_path,
                                            "their edits.")
 
 
+def test_c26_14_empty_diffs_still_disclose_other_conversations(core_probe, tmp_path, harness):
+    """P3: overlapping writes can leave no net changes. The empty pane still names
+    the other conversation for a turn and a whole conversation, and keeps notices
+    about nested repositories the comparison could not show."""
+    cid, mid = turn(harness)
+    head, tree = turn_diff.snapshot(harness.workspace)
+    beside = harness.create(title="Scratch")["conversation_id"]
+    beside_mid = harness.submit(beside, "beside")["message_id"]
+    harness.store.record_trees(attempt_id="j-2/a1", message_id=beside_mid, conversation_id=beside,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:01Z",
+                               head_before=head, start_tree=tree)
+    harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
+                               head_after=head, end_tree=tree, ended=True)
+    for op, params, when in [("turn.diff", {"message_id": mid}, "during this turn"),
+                             ("conversation.diff", {"conversation_id": cid},
+                              "since this conversation's first turn began")]:
+        result = harness.call(op, **params)
+        assert result["available"] and result["files"] == [] and result["diff"] == ""
+        assert [entry["conversation_id"] for entry in result["shared"]] == [beside]
+        words = run_probe(core_probe, "diff-words", write_json(tmp_path / "empty.json", result))
+        assert words["empty"] == ("No changes. This folder was also changed by “Scratch” (still running) "
+                                   f"{when}; the diff may include its edits.")
+        legacy = {key: value for key, value in result.items() if key != "shared"}
+        assert run_probe(core_probe, "diff-words", write_json(tmp_path / "legacy.json", legacy))["empty"] == "No changes."
+        skipped = {**result, "to": {**result["to"], "skipped": ["scratch/empty/"]}}
+        notice = run_probe(core_probe, "diff-words", write_json(tmp_path / "skipped.json", skipped))["empty"]
+        assert notice.startswith("No changes to show. This folder was also changed by “Scratch”")
+        assert notice.endswith("1 nested repository with no commit is not shown: scratch/empty/.")
+        unavailable = {**result, "available": False, "reason": "snapshot-pruned"}
+        words = run_probe(core_probe, "diff-words", write_json(tmp_path / "unavailable.json", unavailable))
+        assert words["unavailable"] == ("The repository no longer holds this snapshot, so the changes cannot "
+                                            "be shown. This folder was also changed by “Scratch” (still running) "
+                                            f"{when}; the diff may include its edits.")
+
+
 def test_c26_14_the_pane_quotes_a_long_title_cut_to_one_short_line(core_probe, tmp_path):
     """Review of 5e9f2fbd (P3-7): a conversation's title is whatever a person or a native
     session gave it, so the note above a diff quotes at most 60 characters of it, on one

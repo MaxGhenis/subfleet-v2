@@ -180,14 +180,20 @@ def test_b0033e5d_p2_a_home_typed_in_another_case_under_an_unlistable_directory_
     parent.chmod(0o111)
     try:
         assert not os.access(parent, os.R_OK)
-        asked = create(service, "c-ask", handoffs.ASK, tmp_path / "SECRET-PARENT" / "user-HOME")
-        assert asked["conversation"]["workspace"] == canonical_home
         for n, typed in enumerate((home, parent / "user-home", tmp_path / "SECRET-PARENT" / "USER-HOME",
                                    tmp_path / "sECRET-pARENT" / "uSER-hOME", tmp_path / "secret-parent")):
             with pytest.raises(ConversationError) as err:
                 create(service, f"c-{n}", widened, typed)
             assert err.value.reason == "protected-workspace" and err.value.code == 7, typed
             assert str(err.value).endswith(os.path.join(canonical_home, ".claude")), str(err.value)
+        asked = create(service, "c-ask", handoffs.ASK, tmp_path / "SECRET-PARENT" / "user-HOME")
+        assert asked["conversation"]["workspace"] == canonical_home
+        with pytest.raises(ConversationError) as err:
+            service.op_conversation_settings({"conversation_id": asked["conversation"]["conversation_id"],
+                                              "settings": widened, "confirm_widen": True}, None)
+        assert err.value.reason == "protected-workspace" and err.value.code == 7
+        assert service.store.conversation(asked["conversation"]["conversation_id"])[
+            "settings"]["permission"] == "ask"
     finally:
         parent.chmod(0o755)
 
