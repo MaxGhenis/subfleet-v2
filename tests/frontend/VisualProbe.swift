@@ -6,7 +6,8 @@ import Foundation
             var values: [[String: Any]] = []
             for (name, foreground, target) in [("primary", Theme.text.primary, 4.5),
                                               ("secondary", Theme.text.secondary, 4.5),
-                                              ("tertiary", Theme.text.tertiary, 3.0)] {
+                                              ("tertiary", Theme.text.tertiary, 3.0),
+                                              ("attention", Theme.text.attention, 4.5)] {
                 for (i, surface) in Theme.surface.all.enumerated() {
                     values.append(["text": name, "surface": i, "mode": "dark", "target": target,
                                    "contrast": Theme.contrast(foreground.dark, surface.dark)])

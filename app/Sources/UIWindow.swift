@@ -12,11 +12,13 @@ struct MainWindow: View {
     /// C-29.13: every conversation text size follows this scale.
     @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
     @State private var selection: String?
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
-        HSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model, selection: $selection, search: { palette.toggle(model) })
-                .frame(minWidth: 240, idealWidth: 280, maxWidth: 420)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
+        } detail: {
             VStack(spacing: 0) {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
@@ -46,6 +48,16 @@ struct MainWindow: View {
                         }
                     }.padding(Theme.space.inset)
                 }
+            }
+        }
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                } label: { Label("Toggle sidebar", systemImage: "sidebar.left") }
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+                    .help("Show or hide the sidebar (⌃⌘S)")
             }
         }
         .onChange(of: selection) { _, value in
@@ -142,6 +154,7 @@ struct SidebarView: View {
     @ObservedObject var model: UIModel
     @Binding var selection: String?
     var search: () -> Void = {}
+    @FocusState private var listFocused: Bool
 
     private var sections: [SidebarSection] {
         let sections = model.state.sidebar()
@@ -173,41 +186,50 @@ struct SidebarView: View {
                 }.menuStyle(.borderlessButton).fixedSize().help("Group conversations by date or workspace")
                 Spacer()
                 Menu {
-                    Button("All providers") { model.setProviderFilter(nil) }
-                    Button("Claude") { model.setProviderFilter("claude") }
-                    Button("Codex") { model.setProviderFilter("codex") }
+                    Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "" }, set: {
+                        model.setProviderFilter($0.isEmpty ? nil : $0)
+                    })) {
+                        Text("All providers").tag("")
+                        Text("Claude").tag("claude")
+                        Text("Codex").tag("codex")
+                    }
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
+                    Label(model.state.providerFilter?.capitalized ?? "All providers", systemImage: "line.3.horizontal.decrease")
                 }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
             }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if !model.failedDrafts.isEmpty {
-                        Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
-                        ForEach(model.failedDrafts) { draft in
-                            Button { model.selectFailedDraft(draft.id); selection = "failed:" + draft.id } label: {
-                                Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
-                                    .windowFont(.sidebar).lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
-                            }.buttonStyle(QuietButtonStyle()).help(draft.failure.message)
-                        }
-                    }
-                    ForEach(sections) { section in
-                        Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
-                            .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
-                        ForEach(section.entries) { entry in
-                            Button { selection = entry.id } label: {
-                                SidebarRow(entry: entry) {
-                                    if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
-                                    selection = entry.id
-                                }
-                                .padding(.horizontal, Theme.space.inset)
-                                .background(RoundedRectangle(cornerRadius: Theme.radius.control)
-                                    .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
-                            }.buttonStyle(QuietButtonStyle()).help(entry.title + "\n" + entry.subtitle)
-                        }
+            List(selection: $selection) {
+                if !model.failedDrafts.isEmpty {
+                    Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                    ForEach(model.failedDrafts) { draft in
+                        Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
+                            .windowFont(.sidebar).lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+                            .tag("failed:" + draft.id).help(draft.failure.message)
                     }
                 }
+                ForEach(sections) { section in
+                    Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                        .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
+                    ForEach(section.entries) { entry in
+                        SidebarRow(entry: entry) {
+                            if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
+                            selection = entry.id
+                        }
+                        .padding(.horizontal, Theme.space.inset)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius.control)
+                            .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
+                        .tag(entry.id).help(entry.title + "\n" + entry.subtitle)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            }
+            .listStyle(.sidebar).scrollContentBackground(.hidden)
+            .focused($listFocused)
+            .background {
+                Button("Focus conversations") { listFocused = true }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
             }
         }
         .padding(Theme.space.inset)
@@ -519,7 +541,13 @@ struct TimelineRow: View {
                 Text((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""))
             }
         case .notice(let words):
-            NoticeRow(symbol: "info.circle") { Text(words) }
+            VStack(alignment: .leading, spacing: Theme.space.step) {
+                NoticeRow(symbol: "info.circle") { Text(words) }
+                if item.id.hasPrefix("person:"), let id = item.messageID,
+                   let turn = model.state.timelines[conversation.conversation_id]?.turn(id) {
+                    TurnStatusLine(model: model, conversation: conversation, turn: turn)
+                }
+            }
         case .taskNotification(let notice):
             TaskNotificationView(notice: notice)
         case .steered:
@@ -566,22 +594,27 @@ struct TurnStatusLine: View {
     let turn: TurnTimeline
 
     var body: some View {
-        HStack(spacing: 8) {
-            if turn.showsMessageAcknowledgment {
-                if turn.isReadSteer { ReadMark() }
-                else if turn.isUnreadSteer || turn.state == "sending" { ProgressView().controlSize(.mini) }
-                Text(model.state.timelines[conversation.conversation_id]?.statusText(
-                    of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
-                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
-            }
-            if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
-                Button {
-                    model.showChanges(.turn(conversationID: conversation.conversation_id, messageID: turn.messageID))
-                } label: {
-                    Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            HStack(spacing: 8) {
+                if turn.showsMessageAcknowledgment {
+                    if turn.isReadSteer { ReadMark() }
+                    else if turn.isUnreadSteer || turn.state == "sending" { ProgressView().controlSize(.mini) }
+                    Text(model.state.timelines[conversation.conversation_id]?.statusText(
+                        of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
-                .buttonStyle(.link).readingFont(.caption)
-                .help("What this turn changed")
+                if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
+                    Button {
+                        model.showChanges(.turn(conversationID: conversation.conversation_id, messageID: turn.messageID))
+                    } label: {
+                        Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
+                    }
+                    .buttonStyle(.link).readingFont(.caption)
+                    .help("What this turn changed")
+                }
+            }
+            if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
+                ServedChipView(chip: chip)
             }
         }
         .task(id: askChanges ? turn.messageID : nil) {
@@ -962,8 +995,8 @@ struct ServedChipView: View {
     let chip: ServedChip
 
     var body: some View {
-        let parts = [chip.account, chip.model, chip.effort, chip.fast].compactMap { $0 }.filter { !$0.isEmpty }
-        HStack(spacing: 4) {
+        let parts = [chip.account, chip.model, chip.effort, chip.fast.map { "Fast " + $0 }].compactMap { $0 }.filter { !$0.isEmpty }
+        VStack(alignment: .leading, spacing: Theme.space.step) {
             if !parts.isEmpty {
                 Text(parts.joined(separator: " · ")).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
             }

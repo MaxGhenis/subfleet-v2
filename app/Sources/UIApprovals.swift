@@ -26,9 +26,18 @@ struct ApprovalCardView: View {
                 case .withdrawn: Text("Withdrawn").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
             }
+            ApprovalGrantView(card: card, request: detail?.request)
+            if card.isPending && detail == nil {
+                if loadFailed {
+                    Button("Reload request") { Task { await load() } }
+                } else {
+                    ProgressView("Loading the request…").controlSize(.small)
+                }
+            }
             if card.kind == "question" {
                 if card.isActionable {
                     QuestionCardView(model: model, conversationID: conversationID, card: card)
+                        .disabled(detail == nil)
                 } else {
                     ForEach(Array(card.questions.enumerated()), id: \.offset) { _, question in
                         Text(question.question).readingFont(.secondary)
@@ -36,20 +45,13 @@ struct ApprovalCardView: View {
                 }
                 requestDetails
             } else {
-                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail?.request))
-                if card.isPending && detail == nil {
-                    if loadFailed {
-                        Button("Reload request") { Task { await load() } }
-                    } else {
-                        ProgressView("Loading the request…").controlSize(.small)
-                    }
-                }
                 if let detail, !detail.masked.isEmpty {
                     Label("Some values are masked. Allow opens details for review.", systemImage: "eye.slash")
                         .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
                 if card.isActionable {
                     HStack {
+                        Button("Add a note", action: review).buttonStyle(.link)
                         Spacer()
                         if card.options.contains("deny") {
                             Button("Deny") { Task { await respond("deny") } }.buttonStyle(.bordered)
@@ -65,9 +67,6 @@ struct ApprovalCardView: View {
             }
             if card.isPending && !card.isActionable {
                 Text("Waiting for the request to be identified…").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
-                if card.kind == "question" && loadFailed {
-                    Button("Reload request") { Task { await load() } }
-                }
             }
         }
         .readingFont(.body)
@@ -107,13 +106,8 @@ struct ApprovalCardView: View {
                 Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(card.display.shownFields, id: \.key) { field in
-                    Text("\(field.key): \(field.value)").readingFont(.code, design: .monospaced)
-                        .textSelection(.enabled)
-                }
-            }
-            if card.isActionable && card.kind != "question" {
-                Button("Add a note", action: review).buttonStyle(.link)
+                Text(prettyApprovalRequest(.object(card.display.fields))).readingFont(.code, design: .monospaced)
+                    .textSelection(.enabled)
             }
         }.readingFont(.secondary)
     }
@@ -279,6 +273,22 @@ struct QuestionCardView: View {
     }
 }
 
+struct ApprovalGrantView: View {
+    let card: ApprovalCard
+    let request: JSONValue?
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            ApprovalCommandView(command: ApprovalPresentation.command(card, request: request))
+            ForEach(ApprovalPresentation.grantedFields(card, request: request), id: \.key) { field in
+                Text("\(field.key): \(field.value)")
+                    .readingFont(.code, design: .monospaced).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
 private struct ApprovalCommandView: View {
     let command: String?
     var body: some View {
@@ -307,7 +317,7 @@ struct ApprovalSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(ApprovalPresentation.headline(card)).readingFont(.subheading, weight: .bold)
             if let detail {
-                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail.request))
+                ApprovalGrantView(card: card, request: detail.request)
                 DisclosureGroup("Details") {
                     ScrollView {
                         Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)

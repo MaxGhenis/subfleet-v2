@@ -19,6 +19,7 @@ enum Theme {
         static let secondary = Pair(dark: 0xA3A29E, light: 0x5E5D59)
         // The spec's #73726E / #8C8B86 miss 3:1 on selected rows.
         static let tertiary = Pair(dark: 0x8B8A86, light: 0x777670)
+        static let attention = Pair(dark: 0xF0B45B, light: 0x875000)
     }
     enum radius {
         static let control: CGFloat = 8
@@ -69,7 +70,7 @@ extension Theme {
         })
     }
     enum state {
-        static let attention = Color(nsColor: .systemOrange)
+        static let attention = text.attention.color
         static let error = Color(nsColor: .systemRed)
         static let success = Color(nsColor: .systemGreen)
         static let added = success.opacity(0.12)
@@ -109,11 +110,13 @@ struct QuietButtonStyle: ButtonStyle {
     private struct QuietButtonLabel: View {
         let configuration: ButtonStyle.Configuration
         @Environment(\.isFocused) private var focused
+        @Environment(\.isEnabled) private var enabled
         @State private var hovered = false
         var body: some View {
             configuration.label
+                .opacity(enabled ? 1 : 0.4)
                 .background(RoundedRectangle(cornerRadius: Theme.radius.control)
-                    .fill(hovered || configuration.isPressed ? Theme.surface.hover.color : Theme.clear))
+                    .fill(enabled && (hovered || configuration.isPressed) ? Theme.surface.hover.color : Theme.clear))
                 .overlay(RoundedRectangle(cornerRadius: Theme.radius.control)
                     .stroke(focused ? Theme.accent : Theme.clear, lineWidth: 2))
                 .onHover { hovered = $0 }

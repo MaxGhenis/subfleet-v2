@@ -11,6 +11,19 @@ final class SnapshotDefaults: UserDefaults, @unchecked Sendable {
 }
 
 final class SnapshotClient: DaemonCalling, @unchecked Sendable {
+    let fixture: JSONValue?
+    init(fixture: JSONValue? = nil) { self.fixture = fixture }
+    var fixtureApproval: ApprovalView? {
+        guard let fixture else { return nil }
+        let kind = fixture["kind"]!.string!
+        let options = kind == "permissions" ? ["allow-turn", "deny"]
+            : kind == "question" ? ["answer", "deny", "cancel-turn"]
+            : kind == "tool" ? ["allow", "deny", "cancel-turn"] : ["allow", "allow-session", "deny", "cancel-turn"]
+        return ApprovalView(approval_id: fixture["id"]!.string!, message_id: "m1", conversation_id: "c0",
+            provider_request_id: "request1", kind: kind,
+            display: ApprovalDisplay(fields: ["description": fixture["headline"]!]), options: options,
+            created_at: "2026-10-04T10:03:11Z", state: "pending")
+    }
     static let approval = ApprovalView(approval_id: "approval1", message_id: "m1", conversation_id: "c0",
         provider_request_id: "request1", kind: "command",
         display: ApprovalDisplay(fields: ["description": .string("Run the frontend tests in this checkout"), "tool": .string("Bash")]),
@@ -32,11 +45,11 @@ final class SnapshotClient: DaemonCalling, @unchecked Sendable {
         }
         if op.name == "approval.get" {
             let args = try JSONValue.parse(JSONEncoder().encode(args))
-            let approval = args["approval_id"]?.string == "question1" ? Self.question : Self.approval
+            let approval = fixtureApproval ?? (args["approval_id"]?.string == "question1" ? Self.question : Self.approval)
             let data = try JSONValue.parse(JSONEncoder().encode(approval))
-            let request: JSONValue = approval.kind == "question"
+            let request: JSONValue = fixture?["request"] ?? (approval.kind == "question"
                 ? .object(["tool": .string("AskUserQuestion"), "input": .object(["questions": approval.display.fields["questions"]!])])
-                : .object(["tool": .string("Bash"), "input": .object(["command": .string("python -m pytest tests/frontend")])])
+                : .object(["tool": .string("Bash"), "input": .object(["command": .string("python -m pytest tests/frontend")])]))
             return try JSONValue.object(["approval": data, "nonce": .string("fixture"), "request_sha256": .string("fixture"),
                 "request": request,
                 "masked": .array([])]).decode(R.self)
@@ -47,14 +60,19 @@ final class SnapshotClient: DaemonCalling, @unchecked Sendable {
 }
 
 @MainActor
-func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) throws -> UIModel {
+func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent], fixtures: [JSONValue]) throws -> UIModel {
+    let fixture = fixtures.first { $0["id"]?.string == scenario }
+    let client = SnapshotClient(fixture: fixture)
+    let codex = scenario.hasPrefix("codex-") || scenario == "failed" || scenario == "text-only"
     let draftScene = ["new", "refused", "permission"].contains(scenario)
     var state = ConversationStoreState()
     state.availability = .ready(Capabilities(protocol: 1, daemon_version: "fixture", conversation_schema: 1,
-        capabilities: ["conversation.v1", "diff.v1", "steer.v1"], codex_writable: true, steer_providers: ["claude"]))
+        capabilities: ["conversation.v1", "diff.v1", "steer.v1", "workspace.check.v1"], codex_writable: true, steer_providers: ["claude"]))
     state.models["claude"] = [ModelEntry(short: "Opus 5.5", id: "claude-opus-5-5", provider: "claude",
         value: "claude-opus-5-5", values: ["claude-opus-5-5"], efforts: ["medium", "high", "ultracode"],
         default_effort: "medium", fast: ModelFast(supported: true, billing: "subscription"))]
+    state.models["codex"] = [ModelEntry(short: "Astra", id: "gpt-6-astra", provider: "codex", value: "gpt-6-astra",
+        values: ["gpt-6-astra"], efforts: ["high"], default_effort: "high", fast: ModelFast(supported: true, billing: "subscription"))]
     let names = ["Subfleet visual pass", "Fix the search shortcut", "Review the recovery flow", "Compare the references",
                  "Polish conversation titles", "Check pending approvals", "Update Markdown tables", "Trace the composer",
                  "Plan the next release", "Measure text contrast", "Review account capacity", "Clean up notices",
@@ -70,22 +88,53 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) t
             blocked_by: i == 2 ? "unfinished-turn" : nil, created_at: date, updated_at: date,
             pending_approvals: i == 1 ? 1 : 0, active: i == 0 && (["live", "live-expanded", "sidebar", "question"].contains(scenario)), live_elsewhere: i == 4))
     }
-    state.conversations[0].provider = "claude"
-    let live = scenario == "live" || scenario == "live-expanded" || scenario == "sidebar" || scenario == "question"
+    state.conversations[0].provider = codex ? "codex" : "claude"
+    if codex {
+        state.conversations[0].settings = ConversationSettings(model: "gpt-6-astra", effort: "high", fast: true)
+        state.conversations[0].lane_id = "codex-2"
+    }
+    let live = fixture != nil || ["live", "live-expanded", "sidebar", "question", "codex-progress"].contains(scenario)
+    state.conversations[0].active = live
+    let settledState = scenario == "failed" ? "failed" : scenario == "stopped" ? "interrupted" : scenario == "withdrawn" ? "cancelled" : "complete"
     if scenario == "blocked" { state.conversations[0].blocked_by = "unfinished-turn" }
     let receipt = Receipt(message_id: "m1", conversation_id: "c0", seq: 1, origin: "person",
-        state: live ? "running" : "complete", settings: state.conversations[0].settings,
+        state: live ? "running" : settledState,
+        state_reason: scenario == "failed" ? "model-mismatch" : scenario == "stop-too-late" ? "stop-too-late" : nil,
+        settings: state.conversations[0].settings,
+        served: Served(fields: ["account": .string("max@example.com"), "model": .string(scenario == "failed" ? "gpt-6-sol" : codex ? "gpt-6-astra" : "claude-opus-5-5"),
+            "effort": .string(codex ? "high" : "medium"), "fast_mode_state": .string("off")]),
         text: "Make the progress easier to read, and keep the existing actions reachable.")
     state.apply(open: ConversationOpenResult(conversation: state.conversations[0], messages: [receipt], events_cursor: 0,
                                             pending_approvals: []))
     var replay = events
+    if codex {
+        for index in replay.indices {
+            if replay[index].kind == "served" {
+                replay[index].data = .object(["lane_id": .string("codex-2"), "account": .string("max@example.com"),
+                    "model": .string("gpt-6-astra"), "effort": .string("high")])
+            } else if replay[index].kind == "tool.started", var data = replay[index].data.object {
+                data["name"] = .string("command")
+                let lines = (data["summary"]?.string ?? "").components(separatedBy: "\n")
+                data["summary"] = .string((lines.last?.hasPrefix("description: ") == true ? Array(lines.dropLast()) : lines).joined(separator: "\n"))
+                replay[index].data = .object(data)
+            }
+        }
+    }
+    if ["failed", "withdrawn", "text-only"].contains(scenario) {
+        replay = scenario == "text-only" ? [ConversationEvent(seq: 1, message_id: "m1", kind: "text",
+            ts: events.first?.ts, data: .object(["text": .string("The checkout is ready for review."), "final": .bool(true)]))] : []
+    }
+    if scenario == "codex-progress" {
+        replay = [ConversationEvent(seq: 1, message_id: "m1", kind: "tool.started", ts: events.first?.ts,
+            data: .object(["id": .string("codex-command"), "name": .string("command"), "summary": .string("git status --short")]))]
+    }
     let replayStart = events.first?.ts.flatMap(parseTimestamp) ?? Date()
     func replayStamp(_ seconds: Double) -> String { ISO8601DateFormatter().string(from: replayStart.addingTimeInterval(seconds)) }
-    if !live {
+    if !live && !["failed", "withdrawn", "text-only"].contains(scenario) {
         replay.append(ConversationEvent(seq: replay.count + 1, message_id: "m1", kind: "tool.completed",
              ts: replayStamp(190), data: .object(["id": .string("tool14"), "is_error": .bool(false)])))
         replay.append(ConversationEvent(seq: replay.count + 1, message_id: "m1", kind: "turn.completed",
-             ts: replayStamp(192), data: .object(["state": .string("succeeded")])))
+             ts: replayStamp(192), data: .object(["state": .string(scenario == "stopped" ? "interrupted" : "succeeded")])))
         if let lastText = replay.lastIndex(where: { $0.kind == "text" }),
            var data = replay[lastText].data.object, let text = data["text"]?.string {
             data["text"] = .string(text + "\n\n```swift\nlet surface = Theme.surface.raised\n```\n\n| View | Result |\n| --- | --- |\n| Sidebar | One-line names |\n| Timeline | Grouped commands |")
@@ -93,17 +142,17 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) t
         }
     }
     _ = state.apply(events: EventsPage(events: replay, next: replay.count, reset: false), conversationID: "c0")
-    let pendingApproval = scenario == "question" ? SnapshotClient.question : SnapshotClient.approval
-    if live, ["live", "live-expanded", "question"].contains(scenario) {
+    let pendingApproval = client.fixtureApproval ?? (scenario == "question" ? SnapshotClient.question : SnapshotClient.approval)
+    if live, fixture != nil || ["live", "live-expanded", "question"].contains(scenario) {
         let request = ConversationEvent(seq: replay.count + 1, message_id: "m1", kind: "approval.requested",
             ts: replayStamp(191), data: .object(pendingApproval.display.fields.merging([
                 "request_id": .string("request1"), "kind": .string(pendingApproval.kind),
                 "options": .array(pendingApproval.options.map(JSONValue.string))]) { _, new in new }))
         _ = state.apply(events: EventsPage(events: [request], next: request.seq, reset: false), conversationID: "c0")
     }
-    if ["live", "live-expanded", "question"].contains(scenario) { state.timelines["c0"]?.attach(approvals: [pendingApproval]) }
+    if fixture != nil || ["live", "live-expanded", "question"].contains(scenario) { state.timelines["c0"]?.attach(approvals: [pendingApproval]) }
     state.focus("c0")
-    state.laneLabels = ["claude-2": "max@example.com"]
+    state.laneLabels = ["claude-2": "max@example.com", "codex-2": "max@example.com"]
     if draftScene {
         var draft = NewConversationDraft(workspace: scenario == "refused" ? "/Users/example" : "/Users/example/subfleet")
         draft.providerChoice = "claude"
@@ -114,7 +163,7 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent]) t
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try JSONEncoder().encode(draft).write(to: support.appendingPathComponent("new-conversation-draft.json"))
     }
-    let model = UIModel(paths: .rooted(at: root), client: SnapshotClient(), defaults: SnapshotDefaults(), state: state)
+    let model = UIModel(paths: .rooted(at: root), client: client, defaults: SnapshotDefaults(), state: state)
     #if !SUBFLEET_VISUAL_BASELINE
     model.refreshAccountUsage()
     precondition(model.accountSnapshot != nil, "Fixture status must decode")
@@ -198,7 +247,12 @@ struct SnapshotCanvas: View {
         host.layoutSubtreeIfNeeded()
     }
     host.layoutSubtreeIfNeeded()
-    let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+    // Natural capture doubles again on Retina displays. Fix the pixel backing
+    // independently of the display's scale, and map it to the hosting bounds.
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2880, pixelsHigh: 1800,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    rep.size = host.bounds.size
     host.cacheDisplay(in: host.bounds, to: rep)
     precondition(rep.pixelsWide == 2880 && rep.pixelsHigh == 1800)
     try rep.representation(using: .png, properties: [:])!.write(to: url)
@@ -218,6 +272,9 @@ struct SnapshotCanvas: View {
         try JSONSerialization.data(withJSONObject: status).write(to: home.appendingPathComponent("status.json"))
         defer { try? FileManager.default.removeItem(at: home) }
         let fixture = URL(fileURLWithPath: CommandLine.arguments[2])
+        let approvalsPath = CommandLine.arguments.count > 3 ? CommandLine.arguments[3]
+            : fixture.deletingLastPathComponent().appendingPathComponent("approvals.json").path
+        let approvalFixtures = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: approvalsPath))).array!
         var events = try JSONDecoder().decode([ConversationEvent].self, from: Data(contentsOf: fixture))
         let offset = Date().timeIntervalSince(parseTimestamp("2026-10-04T10:03:12Z")!)
         for i in events.indices {
@@ -228,10 +285,12 @@ struct SnapshotCanvas: View {
         let root = out.appendingPathComponent(".fixture-state")
         defer { try? FileManager.default.removeItem(at: root) }
         let scenarios = ProcessInfo.processInfo.environment["SF_SNAPSHOT_SCENES"]?.split(separator: ",").map(String.init)
-            ?? ["sidebar", "finished", "live", "live-expanded", "blocked", "new", "refused", "permission", "empty", "question"]
+            ?? ["sidebar", "finished", "live", "live-expanded", "blocked", "new", "refused", "permission", "empty", "question",
+                "codex-command", "codex-file-change", "codex-permissions", "claude-write", "codex-progress", "failed", "stopped",
+                "withdrawn", "stop-too-late", "text-only"]
         for scenario in scenarios {
             for dark in [true, false] {
-                let model = try snapshotModel(root.appendingPathComponent(UUID().uuidString), scenario: scenario, events: events)
+                let model = try snapshotModel(root.appendingPathComponent(UUID().uuidString), scenario: scenario, events: events, fixtures: approvalFixtures)
                 try await render(SnapshotCanvas(model: model, scenario: scenario),
                            to: out.appendingPathComponent("\(scenario)-\(dark ? "dark" : "light").png"), dark: dark,
                            settled: { !["new", "refused", "permission"].contains(scenario) || model.newDraft.workspaceCheck != nil })
