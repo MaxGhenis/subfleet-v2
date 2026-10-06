@@ -163,7 +163,7 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
 #: `priority_callers` names Claude Code caller session ids whose detached work,
-#: including descendants, goes first in FIFO order (C-6.15); null is no override.
+#: including descendants, goes first in FIFO order (C-6.16); null is no override.
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
 #: saturated (C-6.13). It never holds `attended` turns or `priority` jobs,
 #: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and

@@ -1,6 +1,6 @@
 """Frozen admission functions from 6b0be1d471e9 for differential properties.
 
-These are the scheduler functions before C-6.15, copied without changes.
+These are the scheduler functions before C-6.16, copied without changes.
 """
 from __future__ import annotations
 from collections.abc import Iterable, Mapping

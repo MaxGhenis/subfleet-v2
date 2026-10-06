@@ -182,7 +182,7 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
 
 #: C-6.9: who gets the next lane, first to last. `attended` is a conversation
 #: turn from the Subfleet app; `priority` detached work chosen by the operator
-#: (C-6.15); `session` a detached job someone is waiting on
+#: (C-6.16); `session` a detached job someone is waiting on
 #: now; `background` one nobody is (Max, 2026-09-27: "uncap everything and
 #: instead use prioritization").
 PRIORITY_CLASSES = ("attended", "priority", "session", "background")
@@ -206,7 +206,7 @@ def priority_class(job: Any, live: Liveness | None = None, *,
     """C-6.9: a job's class, from what it records and who is live now.
 
     A turn is `attended`. Detached work whose caller or any ancestor's caller
-    is in `admission.priority_callers` is `priority` (C-6.15), regardless of
+    is in `admission.priority_callers` is `priority` (C-6.16), regardless of
     liveness. `jobs` supplies ancestor rows, including finished jobs; missing
     parents end the walk, and a visited set terminates cycles.
     Otherwise a gate round is `session`: a gate is always waited on
@@ -249,7 +249,7 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness 
     """C-4.1, C-6.9, C-26.9; plan amendment 11: class, then tier, then FIFO.
 
     Classes go `attended`, `priority`, `session`, `background` (`priority_class`);
-    priority work is FIFO regardless of tier (C-6.15). Other classes keep the
+    priority work is FIFO regardless of tier (C-6.16). Other classes keep the
     policy's tier order, then oldest first. Stable
     sorting preserves the store's submission order when second-precision
     timestamps are tied.

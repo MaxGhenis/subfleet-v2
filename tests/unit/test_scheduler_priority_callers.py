@@ -1,4 +1,4 @@
-"""C-6.15: priority callers, with the previous scheduler as a differential oracle."""
+"""C-6.16: priority callers, with the previous scheduler as a differential oracle."""
 
 import copy
 

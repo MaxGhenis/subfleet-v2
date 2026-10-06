@@ -1441,7 +1441,7 @@ class Daemon:
         return known[job_id]
 
     def _priority_jobs(self, jobs: list[dict]) -> dict[str, dict]:
-        """C-6.15: caller ancestry, including finished parents, read once per pass.
+        """C-6.16: caller ancestry, including finished parents, read once per pass.
 
         No queries when priority is off. Fetch only named parents in indexed
         batches; missing rows and cycles terminate without scanning the store.
@@ -1491,7 +1491,7 @@ class Daemon:
         return scheduler.Liveness(sessions=sessions, jobs=frozenset(live_jobs))
 
     def _priority_callers_status(self) -> list[dict]:
-        """C-6.15: configured callers, with registry names when available."""
+        """C-6.16: configured callers, with registry names when available."""
         callers = admission_settings(self.policy)["priority_callers"] or ()
         if not callers:
             return []
@@ -4472,7 +4472,7 @@ class Daemon:
         # an uncapped pool is never full.
         saturated: dict[str, bool] = {}
         turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
-        # C-6.9, C-6.15: attended, priority, session, background. Priority is
+        # C-6.9, C-6.16: attended, priority, session, background. Priority is
         # FIFO across tiers; the other classes keep tier then FIFO.
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
