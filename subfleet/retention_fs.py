@@ -1188,11 +1188,12 @@ class Reclaim:
     """
 
     def __init__(self, entries: dict[str, dict[str, Any]], conflicts: Path, label: str,
-                 check: Check | None = None):
+                 check: Check | None = None, preserved: Callable[[dict[str, Any]], bool] | None = None):
         self.entries = entries
         self.conflicts = conflicts
         self.label = label
         self.check = check
+        self.preserved = preserved
         self.deleted = 0
         self.bytes = 0
         self.kept: list[dict[str, str]] = []
@@ -1270,6 +1271,22 @@ class Reclaim:
                     self.errors.append({"path": path, "error": exc.strerror or str(exc)})
                     self._set_aside_fd(fd, name, path, "rmdir-failed")
             return
+        # The source signature was checked above; revalidate its stored bytes
+        # last, per file, including every hard link sharing a stored copy.
+        if self.preserved is not None and not self.preserved(record):
+            self._set_aside_fd(fd, name, path, "archive-unavailable")
+            return
+        if self.preserved is not None:
+            # A changed copy may have needed a long readback. Do not enlarge
+            # the source-write race to include that read: pair the final copy
+            # check with one final source stat before the unlink.
+            try:
+                latest = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            if not unchanged(signature(st), latest):
+                self._set_aside_fd(fd, name, path, "changed")
+                return
         try:
             os.unlink(name, dir_fd=fd)
         except FileNotFoundError:

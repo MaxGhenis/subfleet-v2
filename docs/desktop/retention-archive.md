@@ -118,7 +118,7 @@ evidence are in `docs/reports/2026-10-01-retention-81-notes.md`.
 | N3: work inside a tool's own entries was deleted without a copy | A tool's own top-level entries (a venv's `lib/`, a package in `node_modules`, a `__pycache__`, `.pytest_cache/v/`) were dropped whole | Inside them each file is judged by its kind's rule, and only a file the rule proves regenerable is dropped (section 7); section 15 no longer calls this class accepted |
 | N4: a job registered in a repository inside another job's tree retired without its own anchor | Both chosen in one pass, the host was quarantined first and the hosted job archived bytes-only | The host is pinned while the hosted job has rows (`nested-host`, at selection and at commit), and a hosted job whose host tree is not there is kept, so it retires first with its own anchor and bundle (sections 4, 10) |
 | N5: a registration reduced to `index` and `logs/` kept its job for ever | Deferred every day as `admin-unreadable` (the four `mstat6-g*` jobs, whose /tmp clones lost every file) | Such a remnant is no registration: the tree and the remnant's bytes are archived, the remnant removed with the tree (section 4, step 2) |
-| N6: every published archive kept its progress log | About 357 bytes per stored file, redundant with the manifest | Removed at publish (section 3) |
+| N6: every published archive kept its progress log | About 357 bytes per stored file, redundant after reclamation | Moved beside the journal at publish, removed after reclamation (section 3) |
 | N9: retention's children ran at the operator's priority | `lsof`, git and the object readers spawned directly by a default-QoS daemon | Each starts under `taskpolicy -c utility`; the in-process steps lower their thread's disk I/O policy (section 12) |
 
 The build was then reviewed (`~/reviews/retention-2026-09-28/r4-evidence/review-opus.md`,
@@ -202,7 +202,7 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
 <state>/retention/<job>/worktree/      the quarantined worktree
 <state>/retention/<job>/job/           the quarantined job directory
 <state>/retention/<job>/archive/       the archive while it is built (progress.jsonl makes it resumable;
-                                       removed at publish, since a published archive never resumes)
+                                       moved beside journal.json at publish until reclamation finishes)
 <state>/archive/<job>/                 the verified archive, published once the rows are gone:
     manifest.json    every entry of every tree: path, lstat signature, and the sha256 and stored name,
                      the omitted blob id, or the regenerable mark (with the sha256 a RECORD vouched
@@ -350,9 +350,9 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    anchor reaches), check both leases are still retention's, then delete the
    rows and the leases. This is the point of no return. While the rows exist,
    no byte of the job has been deleted.
-10. **Publish**: rename the archive to `<state>/archive/<job>`, then remove
-    its `progress.jsonl` (a crash between the two is finished by the next
-    pass).
+10. **Publish**: rename the archive to `<state>/archive/<job>`, then move
+    its `progress.jsonl` beside the retirement journal (a crash between the
+    two is finished by the next pass). Completed archives retain no log.
 11. **Reclaim**: verified deletion (section 9) of the worktree, the job
     directory and the admin directory, which removes the registration. If
     anything in the admin directory changed after the final check, it is kept
@@ -362,6 +362,11 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
     beside it under another tool's quarantine name, or where the admin's
     current backlink points. If so, keep the registration and release only
     retention's own lock so that checkout stays usable.
+    Each stored copy's recorded identity is checked again immediately before
+    its source file is unlinked, with a readback when it changed or has no
+    recorded identity. A damaged or unusable copy sends that source file to
+    conflicts. Successful readbacks persist across cancellation, and the
+    progress log is removed when reclamation finishes.
 
 **The external sweep**: `disk-guard` and `worktree-archive-sweep` hold the
 guard's own `state/disk-guard.lock`; retention does not share it. Both move
@@ -813,6 +818,23 @@ descriptors, and deliberately adversarial same-user tricks):
   unlink (for a file that had other links and whose ctime alone moved: between
   the read that hashes it and its unlink; and a tree another tool moves back
   between the final check and the commit).
+- Damage to a stored copy (unlink, rewrite, replacement, or loss of access)
+  between its last pathname/stat check and the corresponding source unlink.
+  Reclamation checks each source file's copy immediately before unlinking it,
+  re-reading its hash when the recorded identity changed; a failed check moves
+  the source to `retention-conflicts`, including after row deletion and across
+  a restart. This closes the interval during the final-check loop and from
+  final check through commit, publish and the rest of reclamation.
+  A final source stat follows the copy check, so a source write during a slow
+  copy readback also goes to conflicts. There is still no atomic filesystem
+  operation coupling the copy check to the source
+  unlink: external damage in that narrow interval can lose the bytes if no
+  other source link survives. Damage to the archive after that source unlink
+  (including after commit) has the same consequence: its stored copy may be
+  the only remaining copy. Metadata identities are a shortcut, not hashes;
+  corruption that leaves device, inode, size, mtime and ctime unchanged can
+  evade it at any time. Neither case is protection against later storage
+  failure or deliberately forged metadata.
 - A writable descriptor passed over a Unix socket and held by no process at the
   moment of a listing.
 - Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
