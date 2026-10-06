@@ -33,7 +33,7 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import __version__
 from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
@@ -1918,6 +1918,14 @@ class Daemon:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
                     digest = turn["digest"]
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling. Retention's
+                # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
+                # whose workdir was typed in another case or Unicode form than its volume
+                # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
+                # turn waiting on retention's fence above it saw the tree deleted (review of
+                # 5253faa2, P2). The digest keeps the path as resolved, so a request
+                # submitted again is the same payload whichever build accepted it first.
+                recorded_workdir = folders.canonical(workdir)
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
@@ -1946,7 +1954,7 @@ class Daemon:
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
-                          workdir=str(workdir), workdir_head=head, out_path=out,
+                          workdir=recorded_workdir, workdir_head=head, out_path=out,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
@@ -4218,7 +4226,8 @@ class Daemon:
                 totals[key] = totals.get(key, 0) + value
             self._route_evaluations = totals
 
-    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True) -> int:
+    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True,
+                       blocked: Iterable[str] = ()) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
 
         The count follows the verdict; what is reported follows the latest look
@@ -4227,7 +4236,9 @@ class Daemon:
         carries details (`leases`, `max_active_attempts`) that the passes between
         looks must still be able to give `why`. `expedite` is whether freed
         capacity may bring the next look forward; a probe's own 60 s wait may
-        not be, or every released lease would re-probe the provider.
+        not be, or every released lease would re-probe the provider. `blocked`
+        are the hold's `leases` the job needs free but does not take, which a
+        look on its clock does not queue for (C-6.11).
         """
         now = utcnow()
         wait = self._capacity_waits.get(job_id)
@@ -4236,7 +4247,7 @@ class Daemon:
         self._capacity_waits[job_id] = {
             "signature": signature, "rechecks": wait["rechecks"] + 1 if same else 0,
             "since": wait["since"] if same else now, "checked_at": now,
-            "label": hold["reason"], "hold": dict(hold), "expedite": expedite}
+            "label": hold["reason"], "hold": dict(hold), "expedite": expedite, "blocked": tuple(blocked)}
         return self._capacity_waits[job_id]["rechecks"]
 
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
@@ -4534,8 +4545,12 @@ class Daemon:
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes, waiting_for))
                 if lease_held and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
-                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
-                              job["job_id"])
+                    # Only the keys it takes: one it needs free but does not take (`blocked`,
+                    # retention's fence above a writer's folder, say) is never queued for
+                    # (C-6.11), on its clock as at its look (review of 5253faa2, P3).
+                    blocked = set(known.get("blocked") or ())
+                    queue_for([*(key for key in known["hold"].get("leases") or () if key not in blocked),
+                               *(known["hold"].get("queued") or ())], job["job_id"])
                 last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
                 if asked:
                     last.pop("for_good", None)          # C-6.11: this pass's answer, not the last look's
@@ -4842,8 +4857,14 @@ class Daemon:
                             # place, so it takes no lease; its instances are told apart
                             # at submit. A detached writer still writes alone: it waits
                             # while a conversation turn writes there.
-                            leases.append((f"worktree:{write_target}", job["job_id"]))
+                            own = folders.exclusive_key(write_target)
+                            leases.append((own, job["job_id"]))
                             blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                            # C-8.4: nor while retention retires a tree its folder is in,
+                            # a repository nested in a job's worktree (its own fence is
+                            # `own`, contested above). A detached writer above it holds
+                            # another checkout, not this one (C-6.5).
+                            blockers.extend(key for key in folders.retiring(read, write_target) if key != own)
                         elif job["kind"] == "turn" and read_folder:
                             # C-8.4, C-13.4: a read-only turn excludes no writer, but
                             # retention never removes a folder a turn is working in, or
@@ -4899,7 +4920,8 @@ class Daemon:
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold,
+                                                           blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}

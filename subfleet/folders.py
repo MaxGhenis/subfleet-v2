@@ -11,8 +11,8 @@ release site frees a turn's row with the job's other leases.
 - `worktree-read:<folder>:<job id>`: a read-only turn. It excludes no writer;
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
-  job's tree. No turn, writable or read-only, starts on that folder or on one
-  inside it while it is held (`retiring`, C-8.4).
+  job's tree. No turn, writable or read-only, and no detached writer starts on
+  that folder or on one inside it while it is held (`retiring`, C-8.4).
 
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
