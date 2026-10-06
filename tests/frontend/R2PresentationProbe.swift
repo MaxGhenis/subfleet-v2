@@ -21,7 +21,9 @@ import Foundation
                                    ("input", ApprovalPresentation.hiddenInputKeys)] {
             for key in keys {
                 let value = JSONValue.object([key: .string("plumbing"), "newGrant": .string("/future/root")])
-                hidden[container + "." + key] = fields(container.isEmpty ? value : .object([container: value]))
+                var request = container.isEmpty ? value : .object([container: value])
+                if container == "input" { request = .object(["tool_name": .string("Bash"), "input": value]) }
+                hidden[container + "." + key] = fields(request)
             }
         }
         var displayHidden: [String: Any] = [:]
@@ -71,6 +73,48 @@ import Foundation
         ])
         let replayedQuestion = resetTimeline.items.compactMap(\.card).first!
         question = timeline.items.compactMap(\.card).first!
+        // Round-three review: Codex 0.159 `kind` (command | writeStdin), parsed actions, array order, cd preludes.
+        let stdinParams: JSONValue = .object(["threadId": .string("t"), "turnId": .string("u"), "itemId": .string("i"),
+            "startedAtMs": .int(1), "command": .string("/bin/zsh -lc 'python3 manage.py migrate'"),
+            "cwd": .string("/repo"), "kind": .string("writeStdin")])
+        let commandCard = ApprovalCard(approvalID: "s", kind: "command",
+            display: ApprovalDisplay(fields: ["command": .string("/bin/zsh -lc 'python3 manage.py migrate'"),
+                                              "cwd": .string("/repo"), "input_kind": .string("writeStdin")]),
+            options: ["allow", "deny"], state: .pending)
+        func fieldMap(_ card: ApprovalCard, _ request: JSONValue?) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: ApprovalPresentation.grantedFields(card, request: request).map { ($0.key, $0.value) })
+        }
+        let actions = JSONValue.array((0..<12).map { i in .object(["type": .string("read"), "command": .string("sed -n 1p part\(i).txt"),
+                                                                      "name": .string("part\(i).txt"), "path": .string("/repo/part\(i).txt")]) })
+        let chain: JSONValue = .object(["method": .string("item/commandExecution/requestApproval"), "params": .object([
+            "command": .string("/bin/zsh -lc 'sed -n 1p part0.txt && sed -n 1p part1.txt'"), "cwd": .string("/repo"),
+            "kind": .string("command"), "commandActions": actions])])
+        let roots: JSONValue = .object(["params": .object(["cwd": .string("/repo"), "permissions": .object(["fileSystem": .object([
+            "write": .array((0..<12).map { .string("/repo/out/\($0)") })])])])])
+        let review: [String: Any] = [
+            "write_stdin_fields": fieldMap(commandCard, .object(["method": .string("item/commandExecution/requestApproval"), "params": stdinParams])),
+            "write_stdin_summary": fieldMap(commandCard, nil),
+            "chain_order": ApprovalPresentation.grantedFields(commandCard, request: chain).map(\.key),
+            "roots_order": ApprovalPresentation.grantedFields(card, request: roots).map(\.key),
+            "label_cd_semicolon": ToolActivity(name: "command", summary: "/bin/zsh -lc 'cd app; rm -rf build && make'",
+                                               hidden: false, state: .running).label,
+        ]
+        let schemaRequests = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))).array!
+        let schemaFields = Dictionary(uniqueKeysWithValues: schemaRequests.map { fixture in
+            let card = ApprovalCard(approvalID: fixture["id"]!.string!, kind: fixture["kind"]!.string!,
+                display: ApprovalDisplay(fields: fixture["display"]!.object!), options: ["allow", "deny"], state: .pending)
+            return (fixture["id"]!.string!, fieldMap(card, fixture["request"]!))
+        })
+        let nestedMetadata: JSONValue = .object([
+            "futureGrant": .object(["approvalId": .string("grant-callback"),
+                "commandActions": .array([.object(["path": .string("/future/root")])])]),
+            "input": .object(["kind": .string("future-kind")]),
+            "params": .object(["futureGrant": .object(["startedAtMs": .string("grant-value")])])
+        ])
+        let edgeCommands = ["cd app; rm -rf build && make", "cd app || exit 1\nbun test && bun run build",
+            "(cd app && swift build)", "set -euo pipefail\ncd app && swift build", "cd 'a;b' && rm -rf build",
+            "cd app || rm -rf build", "set -- dangerous; rm -rf build", "cd app\nrm -rf build && make"]
+        let edgeLabels = Dictionary(uniqueKeysWithValues: edgeCommands.map { ($0, ShellCommandPresentation.label($0)) })
         print(String(data: try JSONSerialization.data(withJSONObject: [
             "commands": commandRows, "wrappers": wrappers, "hidden": hidden, "display_hidden": displayHidden,
             "empty_amendments": emptyAmendments,
@@ -81,7 +125,8 @@ import Foundation
             "question_string_input_fields": questionSummaryFields(stringQuestion),
             "answers": question.answers, "question_pending": question.isPending,
             "reset_answers": replayedQuestion.answers, "reset_approval_id": replayedQuestion.approvalID!,
-            "reset_question_pending": replayedQuestion.isPending
+            "reset_question_pending": replayedQuestion.isPending, "review_r3": review,
+            "schema_requests": schemaFields, "nested_metadata": fields(nestedMetadata), "edge_labels": edgeLabels
         ]), encoding: .utf8)!)
     }
 }

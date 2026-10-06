@@ -9,9 +9,12 @@ enum ApprovalPresentation {
         "display_name", "title", "description", "decision_reason", "decision_reason_type",
         "suppress_always_allow_rule", "requires_user_interaction", "method"
     ]
-    static let hiddenParameterKeys: Set<String> = ["threadId", "turnId", "itemId", "startedAtMs", "kind", "reason"]
+    // Codex: identifiers/time route the callback; commandActions is a best-effort
+    // display parse. `kind` and environmentId change what is granted (C-27.1).
+    static let hiddenParameterKeys: Set<String> = ["threadId", "turnId", "itemId", "startedAtMs", "reason", "approvalId", "commandActions"]
+    // Bash's description is a display hint; other tools can grant this argument.
     static let hiddenInputKeys: Set<String> = ["description"]
-    static let hiddenDisplayKeys: Set<String> = ["tool", "title", "description", "reason", "input_kind"]
+    static let hiddenDisplayKeys: Set<String> = ["tool", "title", "description", "reason"]
     static let emptyAmendmentKeys: Set<String> = ["permission_suggestions", "execpolicy_amendment", "network_amendments",
         "proposedExecpolicyAmendment", "proposedNetworkPolicyAmendments"]
 
@@ -88,7 +91,8 @@ enum ApprovalPresentation {
                 return object.keys.sorted().flatMap { key -> [(key: String, value: String, priority: Int)] in
                     let hidden: Set<String> = path.isEmpty
                         ? hiddenRequestKeys.union(hiddenDisplayKeys).union(hiddenParameterKeys)
-                        : path == "params" ? hiddenParameterKeys : path == "input" ? hiddenInputKeys : []
+                        : path == "params" ? hiddenParameterKeys
+                        : path == "input" && (source["tool_name"]?.string ?? card.display.tool) == "Bash" ? hiddenInputKeys : []
                     if hidden.contains(key) { return [] }
                     if ["", "params"].contains(path), emptyAmendmentKeys.contains(key), object[key]?.array?.isEmpty == true { return [] }
                     if card.kind == "question", ["", "input"].contains(path), ["questions", "answers"].contains(key) { return [] }
@@ -111,7 +115,10 @@ enum ApprovalPresentation {
             return [(path, value.string == "" ? "\"\"" : value.displayText, priority)]
         }
         return flatten(source, path: "").sorted {
-            $0.priority == $1.priority ? $0.key < $1.key : $0.priority < $1.priority
+            // Natural comparison preserves array order: [2] precedes [10].
+            $0.priority == $1.priority
+                ? $0.key.compare($1.key, options: .numeric, locale: Locale(identifier: "en_US_POSIX")) == .orderedAscending
+                : $0.priority < $1.priority
         }.map { ($0.key, $0.value) }
     }
 }

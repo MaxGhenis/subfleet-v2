@@ -51,6 +51,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-fixture",
         "itemId": "item-fixture",
+        "startedAtMs": 1791100000000,
         "reason": "Write release notes",
         "grantRoot": "/"
       }

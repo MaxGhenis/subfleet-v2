@@ -253,6 +253,8 @@ struct SidebarRow: View {
                 Button(action: showApprovals) {
                     Label("\(entry.pendingApprovals)", systemImage: "hand.raised")
                         .windowFont(.heading).foregroundStyle(Theme.state.attention)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.surface.raised.color))
                 }
                 .buttonStyle(.borderless)
                 .help("Waiting for your approval; click to show it")

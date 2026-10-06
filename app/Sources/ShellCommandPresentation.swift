@@ -12,9 +12,26 @@ enum ShellCommandPresentation {
 
     static func label(_ command: String) -> String {
         var tokens = words(script(command), operators: true)
-        // A working-directory prelude says where, not what the command does.
-        while tokens.first == "cd", let end = tokens.firstIndex(of: "&&") {
-            tokens.removeFirst(end + 1)
+        let separators: Set<String> = ["&&", "||", "|", ";", "\n", "&", ")"]
+        // Only skip a prelude through its own separator. Looking for any later
+        // && can hide the first substantive (and potentially destructive) command.
+        while !tokens.isEmpty {
+            if tokens.first == "(" { tokens.removeFirst(); continue }
+            guard let end = tokens.firstIndex(where: { separators.contains($0) }) else { break }
+            let head = Array(tokens[..<end]), separator = tokens[end]
+            if head.first == "cd", ["&&", ";", "\n"].contains(separator) {
+                tokens.removeFirst(end + 1)
+            } else if head.first == "cd", separator == "||" {
+                let rest = Array(tokens.dropFirst(end + 1))
+                guard let exitEnd = rest.firstIndex(where: { separators.contains($0) }),
+                      [";", "\n"].contains(rest[exitEnd]) else { break }
+                let exit = Array(rest[..<exitEnd])
+                guard exit == ["exit"] || (exit.count == 2 && exit[0] == "exit" && Int(exit[1]) != nil) else { break }
+                tokens = Array(rest.dropFirst(exitEnd + 1))
+            } else if [["set", "-e"], ["set", "-eu"], ["set", "-euo", "pipefail"], ["set", "-o", "pipefail"]].contains(head),
+                      ["&&", ";", "\n"].contains(separator) {
+                tokens.removeFirst(end + 1)
+            } else { break }
         }
         while let first = tokens.first, first.contains("="), !first.hasPrefix("-") { tokens.removeFirst() }
         if tokens.first == "env" {
@@ -25,7 +42,7 @@ enum ShellCommandPresentation {
                 else { break }
             }
         }
-        let head = Array(tokens.prefix { !["&&", "||", "|", ";", "\n"].contains($0) })
+        let head = Array(tokens.prefix { !separators.contains($0) })
         guard let executable = head.first else { return "Run a command" }
         let name = URL(fileURLWithPath: executable).lastPathComponent
         if name.hasPrefix("python") {
@@ -59,7 +76,7 @@ enum ShellCommandPresentation {
                 if char == current { quote = nil } else { word.append(char) }
             } else if char == "'" || char == "\"" {
                 quote = char; started = true
-            } else if operators, "&|;<>\n".contains(char) {
+            } else if operators, "&|;<>\n()".contains(char) {
                 finish()
                 var op = String(char)
                 if index + 1 < chars.count, chars[index + 1] == char, "&|<>".contains(char) {
