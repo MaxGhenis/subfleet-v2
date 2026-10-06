@@ -174,6 +174,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
         cache = {}
     started, complete, fresh = clock(), True, {}
     items: list[dict] = []
+    native_records: dict[str, dict] = {}
     # The run is its own process, capped at `wall_s` and stopped by its service after
     # 60 s (C-30.1), so it opens sessions plainly: a FIFO among them holds this run,
     # never the daemon. Readers in the daemon default to `transcripts.open_regular`.
@@ -209,6 +210,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
             complete = False
             continue
         sid = path.stem
+        if record and str(path) in fresh:
+            native_records[f"claude:{canonical_native(sid)}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                                "size": fresh[str(path)]["size"]}
         if record.get("headless") or sid in known_attempts or not record:
             continue
         cwd = record.get("workspace") or ""
@@ -232,6 +236,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                 if record is None:
                     complete = False
                     continue
+                if record.get("id") and str(path) in fresh:
+                    native_records[f"codex:{record['id']}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                             "size": fresh[str(path)]["size"]}
                 if not record or record.get("excluded") or not record.get("id") or record["id"] in known_attempts:
                     continue
                 items.append({"provider": "codex", "native_session_id": record["id"], "path": str(path),
@@ -248,7 +255,8 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     items.sort(key=lambda i: i["mtime"], reverse=True)
     # Every live session, listed or not: a conversation born in Subfleet and
     # resumed in a terminal is no catalog item but is still held (C-26.3).
-    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
+    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live),
+               "native_records": native_records}
     for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
         if may_write is not None and not may_write():
             break
@@ -474,6 +482,17 @@ def _load(path: Path) -> tuple[dict, str]:
         catalog, state = {}, "unreadable"
     _PARSED[str(path)] = (identity, catalog, state)
     return catalog, state
+
+
+def transcript_record(root: Path, provider: str, session_id: str | None) -> dict | None:
+    """The catalog's exact path; no native-store discovery in the daemon."""
+    catalog, _ = _load(Path(root) / "catalog.json")
+    record = catalog.get("native_records", {}).get(f"{provider}:{canonical_native(session_id)}")
+    if record:
+        return record
+    # Catalogs from older daemons still resolve imported sessions.
+    return next((i for i in catalog.get("items", []) if i.get("provider") == provider
+                 and canonical_native(i.get("native_session_id")) == canonical_native(session_id)), None)
 
 
 def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = None, limit: int = 200,

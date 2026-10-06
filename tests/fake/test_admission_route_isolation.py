@@ -26,8 +26,8 @@ import pytest
 
 from subfleet import doctor, protocol, scheduler
 from subfleet import daemon as daemon_module
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Exit, Lane, LaneOwner,
-                                Reading, ReadingLabel)
+from subfleet.contracts import (CAPACITY_RECHECK_BASE_S, ClockSource, Closure, ClosureReason, Credential, Exit,
+                                Lane, LaneOwner, Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
 from tests.caps import capped
 from tests.fake.test_admission_visibility import Inline
@@ -1275,11 +1275,27 @@ def test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate(fle
     assert service.store.list_attempts(job_id)[-1]["lane_id"] == "codex-2"
 
 
-def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fleet):
+class HeldClock(datetime):
+    """The daemon's and the scheduler's wall clock, held where the test puts it."""
+    at: datetime
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at.astimezone(tz) if tz else cls.at.replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("stall", [0, CAPACITY_RECHECK_BASE_S], ids=["prompt", "a-loaded-runner"])
+def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fleet, monkeypatch, stall):
     """C-6.9 routed as submitted, a fallen-back retry competes as submitted: it does not pass an older
-    waiter it competes with, and a younger job it competes with does not pass it."""
+    waiter it competes with, and a younger job it competes with does not pass it. On a held clock:
+    the hold's one-second recheck ran on the wall clock, and a runner slow enough to spend it before
+    the five passes below had them look at the retry again (CI 3.14, run 37389734475, on #133; the
+    second review of #133, R2-4, reproduced it with a 3 s pause). `a-loaded-runner` is that runner."""
     service, harness = fleet
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
+    HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(daemon_module, "datetime", HeldClock)
+    monkeypatch.setattr(scheduler, "datetime", HeldClock)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
@@ -1301,18 +1317,14 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     job = service.store.get_job(retry)
     assert job["state"] == "waiting" and job["wait_reason"] == "capacity" and job["next_check_at"] > utcnow()
     before = dict(looks)
+    time.sleep(stall)
     for _ in range(5):
         service._admit()
     assert looks == before and service._holds[retry]["reason"] == "behind-older-job"
-
-
-class HeldClock(datetime):
-    """The daemon's and the scheduler's wall clock, held where the test puts it."""
-    at: datetime
-
-    @classmethod
-    def now(cls, tz=None):
-        return cls.at.astimezone(tz) if tz else cls.at.replace(tzinfo=None)
+    # Due, it is looked at again: the clock, not something else, kept the five passes away.
+    HeldClock.at = datetime.fromisoformat(job["next_check_at"].replace("Z", "+00:00"))
+    service._admit()
+    assert looks["pick"] > before["pick"]
 
 
 @pytest.mark.parametrize("look", [-1, 0, 1], ids=["before-the-retry-is-due", "when-it-is-due", "after"])

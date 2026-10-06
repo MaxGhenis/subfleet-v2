@@ -104,6 +104,11 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             add("codex-fleet-low", "warn", "codex: only one dispatchable lane",
                 f"Only {_home(available[0])} has observed headroom. Run: subfleet status", home="fleet:codex")
 
+    for warning in (snapshot.get("claude_cards") or {}).get("warnings") or ():
+        condition = card_condition(warning, at)
+        if condition:
+            add(**condition)
+
     expiry = snapshot.get("capacity_expiry") or {}
     unused = expiry.get("projected_unused_windows_raw", expiry.get("projected_unused_windows"))
     if not _number(unused):
@@ -114,6 +119,80 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             f"More than one observed weekly window of capacity is projected to expire unused by {reset}. "
             "Queue Codex work before the reset; inspect with subfleet status.", home="fleet:codex", daily=True)
     return list(conditions.values())
+
+
+def _when(value: Any, now: datetime) -> str:
+    if not isinstance(value, str) or not value:
+        return "an unknown time"
+    left = instant(value) - now
+    days = left.total_seconds() / 86400
+    return f"{value} (in {days:.1f} days)" if days >= 0 else value
+
+
+def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] | None:
+    """C-9.10: one card or credit warning as an alert condition.
+
+    Every body says what is at risk and when, and that spending it is the
+    operator's act: Subfleet reads cards and credits and never redeems one.
+    """
+    kind, login = warning.get("kind"), str(warning.get("login") or "?")
+    lanes = ", ".join(warning.get("lanes") or ()) or "no lane"
+    who = f"{login} ({lanes})"
+    home = f"claude-cards:{login}"
+    never = "Subfleet never redeems or claims; using it is your call."
+    # A card kept through a read that listed none is as last listed, not as read now.
+    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the read at "
+              f"{warning.get('unlisted_at') or 'a later time'} listed none ({warning.get('unlisted')}), so check "
+              f"Settings, Usage. " if warning.get("unlisted") else "")
+    if kind == "card-expiring":
+        subject = f"claude: unused limit reset on {login} expires soon"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}) "
+                f"that expire at {_when(warning.get('at'), now)}. Use it from Settings, Usage, Reset for free "
+                f"(web or desktop) before then, or it is lost. {listed}{never}")
+    elif kind == "card-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: unused limit reset on {login} is lost if its plan lapses"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}); "
+                f"{reasons}. A card is lost when the plan is cancelled or downgraded before it is used. "
+                f"{listed}{never}")
+    elif kind == "credit-expiring":
+        subject = f"claude: {warning.get('label')} on {login} expires soon"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left, "
+                f"expiring at {_when(warning.get('at'), now)}; what is unspent then is lost. {never}")
+    elif kind == "credit-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: {warning.get('label')} on {login} may go with its plan"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left; {reasons}. "
+                f"When two of these accounts' plans ended (2026-09-30, 2026-10-04) their usage stopped showing "
+                f"the credit. {never}")
+    elif kind == "card-lost":
+        why = "with its plan" if warning.get("reason") == "lapse" else "unused at its end"
+        subject = f"claude: a limit reset on {login} was lost {why}"
+        body = (f"{who} held {', '.join(warning.get('grants') or ())} unused at the last read; it was lost "
+                f"{why} (seen {warning.get('at')}).")
+    elif kind == "credit-lost":
+        credits = ", ".join(f"{row.get('label')} (${(row.get('remaining_dollars') or 0):.2f})"
+                            for row in warning.get("credits") or ())
+        if warning.get("reason") == "lapse":
+            subject = f"claude: {login}'s plan lapsed with promotional credit unspent"
+            body = (f"{who} had {credits} left at the last read and its plan has lapsed (seen "
+                    f"{warning.get('at')}). When two of these accounts' plans ended (2026-09-30, 2026-10-04) "
+                    f"their usage stopped showing the credit.")
+        else:
+            subject = f"claude: a promotional credit on {login} ended unspent"
+            body = f"{who} had {credits} left at the last read; a read after its end shows it unspent or gone (seen {warning.get('at')})."
+    elif kind == "credit-claimable":
+        subject = f"claude: {login} has an unclaimed promotional credit"
+        body = (f"{who} is eligible for the cloud-session credit and has not claimed it. Claim it in the Claude "
+                f"app, at claude.ai/code/claim-credit, or with /claim-credit in Claude Code. {never}")
+    else:
+        return None
+    # A warning that stops because the card or credit was used or lost is not
+    # a recovery: its latch clears without a "recovered" notice. A loss is told
+    # once.
+    lost = kind in ("card-lost", "credit-lost")
+    return {"key": f"claude-{kind}:{warning.get('key')}", "severity": "warn", "subject": subject,
+            "body": body, "home": home, "recover": False, **({"once": True} if lost else {"daily": True})}
 
 
 def operator_session(policy: Mapping[str, Any]) -> str | None:
