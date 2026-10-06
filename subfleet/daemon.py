@@ -105,9 +105,10 @@ def _lineage_boot_union(*sources: dict) -> set[str]:
     boots: set[str] = set()
     for source in sources:
         observed = source.get("lineage_boot_ids", [])
-        if not isinstance(observed, list) or any(not isinstance(boot, str) for boot in observed):
-            raise ValueError("corrupt writer lineage boot evidence")
-        boots.update(observed)
+        # This old gate's metadata is diagnostic, not process-identity proof.
+        # Malformed observations cannot pin a successful empty census either.
+        if isinstance(observed, list):
+            boots.update(boot for boot in observed if isinstance(boot, str))
     return boots
 
 

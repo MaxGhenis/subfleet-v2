@@ -96,6 +96,27 @@ def test_corrupt_owned_evidence_cannot_establish_death(state_daemon, monkeypatch
     assert daemon.store.list_leases()
 
 
+@pytest.mark.parametrize('boots', [None, 'old-boot', ['old-boot', None], {'boot': 'old-boot'}])
+@pytest.mark.parametrize('operator', [False, True])
+def test_corrupt_diagnostic_boot_observations_do_not_pin_an_empty_census(
+        state_daemon, monkeypatch, boots, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness, held={'300': ident(300, 'writer')})
+    reason = json.loads(a['quarantine_reason'])
+    reason['lineage_boot_ids'] = boots
+    daemon.store.update_attempt(a['attempt_id'], quarantine_reason=json.dumps(reason),
+                                evidence_json=json.dumps({'lineage_boot_ids': boots}))
+    a = daemon.store.get_attempt(a['attempt_id'])
+    script_table(monkeypatch, {})
+    clock.advance()
+    if operator:
+        assert confirm_dead(daemon, a) == 'lost'
+    else:
+        daemon._recheck_quarantines()
+    assert_released(daemon, a)
+
+
 def test_legacy_child_without_identity_still_holds_conservatively(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     a = quarantine(daemon, harness)

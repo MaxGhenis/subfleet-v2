@@ -12,6 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("corrupt diagnostic boots accepted as ownership proof", "subfleet/daemon.py",
+     '        if isinstance(observed, list):\n'
+     '            boots.update(boot for boot in observed if isinstance(boot, str))',
+     '        if not isinstance(observed, list) or any(not isinstance(boot, str) for boot in observed):\n'
+     '            raise ValueError("corrupt writer lineage boot evidence")\n'
+     '        boots.update(observed)',
+     "tests/fake/test_quarantine_review_fixes.py::test_corrupt_diagnostic_boot_observations_do_not_pin_an_empty_census"),
     ("same-boot reboot gate restored", "subfleet/procs.py",
      "        roots_rebooted = rebooted(launch_boot_id)",
      '        if any(not rebooted(known) for known in lineage_boot_ids):\n'
