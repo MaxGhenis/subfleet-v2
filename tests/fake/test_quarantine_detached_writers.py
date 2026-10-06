@@ -115,6 +115,46 @@ def test_reused_guardian_census_root_cannot_prove_provider_publication(state_dae
 
 
 @pytest.mark.parametrize("operator", [False, True])
+@pytest.mark.parametrize("source", ["marker", "cwd"])
+def test_late_observation_retains_identity_and_group_before_quarantine(state_daemon, monkeypatch, source, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = running(daemon, harness)
+    adir = daemon.root / "jobs" / a["job_id"] / "a1"
+    receipt = json.loads((adir / "start.json").read_text())
+    receipt.update(child_pid=200, child_identity=ident(200, "provider"))
+    (adir / "start.json").write_text(json.dumps(receipt))
+    before = {100: (1, 100, "Ss", "guardian"), 200: (100, 100, "S", "provider")}
+    actual_rows = {**before, 300: (200, 400, "S", "late-writer")}
+    markers = f"300 writer SUBFLEET_ATTEMPT={a['attempt_id']}\n" if source == "marker" else ""
+    script_table(monkeypatch, actual_rows, markers=markers)
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(dict(before), boot_id=BOOT))
+    monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, actual_rows[pid][3]))
+    monkeypatch.setattr(procs, "process_group", lambda pid: actual_rows[pid][1], raising=False)
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({300}) if source == "cwd" else frozenset())
+    assert 300 in daemon._contain(a).live_pids
+    # The next kill/finalization census must retain a late writer even before
+    # any quarantine reason has saved its identity. Its old group also matters.
+    rows = {300: (1, 401, "S", "late-writer"), 301: (300, 400, "S", "member"),
+            302: (301, 302, "S", "grandchild")}
+    script_table(monkeypatch, rows)
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset())
+    daemon._quarantine(a, daemon._contain(a), "late writer changed sources")
+    clock.advance()
+    current, leases = resolve(daemon, a, operator)
+    assert current["state"] == "quarantined" and leases, "late observations cannot be forgotten"
+    # Its PID exits; the saved group member and its escaped child still hold.
+    script_table(monkeypatch, {301: (1, 400, "S", "member"), 302: (301, 302, "S", "grandchild")})
+    clock.advance()
+    current, leases = resolve(daemon, current, operator)
+    assert current["state"] == "quarantined" and leases
+    script_table(monkeypatch, {})
+    clock.advance()
+    current, leases = resolve(daemon, current, operator)
+    assert current["state"] == "lost" and not leases
+
+
+@pytest.mark.parametrize("operator", [False, True])
 def test_a_listed_descendant_survives_failed_identity_capture(state_daemon, monkeypatch, operator):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)

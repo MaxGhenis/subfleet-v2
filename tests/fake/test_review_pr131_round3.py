@@ -266,11 +266,26 @@ WORLD = st.fixed_dictionaries({
 def test_automatic_and_confirm_dead_take_the_same_census_and_decision(state_daemon, monkeypatch, world):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
+    # Compare independent worlds without repeated admission/manifest writes.
+    # Crash durability has separate coverage; this fixture tests decisions.
+    daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
+    pair = getattr(daemon, "_review_census_pair", None)
+    if pair is None:
+        pair = [ro_quarantine(daemon, harness) for _ in range(2)]
+        daemon._review_census_pair = pair
     attempts = []
-    for _ in range(2):
-        a = ro_quarantine(daemon, harness, held={str(p): ident(p, "old") for p in world["held"]},
-                          owned={str(p): ident(p, "old") for p in world["owned"]})
+    for a in pair:
+        daemon.store.update_attempt(a["attempt_id"], state="running", child_pid=None,
+                                    evidence_json=json.dumps({"owned_identities": {
+                                        str(p): ident(p, "old") for p in world["owned"]}}),
+                                    quarantine_reason=None)
+        daemon.store.update_job(a["job_id"], state="running", finished_at=None, rc=None)
+        daemon.store.acquire_lease("native:" + a["attempt_id"], a["attempt_id"])
+        held_ids = {p: procs.ProcessIdentity(**ident(p, "old")) for p in world["held"]}
+        daemon._quarantine(a, procs.Containment(marker_pids=frozenset(held_ids), identities=held_ids), "review world")
         adir = daemon.root / "jobs" / a["job_id"] / "a1"
+        for name in ("start.json", "exit.json", "quarantine-saved.json"):
+            (adir / name).unlink(missing_ok=True)
         start = {"guardian_pid": 100, "pgid": 100, "boot_id": BOOT, "proc_start": "guardian-start"}
         if world["start"] == "published":
             start.update(child_pid=500, child_identity=ident(500, "old"))

@@ -326,6 +326,16 @@ class CensusRoot:
         return ProcessIdentity(self.pid, self.boot_id, self.proc_start)
 
 
+def process_group(pid: int) -> int | None:
+    """The group of a late census observation; no signal authority."""
+    try:
+        return os.getpgid(pid)
+    except ProcessLookupError:
+        return None
+    except OSError as exc:
+        raise InspectionError("process group inspection unavailable") from exc
+
+
 CWD_ARGV = ["/usr/sbin/lsof", "-nP", "-d", "cwd", "-F0pn"]
 
 
@@ -658,14 +668,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             # Retain the failed observation for diagnostics only.
             observed_boots.add("")
     identities: dict[int, ProcessIdentity] = {}
+    observed_groups: dict[int, int] = {}
     incomplete_roots: list[CensusRoot] = []
     for pid in groups | descendants | markers | cwds:
         try:
             # The snapshot's own start time when it has one; a pid it could not
             # describe (a marker spawned after the read) is asked about singly.
             current = (seen.identity(pid) if seen is not None else None) or identity(pid)
-            if current is not None:
+            group = (table[pid][1] if pid in table else process_group(pid)) if current is not None else None
+            if current is not None and group is not None:
                 identities[pid] = current
+                observed_groups[pid] = group
             else:
                 # A process can exit between census and identity capture.
                 groups.discard(pid)
@@ -681,8 +694,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers | cwds if pid in table}
-    captured = tuple(CensusRoot(pid, ident.boot_id, ident.proc_start, table[pid][1])
-                     for pid, ident in sorted(identities.items()) if pid in table) + tuple(incomplete_roots)
+    captured = tuple(CensusRoot(pid, ident.boot_id, ident.proc_start, observed_groups[pid])
+                     for pid, ident in sorted(identities.items()) if pid in observed_groups) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
                        frozenset(cwds), captured, providers)

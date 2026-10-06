@@ -36,6 +36,7 @@ def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session
             return "S"
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "process_group", lambda pid: pid)
 
 
 def test_boot_identity_uses_sysctl_seconds(monkeypatch):
@@ -896,3 +897,20 @@ def test_unverifiable_cwd_spelling_holds(monkeypatch):
     monkeypatch.setattr(procs.folders, "spelling", lambda path: (path, "permission denied"))
     with pytest.raises(procs.InspectionError, match="canonical spelling"):
         procs.cwd_pids("/workdir")
+
+
+def test_late_group_read_is_a_kernel_lookup(monkeypatch):
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: 400)
+    assert procs.process_group(300) == 400
+
+
+@pytest.mark.parametrize("error,gone", [(ProcessLookupError, True), (PermissionError, False)])
+def test_late_group_read_distinguishes_death_from_inspection_failure(monkeypatch, error, gone):
+    def lookup(pid):
+        raise error()
+    monkeypatch.setattr(procs.os, "getpgid", lookup)
+    if gone:
+        assert procs.process_group(300) is None
+    else:
+        with pytest.raises(procs.InspectionError):
+            procs.process_group(300)

@@ -571,7 +571,8 @@ Every C-5.11 inspection, kill and finalization census retains observations;
 the newest 4,096 identity/group roots are bounded per attempt, with overflow
 holding conservatively. These roots grant no authority to signal. Failed identity capture retains the
 listed pid and group with unknown components; uncertainty holds until that
-observation is verifiably gone.
+observation is verifiably gone. A writer born after the table read, first seen
+by cwd or markers, also has its identity and kernel group saved before quarantine.
 Both paths share the residual: a writer never observed, outside recorded groups
 and descendant walks, never observed with cwd in the workdir at a census, and running a platform
 binary with invisible environment or removing both markers from the census-visible

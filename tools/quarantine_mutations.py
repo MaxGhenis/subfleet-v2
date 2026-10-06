@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("late observations lack durable roots", "subfleet/procs.py",
+     "for pid, ident in sorted(identities.items()) if pid in observed_groups)",
+     "for pid, ident in sorted(identities.items()) if pid in table)",
+     "tests/fake/test_quarantine_detached_writers.py::test_late_observation_retains_identity_and_group_before_quarantine[marker-False]"),
     ("cwd kernel aliases ignored", "subfleet/procs.py",
      "        spelled, problem = folders.spelling(path)",
      "        spelled, problem = os.path.realpath(path), None",
