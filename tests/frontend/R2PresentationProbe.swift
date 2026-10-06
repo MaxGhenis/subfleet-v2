@@ -45,6 +45,14 @@ import Foundation
         var question = ApprovalCard(requestID: "r", approvalID: "q", kind: "question",
             display: ApprovalDisplay(fields: ["questions": questionJSON, "input": .string("{\"questions\":[{\"question\":\"Which scope?\"}]}")]),
             options: ["answer", "deny"], state: .pending)
+        let summaryInput: JSONValue = .object(["questions": questionJSON, "newGrant": .string("/future/root")])
+        var objectQuestion = question
+        objectQuestion.display.fields["input"] = summaryInput
+        var stringQuestion = question
+        stringQuestion.display.fields["input"] = .string(String(data: try JSONEncoder().encode(summaryInput), encoding: .utf8)!)
+        func questionSummaryFields(_ card: ApprovalCard) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: ApprovalPresentation.grantedFields(card, request: nil).map { ($0.key, $0.value) })
+        }
         let questionRequest: JSONValue = .object(["input": .object(["questions": questionJSON]), "blocked_path": .null])
         var timeline = Timeline(conversationID: "c")
         timeline.attach(approvals: [ApprovalView(approval_id: "q", message_id: "m", conversation_id: "c", provider_request_id: "r",
@@ -52,6 +60,16 @@ import Foundation
         timeline.noteApprovalAnswer(approvalID: "q", answers: ["Which scope?": "Local"])
         _ = timeline.apply(events: [ConversationEvent(seq: 1, message_id: "m", kind: "approval.resolved",
             data: .object(["request_id": .string("r"), "decision": .string("answer")]))])
+        var resetTimeline = timeline
+        resetTimeline.resetEvents()
+        _ = resetTimeline.apply(events: [
+            ConversationEvent(seq: 1, message_id: "m", kind: "approval.requested",
+                data: .object(["request_id": .string("r"), "kind": .string("question"), "questions": questionJSON,
+                               "options": .array([.string("answer"), .string("deny")])])),
+            ConversationEvent(seq: 2, message_id: "m", kind: "approval.resolved",
+                data: .object(["request_id": .string("r"), "decision": .string("answer")]))
+        ])
+        let replayedQuestion = resetTimeline.items.compactMap(\.card).first!
         question = timeline.items.compactMap(\.card).first!
         print(String(data: try JSONSerialization.data(withJSONObject: [
             "commands": commandRows, "wrappers": wrappers, "hidden": hidden, "display_hidden": displayHidden,
@@ -59,7 +77,11 @@ import Foundation
             "order": ApprovalPresentation.grantedFields(card, request: orderRequest).map(\.key), "fields": fields(orderRequest),
             "question_fields": ApprovalPresentation.grantedFields(question, request: questionRequest).map(\.key),
             "question_summary_fields": ApprovalPresentation.grantedFields(question, request: nil).map(\.key),
-            "answers": question.answers, "question_pending": question.isPending
+            "question_object_input_fields": questionSummaryFields(objectQuestion),
+            "question_string_input_fields": questionSummaryFields(stringQuestion),
+            "answers": question.answers, "question_pending": question.isPending,
+            "reset_answers": replayedQuestion.answers, "reset_approval_id": replayedQuestion.approvalID!,
+            "reset_question_pending": replayedQuestion.isPending
         ]), encoding: .utf8)!)
     }
 }

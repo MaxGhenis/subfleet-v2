@@ -1,6 +1,7 @@
 // Regression probe adapted from the round-two review evidence for PR #128.
 // Drives the production views offscreen in unshown windows; no daemon, no live state.
 import AppKit
+import Darwin
 import SwiftUI
 import QuartzCore
 
@@ -63,6 +64,22 @@ func log(_ s: String) { FileHandle.standardError.write((s + "\n").data(using: .u
     return rep
 }
 
+func recordOCRProcess(_ event: String, _ process: Process) {
+    guard let path = ProcessInfo.processInfo.environment["R2_PROCESS_RECORD"] else { return }
+    var record: [String: Any] = ["event": event, "pid": process.processIdentifier,
+                               "parent": ProcessInfo.processInfo.processIdentifier,
+                               "at": Date().timeIntervalSince1970,
+                               "args": [process.executableURL!.path] + (process.arguments ?? []),
+                               "owner": "R2ApprovalViewProbe.ocr"]
+    if event == "finished" { record["status"] = process.terminationStatus }
+    guard let data = try? JSONSerialization.data(withJSONObject: record) else { return }
+    let descriptor = Darwin.open(path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+    guard descriptor >= 0 else { return }
+    let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+    defer { try? file.close() }
+    try? file.write(contentsOf: data + Data([0x0a]))
+}
+
 func ocr(_ png: URL) throws -> String {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["R2_TESSERACT"]!)
@@ -71,13 +88,16 @@ func ocr(_ png: URL) throws -> String {
     process.standardOutput = output
     process.standardError = FileHandle.nullDevice
     try process.run()
+    recordOCRProcess("started", process)
     let data = output.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
+    recordOCRProcess("finished", process)
     return String(data: data, encoding: .utf8) ?? ""
 }
 
 /// Renders a view at a fixed width, at its own fitting height (capped), after `.task` work settles.
-@MainActor func renderFitting<V: View>(_ view: V, width: CGFloat, cap: CGFloat = 3200, dark: Bool = false, to url: URL) async throws -> (CGSize, String) {
+@MainActor func renderFitting<V: View>(_ view: V, width: CGFloat, cap: CGFloat = 3200, dark: Bool = false,
+                                     readText: Bool = true, to url: URL) async throws -> (CGSize, String) {
     NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let root = view.environment(\.textScale, 1).environment(\.colorScheme, dark ? .dark : .light)
         .frame(width: width).fixedSize(horizontal: false, vertical: true)
@@ -90,7 +110,8 @@ func ocr(_ png: URL) throws -> String {
     host.frame = NSRect(x: 0, y: 0, width: width, height: min(cap, max(40, fit.height)))
     await settle(host, 300)
     _ = try snapshot(host, to: url)
-    let text = try ocr(url)
+    let text: String
+    if readText { text = try ocr(url) } else { text = "" }
     let scrolls = descendants(host).compactMap { $0 as? NSScrollView }.filter {
         ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 1
     }
@@ -104,7 +125,9 @@ func ocr(_ png: URL) throws -> String {
         await settle(host, 100)
         let tailURL = url.deletingPathExtension().appendingPathExtension("scrolled.png")
         _ = try snapshot(host, to: tailURL)
-        scrollEvidence[url.lastPathComponent] = ["tail_ocr": try ocr(tailURL), "scroll_count": scrolls.count]
+        var evidence: [String: Any] = ["scroll_count": scrolls.count]
+        if readText { evidence["tail_ocr"] = try ocr(tailURL) }
+        scrollEvidence[url.lastPathComponent] = evidence
     }
 
     return (fit, text)
@@ -199,6 +222,7 @@ func pretty(_ value: Any) -> String {
                 for dark in [false, true] {
                     let (settledSize, settledText) = try await renderFitting(
                         ApprovalCardView(model: model, conversationID: "c0", card: settled, review: {}), width: 720, dark: dark,
+                        readText: kind == "question",
                         to: out.appendingPathComponent("card-answered-\(id)-\(dark ? "dark" : "light").png"))
                     entry["answered_card_height"] = settledSize.height
                     entry["answered_card_ocr"] = settledText
