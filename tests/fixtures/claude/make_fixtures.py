@@ -704,7 +704,7 @@ def build() -> None:
             "class": "auth-dead",
             "detail_contains": "organization has disabled",
             "evidence": {
-                "auth": "subscription access refused (text)",
+                "auth": "subscription access refused (error-kind)",
                 "admission": "not reached",
                 "quota": "not reached",
             },
@@ -1181,8 +1181,8 @@ def build() -> None:
                 "Recorded: ~/.subfleet/jobs/20260930-114348-pr89-review/a1/stream.jsonl "
                 "(lane claude-5, mghenis@gmail.com, Claude Code 2.1.284, rc 1, empty "
                 "stderr), one of 37 attempts on that lane that day with the same "
-                "detail. Every frame and scalar is verbatim except: the init frame's "
-                "tools, agents, "
+                "detail. Every frame's decoded values are as recorded (key order and "
+                "JSON spacing are not) except: the init frame's tools, agents, "
                 "plugins and capabilities lists are emptied, its cwd is shortened, and "
                 "the assistant frame's request_id is redacted. The prompt never "
                 "appears in the stream."
@@ -1192,7 +1192,7 @@ def build() -> None:
             "class": "auth-dead",
             "detail_contains": TEXT_ORG_BLOCK,
             "evidence": {
-                "auth": "subscription access refused (text)",
+                "auth": "subscription access refused (error-kind)",
                 "admission": "not reached",
                 "quota": "not reached",
             },
@@ -1213,8 +1213,8 @@ def build() -> None:
     )
 
 
-# Case 20's frames, verbatim from the recorded stream but for the redactions its
-# provenance lists.
+# Case 20's frames: the recorded stream's decoded values, but for the redactions
+# its provenance lists.
 RECORDED_ORG_BLOCK_SID = "6b04683d-23dd-4b9e-9276-e78579780cea"
 RECORDED_ZERO_USAGE = {
     "input_tokens": 0,

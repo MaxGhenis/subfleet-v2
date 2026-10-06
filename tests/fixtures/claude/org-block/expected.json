@@ -9,7 +9,7 @@
   "class": "auth-dead",
   "detail_contains": "organization has disabled",
   "evidence": {
-    "auth": "subscription access refused (text)",
+    "auth": "subscription access refused (error-kind)",
     "admission": "not reached",
     "quota": "not reached"
   },
