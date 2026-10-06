@@ -1597,6 +1597,10 @@ def cmd_kill(args: argparse.Namespace) -> int:
                 emit({"job_id": job_id, **result})
             else:
                 status = result.get("status") or result.get("action") or "cancel requested"
+                if status == "resolution requested" and result.get("mode"):
+                    # C-5.7: recorded before it was answered; the mode is what
+                    # the pending requests add up to (a --force-release wins).
+                    status += f" ({result['mode']})"
                 if result.get("state"):
                     status += (f" ({result['state']}"
                                + (f", rc {result['rc']}" if result.get("rc") is not None else "") + ")")
@@ -1623,7 +1627,8 @@ def cmd_kill(args: argparse.Namespace) -> int:
                      f"have been requested, and no answer says whether it was "
                      f"({'; then '.join(exc.reasons)})")
                 note(f"  {PROG} runs show {shlex.quote(job_id)} shows whether the attempt is "
-                     f"still quarantined; running {again} again is safe (C-16.3)")
+                     f"still quarantined and whether a resolution is pending; running {again} "
+                     f"again is safe (C-16.3, C-5.7)")
             else:
                 note(f"{PROG} kill: {job_id}: outcome unknown: the cancel may have been recorded, "
                      f"and no answer says whether it was ({'; then '.join(exc.reasons)})")

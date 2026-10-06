@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import same_process
+from . import resolutions
 from .contracts import READING_TTL_S, Exit, JobState
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 
@@ -256,6 +257,10 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            # C-5.7: a resolution request is an event, so a stopped daemon's
+            # unperformed one is shown here too; the next daemon performs it.
+            job["resolution"] = resolutions.view(job["attempts"], [dict(item) for item in conn.execute(
+                resolutions.JOB_EVENTS, (job_id, *resolutions.KINDS))])
             decisions = conn.execute(
                 "SELECT decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",

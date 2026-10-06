@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, resolutions, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .contracts import (
@@ -315,6 +315,17 @@ class Daemon:
         # thread. In memory as C-6.10's records are: a restart looks at every
         # quarantined probe once, and that look writes nothing it already said.
         self._probe_rechecks: dict[str, tuple[int, float]] = {}
+        # C-5.7: jobs whose quarantined attempt has a resolution request recorded
+        # and not yet performed, which the control loop offers as `resolve:<job>`.
+        # The requests themselves are events; this is only what to offer. It is
+        # loaded from the store on the first control pass (`_load_resolutions`),
+        # so a request an earlier daemon answered and never performed is resumed.
+        self._resolution_lock = threading.Lock()
+        self._resolutions: set[str] = set()
+        self._resolutions_loaded = False
+        # A load that raised is tried again on C-5.10's backoff, never every tick.
+        self._resolution_load_failures = 0
+        self._resolution_load_at = 0.0
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
@@ -1542,9 +1553,13 @@ class Daemon:
             workspace = self.store.one(
                 "SELECT ts,kind,data_json FROM events WHERE job_id=? AND kind IN "
                 "('job.workspace_deferred','job.workspace_failed') ORDER BY event_id DESC LIMIT 1", (a.job_id,))
+            attempts = self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))
             return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                                **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
+                    "attempts": attempts,
+                    # C-5.7: a resolution recorded and not yet performed, and the last one performed.
+                    "resolution": resolutions.view(attempts, self.store.query(
+                        resolutions.JOB_EVENTS, (a.job_id, *resolutions.KINDS))),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
         if op == "wait":
@@ -1852,8 +1867,7 @@ class Daemon:
         if args.confirm_dead or args.force_release:
             if not quarantine:
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
-            self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
-            return {"job_id": args.job_id, "status": "resolution requested"}
+            return self._request_resolution(job, quarantine, args)
         with self.store.transaction("job.cancel_requested", job_id=args.job_id) as tx:
             job = self._job(args.job_id)
             if job["state"] in TERMINAL:
@@ -1871,6 +1885,49 @@ class Daemon:
                     self._notice(tx, row, "cancelled before launch")
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
+
+    def _request_resolution(self, job: dict, quarantine: dict, args: protocol.KillArgs) -> dict:
+        """C-5.7: record an operator's resolution of a quarantined attempt, then answer.
+
+        The request is an event (`resolutions.REQUESTED`: mode and note)
+        committed before "resolution requested" is answered, and the control loop
+        performs it (`_resolve_requested`). It used to be only a future on the
+        worker pool, which a stop cancelled after the operator had been told it
+        was requested, and which nothing offered again (2026-09-27). A request
+        handler takes no census (C-16.4). The transaction reads the attempt again,
+        so a request never names an attempt that was released meanwhile.
+        """
+        job_id, attempt_id = job["job_id"], quarantine["attempt_id"]
+        mode = resolutions.FORCE_RELEASE if args.force_release else resolutions.CONFIRM_DEAD
+        data = {"mode": mode, "operator_note": args.operator_note}
+        at = utcnow()
+        with self.store.transaction(audit_kind(resolutions.REQUESTED), job_id=job_id,
+                                    attempt_id=attempt_id, data=data) as tx:
+            row = tx.execute("SELECT state FROM attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if row is None or row["state"] != "quarantined":
+                state = tx.execute("SELECT state FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+                return {"job_id": job_id, "status": "already finished"
+                        if state is not None and state["state"] in TERMINAL else "not quarantined"}
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                       (at, resolutions.REQUESTED, job_id, attempt_id, json.dumps(data, sort_keys=True)))
+            waiting = resolutions.pending(
+                dict(event) for event in tx.execute(resolutions.JOB_EVENTS, (job_id, *resolutions.KINDS))
+                if event["attempt_id"] == attempt_id)
+        # Offered only once it is committed, so the worker that takes the job
+        # reads this request; a daemon that stops first leaves it to the next.
+        with self._resolution_lock:
+            self._resolutions.add(job_id)
+        with self._busy_lock:
+            # C-5.10: an operator's new request is not held back by the retry
+            # clock an earlier failure of this resolution set.
+            self._worker_retry_at.pop("resolve:" + job_id, None)
+            self._worker_failures.pop("resolve:" + job_id, None)
+        merged = resolutions.merge(waiting)
+        answer = {"job_id": job_id, "status": "resolution requested", "mode": merged["mode"],
+                  "requested_at": at, "pending": len(waiting)}
+        if merged["force_release"] and not args.force_release:
+            answer["detail"] = resolutions.ABSORBED
+        return answer
 
     def _notice(self, tx, job: dict, summary: str) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
@@ -1899,10 +1956,10 @@ class Daemon:
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
         """Run `fn` on the worker pool unless `key` is already running.
 
-        C-5.10: `paced` is for the keys the control loop offers again every tick.
-        A one-shot request (an operator's `kill --confirm-dead`) is never paced:
-        nothing would offer it again, so holding it back would drop it after the
-        caller was told it was accepted.
+        C-5.10: `paced` is for the keys the control loop offers again every tick,
+        which since C-5.7 made quarantine resolutions durable includes every one
+        (`resolve:<job>`): a failure delays a pending request and never drops it.
+        An unpaced failure is logged each time.
         """
         with self._busy_lock:
             if (key in self._busy or self.stopping.is_set()
@@ -1912,6 +1969,14 @@ class Daemon:
         generation = self.store.generation
         future = self.workers.submit(fn, *args)
         def done(f):
+            if f.cancelled():
+                # Only `close()` cancels, and a queued key it cancelled neither
+                # ran nor failed: whatever it would have done is still due, and
+                # durable (a live attempt, an export, a resolution request,
+                # C-5.7), for the next daemon. Not a failure to count or log.
+                with self._busy_lock:
+                    self._busy.discard(key)
+                return
             try:
                 deferred = f.result() is DEFERRED
                 with self._busy_lock:
@@ -1992,6 +2057,8 @@ class Daemon:
                     self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
+                for job_id in self._pending_resolutions():
+                    self._schedule("resolve:" + job_id, self._resolve_requested, job_id, paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
@@ -3581,6 +3648,118 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
             self._notice(tx, job, "quarantined: " + detail)
         self._notify()
+
+    def _pending_resolutions(self) -> list[str]:
+        """C-5.7: the jobs the control loop offers as `resolve:<job>` this tick.
+
+        The first pass of each daemon loads the requests an earlier daemon
+        answered and never performed. A load that raises never stops the rest
+        of the tick (admission, attempts, exports): what is already in memory is
+        offered, and the load is tried again after C-5.10's delay, logged on the
+        1st, 2nd, 4th ... failure in a row. Once loaded it costs no statement:
+        the request handler adds what it records.
+        """
+        if not self._resolutions_loaded and time.monotonic() >= self._resolution_load_at:
+            try:
+                self._load_resolutions()
+            except Exception as exc:  # noqa: BLE001 - the rest of the tick still runs
+                count = self._resolution_load_failures = self._resolution_load_failures + 1
+                delay = worker_retry_delay(count)
+                self._resolution_load_at = time.monotonic() + delay
+                if count & (count - 1) == 0:
+                    self.log.error("loading pending quarantine resolutions failed: %s "
+                                   "(%d in a row, next try in %g s)", type(exc).__name__, count, delay)
+        with self._resolution_lock:
+            return sorted(self._resolutions)
+
+    def _load_resolutions(self) -> None:
+        """C-5.7: find every quarantined attempt with a resolution still pending.
+
+        One statement finds the jobs whose quarantined attempt has any request
+        (`events_kind` gives the few request rows), and each is read in full to
+        keep only those a handled event does not cover.
+        """
+        found = []
+        for row in self.store.query(
+                "SELECT DISTINCT e.job_id FROM events e JOIN attempts a ON a.attempt_id=e.attempt_id "
+                "WHERE e.kind=? AND a.state='quarantined' ORDER BY e.job_id", (resolutions.REQUESTED,)):
+            if self._resolution_requests(row["job_id"]):
+                found.append(row["job_id"])
+        with self._resolution_lock:
+            self._resolutions.update(found)
+        self._resolutions_loaded = True
+        if found:
+            self.log.info("resuming %d quarantine resolution(s) requested before this daemon started "
+                          "(C-5.7): %s", len(found), ", ".join(found))
+
+    def _resolution_requests(self, job_id: str) -> list[tuple[dict, list[resolutions.Request]]]:
+        """Each attempt of `job_id` with requests no handled event covers, and those requests.
+
+        A quarantined attempt's are to be performed; an attempt released since
+        its requests were recorded (by a resolution whose handled event a crash
+        cut off) has only its handled event left to write.
+        """
+        events: dict[str, list[dict]] = {}
+        for row in self.store.query(resolutions.JOB_EVENTS, (job_id, *resolutions.KINDS)):
+            events.setdefault(row["attempt_id"], []).append(row)
+        found = []
+        for attempt_id, rows in events.items():
+            waiting = resolutions.pending(rows)
+            attempt = self.store.get_attempt(attempt_id) if waiting else None
+            if attempt is not None:
+                found.append((dict(attempt), waiting))
+        return found
+
+    def _resolve_requested(self, job_id: str) -> None:
+        """C-5.7: perform the pending resolution requests of `job_id` (`resolve:<job>`).
+
+        The requests are read from the store, not from memory, so this is the
+        same whether they were asked of this daemon or of one that stopped
+        first. Every request pending when the pass begins is acted on as one
+        resolution (`resolutions.merge`: a `--force-release` among them wins),
+        and a handled event then covers exactly those; one asked while the
+        census ran stays pending for the next pass. The handled event is a
+        separate transaction, so a crash between the resolution and it performs
+        the requests again: `--confirm-dead` takes another census, and an
+        attempt already released is only recorded as such. A pass that raises
+        leaves its requests pending, offered again on C-5.10's backoff.
+        """
+        with self._resolution_lock:
+            # Before the read: a request recorded after this line puts the job
+            # back, and one recorded before it is read below.
+            self._resolutions.discard(job_id)
+        try:
+            for attempt, waiting in self._resolution_requests(job_id):
+                self._boundary("resolving", job_id, attempt["attempt_id"])
+                merged = resolutions.merge(waiting)
+                was = attempt["state"]
+                if was == "quarantined":
+                    self._resolve_quarantine(attempt, protocol.KillArgs(
+                        job_id, confirm_dead=not merged["force_release"],
+                        force_release=merged["force_release"], operator_note=merged["operator_note"]))
+                self._record_handled(attempt, waiting, merged, was)
+        except BaseException:
+            with self._resolution_lock:
+                self._resolutions.add(job_id)
+            raise
+
+    def _record_handled(self, attempt: dict, waiting: list[resolutions.Request], merged: dict,
+                        was: str) -> None:
+        """C-5.7: the handled event: which requests one resolution covered, and what came of it."""
+        now = self.store.get_attempt(attempt["attempt_id"])
+        state = now["state"] if now else None
+        outcome = ("already released" if was != "quarantined"
+                   else "still quarantined" if state == "quarantined" else "released")
+        data = {"handled_through": max(request.event_id for request in waiting),
+                "requests": [request.to_dict() for request in waiting], "mode": merged["mode"],
+                "operator_note": merged["operator_note"], "outcome": outcome, "attempt_state": state}
+        with self.store.transaction(audit_kind(resolutions.HANDLED), job_id=attempt["job_id"],
+                                    attempt_id=attempt["attempt_id"], data=data) as tx:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                       (utcnow(), resolutions.HANDLED, attempt["job_id"], attempt["attempt_id"],
+                        json.dumps(data, sort_keys=True)))
+        self.log.info("quarantine resolution of %s (%s, %d request(s)): %s", attempt["attempt_id"],
+                      merged["mode"], len(waiting), outcome)
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
         census = self._contain(a)

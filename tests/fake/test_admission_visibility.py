@@ -316,8 +316,9 @@ def test_c5_10_a_success_forgives_the_failures(fleet):
 
 
 def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
-    """C-5.10 review of cb83e1b: `kill --confirm-dead` schedules `resolve:<job>` once and answers
-    "resolution requested". Pacing it dropped the operator's retry: nothing offers that key again."""
+    """C-5.10 review of cb83e1b: a key scheduled without `paced` runs whenever it is asked for.
+    `kill --confirm-dead` scheduled `resolve:<job>` that way until C-5.7 made the request durable;
+    it is paced now, and a new request clears its clock (tests/fake/test_quarantine_resolution.py)."""
     service, _ = fleet
     service.workers = Inline(service.workers)
     calls = []
@@ -328,7 +329,7 @@ def test_c5_10_a_one_shot_request_is_never_held_back(fleet):
             raise RuntimeError("the first resolution fails")
 
     for _ in range(2):
-        service._schedule("resolve:fixture", resolve)                # as `kill` calls it: not paced
+        service._schedule("resolve:fixture", resolve)                # not paced
     assert calls == [0, 1]                                           # the retry ran at once
     assert "resolve:fixture" not in service._worker_retry_at
 
