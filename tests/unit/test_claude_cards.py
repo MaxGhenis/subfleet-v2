@@ -9,6 +9,7 @@ cloud-credit claim status, and an active and a lapsed profile.
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -92,7 +93,7 @@ JSON = st.recursive(st.none() | st.booleans() | st.integers() | st.floats(allow_
 
 
 @given(JSON)
-@settings(max_examples=300, suppress_health_check=[HealthCheck.too_slow])
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 def test_parsers_are_total(value):
     """C-9.10 invariant: no payload, however malformed, makes a parser raise or invent a card."""
     cards = cc.parse_cards(value)
@@ -191,7 +192,7 @@ ACCOUNTS = st.builds(
 
 
 @given(st.lists(ACCOUNTS, max_size=4), st.floats(0, 30), st.floats(0, 30))
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 def test_warnings_monotone_in_horizon(rows, a, b):
     """C-9.10 invariant: a longer warning horizon never drops a warning a shorter one raised."""
     for index, row in enumerate(rows):
@@ -202,7 +203,7 @@ def test_warnings_monotone_in_horizon(rows, a, b):
 
 
 @given(ACCOUNTS, st.floats(0, 10), st.floats(0, 20))
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 def test_expiring_card_keeps_warning_until_it_ends(row, warn, step):
     """C-9.10 invariant: once an unused card warns, it warns at every later instant before its end."""
     later = NOW + timedelta(days=step)
@@ -414,11 +415,16 @@ def test_no_login_and_no_scope(tmp_path):
 STATUSES = st.sampled_from([200, 401, 403, 404, 429, 500, "neterr"])
 
 
-@given(st.tuples(STATUSES, STATUSES, STATUSES), st.booleans(), st.integers(-7200, 7200), st.booleans())
-@settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_sensor_is_read_only(tmp_path, codes, allow_heal, expires_in_s, renews):
+@given(codes=st.tuples(STATUSES, STATUSES, STATUSES), allow_heal=st.booleans(),
+       expires_in_s=st.integers(-7200, 7200), renews=st.booleans(), slow_s=st.just(0.))
+@example(codes=(200, 200, 200), allow_heal=True, expires_in_s=-60, renews=True, slow_s=.3)   # a loaded runner
+@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_sensor_is_read_only(tmp_path, codes, allow_heal, expires_in_s, renews, slow_s):
     """C-9.10 invariant: whatever the server answers, every request is a GET to a known read
-    endpoint, no claim or reset URL is ever asked, and at most one heal turn is spent per read."""
+    endpoint, no claim or reset URL is ever asked, and at most one heal turn is spent per read.
+    Without a deadline: the property is not about time, and on Hypothesis's default 200 ms a loaded
+    runner failed it (`DeadlineExceeded`, the first review of #133). The `slow_s` example is that
+    runner: its first answer takes 0.3 s."""
     bodies = {cc.PROFILE_URL: fixture("profile_active"), cc.CARDS_USAGE_URL: fixture("usage_used_card"),
               cc.CLOUD_CREDIT_STATUS_URL: fixture("promo_cloud_credit_active")}
     answers = {}
@@ -430,7 +436,8 @@ def test_sensor_is_read_only(tmp_path, codes, allow_heal, expires_in_s, renews):
         else:
             answers[url] = [(urllib.error.HTTPError(url, code, "x", {"Retry-After": "5"}, None), None, None)]
     wire, login = Wire(answers), Login(expires_in_s=expires_in_s, renews=renews)
-    row = sensor(wire, login).read(tmp_path / "a", allow_heal=allow_heal)
+    slow = (lambda request, timeout: (time.sleep(slow_s if not wire.requests else 0), wire(request, timeout))[1])
+    row = sensor(slow, login).read(tmp_path / "a", allow_heal=allow_heal)
     assert row["status"] in cc.STATUSES
     assert all(r.get_method() == "GET" and r.full_url in GOOD_URLS for r in wire.requests)
     assert not any("reset_rate_limits" in r.full_url or "claim" in r.full_url for r in wire.requests)
@@ -1174,13 +1181,19 @@ def test_a_card_that_ends_while_reads_list_none_is_lost_at_the_next_listing(tmp_
 @pytest.mark.parametrize("between", sorted(_BETWEEN))
 def test_a_lapse_after_reads_that_list_none_over_a_cards_end(tmp_path, between):
     """C-9.10: a lapse after reads that listed none (or failed) across a card's end records the card
-    the last listing held unused, `lapse`, whichever kind the reads between were."""
+    the last listing held unused, whichever kind the reads between were, as `expired`: it was past
+    its end before the lapse was seen, so its alert says it ended unused, not that it went with its
+    plan (the second review of #133, R2-3). The credit, which ends after the lapse, went with it."""
+    from subfleet.alerts import card_condition
     login = Login(expires_in_s=90 * 86400)
     good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
     mid = _pass(login, Wire(_BETWEEN[between]()), NOW + timedelta(days=18), good, tmp_path)
-    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}),
-                   NOW + timedelta(days=19), mid, tmp_path)
-    assert [item["reason"] for item in lapsed["accounts"][0]["lost"] if item.get("grant") == CARD] == ["lapse"]
+    when = NOW + timedelta(days=19)
+    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}), when, mid, tmp_path)
+    assert [(item.get("grant") or item.get("credit"), item["reason"]) for item in lapsed["accounts"][0]["lost"]] == [
+        (CARD, "expired"), ("iguana_necktie", "lapse")]
+    [warning] = [row for row in cc.view(lapsed, when, warn_days=5)["warnings"] if row["kind"] == "card-lost"]
+    assert card_condition(warning, when)["subject"] == "claude: a limit reset on a was lost unused at its end"
 
 
 def test_credits_are_judged_from_the_read_that_last_read_them(tmp_path):
@@ -1349,3 +1362,205 @@ def test_a_read_that_lists_no_cards_counts_as_a_failed_one_for_card_loss(tmp_pat
         return [(item["grant"], item["at"], item["reason"])
                 for item in snapshot["accounts"][0].get("lost") or [] if item.get("grant")]
     assert card_losses(reads) == card_losses([("fails" if kind == "blind" else kind, days) for kind, days in reads])
+
+
+# --- the reviews of #133: what a login's line says, and why a loss is recorded ---------------------
+
+
+def _line(grants, *, eligible=True, reason=None):
+    """`subfleet cards`'s line for one `ok` login whose cards block lists `grants`, through `view`."""
+    from subfleet import render
+    snapshot = {"version": 1, "read_at": cc.iso_utc(NOW), "accounts": [{
+        "login": "a", "lanes": ["claude-1"], "status": "ok", "read_at": cc.iso_utc(NOW),
+        "plan": {"organization_type": "claude_max", "subscription_status": "active"},
+        "cards": {"eligible": eligible, "ineligible_reason": reason, "grants": grants}, "credits": []}]}
+    view = cc.view(snapshot, NOW, warn_days=5)
+    [line] = [line for line in render.card_lines(view) if line.startswith("  a ")]
+    return line, render.card_lines(view, compact=True)
+
+
+def test_a_card_that_ended_unused_is_not_also_no_reset_card():
+    """C-9.10: a login whose only card ended unused says so, and not also "no reset card" (it read
+    "reset card ended unused (…); no reset card"); nor does one holding a used card beside it.
+    "No reset card" is for a block that lists none."""
+    ended_at = cc.iso_utc(NOW - timedelta(days=1))
+    ended = {"id": CARD, "resets_left": 1, "resets_total": 1, "ends_at": ended_at, "usable_now": False}
+    line, compact = _line([ended])
+    assert line == f"  a [claude-1]: reset card ended unused ({CARD}, ended {ended_at})"
+    assert "  others: 1 card ended unused (subfleet cards)" in compact
+    used = {**ended, "id": "opus5-launch-20260801", "resets_left": 0}
+    line, _compact = _line([used, ended])
+    assert f"reset card ended unused ({CARD}" in line and "no reset card" not in line
+    assert _line([used])[0] == "  a [claude-1]: reset card used"
+    assert _line([])[0] == "  a [claude-1]: no reset card"
+    assert _line([], eligible=False, reason="surface")[0] == "  a [claude-1]: no reset card (ineligible: surface)"
+
+
+_GRANTS = st.lists(st.tuples(st.integers(0, 2), st.one_of(st.none(), st.integers(-30 * 24, 30 * 24))),
+                   max_size=4).map(lambda rows: [
+                       {"id": f"card-{index}", "resets_left": left, "resets_total": max(left, 1),
+                        "ends_at": None if hours is None else cc.iso_utc(NOW + timedelta(hours=hours)),
+                        "usable_now": left > 0} for index, (left, hours) in enumerate(rows)])
+
+
+@given(_GRANTS, st.booleans())
+@example([{"id": CARD, "resets_left": 1, "resets_total": 1, "ends_at": "2026-10-04T15:30:00Z",
+           "usable_now": False}], True)                          # the only card ended unused
+@settings(max_examples=300, deadline=None)
+def test_a_logins_line_names_each_card_and_never_contradicts_itself(grants, eligible):
+    """C-9.10 invariant, for any cards block an `ok` read lists: the login's line names each card with
+    a reset left, as ended unused once its end has passed and as unused before; says "reset card
+    used" exactly when every card listed is used; and says "no reset card" exactly when none is."""
+    line, _compact = _line(grants, eligible=eligible, reason=None if eligible else "surface")
+    for grant in grants:
+        ends = cc.parse_time(grant["ends_at"])
+        if grant["resets_left"] and ends is not None and ends <= NOW:
+            assert f"reset card ended unused ({grant['id']}, ended {grant['ends_at']})" in line
+        elif grant["resets_left"]:
+            assert f"{grant['resets_left']} unused reset card ({grant['id']}), expires" in line
+    assert ("reset card used" in line) == (bool(grants) and all(not grant["resets_left"] for grant in grants))
+    assert ("no reset card" in line) == (not grants)
+
+
+_LOSSES = st.lists(st.sampled_from([
+    {"grant": CARD, "reason": "lapse"}, {"grant": "opus5-launch-20260801", "reason": "expired"},
+    {"credit": "iguana_necktie", "label": "cloud-session credit", "reason": "lapse", "remaining_dollars": 250.0},
+    {"credit": "brass_thimble", "label": "brass_thimble", "reason": "expired", "remaining_dollars": 12.5}]),
+    max_size=4, unique_by=lambda item: item.get("grant") or item.get("credit"))
+
+
+@given(st.lists(ACCOUNTS, min_size=1, max_size=3), _LOSSES)
+@settings(max_examples=200, deadline=None)
+def test_every_warning_line_names_what_it_is_about(rows, losses):
+    """C-9.10 invariant: each "!" line of `subfleet cards` names the card or credit its warning is
+    about, a loss's card (`grants`) or credit (`credits`) included. The `card-lost` and `credit-lost`
+    lines read `grant` and named nothing (the first review of #133, F6)."""
+    from subfleet import render
+    for index, row in enumerate(rows):
+        row["login"] = f"login-{index}"
+    rows[0]["lost"] = [{**item, "at": cc.iso_utc(NOW - timedelta(hours=1))} for item in losses]
+    view = cc.view({"version": 1, "read_at": cc.iso_utc(NOW), "accounts": rows}, NOW, warn_days=5)
+    lines = [line for line in render.card_lines(view) if line.startswith("  ! ")]
+    assert len(lines) == len(view["warnings"])
+    for warning, line in zip(view["warnings"], lines):
+        names = [warning.get("grant"), warning.get("credit"), *(warning.get("grants") or ()),
+                 *(credit["key"] for credit in warning.get("credits") or ())]
+        assert any(names) and line.startswith(f"  ! {warning['kind']}: {warning['login']} ")
+        assert all(f" {name}" in line for name in names if name), (warning, line)
+
+
+def test_a_loss_line_names_the_card_and_the_credit():
+    """C-9.10: the loss lines as printed: "! card-lost: <login> <card> at …", "! credit-lost: <login> <credit> at …"."""
+    from subfleet import render
+    at = cc.iso_utc(NOW - timedelta(hours=1))
+    row = {"login": "a", "lanes": [], "status": "lapsed", "read_at": at, "cards": None, "credits": [],
+           "plan": {"organization_type": "claude_free", "subscription_status": "canceled"},
+           "lost": [{"grant": CARD, "at": at, "reason": "lapse"},
+                    {"credit": "iguana_necktie", "label": "cloud-session credit", "at": at, "reason": "lapse",
+                     "remaining_dollars": 250.0}]}
+    lines = render.card_lines(cc.view({"version": 1, "read_at": at, "accounts": [row]}, NOW, warn_days=5))
+    assert [line for line in lines if line.startswith("  ! ")] == [
+        f"  ! card-lost: a {CARD} at {at}", f"  ! credit-lost: a iguana_necktie at {at}"]
+
+
+def _claim_ending(answers, ends):
+    """`answers` with the cloud credit's claim status, and so the credit, ending at `ends`."""
+    return {**answers, cc.CLOUD_CREDIT_STATUS_URL: [(200, {**fixture("promo_cloud_credit_active"), "expires_at": ends},
+                                                     None)]}
+
+
+@pytest.mark.parametrize("between", sorted(_BETWEEN))
+def test_a_credit_past_its_end_at_a_lapse_is_recorded_expired(tmp_path, between):
+    """C-9.10: as for a card, a credit with money left at the last read, whose end has passed by the
+    read that finds the plan lapsed, is recorded `expired`, and its alert says it ended unspent; one
+    ending after that read went with the plan."""
+    from subfleet.alerts import card_condition
+    login, ends = Login(expires_in_s=90 * 86400), "2026-10-24T00:00:00Z"       # between the two reads below
+    good = _pass(login, Wire(_claim_ending(healthy(), ends)), NOW, None, tmp_path)
+    mid = _pass(login, Wire(_claim_ending(_BETWEEN[between](), ends)), NOW + timedelta(days=18), good, tmp_path)
+    when = NOW + timedelta(days=19)
+    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}), when, mid, tmp_path)
+    assert [(item.get("grant") or item.get("credit"), item["reason"]) for item in lapsed["accounts"][0]["lost"]] == [
+        (CARD, "expired"), ("iguana_necktie", "expired")]
+    [warning] = [row for row in cc.view(lapsed, when, warn_days=5)["warnings"] if row["kind"] == "credit-lost"]
+    assert card_condition(warning, when)["subject"] == "claude: a promotional credit on a ended unspent"
+    # The same reads, the credit ending a day after the lapse: it went with the plan.
+    later = "2026-10-25T15:30:00Z"
+    good = _pass(login, Wire(_claim_ending(healthy(), later)), NOW, None, tmp_path)
+    mid = _pass(login, Wire(_claim_ending(_BETWEEN[between](), later)), NOW + timedelta(days=18), good, tmp_path)
+    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}), when, mid, tmp_path)
+    assert [(item.get("grant") or item.get("credit"), item["reason"]) for item in lapsed["accounts"][0]["lost"]] == [
+        (CARD, "expired"), ("iguana_necktie", "lapse")]
+
+
+#: The card's end as each listing read gives it.
+_LISTED_ENDS = {"unused": "2026-10-22T16:00:00Z", "late": "2026-10-29T16:00:00Z", "early": "2026-10-12T16:00:00Z",
+                "used": "2026-10-22T16:00:00Z", "absent": None}
+
+
+def _oracle_answers(kind):
+    """One read: a listing (`unused`, `late`, `early`, `used`, `absent`), one that lists none
+    (`missing`, `ineligible`), one that fails (`fails`), or one that finds the plan lapsed (`lapse`)."""
+    if kind == "lapse":
+        return {cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}
+    if kind == "fails":
+        return _fails_usage()
+    if kind in ("missing", "ineligible"):
+        return _blind(None if kind == "missing" else {"eligible": False, "ineligible_reason": "surface", "grants": []})
+    payload = _usage_with(ends=_LISTED_ENDS[kind])
+    if kind == "used":
+        payload["cedar_ember"]["grants"][0]["resets_left"] = 0
+    elif kind == "absent":
+        payload["cedar_ember"]["grants"] = []
+    return {**healthy(), cc.CARDS_USAGE_URL: [(200, payload, None)]}
+
+
+def _card_losses_by_the_contract(reads):
+    """C-9.10's rule for the one card, written from its words, not from the code. A card the last
+    listing read held unused, live at that listing, is recorded once: `expired` by the next listing
+    read after its end (the end as that read gives it, else as last seen) that still shows it unused
+    or no longer lists it; or, by the read that finds the plan lapsed, `expired` when its end as last
+    seen has passed by then and `lapse` when it has not. Reads that list none, and failed reads,
+    change nothing."""
+    card = listed_at = None             # the last listing's card, (resets_left, ends), and when it listed it
+    out, when = [], NOW
+    for kind, hours in reads:
+        when += timedelta(hours=hours)
+        held = card is not None and not out and card[0] > 0 and cc.parse_time(card[1]) > listed_at
+        if kind == "lapse":
+            if held:
+                out.append((CARD, cc.iso_utc(when), "expired" if cc.parse_time(card[1]) <= when else "lapse"))
+            return out
+        if kind in _LISTED_ENDS:
+            now_card = None if kind == "absent" else (0 if kind == "used" else 1, _LISTED_ENDS[kind])
+            judged = now_card or card
+            if held and cc.parse_time(judged[1]) < when and judged[0] > 0:
+                out.append((CARD, cc.iso_utc(when), "expired"))
+            card, listed_at = now_card, when
+    return out
+
+
+_ORACLE_READS = st.tuples(
+    st.lists(st.tuples(st.sampled_from(["unused", "late", "early", "used", "absent", "missing", "ineligible", "fails"]),
+                       st.integers(1, 24).map(lambda n: 6 * n)), min_size=1, max_size=10),
+    st.one_of(st.none(), st.integers(1, 40).map(lambda n: 6 * n))).map(
+        lambda pair: pair[0] + ([] if pair[1] is None else [("lapse", pair[1])]))
+
+
+@given(_ORACLE_READS)
+@example([("unused", 24), ("ineligible", 24 * 18), ("lapse", 24)])     # R2-3: ended in a blind spell, then a lapse
+@example([("unused", 24), ("fails", 24 * 18), ("lapse", 24)])          # the same over failed reads
+@example([("unused", 6), ("lapse", 24 * 18)])                          # ended with no read between
+@example([("unused", 24), ("missing", 24 * 3), ("lapse", 24)])         # lapsed before its end: `lapse`
+@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_card_losses_follow_the_contracts_rule(tmp_path, reads):
+    """C-9.10, against an oracle written from the contract's words (the second review of #133's O1,
+    with the lapse rule of R2-3): over any run of listing, unlisted, failed reads and a final lapse,
+    the card's loss record, when and why, is the oracle's."""
+    login, snapshot, when = Login(expires_in_s=400 * 86400), None, NOW
+    for kind, hours in reads:
+        when += timedelta(hours=hours)
+        snapshot = _pass(login, Wire(_oracle_answers(kind)), when, snapshot, tmp_path)
+    got = [(item["grant"], item["at"], item["reason"])
+           for item in snapshot["accounts"][0].get("lost") or [] if item.get("grant")]
+    assert got == _card_losses_by_the_contract(reads), reads

@@ -470,15 +470,16 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
             ended = [grant for grant in grants if grant.get("resets_left", 0) > 0 and grant.get("ended")]
             for grant in ended:
                 parts.append(f"reset card ended unused ({grant['id']}, ended {grant.get('ends_at')})")
-            if unused:
-                for grant in unused:
-                    note = ("usable now" if grant.get("usable_now")
-                            else "paused" if grant.get("paused") else "not usable now")
-                    parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
-                                 f"{grant.get('ends_at') or 'unknown'}, {note}"
-                                 + (", account at its limit" if cards.get("at_limit") else ""))
-            elif grants and not ended:
-                parts.append("reset card used")
+            for grant in unused:
+                note = ("usable now" if grant.get("usable_now")
+                        else "paused" if grant.get("paused") else "not usable now")
+                parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
+                             f"{grant.get('ends_at') or 'unknown'}, {note}"
+                             + (", account at its limit" if cards.get("at_limit") else ""))
+            # "No reset card" only when none is listed: a card that ended unused is one.
+            if grants:
+                if not unused and not ended:
+                    parts.append("reset card used")
             elif cards and not cards.get("eligible"):
                 parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
             elif cards:
@@ -507,7 +508,15 @@ def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list
         lines.append(head + ": " + ("; ".join(parts) or status))
     lines.extend(others)
     for warning in view.get("warnings") or ():
-        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} "
-                     + (f"{warning.get('grant') or warning.get('credit') or ''} ").lstrip()
+        items = _warned_items(warning)
+        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} " + (f"{items} " if items else "")
                      + (f"at {warning['at']}" if warning.get("at") else ""))
     return lines
+
+
+def _warned_items(warning: Mapping[str, Any]) -> str:
+    """The card or credit a warning names: `grant` or `credit`, or a loss's `grants` and `credits`."""
+    credits = warning.get("credits") or ()
+    names = [warning.get("grant"), warning.get("credit"), *(warning.get("grants") or ()),
+             *(row.get("key") if isinstance(row, Mapping) else row for row in credits)]
+    return ", ".join(str(name) for name in names if name)

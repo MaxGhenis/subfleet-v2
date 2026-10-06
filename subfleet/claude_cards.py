@@ -467,11 +467,16 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
     `lapse`: the profile read now says the plan lapsed. Every card the last good
     read held unused, and every credit with money left, is recorded: the lapsed
     plan's usage cannot be read, and when two of these accounts' plans ended
-    (2026-09-30, 2026-10-04) their usage stopped showing the credit. `expired`: an
-    `ok` read now, after a card's or credit's end, still shows the card unused or
-    no longer lists it, or shows the credit with money left or no longer lists it.
-    A read that is not `ok` says nothing about use, so it records no expiry. A
-    thing already in the loss record is never recorded again.
+    (2026-09-30, 2026-10-04) their usage stopped showing the credit. One whose
+    end, as last seen, has passed by this read is recorded `expired` instead:
+    past its end it was gone whatever the plan did. (When an `ok` read after its
+    end, one that listed no cards, still found the plan live, the end came
+    first; otherwise which came first is unknown.)
+
+    `expired`: an `ok` read now, after a card's or credit's end, still shows the
+    card unused or no longer lists it, or shows the credit with money left or no
+    longer lists it. A read that is not `ok` says nothing about use, so it
+    records no expiry. A thing already in the loss record is never recorded again.
     """
     if not previous:
         return []
@@ -491,8 +496,14 @@ def lost_since(previous: Mapping[str, Any] | None, current: Mapping[str, Any],
              and (parse_time(credit.get("expires_at")) is None or parse_time(credit.get("expires_at")) > then)]
     at = iso_utc(now)
     if lapsed(current.get("plan")) and not lapsed(previous.get("plan")):
-        reason = "lapse"
-    elif current.get("status") == OK:
+        def why(ends: Any) -> str:
+            ended = parse_time(ends)
+            return "expired" if ended is not None and ended <= now else "lapse"
+        return ([{"grant": grant["id"], "at": at, "reason": why(grant.get("ends_at"))} for grant in held]
+                + [{"credit": credit["key"], "label": credit.get("label"), "at": at,
+                    "reason": why(credit.get("expires_at")), "remaining_dollars": credit.get("remaining_dollars")}
+                   for credit in money])
+    if current.get("status") == OK:
         reason = "expired"
         cards_now = current.get("cards") or {}
         grants_now = {grant["id"]: grant for grant in cards_now.get("grants") or []}
@@ -965,7 +976,7 @@ def _refresh_one(sensor: Sensor, home: Path, prior: Mapping[str, Any] | None,
     changed = bool(prior and prior.get("identity") and account.get("identity")
                    and prior["identity"] != account["identity"])
     found = lost_since(prior, account, sensor.now())
-    if any(item["reason"] == "lapse" for item in found):
+    if found and lapsed(account.get("plan")):       # a lapse keeps nothing, whatever each loss's reason
         account.update(cards=None, cards_unlisted=None, credits=[])
     record = ([] if changed else lost_items(prior or {})) + found
     if record:
