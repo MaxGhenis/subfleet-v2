@@ -259,10 +259,13 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
     job = e2e.job(job_id)
     assert (job["kind"], job["caller_session"]) == ("dispatch", session)
     e2e.until(lambda: e2e.job(job_id)["state"] in TERMINAL_JOB_STATES, timeout=60)
-    notice = e2e.until(lambda: next(iter(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))), None),
+    notice = e2e.until(lambda: next(iter(e2e.rows("SELECT * FROM notices WHERE job_id=? AND state='surfaced'", (job_id,))), None),
                        timeout=30)
-    assert (notice["session_id"], notice["state"]) == (session, "pending")
-    assert all(row["stdout"] == "" for row in conv.turn_log() if "hook" in row)
+    assert (notice["session_id"], notice["transport"]) == (session, "conversation")
+    wake = e2e.until(lambda: next((m for m in conv.call("conversation.open", conversation_id=cid)["messages"]
+                                 if m["origin"] == "wake"), None), timeout=30)
+    assert conv.until_state(wake["message_id"], "complete", "failed", timeout=60)["state"] == "complete"
+    assert job_id in wake["text"]
     pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
     assert pinged["notice_id"] is not None
 
@@ -271,15 +274,14 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
     hooks_ran = [row for row in conv.turn_log() if "hook" in row]
     assert [(row["hook"], row["source"]) for row in hooks_ran] == [
         ("SessionStart", "startup"), ("UserPromptSubmit", None),
+        ("SessionStart", "resume"), ("UserPromptSubmit", None),
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
     started, prompted = hooks_ran[2], hooks_ran[3]
     assert started["rc"] == 0 and prompted["rc"] == 0
-    context = json.loads(started["stdout"])["hookSpecificOutput"]["additionalContext"]
-    assert "1 detached run dispatched by this session" in context and job_id in context
-    assert prompted["stdout"] == "", "surfaced once, by the first hook of the turn"
+    assert all(row["stdout"] == "" for row in hooks_ran), "the conversation message carries the job's notice once"
     assert "resume nudge" not in started["stdout"] + prompted["stdout"]
     assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
-        {"state": "surfaced", "transport": "hook:SessionStart"}]
+        {"state": "surfaced", "transport": "conversation"}]
     assert [row["state"] for row in e2e.rows(
         "SELECT state FROM service_notices WHERE session_id=?", (session,))] == ["pending"]
 

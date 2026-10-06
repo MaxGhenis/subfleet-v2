@@ -88,9 +88,12 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
     ]
 
 
-def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon):
+def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, monkeypatch):
     """C-4.4, C-15.1 a loss without a receipt: `lost; rc=125`, the attempt's rc unknown."""
     daemon, harness = state_daemon
+    # The fixture guardian is absent; don't inspect the host's real process table.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
