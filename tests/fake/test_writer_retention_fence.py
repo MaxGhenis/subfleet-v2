@@ -297,7 +297,9 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
                    "sibling:x": checkout(daemon.root / "worktrees" / "retired:x"),
                    "outer": folders.canonical(harness.workdir),
                    "outer-nested": nested_repository(harness.workdir, branch="task/nested")}
-        places = sorted({folder for each in writers.values() for folder in (each, *folders.above(each))})
+        # Built apart from `folders.above` (pathlib's parents), so the domain does not share its helper.
+        places = sorted({folder for each in writers.values() for folder in (each, *map(str, Path(each).parents))})
+        assert "/" in places
         holders = ["retention:a", "retention:b", "gate-round:g", "20261005-000000-astra"]
         count = [0]
 
@@ -334,3 +336,180 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
 
         agrees()
         assert count[0] >= 60
+
+
+def alias(spelling: str, tree: str, nested: str) -> str:
+    """A spelling of the writer's folder its volume accepts and does not store: the
+    tree's name in capitals, the non-ASCII state root in capitals or in NFD."""
+    import unicodedata
+    if spelling == "top-case":
+        return str(Path(tree).with_name(Path(tree).name.upper()))
+    if spelling == "nested-case":
+        return nested.replace("/worktrees/retired/", "/worktrees/RETIRED/")
+    if spelling == "nested-unicode-case":
+        return nested.replace("stäte", "STÄTE")
+    if spelling == "nested-nfd":
+        return nested.replace("stäte", unicodedata.normalize("NFD", "stäte"))
+    raise AssertionError(spelling)
+
+
+@pytest.mark.parametrize("spelling", ["nested-case", "nested-unicode-case", "nested-nfd"])
+def test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement(tmp_path, spelling):
+    """The review of 5253faa2, P2, made a test. A writer submitted during a retirement in
+    the repository nested in the tree, its folder typed in a spelling the volume accepts
+    and does not store, waits on the fence; its queued job must still keep the tree at the
+    commit (`worktree-in-use`), which compares recorded strings in SQL. Submit kept the
+    workdir as typed (only `resolve`d), so in NFD, or with the non-ASCII state root in
+    capitals (SQLite's LIKE folds ASCII only), the pin missed it and the retirement deleted
+    the tree and the writer's repository while it waited. Submit now records the workdir
+    in its one spelling (`folders.canonical`). With submit's spelling put back, `nested-nfd`
+    and `nested-unicode-case` failed with `pruned: ['retired']` and the tree gone;
+    `nested-case` kept the tree (LIKE folds ASCII) and failed only on the recorded
+    spelling."""
+    with fleet_daemon(tmp_path / "stäte") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        fence = folders.exclusive_key(tree)
+        workdir = alias(spelling, tree, nested)
+        if not Path(workdir).is_dir():
+            pytest.skip("the volume tells case or Unicode forms apart")
+        assert workdir != nested
+        state = {}
+        real_begin = rarch.Retirement.begin
+
+        def begin(self, job, pool):
+            if "writer" not in state:
+                state["writer"] = writer = writer_in(daemon, harness, workdir)
+                state["hold"] = look(daemon, writer)
+                state["live"] = _live(daemon, writer)
+            return real_begin(self, job, pool)
+
+        patch.setattr(rarch.Retirement, "begin", begin)
+        result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
+                                       holders=lambda watches, **_: {})
+        writer = state["writer"]
+        assert not state["live"] and state["hold"]["leases"] == [fence], state
+        assert "retired" in result["protected"] and "retired" not in result["pruned"], result
+        assert Path(nested, "f.txt").is_file() and daemon.store.get_job("retired")
+        assert daemon._job(writer)["workdir"] == nested
+        daemon._admit()
+        assert _live(daemon, writer), daemon._holds.get(writer)
+        assert lease(daemon, folders.exclusive_key(nested)) == writer
+
+
+def test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection(tmp_path):
+    """A writer queued in place on a finished job's tree itself before retention's pass,
+    its folder typed in other capitals. `worktree-in-use` matched the tree itself with `=`,
+    which compares case, so the queued writer kept nothing: retention fenced the tree, the
+    writer waited on its own key, and the commit deleted the tree it was queued to write
+    in. With the workdir recorded in its one spelling the pin keeps the tree from
+    selection on, and the writer runs on the tree. With submit's spelling put back the
+    pin found nothing and the retirement deleted the tree (`pruned: ['retired']`)."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        workdir = alias("top-case", tree, nested)
+        if not Path(workdir).is_dir():
+            pytest.skip("the volume tells case apart")
+        writer = writer_in(daemon, harness, workdir)
+        pins = retention._pin_reasons(daemon.store, set(), None, only="retired", root=daemon.root)
+        result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
+                                       holders=lambda watches, **_: {})
+        assert "retired" in result["protected"] and "retired" not in result["pruned"], (pins, result)
+        assert pins == {"retired": "worktree-in-use"} and daemon._job(writer)["workdir"] == tree
+        assert Path(tree).is_dir() and lease(daemon, folders.exclusive_key(tree)) is None
+        patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+        daemon._admit()
+        assert _live(daemon, writer), daemon._holds.get(writer)
+        assert lease(daemon, folders.exclusive_key(tree)) == writer
+
+
+def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
+    """C-6.9, C-6.11: a key a job needs free but does not take is never queued for, on a
+    look on its clock as at a full one (review of 5253faa2, P3; its probe, made a test). An
+    older writer in `<tree>/vendor/lib` waits for retention's fence on `<tree>`, then rests
+    on its clock. A look on the clock keeps the job's place in the queues of the keys it
+    takes. It used to queue every key of its hold, the fence above included, so when the
+    fence went mid-pass a newer writer whose own key that is waited `queued_behind` a job
+    that never takes the key. Rows are written directly: submission refuses a writer on a
+    fenced tree, and the queue mechanism is what is under test."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+        tree = str(harness.root / "worktrees" / "retired")
+        nested, fence = tree + "/vendor/lib", folders.exclusive_key(tree)
+
+        def add(job_id, folder):
+            daemon.store.add_job(job_id=job_id, request_id=job_id, payload_digest=job_id, kind="dispatch",
+                                 sandbox="workspace-write", in_place=True, workdir=folder,
+                                 prompt_path=str(harness.root / "prompt.md"), pinned_model="astra",
+                                 max_attempts=1, max_wall_s=3600)
+            return job_id
+
+        older = add("older", nested)
+        assert daemon.store.acquire_lease(fence, "retention:retired")
+        daemon._admit()
+        assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]
+        daemon.store.update_job(older, next_check_at=after(3600))
+        newer = add("newer", tree)
+
+        def finishes(job):          # retention lets go after this pass read its leases
+            if job["job_id"] == newer:
+                daemon.store.release_leases("retention:retired")
+            return job["workdir"], None, None, []
+
+        patch.setattr(daemon, "_workspace", finishes)
+        daemon._admit()
+        assert lease(daemon, fence) == newer, daemon._holds.get(newer)
+        assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]
+        daemon.store.update_job(older, next_check_at=None)
+        daemon._admit()
+        assert _live(daemon, older) and lease(daemon, folders.exclusive_key(nested)) == older
+
+
+@pytest.mark.parametrize("who", ["writer", "TURN", "READER"])
+def test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree(tmp_path, who):
+    """`/System/Volumes/Data/…` names the same folder as `/…` through a firmlink, which
+    `resolve` keeps (it is not a symlink) and the kernel's spelling does not. A detached
+    writer or a conversation's turn, writable or read-only, submitted during a retirement
+    with its folder in the repository nested in the tree typed that way, waits on the
+    fence; its queued job keeps the tree at the commit only if the workdir submit
+    recorded names the tree as the tree is recorded. Submit records the workdir in its one
+    spelling (review of 5253faa2, P2; the case-alias review's P3, chip task_4972080c, for
+    turns). Skipped where the state root is not reached through that firmlink."""
+    from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        firm = Path("/System/Volumes/Data" + nested)
+        if not firm.is_dir() or not firm.samefile(nested):
+            pytest.skip("the state root is not reached through the Data volume's firmlink")
+        patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+        state = {}
+        real_begin = rarch.Retirement.begin
+
+        def begin(self, job, pool):
+            if "job" not in state:
+                if who == "writer":
+                    state["job"] = job_id = writer_in(daemon, harness, firm)
+                    state["hold"] = look(daemon, job_id)
+                else:
+                    options = {**SETTINGS, "permission": "accept-edits" if who == "TURN" else "read-only"}
+                    _, _, job_id = message_in(daemon, harness, "Firm", workspace=firm, settings=options)
+                    state["job"] = job_id
+                    daemon.store.update_job(job_id, next_check_at=None)
+                    daemon._admit_turns()
+                    state["hold"] = dict(daemon._holds.get(job_id) or {})
+                state["live"] = _live(daemon, state["job"])
+            return real_begin(self, job, pool)
+
+        patch.setattr(rarch.Retirement, "begin", begin)
+        result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
+                                       holders=lambda watches, **_: {})
+        job_id = state["job"]
+        assert not state["live"] and state["hold"].get("reason") == "lease-held", state
+        assert "retired" in result["protected"] and "retired" not in result["pruned"], result
+        assert Path(nested, "f.txt").is_file() and daemon._job(job_id)["workdir"] == nested
+        daemon._admit()
+        assert _live(daemon, job_id), daemon._holds.get(job_id)
