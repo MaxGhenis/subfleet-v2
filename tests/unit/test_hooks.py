@@ -161,15 +161,18 @@ def continuation(notice_id: int, text: str = "continue where you left off") -> d
             "state": "offered", "text": text}
 
 
-@pytest.mark.parametrize("event", hooks.SESSION_EVENTS)
-@pytest.mark.parametrize("present", [("SUBFLEET_ATTEMPT",), ("SUBFLEET_JOB",), MARKERS],
-                         ids=["attempt-only", "job-only", "as-the-daemon-sets-them"])
-def test_session_events_inside_a_launch_wake_nothing_and_surface_only_job_notices(
-        daemon, root, monkeypatch, event, present):
+PRESENT = pytest.mark.parametrize(
+    "present", [("SUBFLEET_ATTEMPT",), ("SUBFLEET_JOB",), MARKERS],
+    ids=["attempt-only", "job-only", "as-the-daemon-sets-them"])
+
+
+@PRESENT
+def test_a_prompt_inside_a_launch_surfaces_only_job_notices(daemon, root, monkeypatch,
+                                                            present):
     """C-26.13 with C-15.2 and C-15.3: inside a turn, a lane run or a probe,
-    SessionStart and UserPromptSubmit wake no worker, and surface and mark only
-    the notices that name a job. A `ping` or nudge (a service notice) and an
-    imported continuation are neither printed nor marked.
+    UserPromptSubmit wakes no worker, and surfaces and marks only the notices
+    that name a job. A `ping` or nudge (a service notice) and an imported
+    continuation are neither printed nor marked.
 
     Every launch path sets `SUBFLEET_ATTEMPT` (an enrollment turn sets only it
     and the root), so either marker alone is enough.
@@ -187,20 +190,77 @@ def test_session_events_inside_a_launch_wake_nothing_and_surface_only_job_notice
             service_notice(3)]},
         "notice.mark": lambda request: marked.append(request.args) or {"notices": []}})
     stdout = io.StringIO()
-    assert hooks.session_event(event, payload(event, source="resume"), root,
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
                                stdout=stdout) == 0
     context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
     assert "1 detached run dispatched by this session" in context
     assert "20260924-120500-demo: ok; rc=0" in context
     assert "resume nudge" not in context and "continue where you left off" not in context
     assert marked == [{"session_id": SESSION, "notice_ids": [1], "state": "surfaced",
-                       "transport": f"hook:{event}"}]
+                       "transport": "hook:UserPromptSubmit"}]
     assert woken == [] and server.ops() == ["notice.pending", "notice.mark"]
 
 
-@pytest.mark.parametrize("event", hooks.SESSION_EVENTS)
+@PRESENT
+@pytest.mark.parametrize("source", ["startup", "resume"])
+def test_session_start_inside_a_launch_does_nothing(daemon, root, monkeypatch, present,
+                                                    source):
+    """C-26.13: inside a launch SessionStart wakes no worker, prints nothing,
+    and neither reads nor marks a notice, even one that names a job. It can
+    run before the turn has sent its message, and a turn that ends then is
+    admitted again as a new process; a notice marked `surfaced` here would
+    never be returned to that retry's hooks."""
+    for name, value in turn_markers(root).items():
+        if name in present:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(hooks, "wake_worker", lambda *a, **k: pytest.fail("woken"))
+    server = daemon({"notice.pending": lambda request: {"notices": [notice(1)]},
+                     "notice.mark": lambda request: pytest.fail("marked")})
+    stdout = io.StringIO()
+    assert hooks.session_event("SessionStart", payload("SessionStart", source=source),
+                               root, stdout=stdout) == 0
+    assert stdout.getvalue() == "" and server.ops() == []
+
+
+def test_a_notice_outlives_a_turn_that_ended_before_sending(daemon, root, monkeypatch):
+    """C-26.13 with C-15.3, the readmitted turn: a job's notice is pending when
+    turn A's process starts; A runs SessionStart and then ends before its user
+    frame (`provider-init-failed`, say), so UserPromptSubmit never runs there.
+    The same message is admitted again as turn B, whose SessionStart and
+    UserPromptSubmit run in order. The notice is surfaced once, by B's
+    UserPromptSubmit, and marked there; B's next prompt hears nothing. When
+    SessionStart surfaced and marked it, A's start used it up and B heard
+    nothing at all."""
+    states = {1: "pending"}
+
+    def pending(request):
+        return {"notices": [notice(n, state=state, text="20260924-120500-demo: ok")
+                            for n, state in states.items()
+                            if state in ("pending", "offered")]}
+
+    def mark(request):
+        for n in request.args["notice_ids"]:
+            states[n] = request.args["state"]
+        return pending(request)
+
+    daemon({"notice.pending": pending, "notice.mark": mark})
+    for name, value in turn_markers(root).items():
+        monkeypatch.setenv(name, value)
+    heard = []
+    for event in ("SessionStart",                       # turn A, never sends
+                  "SessionStart", "UserPromptSubmit",   # turn B
+                  "UserPromptSubmit"):                  # B's session, a later prompt
+        stdout = io.StringIO()
+        assert hooks.session_event(event, payload(event, source="resume"), root,
+                                   stdout=stdout) == 0
+        heard.append((event, "20260924-120500-demo: ok" in stdout.getvalue()))
+    assert heard == [("SessionStart", False), ("SessionStart", False),
+                     ("UserPromptSubmit", True), ("UserPromptSubmit", False)]
+    assert states == {1: "surfaced"}
+
+
 def test_inside_a_launch_a_session_with_only_service_notices_hears_nothing(
-        daemon, root, monkeypatch, event):
+        daemon, root, monkeypatch):
     """C-26.13: a `ping` or a nudge left for a conversation's session is not
     joined to a turn's prompt, and stays pending: nothing is marked."""
     for name, value in turn_markers(root).items():
@@ -210,16 +270,17 @@ def test_inside_a_launch_a_session_with_only_service_notices_hears_nothing(
                          service_notice(1), continuation(2)]},
                      "notice.mark": lambda request: {"notices": []}})
     stdout = io.StringIO()
-    assert hooks.session_event(event, payload(event, source="startup"), root,
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
                                stdout=stdout) == 0
     assert stdout.getvalue() == ""
     assert server.ops() == ["notice.pending"]
 
 
 def test_inside_a_launch_the_offline_fallback_is_filtered_the_same_way(root, monkeypatch):
-    """C-26.13 with C-17.5's read-only fallback: with no daemon listening, the
-    rows read from the store are filtered as the daemon's are, and nothing is
-    marked (the hook cannot write the store)."""
+    """C-15.2 layer 3 and C-26.13, through the hook's own read-only fallback
+    (`hooks._offline_pending`, which C-17.5 does not cover): with no daemon
+    listening, the rows read from the store are filtered as the daemon's are,
+    and nothing is marked (the hook cannot write the store)."""
     for name, value in turn_markers(root).items():
         monkeypatch.setenv(name, value)
     monkeypatch.setattr(hooks, "_offline_pending",
@@ -253,8 +314,9 @@ def test_the_root_alone_is_not_a_marker_and_empty_markers_do_not_count(root):
 
 def test_the_verb_inside_a_launch_wakes_nothing_and_prints_no_service_notice(
         daemon, root, monkeypatch):
-    """C-26.13 through `subfleet hook <event>`, every spelling: no wake, and a
-    pending `ping` is neither printed nor marked."""
+    """C-26.13 through `subfleet hook <event>`, every spelling: no wake, a
+    SessionStart asks the daemon nothing, and a pending `ping` is neither
+    printed nor marked by UserPromptSubmit."""
     for name, value in turn_markers(root).items():
         monkeypatch.setenv(name, value)
     woken: list[str] = []
@@ -264,7 +326,7 @@ def test_the_verb_inside_a_launch_wakes_nothing_and_prints_no_service_notice(
     for spelling in ("SessionStart", "session-start", "UserPromptSubmit", "user-prompt"):
         stream = io.StringIO(json.dumps(payload("SessionStart", source="startup")))
         assert hooks.run(spelling, stream=stream, root=root) == 0
-    assert woken == [] and server.ops() == ["notice.pending"] * 4
+    assert woken == [] and server.ops() == ["notice.pending"] * 2
 
 
 def test_the_attached_runner_guard_still_runs_inside_a_launch(root, monkeypatch, capsys):
@@ -307,9 +369,10 @@ def test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_o
     (observed with Claude Code 2.1.280, live-probes record).
 
     No worker is spawned (a spawned worker's argv names the session, and `ps`
-    shows none), the job's notice is surfaced and marked, and the pending
-    `ping` is not printed. The same UserPromptSubmit without the markers
-    surfaces both, so the difference is the markers'.
+    shows none), SessionStart prints nothing, UserPromptSubmit surfaces and
+    marks the job's notice, and the pending `ping` is not printed. The same
+    UserPromptSubmit without the markers surfaces both, so the difference is
+    the markers'.
     """
     import subprocess
     import uuid
@@ -325,15 +388,19 @@ def test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_o
             if not key.startswith(("SUBFLEET_", "CLAUDE"))}
     base.update(SUBFLEET_HOME=str(root), PYTHONPATH=str(REPO))
     inside = {**base, **turn_markers(root)}
+    printed = {}
     for event, extra in (("SessionStart", {"source": "resume"}),
                          ("UserPromptSubmit", {"prompt": "hello"})):
         body = {"session_id": session, "hook_event_name": event,
                 "transcript_path": str(root / "transcript.jsonl"), "cwd": str(root), **extra}
         result = _hook_process(event, body, inside)
         assert result.returncode == 0, result.stderr
-        assert "surface me" in result.stdout and "a nudge for a person" not in result.stdout
-    assert set(server.ops()) == {"notice.pending", "notice.mark"}
-    assert marked == [[1], [1]]
+        printed[event] = result.stdout
+    assert printed["SessionStart"] == ""
+    assert "surface me" in printed["UserPromptSubmit"]
+    assert "a nudge for a person" not in printed["UserPromptSubmit"]
+    assert server.ops() == ["notice.pending", "notice.mark"]
+    assert marked == [[1]]
     table = subprocess.run(["/bin/ps", "-axww", "-o", "command="], capture_output=True,
                            text=True, timeout=30).stdout
     assert session not in table, "a sessions-kit worker was spawned for the turn"

@@ -27,15 +27,30 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   `claude -p` Subfleet starts once per message, with source `startup` under
   `--session-id` and `resume` under `--resume`. So there:
 
-  - `SessionStart` hands no wake to the sessions kit, which would otherwise
-    treat every turn as a restart that cut the conversation's session off;
-  - both events surface, and mark, only notices that name a job (C-15.1).
-    A job an agent in turn 1 dispatched with `subfleet run` carries the
-    conversation's session as `caller_session` (`cli.session_id` reads
-    `CLAUDE_CODE_SESSION_ID`), and when it ends after the turn does, this is
-    the layer that delivers it: layer 2 asks only for jobs still running
-    (`_candidates`), and a turn's process is stopped once it outlives its
-    result by `conversations.runner.AFTER_RESULT_S` (C-26.5).
+  - `SessionStart` does nothing at all: it hands no wake to the sessions
+    kit, which would otherwise treat every turn as a restart that cut the
+    conversation's session off, and it surfaces and marks no notice. It can
+    run before the turn has sent its message: the fake runs it before reading
+    stdin, and the 2026-09-24 review's probe of Claude Code 2.1.280 saw its
+    `hook_response` before the `initialize` response, while a Claude turn
+    writes its user frame only after `initialize` passes
+    (`ClaudeTurn._control_response`). A turn that ends before then
+    (`provider-init-failed`, `identity`, `fast-unavailable`, ...) delivered
+    nothing, and its message may be admitted again as a new process
+    (`ConversationService._on_outcome`: `NOT_DELIVERED` without
+    `user_frame_written`, `READMIT`). A notice marked `surfaced` there is
+    never returned by `notice.pending` again, so the retried turn could not
+    show it;
+  - `UserPromptSubmit` surfaces, and marks, only notices that name a job
+    (C-15.1). Its hook JSON carries the prompt (live-probes record), so it
+    runs once the CLI has read the user frame, and a message whose user frame
+    was written is settled, never admitted again. A job an agent in turn 1
+    dispatched with `subfleet run` carries the conversation's session as
+    `caller_session` (`cli.session_id` reads `CLAUDE_CODE_SESSION_ID`), and
+    when it ends after the turn does, this is the layer that delivers it:
+    layer 2 asks only for jobs still running (`_candidates`), and a turn's
+    process is stopped once it outlives its result by
+    `conversations.runner.AFTER_RESULT_S` (C-26.5).
     A notice that names no job — a `ping`, a sessions-kit nudge, a timer
     alert (the daemon's `service_notices`, returned with `job_id` None), or an
     imported v1 continuation — is left pending and unprinted: it is addressed
@@ -405,18 +420,24 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
     on UserPromptSubmit erases the user's prompt, so nothing this hook can go
     wrong with is worth either outcome (`docs/reference/claude-hooks.md` §3).
 
-    Inside a process Subfleet launched (C-26.13) there is no wake, and only
-    notices that name a job are surfaced and marked; the rest stay pending.
-    That session is a conversation's or a lane's: the kit may not nudge it, and
-    a `ping` or a nudge is not for a turn's prompt, but the completion of a job
-    the session itself dispatched is exactly what its next turn needs.
+    Inside a process Subfleet launched (C-26.13) `SessionStart` does nothing,
+    and `UserPromptSubmit` surfaces and marks only notices that name a job; the
+    rest stay pending. That session is a conversation's or a lane's: the kit
+    may not nudge it, and a `ping` or a nudge is not for a turn's prompt, but
+    the completion of a job the session itself dispatched is exactly what its
+    next turn needs. It is surfaced by `UserPromptSubmit` alone because
+    `SessionStart` runs before the turn has sent its message, and a turn that
+    ends then is admitted again with the notice already marked (module
+    docstring).
     """
     launched = launched_by_subfleet(env)
     stdout = sys.stdout if stdout is None else stdout
     session = payload_session(payload)
     if not session:
         return int(Exit.OK)
-    if event == "SessionStart" and not launched:
+    if launched and event == "SessionStart":
+        return int(Exit.OK)
+    if event == "SessionStart":
         try:
             wake_worker(session, payload, root)
         except Exception:                               # noqa: BLE001 - see below

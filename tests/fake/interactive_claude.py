@@ -38,6 +38,13 @@ Environment:
                               records the harness exporting to every Bash tool
                               process. Logged to SUBFLEET_FAKE_TURN_LOG with its
                               rc, stdout and stderr.
+    SUBFLEET_FAKE_INIT_ERROR_ONCE
+                              a path: while that file exists, the next process
+                              to be asked `initialize` deletes it and answers
+                              with an error, so exactly one turn ends
+                              `provider-init-failed` before its message is sent
+                              (after its SessionStart hook ran) and the message
+                              is admitted again. Logged as `init_error`.
     SUBFLEET_FAKE_HOOK_COMMAND
                               run this command as a SessionStart hook at startup
                               and a UserPromptSubmit hook for each message, as
@@ -224,6 +231,18 @@ class Fake:
             self.emit({"type": "control_response", "response": {
                 "subtype": "error", "request_id": row.get("request_id"), "error": f"fake: no {subtype}"}})
             return
+        once = os.environ.get("SUBFLEET_FAKE_INIT_ERROR_ONCE")
+        if once:
+            try:
+                os.unlink(once)
+            except FileNotFoundError:
+                pass
+            else:
+                self.log({"init_error": True, "pid": os.getpid()})
+                self.emit({"type": "control_response", "response": {
+                    "subtype": "error", "request_id": row.get("request_id"),
+                    "error": "fake: initialize failed once"}})
+                return
         fast = os.environ.get("SUBFLEET_FAKE_FAST", "on")
         self.emit({"type": "control_response", "response": {
             "subtype": "success", "request_id": row.get("request_id"), "response": {

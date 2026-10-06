@@ -219,15 +219,11 @@ def dispatching(e2e):
     return Conversations(e2e)
 
 
-def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispatching):
-    """C-26.13 with C-15.1, C-15.2 and C-15.3: a detached job an agent in turn 1
-    dispatched carries the conversation's session as its caller, so its
-    completion notice is that session's. Turn 1's hooks ran before it existed,
-    and nothing between turns delivers it, so it is still `pending` when turn 2
-    starts; turn 2's `SessionStart` surfaces it once and marks it `surfaced`.
-    A `ping` left for the same session is surfaced by neither hook and stays
-    `pending`."""
-    conv = dispatching
+def dispatched_and_finished(conv) -> tuple[str, str, str, str]:
+    """Turn 1 runs `subfleet run` as its Bash tool; the job it dispatched then
+    finishes after the turn, leaving a `pending` notice for the conversation's
+    session that turn 1's hooks never saw. Returns (conversation, message,
+    session, job)."""
     e2e = conv.e2e
     cid = conv.create()
     first = conv.submit(cid, "send this out for review [fake:bash]")
@@ -244,6 +240,20 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
                        timeout=30)
     assert (notice["session_id"], notice["state"]) == (session, "pending")
     assert all(row["stdout"] == "" for row in conv.turn_log() if "hook" in row)
+    return cid, first, session, job_id
+
+
+def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispatching):
+    """C-26.13 with C-15.1, C-15.2 and C-15.3: a detached job an agent in turn 1
+    dispatched carries the conversation's session as its caller, so its
+    completion notice is that session's. Turn 1's hooks ran before it existed,
+    and nothing between turns delivers it, so it is still `pending` when turn 2
+    starts; turn 2's `SessionStart` says nothing, and its `UserPromptSubmit`
+    surfaces it once and marks it `surfaced`. A `ping` left for the same
+    session is surfaced by neither hook and stays `pending`."""
+    conv = dispatching
+    e2e = conv.e2e
+    cid, first, session, job_id = dispatched_and_finished(conv)
     pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
     assert pinged["notice_id"] is not None
 
@@ -255,14 +265,57 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
     started, prompted = hooks_ran[2], hooks_ran[3]
     assert started["rc"] == 0 and prompted["rc"] == 0
-    context = json.loads(started["stdout"])["hookSpecificOutput"]["additionalContext"]
+    assert started["stdout"] == "", "SessionStart inside a turn surfaces nothing"
+    context = json.loads(prompted["stdout"])["hookSpecificOutput"]["additionalContext"]
     assert "1 detached run dispatched by this session" in context and job_id in context
-    assert prompted["stdout"] == "", "surfaced once, by the first hook of the turn"
-    assert "resume nudge" not in started["stdout"] + prompted["stdout"]
+    assert "resume nudge" not in prompted["stdout"]
     assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
-        {"state": "surfaced", "transport": "hook:SessionStart"}]
+        {"state": "surfaced", "transport": "hook:UserPromptSubmit"}]
     assert [row["state"] for row in e2e.rows(
         "SELECT state FROM service_notices WHERE session_id=?", (session,))] == ["pending"]
+
+
+def test_a_notice_reaches_the_turn_readmitted_after_an_unsent_attempt(e2e):
+    """C-26.13 with C-15.2 and C-15.3, the readmitted turn: turn 2's first
+    process runs `SessionStart`, then its `initialize` fails, so it ends
+    `provider-init-failed` before its message is sent and the same message is
+    admitted again (`READMIT`). The job's notice that was pending when that
+    first process started is surfaced by the second process's
+    `UserPromptSubmit` and marked there. When `SessionStart` surfaced and
+    marked notices inside a turn, the first process used it up and the model
+    never saw it."""
+    once = e2e.root / "init-error-once"
+    e2e.env["SUBFLEET_FAKE_TURN_LOG"] = str(e2e.root / "turns.jsonl")
+    e2e.env["SUBFLEET_FAKE_HOOK_COMMAND"] = f"{sys.executable} -m subfleet hook"
+    e2e.env["SUBFLEET_FAKE_BASH_COMMAND"] = shlex.join(
+        [sys.executable, "-m", "subfleet.cli", *e2e.run_args("astra", "--name", "from-a-turn")])
+    e2e.env["SUBFLEET_FAKE_INIT_ERROR_ONCE"] = str(once)
+    e2e.start()
+    conv = Conversations(e2e)
+    cid, first, session, job_id = dispatched_and_finished(conv)
+
+    once.write_text("fail the next initialize\n", encoding="utf-8")
+    second = conv.submit(cid, "what came back?", after_message_id=first)
+    assert conv.until_state(second, "complete", "failed", "delivery-unknown", timeout=90)["state"] == "complete"
+    assert not once.exists()
+    turns = e2e.rows("SELECT j.request_id, j.state FROM jobs j WHERE j.request_id LIKE ? "
+                     "ORDER BY j.created_at", (f"turn:{second}:%",))
+    assert [row["request_id"] for row in turns] == [f"turn:{second}:0", f"turn:{second}:1"], turns
+    assert [row["state"] for row in turns] == ["failed", "succeeded"], turns
+    log = conv.turn_log()
+    unready = next(row["pid"] for row in log if row.get("init_error"))
+    hooks_ran = [row for row in log if "hook" in row]
+    assert [(row["hook"], row["source"], row["pid"] == unready) for row in hooks_ran[2:]] == [
+        ("SessionStart", "resume", True),
+        ("SessionStart", "resume", False), ("UserPromptSubmit", None, False)], hooks_ran
+    assert all(row["rc"] == 0 for row in hooks_ran)
+    assert [row["stdout"] for row in hooks_ran[2:4]] == ["", ""]
+    context = json.loads(hooks_ran[4]["stdout"])["hookSpecificOutput"]["additionalContext"]
+    assert "1 detached run dispatched by this session" in context and job_id in context
+    assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
+        {"state": "surfaced", "transport": "hook:UserPromptSubmit"}]
+    sent = [row["uuid"] for row in conv.stdin_rows() if row.get("type") == "user"]
+    assert sent == [first, second], "the unready process was never sent the message"
 
 
 def test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit(conv):
