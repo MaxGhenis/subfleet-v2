@@ -5,10 +5,17 @@ import Foundation
 struct NewConversationDraft: Codable, Equatable {
     var text = ""
     var attachments: [StagedAttachment] = []
-    /// nil means the person explicitly chose No folder.
+    /// nil chooses a scratch workspace, whose directory is created only at Start.
     var workspace: String?
     var provider = "claude"
+    /// Missing in older saved drafts: their provider remains an explicit pick.
+    var providerChoice: String? = "auto"
     var settings = ConversationSettings(model: "")
+    var scratchWorkspace: String?
+    var workspaceCheck: WorkspaceCheckResult?
+    var checkedWorkspace: String?
+    var checkedPermission: String?
+    var checkedProvider: String?
     var confirmWiden = false
     var isPresented = false
     var focusRevision = 0
@@ -29,11 +36,40 @@ struct NewConversationDraft: Codable, Equatable {
             && (!PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: settings.permission) || confirmWiden)
     }
 
+    var resolvedWorkspace: String? { workspace ?? scratchWorkspace }
+
+    var canStart: Bool {
+        canSend && workspaceCheck?.ok == true && resolvedWorkspace == checkedWorkspace
+            && settings.permission == checkedPermission && provider == checkedProvider
+    }
+
+    var startResolution: String {
+        "\(provider == "codex" ? "Codex" : "Claude") · \(settings.model.isEmpty ? "Loading model…" : settings.model)"
+    }
+
+    mutating func invalidateWorkspaceCheck() {
+        workspaceCheck = nil
+        checkedWorkspace = nil
+        checkedPermission = nil
+        checkedProvider = nil
+    }
+
+    mutating func applyWorkspaceCheck(_ result: WorkspaceCheckResult, workspace: String, provider: String, permission: String) {
+        guard workspace == resolvedWorkspace, provider == self.provider, permission == settings.permission else { return }
+        workspaceCheck = result
+        checkedWorkspace = workspace
+        checkedPermission = permission
+        checkedProvider = provider
+    }
+
     /// Refresh choices as catalogs arrive or the provider/model changes.
-    mutating func reconcile(models: [ModelEntry], capabilities: Capabilities?) {
+    mutating func reconcile(models: [ModelEntry], capabilities: Capabilities?, defaultModel: String? = nil,
+                            rememberedModel: String? = nil) {
         let options = makeComposerOptions(provider: provider, settings: settings, models: models, capabilities: capabilities)
-        if !options.models.contains(where: { $0.value == settings.model }), let first = options.models.first {
-            settings.model = first.value
+        if !options.models.contains(where: { $0.value == settings.model }) {
+            let preferred = [rememberedModel, defaultModel].compactMap { $0 }
+                .first { pick in options.models.contains { $0.value == pick } }
+            settings.model = preferred ?? options.models.first?.value ?? settings.model
         }
         let selected = makeComposerOptions(provider: provider, settings: settings, models: models, capabilities: capabilities)
         if let effort = settings.effort, selected.effortsObserved, !selected.efforts.contains(effort) {
@@ -56,5 +92,6 @@ struct NewConversationDraft: Codable, Equatable {
     mutating func restore() {
         isSubmitting = false
         isPresented = false
+        invalidateWorkspaceCheck()
     }
 }

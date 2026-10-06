@@ -20,21 +20,35 @@ struct NewConversationDraftView: View {
             Text("What would you like to work on?").foregroundStyle(.secondary)
             HStack {
                 Menu {
-                    Button("No folder") { model.newDraft.workspace = nil }
+                    Button("Use a new scratch folder", action: model.useNewScratchFolder)
                     ForEach(model.recentWorkspaces(), id: \.self) { path in
                         Button(abbreviatedPath(path)) { model.newDraft.workspace = path }
                     }
                     Divider()
                     Button("Choose folder…", action: chooseFolder)
                 } label: {
-                    Label(model.newDraft.workspace.map { abbreviatedPath($0) } ?? "No folder", systemImage: "folder")
+                    Label(model.newDraft.workspace.map { abbreviatedPath($0) } ?? "New scratch folder", systemImage: "folder")
                         .lineLimit(1)
                 }.help("Folder for the new conversation")
                 Spacer()
-                Picker("Provider", selection: $model.newDraft.provider) {
+                Picker("Provider", selection: Binding(get: { model.newDraft.providerChoice ?? model.newDraft.provider },
+                                                       set: model.selectNewDraftProvider)) {
+                    Text("Auto").tag("auto")
                     Text("Claude").tag("claude")
                     Text("Codex").tag("codex")
-                }.pickerStyle(.segmented).frame(width: 180)
+                }.pickerStyle(.segmented).frame(width: 225)
+            }
+            if let check = model.newDraft.workspaceCheck, !check.ok {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(check.reason ?? "This folder cannot be used.").foregroundStyle(.red)
+                    if let fix = check.fix { Text(fix).foregroundStyle(.secondary) }
+                    Button("Use a new scratch folder", action: model.useNewScratchFolder)
+                }.font(.callout)
+            } else if model.newDraft.workspaceCheck == nil {
+                Text("Checking folder…").font(.caption).foregroundStyle(.secondary)
+            } else if model.newDraft.workspace == nil, let scratch = model.newDraft.scratchWorkspace {
+                Text("Created when you start: \(abbreviatedPath(scratch))")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if !model.newDraft.attachments.isEmpty {
                 HStack {
@@ -87,29 +101,33 @@ struct NewConversationDraftView: View {
                     .font(.callout)
             }
             HStack {
-                Text("Return to send · Shift-Return for a new line").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.newDraft.startResolution)
+                    Text("Return to start · Shift-Return for a new line")
+                }.font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Send and stay here") { model.sendNewDraft(stayHere: true) }
+                Button("Start and stay here") { model.sendNewDraft(stayHere: true) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!model.newDraft.canSend)
+                    .disabled(!model.newDraft.canStart)
                 Button { model.sendNewDraft(stayHere: false) } label: {
-                    Label("Send", systemImage: "arrow.up.circle.fill")
-                }.buttonStyle(.borderedProminent).disabled(!model.newDraft.canSend)
+                    Label("Start", systemImage: "arrow.up.circle.fill")
+                }.buttonStyle(.borderedProminent).disabled(!model.newDraft.canStart)
             }
             Spacer(minLength: 20)
         }
         .padding(28)
         .frame(maxWidth: 900, maxHeight: .infinity)
         .frame(maxWidth: .infinity)
-        .onAppear { model.reconcileNewDraft() }
+        .onAppear { model.reconcileNewDraft(); model.validateNewDraftWorkspace(selectDefault: true) }
         .onChange(of: model.newDraft.provider) { _, _ in
-            model.newDraft.settings.model = UserDefaults.standard.string(forKey: "lastModel.\(model.newDraft.provider)") ?? ""
-            model.newDraft.settings.effort = nil
-            model.newDraft.confirmWiden = false
-            model.reconcileNewDraft()
+            model.validateNewDraftWorkspace()
         }
+        .onChange(of: model.newDraft.workspace) { _, _ in model.validateNewDraftWorkspace() }
         .onChange(of: model.newDraft.settings.model) { _, _ in model.reconcileNewDraft() }
-        .onChange(of: model.newDraft.settings.permission) { _, _ in model.newDraft.confirmWiden = false }
+        .onChange(of: model.newDraft.settings.permission) { _, _ in
+            model.newDraft.confirmWiden = false
+            model.validateNewDraftWorkspace()
+        }
         .onChange(of: model.state.models) { _, _ in model.reconcileNewDraft() }
         .onChange(of: model.state.availability) { _, _ in model.reconcileNewDraft() }
     }

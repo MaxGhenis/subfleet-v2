@@ -130,10 +130,11 @@ func dispatchableLanes(_ snapshot: Snapshot) -> [String: Int] {
     return counts
 }
 
-/// Auto's pick: the provider with more lanes ready, Claude on a tie or when
-/// nothing is known.
+/// Claude is the default when a lane is ready or readiness is unknown. A
+/// known absence of ready Claude lanes is the only reason to choose Codex.
 func autoProvider(_ counts: [String: Int]) -> String {
-    (counts["codex"] ?? 0) > (counts["claude"] ?? 0) ? "codex" : "claude"
+    guard let claude = counts["claude"] else { return "claude" }
+    return claude > 0 ? "claude" : "codex"
 }
 
 // C-17.7, C-18.2: jobs submitted together by `run --batch` carry one label.

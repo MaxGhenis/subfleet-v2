@@ -86,6 +86,8 @@ enum TimelineContent: Equatable {
     case approval(ApprovalCard)
     case error(message: String, kind: String?, willRetry: Bool)
     case notice(String)
+    /// A whole Claude user transcript turn containing a background completion.
+    case taskNotification(TaskNotification)
     /// Where the provider took a steered message into this turn (`steer.delivered`).
     /// `Timeline.items` draws that message's bubble here instead, so it is never shown.
     case steered(messageID: String)
@@ -916,7 +918,7 @@ struct Timeline: Equatable {
     /// conversation's message ids (a Claude user row's uuid is the message id),
     /// and anything stamped at or after the conversation's first event. Such a
     /// user row gives its message the person's text.
-    mutating func apply(history page: HistoryPage) {
+    mutating func apply(history page: HistoryPage, provider: String = "claude") {
         historyPagesLoaded += 1
         historyBefore = page.next_before
         historyComplete = page.next_before == nil
@@ -938,7 +940,7 @@ struct Timeline: Equatable {
             perCursor[cursor] = index + 1
             let itemID = "history:\(cursor):\(index)"
             guard !history.contains(where: { $0.id == itemID }) else { continue }
-            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item), ts: item.ts))
+            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item, provider: provider), ts: item.ts))
         }
         history = older.reversed() + history
         historyAddedByLastPage = older.count
@@ -946,7 +948,7 @@ struct Timeline: Equatable {
 
     /// A history row drawn as the live row of its kind: a tool call with its
     /// result and outcome, a thought, an answer; the person's words as a bubble.
-    static func content(of item: HistoryItem) -> TimelineContent {
+    static func content(of item: HistoryItem, provider: String = "claude") -> TimelineContent {
         switch item.kind {
         case "tool":
             let state: ToolActivity.State = item.is_error == true ? .failed : item.preview != nil ? .succeeded : .unfinished
@@ -955,6 +957,9 @@ struct Timeline: Equatable {
         case "thinking":
             return .thinking(item.text, final: true)
         default:
+            if provider == "claude", item.role == "user", item.kind == "text", let notice = TaskNotification.parse(item.text) {
+                return .taskNotification(notice)
+            }
             return .history(role: item.role, text: item.text, tool: nil)
         }
     }

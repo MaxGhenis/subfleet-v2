@@ -25,12 +25,18 @@ final class UIModel: ObservableObject {
     @Published var problem: String?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
+    @Published private(set) var failedDrafts: [FailedConversationDraft] = []
+    @Published var selectedFailedDraftID: String?
+    /// The refused create being edited; retry preserves its queued message ids.
+    @Published var failedDraftKey: String?
     /// Each conversation's dispatched runs (its sub-agents), newest first.
     @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
     @Published var newDraft = NewConversationDraft() {
         didSet { saveNewDraft() }
     }
+    private var draftNeedsWorkspaceDefault = true
+    private var draftWorkspaceChecks = 0
     /// Sends that should open their conversation when the outbox receives it.
     private var draftDestinations: [String: Int] = [:]
     /// The Changes pane's subject while it is open (C-26.14).
@@ -81,12 +87,14 @@ final class UIModel: ObservableObject {
            var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
             saved.restore()
             newDraft = saved
+            draftNeedsWorkspaceDefault = false
         } else {
             let defaults = UserDefaults.standard
-            newDraft.workspace = defaults.string(forKey: "lastWorkspace")
-            let provider = defaults.string(forKey: "providerChoice") ?? "claude"
-            newDraft.provider = ["claude", "codex"].contains(provider) ? provider : "claude"
-            newDraft.settings.model = defaults.string(forKey: "lastModel.\(newDraft.provider)") ?? ""
+            // Folder history is only considered after daemon admission; older
+            // versions remembered home even when create had refused it.
+            defaults.removeObject(forKey: "lastWorkspace")
+            let provider = defaults.string(forKey: "providerChoice") ?? "auto"
+            newDraft.providerChoice = ["auto", "claude", "codex"].contains(provider) ? provider : "auto"
             newDraft.settings.permission = defaults.string(forKey: "lastPermission") ?? PermissionPolicy.ask.rawValue
         }
         for directory in [paths.support, paths.caches, paths.draftsDirectory, paths.attachmentsDirectory] {
@@ -95,6 +103,7 @@ final class UIModel: ObservableObject {
         do {
             let client = try DaemonClient.forCurrentEndpoint()
             engine = ConversationEngine(client: client, outbox: try Outbox(url: paths.outboxURL))
+            failedDrafts = engine?.outbox.failedDrafts ?? []
         } catch DaemonClientError.endpointRefused(let reason) {
             state.availability = .refused(reason)
         } catch {
@@ -259,6 +268,8 @@ final class UIModel: ObservableObject {
 
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
+        selectedFailedDraftID = nil
+        failedDraftKey = nil
         newDraft.leave()
         if !entry.continuable {
             // Opening one only fails (not-continuable): say what it is instead.
@@ -285,6 +296,8 @@ final class UIModel: ObservableObject {
     }
 
     func focus(_ conversationID: String) {
+        selectedFailedDraftID = nil
+        failedDraftKey = nil
         newDraft.leave()
         lockedEntry = nil
         guard state.focusedConversationID != conversationID else { return }
@@ -440,16 +453,95 @@ final class UIModel: ObservableObject {
     }
 
     func openNewDraft() {
+        selectedFailedDraftID = nil
+        failedDraftKey = nil
         navigation += 1
         lockedEntry = nil
         state.focus(nil)
         eventsGeneration += 1
         reconcileNewDraft()
         newDraft.open()
+        validateNewDraftWorkspace(selectDefault: true)
     }
 
     func reconcileNewDraft() {
-        newDraft.reconcile(models: state.models[newDraft.provider] ?? [], capabilities: state.availability.capabilities)
+        let provider = (newDraft.providerChoice ?? newDraft.provider) == "auto"
+            ? autoProvider(providerCapacity()) : (newDraft.providerChoice ?? newDraft.provider)
+        if provider != newDraft.provider {
+            newDraft.provider = provider
+            newDraft.settings.model = ""
+            newDraft.settings.effort = nil
+            newDraft.confirmWiden = false
+            newDraft.invalidateWorkspaceCheck()
+        }
+        newDraft.reconcile(models: state.models[provider] ?? [], capabilities: state.availability.capabilities,
+                           defaultModel: state.modelDefaults[provider],
+                           rememberedModel: UserDefaults.standard.string(forKey: "lastModel.\(provider)"))
+    }
+
+    func selectNewDraftProvider(_ choice: String) {
+        newDraft.providerChoice = choice
+        reconcileNewDraft()
+        validateNewDraftWorkspace()
+    }
+
+    func useNewScratchFolder() {
+        draftNeedsWorkspaceDefault = false
+        newDraft.workspace = nil
+        newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path
+        validateNewDraftWorkspace()
+    }
+
+    /// The check's generation and exact picks prevent a slow previous answer
+    /// from enabling Start after the person changes folder or permission.
+    func validateNewDraftWorkspace(selectDefault: Bool = false) {
+        guard let engine else { return }
+        newDraft.invalidateWorkspaceCheck()
+        draftWorkspaceChecks += 1
+        let generation = draftWorkspaceChecks
+        let provider = newDraft.provider
+        let permission = newDraft.settings.permission
+        let candidates = selectDefault && draftNeedsWorkspaceDefault ? recentWorkspaces() : []
+        let selectingDefault = selectDefault && draftNeedsWorkspaceDefault
+        Task {
+            do {
+                if selectingDefault {
+                    var accepted: (String, WorkspaceCheckResult)?
+                    for path in candidates {
+                        let result = try await onOutbox { try engine.checkWorkspace(path, provider: provider, permission: permission) }
+                        guard generation == draftWorkspaceChecks else { return }
+                        if result.ok { accepted = (path, result); break }
+                    }
+                    guard generation == draftWorkspaceChecks else { return }
+                    draftNeedsWorkspaceDefault = false
+                    if let (path, result) = accepted {
+                        newDraft.workspace = path
+                        newDraft.applyWorkspaceCheck(result, workspace: path, provider: provider, permission: permission)
+                        return
+                    }
+                    newDraft.workspace = nil
+                }
+                if newDraft.workspace == nil, newDraft.scratchWorkspace == nil {
+                    newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path
+                }
+                guard let selected = newDraft.resolvedWorkspace else { return }
+                // The scratch folder is not created until Start. Checking its
+                // existing parent applies the daemon's folder policy now; Start
+                // checks the new directory itself before journaling anything.
+                let checkPath = newDraft.workspace ?? paths.support.path
+                let result = try await onOutbox { try engine.checkWorkspace(checkPath, provider: provider, permission: permission) }
+                guard generation == draftWorkspaceChecks else { return }
+                newDraft.applyWorkspaceCheck(result, workspace: selected, provider: provider, permission: permission)
+                if !result.ok, UserDefaults.standard.string(forKey: "lastWorkspace") == newDraft.workspace {
+                    UserDefaults.standard.removeObject(forKey: "lastWorkspace")
+                }
+            } catch {
+                guard generation == draftWorkspaceChecks, let selected = newDraft.resolvedWorkspace else { return }
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(error)",
+                                                                   fix: "Try again when the daemon is available."),
+                                             workspace: selected, provider: provider, permission: permission)
+            }
+        }
     }
 
     private func saveNewDraft() {
@@ -458,31 +550,45 @@ final class UIModel: ObservableObject {
     }
 
     func sendNewDraft(stayHere: Bool) {
-        guard let engine, newDraft.canSend else { return }
+        guard let engine, newDraft.canStart, let workspace = newDraft.resolvedWorkspace else { return }
         let draft = newDraft
+        let recovering = failedDraftKey
         let token = navigation
-        let messageID = Outbox.newMessageID()
+        let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key ?? Outbox.newMessageID()
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
         Task {
             do {
                 try await onOutbox {
-                    let key = try engine.createConversation(provider: draft.provider, workspace: draft.workspace ?? "",
-                                                            settings: draft.settings, confirmWiden: draft.confirmWiden)
-                    _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
-                                        settings: draft.settings, messageID: messageID)
+                    if draft.workspace == nil { try ensurePrivateDirectory(URL(fileURLWithPath: workspace, isDirectory: true)) }
+                    let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission)
+                    guard check.ok else {
+                        throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
+                    }
+                    if let recovering {
+                        try engine.outbox.retryFailedCreate(recovering, args: ConversationCreateArgs(
+                            request_id: recovering, provider: draft.provider, workspace: workspace,
+                            settings: draft.settings, confirm_widen: draft.confirmWiden), text: draft.text, staged: draft.attachments)
+                    } else {
+                        let key = try engine.createConversation(provider: draft.provider, workspace: workspace,
+                                                                settings: draft.settings, confirmWiden: draft.confirmWiden)
+                        _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
+                                            settings: draft.settings, messageID: messageID)
+                    }
                 }
                 newDraft.journaled()
+                failedDraftKey = nil
                 let defaults = UserDefaults.standard
-                defaults.set(draft.workspace, forKey: "lastWorkspace")
-                defaults.set(draft.provider, forKey: "providerChoice")
+                defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
+                if draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
                 pump()
             } catch {
                 draftDestinations.removeValue(forKey: messageID)
                 newDraft.isSubmitting = false
                 report(error)
+                validateNewDraftWorkspace()
             }
         }
     }
@@ -584,14 +690,15 @@ final class UIModel: ObservableObject {
     func pump() {
         guard let engine, state.availability.isReady else { return }
         Task {
-            let (report, texts) = await onOutbox { () -> (OutboxSender.Report, [String: String]) in
+            let (report, texts, refusedDrafts) = await onOutbox { () -> (OutboxSender.Report, [String: String], [FailedConversationDraft]) in
                 let report = engine.pump()
                 var texts: [String: String] = [:]
                 for receipt in report.receipts {
                     if let text = engine.outbox.text(of: receipt.message_id) { texts[receipt.message_id] = text }
                 }
-                return (report, texts)
+                return (report, texts, engine.outbox.failedDrafts)
             }
+            failedDrafts = refusedDrafts
             guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty
                     || !report.steers.isEmpty else { return }
             for receipt in report.receipts {
@@ -610,7 +717,61 @@ final class UIModel: ObservableObject {
                     focus(id)
                 }
             }
-            if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
+            if !report.failed.isEmpty {
+                problem = refusedDrafts.isEmpty ? "\(report.failed.count) message(s) could not be sent; see the conversation"
+                    : "A conversation could not start. Review its saved draft."
+            }
+        }
+    }
+
+    // MARK: Refused conversations
+
+    var selectedFailedDraft: FailedConversationDraft? {
+        failedDrafts.first { $0.id == selectedFailedDraftID }
+    }
+
+    func selectFailedDraft(_ id: String? = nil) {
+        guard let draft = failedDrafts.first(where: { id == nil || $0.id == id }) else { return }
+        navigation += 1
+        newDraft.leave()
+        lockedEntry = nil
+        state.focus(nil)
+        eventsGeneration += 1
+        selectedFailedDraftID = draft.id
+    }
+
+    func changeFailedDraftFolder(_ draft: FailedConversationDraft) {
+        openNewDraft()
+        failedDraftKey = draft.id
+        selectedFailedDraftID = nil
+        newDraft.provider = draft.create.provider
+        newDraft.providerChoice = draft.create.provider
+        newDraft.workspace = draft.create.workspace
+        newDraft.text = draft.firstMessage?.text ?? ""
+        newDraft.attachments = draft.firstMessage?.staged ?? []
+        newDraft.settings = draft.create.settings
+        newDraft.confirmWiden = draft.create.confirm_widen ?? false
+        newDraft.workspaceCheck = nil
+        validateNewDraftWorkspace()
+    }
+
+    func copyFailedDraft(_ draft: FailedConversationDraft) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(draft.text, forType: .string)
+    }
+
+    func discardFailedDraft(_ id: String) {
+        guard let engine else { return }
+        Task {
+            do {
+                failedDrafts = try await onOutbox {
+                    try engine.outbox.discardFailedDraft(id)
+                    return engine.outbox.failedDrafts
+                }
+                if selectedFailedDraftID == id { selectedFailedDraftID = nil }
+                if failedDraftKey == id { failedDraftKey = nil; newDraft.leave() }
+                if failedDrafts.isEmpty { problem = nil }
+            } catch { report(error) }
         }
     }
 
