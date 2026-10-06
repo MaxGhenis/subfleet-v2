@@ -886,7 +886,7 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var id: String { approval_id }
 
     /// The provider's request id, under either name; nil only from a daemon older
-    /// than both, whose views the timeline joins by kind and display (C-27.5).
+    /// than both, whose views keep independent approval-id cards (C-27.1).
     var requestID: String? { request_id ?? provider_request_id }
 }
 

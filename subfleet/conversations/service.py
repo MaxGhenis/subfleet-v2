@@ -2168,25 +2168,32 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        # Serialized with the person's stop from the evidence read through the host's
-        # settlement, so an outcome cannot read the message before the stop and apply
-        # an unfinished block after it (C-24.7, C-24.8). The evidence is read outside
-        # the service lock: `reconcile.gather` may list the provider's projects and
-        # scan transcripts, and every poll, dispatch, adoption and op that takes the
-        # lock would wait behind it (steer review, finding 14). The service lock is
-        # held from the snapshot of the host's steers through the host's own
-        # settlement, so no steer is claimed for a host that is settling (C-24.9);
-        # once the driver has an outcome none can be anyway, as its runner is no
-        # longer steerable. Lock order as everywhere: stop, then handover, then
-        # _lock. The runner never takes message handover locks here.
-        with self._stop_lock(runner.message_id):
-            turn, settlement = self._settlement(runner)
-            with self._lock:
-                self._settle_outcome(runner, turn, settlement)
+        # Gather without either lock: provider transcript scans may take time, and
+        # the striped stop lock also belongs to unrelated Stops and steers. Then
+        # reread the person's stop while serialized with its recording and decide
+        # using only the cached evidence (C-24.7, C-24.8, steer review finding 14).
+        # The service lock covers the host's steer snapshot through settlement, so
+        # no claim lands between them (C-24.9). Lock order stays stop then _lock;
+        # the runner never takes message handover locks here.
+        turn, provider, used, gathered = self._settlement(runner)
 
-    def _settlement(self, runner: TurnRunner) -> tuple[dict, reconcile.Settlement]:
-        """A turn's outcome (`turn.json`) and what it settles its message as
-        (D-12, D-14, C-24.6, C-24.8, C-26.7). The decision is `reconcile.settle`'s."""
+        def evidence() -> reconcile.Evidence:
+            # The same immutable turn asks for evidence on both decisions, or on
+            # neither; a provider's terminal result needs no transcript scan.
+            assert gathered.evidence is not None
+            return gathered.evidence
+
+        with self._stop_lock(runner.message_id), self._lock:
+            message = self.store.message(runner.message_id)
+            settlement = reconcile.settle(
+                turn, provider=provider, turn_seq=used, gather=evidence,
+                person_stopped=bool(message.get("stop_requested_at")))
+            self._settle_outcome(runner, turn, settlement)
+
+    def _settlement(self, runner: TurnRunner) -> tuple[dict, str, int, reconcile.Settlement]:
+        """Gather a turn's settlement evidence without locking out Stops or steers.
+        The pure decision is made again with the fresh personal stop under the
+        locks, reusing this evidence (D-12, D-14, C-24.6, C-24.8, C-26.7)."""
         turn = read_turn(runner.adir) or {}
         message = self.store.message(runner.message_id)
         provider = self.store.conversation(runner.conversation_id)["provider"]
@@ -2196,9 +2203,8 @@ class ConversationService:
         used = self._provider_tries(message, besides=runner.attempt_id.rsplit("/", 1)[0])
         settlement = reconcile.settle(
             turn, provider=provider, turn_seq=used,
-            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
-            person_stopped=bool(message.get("stop_requested_at")))
-        return turn, settlement
+            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn))
+        return turn, provider, used, settlement
 
     def _settle_outcome(self, runner: TurnRunner, turn: dict, settlement: reconcile.Settlement) -> None:
         """Apply a settlement: the host's steers first, then the host (C-24.6, C-24.9)."""

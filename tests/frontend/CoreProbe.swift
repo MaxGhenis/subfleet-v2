@@ -139,7 +139,8 @@ func project(_ card: ApprovalCard) -> [String: Any] {
     case .withdrawn: state = "withdrawn"
     }
     return ["request_id": card.requestID as Any? ?? NSNull(), "approval_id": card.approvalID as Any? ?? NSNull(),
-            "kind": card.kind, "options": card.options, "state": state, "display": jsonObject(card.display),
+            "kind": card.kind, "options": card.options, "state": state, "actionable": card.isActionable,
+            "display": jsonObject(card.display),
             "shown": card.display.shownFields.map { [$0.key, $0.value] },
             "questions": card.questions.map { $0.question }]
 }
