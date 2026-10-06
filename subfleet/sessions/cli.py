@@ -425,6 +425,43 @@ def _sidebar_lines(gap: dict[str, Any]) -> list[str]:
     return [f"sidebar {status}: {gap.get('detail')}"]
 
 
+def _prune_lines(account: dict[str, Any] | None, *, dry_run: bool) -> list[str]:
+    """The scope rules' account of a pass (C-23.56), for people."""
+    if not account:
+        return []
+    rules = account["rules"]
+    folders = account["folders"]
+    lines = [
+        f"  folders: {folders.get('settled', 0)} settled, {folders.get('switch', 0)} switch "
+        f"({'not seeded' if rules['skip_switch_folders'] else 'seeded'}), "
+        f"{folders.get('unknown', 0)} unknown",
+        f"  home: {account.get('home_detail') or account.get('home') or 'none'}",
+        f"  loaded: {account.get('loaded') or 'unknown (nothing is removed)'}",
+        f"  sessions: " + ", ".join(f"{count} {kind}" for kind, count
+                                    in sorted(account.get("sessions", {}).items())),
+    ]
+    outside = account.get("outside") or {}
+    megabytes = account.get("removable_bytes", 0) / 1e6
+    lines.append(f"  copies: {account.get('copies', 0)} ({account.get('bytes', 0) / 1e6:.0f} MB), "
+                 f"{sum(outside.values())} outside their scope: "
+                 + (", ".join(f"{count} {reason}" for reason, count in sorted(outside.items()))
+                    or "none"))
+    removed = account.get("removed") or {}
+    if dry_run:
+        lines.append(f"  would remove {account.get('removable', 0)} "
+                     f"({megabytes:.0f} MB)"
+                     + ("" if rules["prune"] else "; removal is off (sessions.mirror_prune, "
+                        "or --prune for one pass)"))
+    elif removed:
+        lines.append("  removed: " + ", ".join(f"{count} {reason}"
+                                               for reason, count in sorted(removed.items())))
+    held = account.get("held") or {}
+    if held:
+        lines.append("  kept: " + ", ".join(f"{count} ({reason})"
+                                            for reason, count in sorted(held.items())))
+    return lines
+
+
 def cmd_mirror(args: argparse.Namespace) -> int:
     """One sidebar pass, or the sidecar's health. Never calls a provider."""
     cli = _cli()
@@ -446,7 +483,9 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     options = mirror_module.options_from(
         policy,
         dry_run=bool(getattr(args, "dry_run", False)),
-        prune=bool(getattr(args, "prune", False)),
+        # `--prune` turns removal on for this pass; without it the policy's
+        # `sessions.mirror_prune` decides (C-23.56).
+        prune=True if getattr(args, "prune", False) else None,
         dead_home=getattr(args, "dead_home", None),
         exclude=tuple(getattr(args, "exclude", None) or ()),
         flag_sync=not bool(getattr(args, "no_flag_sync", False)),
@@ -466,6 +505,8 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     verb = "Would " if options.dry_run else ""
     out(f"{verb}mirror across {result.accounts} account folders, "
         f"{result.sessions} openable sessions: {result.summary}")
+    for line in _prune_lines(result.prune, dry_run=options.dry_run):
+        out(line)
     if result.error:
         note(f"subfleet sessions mirror: {result.error}")
     if (result.added or result.repaired) and not options.dry_run:
@@ -669,9 +710,11 @@ def add_verbs(sub, *, nested: bool = True) -> None:
     p_mirror.add_argument("--dry-run", action="store_true",
                           help="report what a pass would change; change nothing")
     p_mirror.add_argument("--prune", action="store_true",
-                          help="also remove dead-session copies outside --dead-home")
-    p_mirror.add_argument("--dead-home", metavar="ORG",
-                          help="org folder to keep dead sessions in")
+                          help="remove copies outside their session's scope this pass "
+                               "(C-23.56; default: sessions.mirror_prune)")
+    p_mirror.add_argument("--dead-home", metavar="FOLDER",
+                          help="home of old archived and dead sessions: <account>/<org>, "
+                               "or an org id")
     p_mirror.add_argument("--exclude", action="append", default=[], metavar="UUID")
     p_mirror.add_argument("--no-restore", action="store_true",
                           help="skip reviving dead sessions from --archive")

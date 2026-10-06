@@ -57,6 +57,13 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,
+    # C-23.56: where a session belongs (`sessions/prune.py`). The three rules
+    # only narrow where the mirror spreads; `mirror_prune` also removes copies
+    # outside a session's scope, and stays off until the operator turns it on.
+    "mirror_skip_switch_folders": True,
+    "mirror_archive_days": 14,
+    "mirror_dead_days": 7,
+    "mirror_prune": False,
 }
 
 
