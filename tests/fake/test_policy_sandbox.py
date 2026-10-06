@@ -194,6 +194,65 @@ def test_a_resume_starts_where_its_source_started(state_daemon):
     assert daemon._launch_dir(job, "codex") == job["workdir"]
 
 
+
+def test_a_resume_starts_where_its_source_started_under_a_state_root_typed_in_other_capitals(tmp_path, monkeypatch):
+    """Review B-2 under a state root given in a case its volume does not store (review of
+    c7595627, P3). The source's `jobs.worktree` is spelled from the root as given; the
+    resume's workdir is recorded in its one spelling (`folders.canonical`). `_launch_dir`
+    compared their `realpath`s, which keep case, so it started the resume at the
+    worktree's top instead of `<worktree>/pkg`, where its Claude session was made. It
+    compares the one spellings now. Failed with the `realpath` comparison put back."""
+    import json
+    from subfleet import daemon as daemon_module, folders
+    from subfleet.adapters.registry import register
+    from subfleet.daemon import Daemon
+    from subfleet.procs import Containment
+    from tests.fake.conftest import Harness
+    from tests.fake.test_state_contract import receipt_fixture
+    from tests.fake_adapter import FakeAdapter
+    (tmp_path / "MixedCaseParent").mkdir()
+    parent = tmp_path / "MIXEDCASEPARENT"
+    if not parent.is_dir():
+        pytest.skip("the volume tells case apart")
+    state = parent / "state"
+    state.mkdir()
+    harness = Harness(state)
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
+    register("codex", FakeAdapter)
+    daemon = Daemon(harness.root)
+
+    def refuse_real_launch(*args):
+        raise AssertionError("state-only fixtures must never launch a guardian")
+
+    monkeypatch.setattr(daemon, "_launch", refuse_real_launch)
+    try:
+        workdir = committed_package(daemon, harness)
+        source = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(workdir / "pkg"),
+                                                               no_preamble=True))["job_id"]
+        daemon._admit()
+        attempt, = daemon.store.list_attempts(source)
+        daemon._pending_launches.discard(attempt["attempt_id"])
+        daemon.store.update_attempt(attempt["attempt_id"], native_session_id="source-session")
+        adir = daemon.root / "jobs" / source / "a1"
+        adir.mkdir()
+        daemon._finalize(receipt_fixture(daemon, attempt, adir))
+        worktree = daemon.store.get_job(source)["worktree"]
+        assert "MIXEDCASEPARENT" in worktree        # the root's spelling, as given
+        resumed = daemon.dispatch("submit", harness.submit_args(kind="resume", parent_job_id=source,
+                                                                sandbox="workspace-write"))["job_id"]
+        manifest = json.loads((daemon.root / "jobs" / resumed / "manifest.json").read_text())
+        assert manifest["workspace"] == {"worktree": worktree, "prefix": "pkg"}
+        job = daemon.store.get_job(resumed)
+        assert job["workdir"] == folders.canonical(worktree) != worktree
+        place = daemon._launch_dir(job, "claude")
+        assert folders.canonical(place) == folders.canonical(Path(worktree) / "pkg"), place
+        assert daemon._launch_dir(job, "codex") == job["workdir"]
+    finally:
+        daemon.close()
+
 def test_a_writers_refusal_says_the_policy_made_it_write_and_others_do_not(state_daemon, monkeypatch):
     """Review of d261, finding 5: a policy-made writer refused as a second instance
     of a session hears that its task writes by policy and that `-s read-only` runs it
