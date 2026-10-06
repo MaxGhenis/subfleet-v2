@@ -37,7 +37,8 @@ def reference_weekly_details(rows, now, ttl, admission):
             if pair not in newest or _time(newest[pair]["observed_at"]) < _time(row["observed_at"]):
                 newest[pair] = row
     renewed = any(_time(row["resets_at"]) <= now or _time(row["resets_at"]) <= _time(row["observed_at"])
-                  for row in newest.values() if row.get("resets_at"))
+                  for row in newest.values() if row.get("resets_at")
+                  and 0 <= (now - _time(row["observed_at"])).total_seconds() <= ttl)
     current = [row for row in newest.values()
                if not renewed and fresh_provider(row, now=now, reading_ttl_s=ttl)]
     weekly_rows = [row for row in current if row["window"] == "seven_day"]
@@ -53,7 +54,8 @@ def reference_weekly_details(rows, now, ttl, admission):
                       for row in current if row["window"] == "five_hour")
     classes = {(False, False): "clear", (False, True): "five-hour",
                (True, False): "weekly", (True, True): "weekly+five-hour"}
-    oldest = min((_time(row["observed_at"]) for row in (current or list(newest.values()))), default=None)
+    recent = [row for row in newest.values() if 0 <= (now - _time(row["observed_at"])).total_seconds() <= ttl]
+    oldest = min((_time(row["observed_at"]) for row in (current or recent or list(newest.values()))), default=None)
     return {"measured": bool(current), "weekly_headroom": weekly_room, "five_hour_headroom": primary_room,
             "seven_day_reset": _iso(_time(binding["resets_at"])) if binding and binding.get("resets_at") else None,
             "weekly_scope": binding["scope"] if binding else None,
@@ -187,8 +189,9 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             measured_readings = [row for row in lane_readings
                                  if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
             headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
-            detail = {**reference_weekly_details(lane_readings, now, caps["reading_ttl_s"],
-                                                policy.get("admission") or {}),
+            weekly = reference_weekly_details(lane_readings, now, caps["reading_ttl_s"],
+                                              policy.get("admission") or {})
+            detail = {**weekly, "ranking_measured": weekly["measured"], "measured": bool(measured_readings),
                       "headroom": headroom, "in_flight": in_flight.get(identity, 0)}
             detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
             if model["provider"] == "claude":
@@ -285,7 +288,7 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             # above, but its slack no longer ranks candidates.
             band = 0 if spread is None else row["in_flight"] // int(spread)
             prefix = (band, not bool(row.get("stranded_scopes"))) if model["provider"] == "claude" else (band,)
-            return (*prefix, not row["measured"], row["weekly_reserve"], row["five_hour_reserve"],
+            return (*prefix, not row["ranking_measured"], row["weekly_reserve"], row["five_hour_reserve"],
                     row["seven_day_reset"] or "9999", -(row["weekly_headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)

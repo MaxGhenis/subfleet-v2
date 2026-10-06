@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import fresh_provider
-from .policy import resolve_model
-from .scheduler import _earliest_reset, evaluate, prepare, rank_key, ranking_reading_age
+from .policy import admission_settings, resolve_model
+from .scheduler import _earliest_reset, evaluate, prepare, rank_key, ranking_usage, ranking_reading_age
 
 
 def _email(lane: dict) -> str | None:
@@ -130,29 +130,29 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
         # With no exact model the recommendation must qualify for all models.
         # Summarize the least remaining weekly window, keeping its own reset;
         # retain each model's detail so the scoped explanation stays inspectable.
-        binding = min(details[identity], key=lambda detail: (
-            detail["weekly_headroom"] if detail["weekly_headroom"] is not None else float("inf"),
-            detail["seven_day_reset"] or "9999", detail["weekly_scope"] or ""))
-        weekly_low = any(detail["weekly_reserve"] for detail in details[identity])
-        five_low = any(detail["five_hour_reserve"] for detail in details[identity])
-        five_heads = [detail["five_hour_headroom"] for detail in details[identity]
-                      if detail["five_hour_headroom"] is not None]
+        applicable = [reading for reading in view.get("readings", [])
+                      if reading["lane_id"] == identity and reading["scope"] in
+                      ("account", *[policy["models"][name]["id"] for name in models])]
+        binding = ranking_usage(applicable, now=now, reading_ttl_s=ttl,
+                                admission=admission_settings(policy))
+        weekly_low, five_low = binding["weekly_reserve"], binding["five_hour_reserve"]
         row.update(five_hour_used_percent=utilization("five_hour"),
                    weekly_used_percent=utilization("seven_day"),
                    weekly_reset_at=binding["seven_day_reset"],
                    weekly_headroom=binding["weekly_headroom"], weekly_scope=binding["weekly_scope"],
-                   five_hour_headroom=min(five_heads, default=None),
+                   five_hour_headroom=binding["five_hour_headroom"],
                    weekly_reserve=weekly_low, five_hour_reserve=five_low,
-                   reserve_class=("weekly+five-hour" if weekly_low and five_low else
-                                  "weekly" if weekly_low else "five-hour" if five_low else "clear"),
-                   reading_age_s=max((age for detail in details[identity]
-                                      if (age := ranking_reading_age(detail, now)) is not None), default=None),
+                   reserve_class=binding["reserve_class"],
+                   measured=True, ranking_measured=binding["measured"],
+                   reading_renewed=binding["reading_renewed"],
+                   headroom=min(detail["headroom"] for detail in details[identity]),
+                   reading_age_s=ranking_reading_age(binding, now),
                    model_details=dict(zip(models, details[identity])), stale=False,
                    in_flight=0, protected=False, as_of=timestamp)
         # The unknown-model recommendation binds across every model it must
         # qualify for. Rank that same evidence, rather than the first model's
         # account window while displaying a different scoped weekly reset.
-        ranking_details[identity] = {**details[identity][0],
+        ranking_details[identity] = {**details[identity][0], "ranking_measured": binding["measured"],
             "weekly_headroom": row["weekly_headroom"], "seven_day_reset": row["weekly_reset_at"],
             "weekly_reserve": weekly_low, "five_hour_reserve": five_low}
         ranked.append(row)

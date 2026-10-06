@@ -129,10 +129,10 @@ def test_unknown_model_picker_ranks_the_same_binding_evidence_it_displays(policy
     assert [row["reserve_class"] for row in result["ranked"]] == ["clear", "weekly"]
 
 
-def test_picker_requires_a_reread_after_an_applicable_window_renews(policy):
-    """A fresh weekly observation cannot hide a primary window already reset."""
+def test_picker_keeps_admission_freshness_after_an_applicable_window_renews(policy):
+    """Renewal uncertainty is a ranking preference, not a pick exclusion."""
     data = view(readings=[reading(), reading(used=.9, window="five_hour", resets_at=NOW)])
-    assert "fresh-usage-required" in picker.rank(policy, data)["excluded"][0]["reasons"]
+    assert [row["lane_id"] for row in picker.rank(policy, data)["ranked"]] == ["codex-1"]
 
 
 @pytest.mark.parametrize("changes,reason", [

@@ -328,6 +328,6 @@ def test_renewed_window_is_unmeasured_without_inventing_a_new_reading(provider, 
     before = copy.deepcopy(case[1]["readings"])
     result = evaluate(*case).evaluations[0]
     assert result["candidates"] == [f"{provider}-1", f"{provider}-0"]
-    assert result["candidate_details"][f"{provider}-0"]["measured"] is False
+    assert result["candidate_details"][f"{provider}-0"]["ranking_measured"] is False
     assert result["candidate_details"][f"{provider}-0"]["reserve_class"] == "unmeasured"
     assert case[1]["readings"] == before
