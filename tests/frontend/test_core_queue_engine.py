@@ -185,11 +185,14 @@ def test_c29_7_a_message_that_left_the_queue_otherwise_is_not_interrupted(core_p
     assert result["unused"] == {"turn.interrupt": 1}
 
 
-def test_c29_7_a_turn_that_ends_before_the_interrupt_returns_how_it_ended(core_probe):
+@pytest.mark.parametrize("listed", [[receipt("complete")], [receipt("running", "another-message"), receipt("complete")]],
+                         ids=["alone", "after-another"])
+def test_c29_7_a_turn_that_ends_before_the_interrupt_returns_how_it_ended(core_probe, listed):
     """C-29.7 Running when asked, ended when stopped: `not-running`, and the receipt
-    `message.status` then gives is returned, not an error."""
+    `message.status` then gives for this message is returned, not an error, wherever
+    the answer lists it."""
     result = one(core_probe, cancel(), {
-        "message.cancel": [TOO_LATE], "message.status": [status("running"), status("complete")],
+        "message.cancel": [TOO_LATE], "message.status": [status("running"), ok({"messages": listed})],
         "turn.interrupt": [not_running("complete")]})
     assert "error" not in result
     assert ops(result) == ["message.cancel", "message.status", "turn.interrupt", "message.status"]
@@ -272,6 +275,42 @@ def test_c29_7_the_control_follows_the_state_the_app_saw(core_probe):
     assert [entry["state"] for entry in out["entries"]] == ["withdrawn"]
 
 
+# The control under a message for each state the app can show, and the daemon op
+# it then makes. The app's controls (the timeline's status line, the live turn's
+# strip, the composer's Stop) ask `stopAction` with no outbox entry, so the state
+# alone decides: `sending` (no receipt yet) is withdrawn through the outbox.
+CONTROLS = [
+    ("sending", "withdraw", "Withdraw", []),
+    ("queued", "cancel", "Withdraw", ["message.cancel"]),
+    *[(state, "interrupt", "Stop", ["turn.interrupt"]) for state in LIVE],
+    *[(state, "none", None, []) for state in NOT_LIVE if state != "queued"],
+    (None, "none", None, []),
+]
+
+
+@pytest.mark.parametrize("state, action, label, called", CONTROLS, ids=[str(c[0]) for c in CONTROLS])
+def test_c29_7_the_control_the_app_shows_follows_the_state_alone(core_probe, state, action, label, called):
+    """C-29.7 Asked as the app's controls ask it (no outbox entry), for a message the
+    outbox still holds: Withdraw for a row with no receipt (the outbox, no daemon
+    call) and for a queued one (`message.cancel`), Stop for the message's own live
+    turn (`turn.interrupt`), and no control for any other state. The daemon offers
+    both a cancel and an interrupt answer; only the one the control calls for is used."""
+    answers = {"message.cancel": [withdrawn()], "turn.interrupt": [stopped(state or "running")]}
+    out = engine(core_probe, [
+        {"do": "journal", "conversation": CID, "message_id": MID, "text": "the row under its control"},
+        {"do": "stop", "message_id": MID, "state": state, "outbox_entry": False},
+    ], answers)
+    result = out["results"][1]
+    assert "error" not in result, result
+    expected_action = {"action": action} if action == "none" else {"action": action, "message_id": MID}
+    assert (result["action"], result["label"]) == (expected_action, label)
+    assert result["calls"] == [f"{op} {MID}" for op in called] and result["pauses"] == []
+    assert out["unused"] == {op: 1 for op in answers if op not in called}
+    assert result["receipt"] == (answers[called[0]][0]["result"] if called else None)
+    # Only Withdraw of a row with no receipt closes its outbox entry.
+    assert (out["entries"][0]["state"] == "withdrawn") == (action == "withdraw")
+
+
 def test_c29_7_withdraw_send_before_the_daemon_could_have_it(core_probe):
     """C-29.7, D-22 A row with no receipt: never sent, it is withdrawn here with no
     call; while its send is under way, Withdraw waits for the answer."""
@@ -326,6 +365,38 @@ def test_c29_7_withdraw_send_after_a_lost_answer_asks_the_daemon_first(core_prob
     else:
         assert all(" conversation=" not in call for call in result["calls"])
     assert out["entries"][0]["state"] == ("withdrawn" if outcome[0] == "withdrawn" else "acknowledged")
+
+
+TOMBSTONE = ok(receipt("cancelled", origin="tombstone", state_reason="withdrawn-before-receipt"))
+
+
+@pytest.mark.parametrize("before, answers", [
+    ([], {}),
+    (["begin"], {}),
+    (["lose_answer"], {"message.status": [status("unknown")], "message.cancel": [TOMBSTONE]}),
+    (["lose_answer"], {"message.status": [status("queued")], "message.cancel": [withdrawn()]}),
+    (["lose_answer"], {"message.status": [status("running")], "turn.interrupt": [stopped()]}),
+    (["lose_answer"], {"message.status": [status("complete")]}),
+], ids=["never-sent", "in-flight", "never-received", "queued", "running", "ended"])
+def test_c29_7_stop_withdraw_gives_what_withdraw_send_gives(core_probe, before, answers):
+    """C-29.7, D-22 `engine.stop` of a Withdraw is `withdrawSend` with its receipt:
+    the same calls, the same outbox entry afterwards, and the receipt `withdrawSend`
+    returned, or none. A send under way is no receipt and no error (the app's
+    `UIModel.stop` asks `withdrawSend` itself, so it can tell the person to try again)."""
+    steps = [{"do": "journal", "conversation": CID, "message_id": MID, "text": "withdraw me"},
+             *[{"do": step, "message_id": MID} for step in before]]
+    runs = [{"answers": answers, "steps": [*steps, last]} for last in (
+        {"do": "withdraw_send", "message_id": MID},
+        {"do": "stop", "action": {"action": "withdraw", "message_id": MID}})]
+    with tempfile.TemporaryDirectory(prefix="sf-qe-") as scratch:
+        send, stop = run_probe(core_probe, "queue-engine", write_json(Path(scratch) / "runs.json", {"runs": runs}))["runs"]
+    sent, stopped_ = send["results"][-1], stop["results"][-1]
+    assert "error" not in sent and "error" not in stopped_, (sent, stopped_)
+    assert stopped_["receipt"] == sent["result"].get("receipt")
+    assert stopped_["calls"] == sent["calls"] and stopped_["pauses"] == sent["pauses"] == []
+    assert stop["entries"] == send["entries"] and stop["unused"] == send["unused"] == {}
+    if before == ["begin"]:
+        assert sent["result"] == {"outcome": "in-flight"} and stopped_["receipt"] is None and stopped_["calls"] == []
 
 
 # MARK: - Properties over scripted answers

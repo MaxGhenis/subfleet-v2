@@ -97,6 +97,8 @@ func project(_ result: ConversationEngine.WithdrawResult) -> [String: Any] {
 /// - `{"do": "stop", "action": {"action", "message_id"}}`: `engine.stop` of that action;
 /// - `{"do": "stop", "message_id", "state"}`: the action `stopAction` picks from the
 ///   state the app saw and the message's outbox entry, and its label, then `engine.stop`;
+///   with `"outbox_entry": false` it is asked with no entry, as the app's controls ask it
+///   (the timeline's status line, the live turn's strip and the composer's Stop);
 /// - `{"do": "withdraw_send", "message_id"}`: `engine.withdrawSend`, as the tray's
 ///   Withdraw of a row with no receipt runs it;
 /// - `{"do": "journal", "conversation", "message_id", "text"}`: journal a send;
@@ -156,7 +158,8 @@ func runQueueEngine(_ input: JSONValue) throws -> [String: Any] {
                     stop = decodeStopAction(explicit)
                 } else {
                     let id = step["message_id"]?.string ?? ""
-                    stop = stopAction(for: id, state: step["state"]?.string, outboxEntry: outbox.entry(id))
+                    let entry = step["outbox_entry"]?.bool == false ? nil : outbox.entry(id)
+                    stop = stopAction(for: id, state: step["state"]?.string, outboxEntry: entry)
                 }
                 result["action"] = project(stop)
                 result["label"] = stopLabel(stop) as Any? ?? NSNull()
