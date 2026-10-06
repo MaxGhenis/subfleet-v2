@@ -439,6 +439,7 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
         tree = str(harness.root / "worktrees" / "retired")
         nested, fence = tree + "/vendor/lib", folders.exclusive_key(tree)
+        Path(nested).mkdir(parents=True)        # admission reserves rows only on folders that are there
 
         def add(job_id, folder):
             daemon.store.add_job(job_id=job_id, request_id=job_id, payload_digest=job_id, kind="dispatch",
