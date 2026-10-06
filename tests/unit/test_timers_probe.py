@@ -8,9 +8,11 @@ import time
 
 import pytest
 
+from subfleet import timers as timers_module
 from subfleet.contracts import Credential, Lane, LaneOwner, Outcome, OutcomeClass, Reading, ReadingLabel
 from subfleet.store import Store
 from subfleet.timers import Timers, iso
+from tests import waits
 
 
 class Clock:
@@ -44,6 +46,10 @@ class Probe:
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Every usage read waits on its reader thread against a deadline of up to
+    # 15 s. In running time, a pause of this process cannot pass one before
+    # the reader has had its turn (tests/waits.py).
+    monkeypatch.setattr(timers_module, "time", waits.RunningTime())
     clock = Clock()
     adapter = Probe(clock)
     policy = {"models": {"haiku": {"id": "claude-haiku-4-5-20251001"}},
@@ -118,7 +124,7 @@ def test_expired_token_has_one_heal_and_publishes_only_reprobe_verdict(rig):
         assert store.list_readings(lane.lane_id) == []
         assert events(store, "timer.heal", lane.lane_id)
         assert store.one("SELECT holder FROM leases WHERE holder=?", (holder,))
-        assert deadline > time.monotonic()
+        assert deadline > timers_module.time.monotonic()     # the clock the timers read
         turns.append(purpose)
         return Outcome(OutcomeClass.OK, "CLI refreshed token", evidence={"requested_at": iso(clock())})
 
@@ -194,27 +200,27 @@ def test_tick_is_nonblocking_and_does_not_overlap_one_cycle(rig):
 
     def blocked(lane, env):
         entered.set()
-        assert released.wait(2)
+        assert waits.wait_event(released, 2)
         return original(lane, env)
 
     adapter.probe_status = blocked
     timer.intervals["probe"] = .01
     timer.start()
     clock.advance(300)
-    time.sleep(.015)
-    before = time.monotonic()
+    waits.sleep(.015)                  # the interval is due in the timers' running time
+    elapsed = waits.Stopwatch()
     timer.tick()
-    assert time.monotonic() - before < .2
-    assert entered.wait(1)
+    assert elapsed() < .2
+    assert waits.wait_event(entered, 1)
     try:
         clock.advance(300)
-        time.sleep(.015)
+        waits.sleep(.015)
         timer.tick()
         assert timer.status()["probe"]["last_run"] is None
     finally:
         released.set()
-    deadline = time.monotonic() + 2
-    while timer.status()["probe"]["last_run"] is None and time.monotonic() < deadline:
+    budget = waits.Budget(2)
+    while timer.status()["probe"]["last_run"] is None and not budget.expired():
         time.sleep(.01)
     assert adapter.calls == ["codex-1"]
     assert timer.status()["probe"]["last_error_type"] is None
@@ -337,20 +343,20 @@ def test_usage_timeout_does_not_block_cycle_or_shutdown(rig):
 
     def blocked(lane, env):
         entered.set()
-        release.wait(2)
+        waits.wait_event(release, 2)   # held in running time, so a pause cannot end it first
         return {"status": "ok", "readings": ()}
 
     adapter.probe_status = blocked
     try:
-        before = time.monotonic()
+        elapsed = waits.Stopwatch()
         snapshot = timer.probe_cycle()
         assert entered.is_set()
-        assert time.monotonic() - before < .4
+        assert elapsed() < .4
         assert snapshot["offline"] is True
         assert snapshot["lanes"][0]["error_type"] == "TimeoutError"
-        before = time.monotonic()
+        elapsed = waits.Stopwatch()
         timer.stop()
-        assert time.monotonic() - before < .2
+        assert elapsed() < .2
     finally:
         release.set()
 

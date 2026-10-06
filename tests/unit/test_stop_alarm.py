@@ -13,6 +13,7 @@ import time
 import pytest
 
 from subfleet import procs
+from tests import waits
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -70,9 +71,9 @@ threading.Event().wait()
 
 def test_stop_alarm_resets_inherited_signal_state_and_is_not_inherited_by_fork(tmp_path):
     """The kernel alarm remains effective without faulthandler or Python threads."""
-    result = subprocess.run([sys.executable, "-c", LAUNCHER, str(tmp_path), "fork"],
-                            env={**os.environ, "PYTHONPATH": str(REPO), "PYTHON_GIL": "1"},
-                            cwd=REPO, text=True, capture_output=True, timeout=30)
+    result = waits.run([sys.executable, "-c", LAUNCHER, str(tmp_path), "fork"],
+                       env={**os.environ, "PYTHONPATH": str(REPO), "PYTHON_GIL": "1"},
+                       cwd=REPO, text=True, capture_output=True, timeout=30)
     assert result.returncode == -signal.SIGALRM, (result.returncode, result.stdout, result.stderr)
     observed = json.loads(result.stdout)
     assert observed["fork_timer"] == [0.0, 0.0]
@@ -95,12 +96,12 @@ def test_guardian_started_after_stop_alarm_is_armed_survives(tmp_path):
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     start = None
     try:
-        stdout, stderr = launcher.communicate(timeout=15)
+        stdout, stderr = waits.communicate(launcher, timeout=15, watch=launcher)
         assert launcher.returncode == -signal.SIGALRM, (launcher.returncode, stdout, stderr)
         launched = json.loads(stdout)
-        deadline = time.monotonic() + 15
+        budget = waits.Budget(15, watch=launched["guardian_pid"])
         while not (tmp_path / "provider-ready").exists():
-            assert time.monotonic() < deadline, (tmp_path / "stderr").read_text()
+            assert not budget.expired(), (tmp_path / "stderr").read_text()
             time.sleep(.01)
         start = json.loads((tmp_path / "start.json").read_text())
         assert start["guardian_pid"] == launched["guardian_pid"]
@@ -108,7 +109,7 @@ def test_guardian_started_after_stop_alarm_is_armed_survives(tmp_path):
         assert not (tmp_path / "exit.json").exists()
         (tmp_path / "release-provider").touch()
         while not (tmp_path / "exit.json").exists():
-            assert time.monotonic() < deadline, (tmp_path / "stderr").read_text()
+            assert not budget.expired(), (tmp_path / "stderr").read_text()
             time.sleep(.01)
         receipt = json.loads((tmp_path / "exit.json").read_text())
         assert receipt["rc"] == 0 and receipt["signal"] is None
@@ -117,7 +118,7 @@ def test_guardian_started_after_stop_alarm_is_armed_survives(tmp_path):
         (tmp_path / "release-provider").touch()
         if launcher.poll() is None:
             launcher.kill()
-            launcher.wait(timeout=5)
+            waits.wait_process(launcher, 5)
         if start and procs.same_process(start["guardian_pid"], start["boot_id"], start["proc_start"]):
             procs.signal_group(start["guardian_pid"], signal.SIGKILL,
                                boot_id=start["boot_id"], proc_start=start["proc_start"])

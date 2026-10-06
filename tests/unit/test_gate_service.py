@@ -12,6 +12,7 @@ import pytest
 from subfleet import cli
 from subfleet.contracts import Decision
 from subfleet.gate.service import GateService, dispatch
+from tests import waits
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
 from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
@@ -335,7 +336,7 @@ def test_poll_observes_completion_of_another_gates_existing_merge_action(core, t
 
     def pause_merge():
         merging.set()
-        assert release.wait(5)
+        assert waits.wait_event(release, 5)
 
     runner.on_merge = pause_merge
     core.gate_runner = runner
@@ -352,12 +353,13 @@ def test_poll_observes_completion_of_another_gates_existing_merge_action(core, t
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         owner = pool.submit(dispatch, core, "gate.poll", {"gate_id": first["gate_id"]})
         try:
-            assert merging.wait(5)
+            assert waits.wait_event(merging, 5)
             waiting = dispatch(core, "gate.poll", {"gate_id": second["gate_id"]})
             assert waiting["code"] == 5 and waiting["status"] == "action_attempting"
         finally:
             release.set()
-        assert owner.result(timeout=5)["code"] == 0
+        waits.until(owner.done, 5)
+        assert owner.result()["code"] == 0
     observed = dispatch(core, "gate.poll", {"gate_id": second["gate_id"]})
     assert observed["code"] == 0 and observed["status"] == "completed"
     assert len(runner.merges) == 1 and len(core.store.query("SELECT * FROM actions")) == 1

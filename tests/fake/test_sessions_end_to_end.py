@@ -30,6 +30,7 @@ from subfleet.sessions import handoff as handoff_module
 from subfleet.sessions import nudge as nudge_module
 from subfleet.sessions import revive as revive_module
 from tests import sessions_fixtures as fx
+from tests import waits
 from tests.fake_adapter import FakeAdapter
 
 ALICE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
@@ -39,9 +40,13 @@ ACCOUNT, ORG = "acct-aaaa", "org-aaaa"
 
 
 def until(predicate, timeout=10, describe=None):
-    """Poll `predicate` until it is truthy; `describe()` says where things stood if not."""
-    limit = time.monotonic() + timeout
-    while time.monotonic() < limit:
+    """Poll `predicate` until it is truthy; `describe()` says where things stood if not.
+
+    `timeout` is running time (tests/waits.py): time this process, or a guardian
+    or provider its daemon started, sat stopped does not use it up.
+    """
+    budget = waits.Budget(timeout, watch=os.getpid())
+    while not budget.expired():
         value = predicate()
         if value:
             return value
@@ -113,6 +118,9 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    # The daemon runs in this process: its start grace and settle windows are
+    # running time, so a pause of this process does not run them out.
+    monkeypatch.setattr(daemon_module, "time", waits.RunningTime())
     monkeypatch.setattr(adapter_registry, "_factories",
                         {"codex": FakeAdapter, "claude": FakeAdapter})
     home = fx.claude_home(tmp_path, monkeypatch)
@@ -148,7 +156,7 @@ def close_world(service: Daemon) -> None:
     service.close()
     for child in tuple(service._children.values()):
         try:
-            child.wait(timeout=10)
+            waits.wait_process(child, 10, watch=child)
         except subprocess.TimeoutExpired:                # failed/blocked fixture
             # Guardians start their own session before spawning providers.
             # An unreaped direct child cannot have had its PID reused.
@@ -159,7 +167,7 @@ def close_world(service: Daemon) -> None:
                     child.kill()
             except ProcessLookupError:
                 pass
-            child.wait(timeout=5)
+            waits.wait_process(child, 5)
 
 
 def run(service: Daemon) -> Daemon:
@@ -197,22 +205,24 @@ def live_pids():
     """Real running processes, because the registry's liveness check is `kill(0)`.
 
     A session's registry file is keyed by pid, so distinct live sessions need
-    distinct live pids; this process alone cannot supply three.
+    distinct live pids; this process alone cannot supply three. Each lives until
+    its stdin closes, not for a fixed time a pause of this process could outlast.
     """
     import subprocess
-    children = [subprocess.Popen(["/bin/sleep", "30"], stdin=subprocess.DEVNULL,
+    children = [subprocess.Popen(["/bin/cat"], stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 for _ in range(3)]
     try:
         yield [child.pid for child in children]
     finally:
         for child in children:
+            child.stdin.close()
             child.terminate()
             try:
-                child.wait(timeout=5)
+                waits.wait_process(child, 5)
             except subprocess.TimeoutExpired:            # pragma: no cover - cleanup
                 child.kill()
-                child.wait(timeout=5)
+                waits.wait_process(child, 5)
 
 
 def stage(root: Path):

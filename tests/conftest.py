@@ -17,6 +17,7 @@ import pytest
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
+from tests.suspend import suspender  # noqa: F401 (the fixture, for every test)
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"

@@ -26,6 +26,7 @@ from subfleet import daemon as daemon_module
 from subfleet import procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
+from tests import waits
 
 JOB = "20260924-114650-load-probe"
 ATTEMPT = JOB + "/a1"
@@ -301,16 +302,17 @@ class StepClock:
 
 # --- probes -------------------------------------------------------------------
 
-def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tmp_path):
-    """C-5.11: a probe's wait loop reads its receipt every 50 ms but asks `ps` about
-    its guardian once per liveness interval and records its group without an
-    environment dump. Before the fix it asked every pass and took the full
-    census every 0.5 s."""
+def await_published_probe(daemon, monkeypatch, tmp_path, *, contain=lambda record: True,
+                          published=lambda: None, budget=10):
+    """Run `_await_probe` in a thread, publish its receipt once the first pass has
+    recorded the group, and join it within `budget` seconds of running time.
+    Returns the probe record, the thread's result, the `ps` fake and the
+    liveness questions asked."""
     from subfleet.guardian import atomic_publish
     ps = FakePs()
     monkeypatch.setattr(procs, "_read", ps)
     asked = count_liveness(monkeypatch)
-    monkeypatch.setattr(daemon, "_contain_probe", lambda record: True)
+    monkeypatch.setattr(daemon, "_contain_probe", contain)
     # `time` inside subfleet.daemon stands still, so the next question is never
     # due however the OS schedules this test; only real waits pass.
     monkeypatch.setattr(daemon_module, "time", StepClock(0.0))
@@ -325,22 +327,55 @@ def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tm
                                                                daemon._await_probe(record))))
     waiter.start()
     try:
-        deadline = time.monotonic() + 10
-        while not record["owned_identities"]:       # the first pass has asked and recorded
-            assert time.monotonic() < deadline
-            time.sleep(.01)
+        # The first pass has asked and recorded.
+        waits.until(lambda: record["owned_identities"], 10, interval=.01)
         time.sleep(.5)                                # about ten more passes, none of them due
         atomic_publish(directory / "exit.json", json.dumps({"rc": 0, "child_pid": CHILD}).encode())
-        waiter.join(timeout=10)
-        assert not waiter.is_alive()
+        published()
+        assert waits.join(waiter, budget)
     finally:
         if waiter.is_alive():
             daemon.stopping.set()
-            waiter.join(timeout=10)
+            waits.join(waiter, 10)
+    return record, result, ps, asked
+
+
+def test_a_running_probe_is_inspected_on_the_same_budget(daemon, monkeypatch, tmp_path):
+    """C-5.11: a probe's wait loop reads its receipt every 50 ms but asks `ps` about
+    its guardian once per liveness interval and records its group without an
+    environment dump. Before the fix it asked every pass and took the full
+    census every 0.5 s."""
+    record, result, ps, asked = await_published_probe(daemon, monkeypatch, tmp_path)
     assert result["safe"] is True and result["receipt"]["rc"] == 0
     assert len(asked) == 2                         # the pass's question and the leader re-check
     assert not ps.environment_dumps()
     assert set(record["owned_identities"]) == {str(GUARDIAN), str(CHILD)}
+
+
+def test_a_pause_after_the_receipt_does_not_use_up_the_join(daemon, monkeypatch, tmp_path, suspender):
+    """2026-09-27: the review of PR #40 SIGSTOPped this test 20 ms after the receipt
+    was published and sent SIGCONT 11 s later; `waiter.join(timeout=10)` then
+    returned at once with the waiter alive, and the test failed with the code
+    under test correct. The same pause, longer than the join's budget, now costs
+    the join almost nothing (tests/waits.py). Containment takes half a second
+    here, so the waiter is certainly still running when the pause comes."""
+    pause = suspender()
+    joined = {}
+
+    def contain(record):
+        time.sleep(.5)
+        return True
+
+    def published():
+        pause.arm(.02, 2.5)
+        joined["from"] = time.monotonic()
+
+    record, result, _, _ = await_published_probe(daemon, monkeypatch, tmp_path, contain=contain,
+                                                 published=published, budget=2)
+    joined["to"] = time.monotonic()
+    assert pause.paused() >= 2.5
+    assert waits.unrun(joined["from"], joined["to"]) > 2  # the pause fell inside the join
+    assert result["safe"] is True and result["receipt"]["rc"] == 0
 
 
 # --- exports --------------------------------------------------------------------
@@ -372,6 +407,9 @@ def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
     """C-5.11: a waiter woken without a committed change reads nothing. Before the fix
     every wake-up re-read every watched job; 200 wake-ups were 200 reads."""
     monkeypatch.setattr(daemon_module, "WAIT_RECHECK_S", 3600)   # only commits may cause a read here
+    # Neither the 60 s deadline nor the hour's recheck is what this test is about;
+    # measured in running time, a pause of this process cannot reach either.
+    monkeypatch.setattr(daemon_module, "time", waits.RunningTime())
     reads, first_read = [], threading.Event()
     get_job = daemon.store.get_job
 
@@ -387,7 +425,7 @@ def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
         daemon.wait(protocol.WaitArgs(job_ids=[JOB], deadline_s=60))))
     waiter.start()
     try:
-        assert first_read.wait(10)
+        assert waits.wait_event(first_read, 10)
         for _ in range(200):
             daemon._notify()
             time.sleep(.001)
@@ -396,13 +434,12 @@ def test_wait_rereads_the_store_only_after_a_commit(daemon, monkeypatch):
         with daemon.store.transaction("test.finished", job_id=JOB) as tx:
             tx.execute("UPDATE jobs SET state='succeeded',rc=0 WHERE job_id=?", (JOB,))
         daemon._notify()
-        waiter.join(timeout=10)
-        assert not waiter.is_alive()
+        assert waits.join(waiter, 10)
     finally:
         if waiter.is_alive():
             daemon.stopping.set()
             daemon._notify()
-            waiter.join(timeout=10)
+            waits.join(waiter, 10)
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded"
     assert reads == ["running", "succeeded"]
 
@@ -427,13 +464,10 @@ def test_a_worker_that_commits_nothing_wakes_no_waiter(daemon, monkeypatch):
     monkeypatch.setattr(daemon, "_notify", lambda: woken.append(True))
 
     def settle(key):
-        deadline = time.monotonic() + 5
-        while True:
+        def released():
             with daemon._busy_lock:
-                if key not in daemon._busy:
-                    return
-            assert time.monotonic() < deadline
-            time.sleep(.005)
+                return key not in daemon._busy
+        waits.until(released, 5, interval=.005)
 
     for n in range(20):
         daemon._schedule(f"idle-{n}", lambda: None)

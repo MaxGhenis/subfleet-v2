@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import notify_push
+from tests import waits
 
 SESSION = "sess-push"
 
@@ -74,13 +75,13 @@ class Inbox:
                             self.lines.append({"raw": line.decode("utf-8", "replace")})
 
     def wait_for(self, count: int, timeout: float = 3.0) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline and len(self.lines) < count:
+        budget = waits.Budget(timeout)
+        while not budget.expired() and len(self.lines) < count:
             time.sleep(0.01)
 
     def close(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=2)
+        waits.join(self._thread, 2)
         self.server.close()
         Path(self.path).unlink(missing_ok=True)
 

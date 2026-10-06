@@ -2,9 +2,9 @@
 
 import json
 import os
-import subprocess
 import sys
 
+from tests import waits
 from tests.fake.conftest import REPO
 
 
@@ -17,10 +17,10 @@ def test_resume_cli_decodes_raw_show_row_and_continues_native_session(daemon):
     source_attempt = daemon.attempts(source_id)[0]
     envelope = daemon.call("show", job_id=source_id)
     assert envelope["job"]["exclusions"] == '["unrelated-excluded-lane"]'
-    result = subprocess.run(
+    result = waits.run(
         [sys.executable, "-m", "subfleet.cli", "resume", source_id, "Continue.", "--json"],
         cwd=REPO, env={**os.environ, "SUBFLEET_HOME": str(daemon.root), "PYTHONPATH": str(REPO)},
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=10, watch=daemon.daemon_tree,
     )
     assert result.returncode == 0, result.stderr
     resumed_id = json.loads(result.stdout)["job_id"]

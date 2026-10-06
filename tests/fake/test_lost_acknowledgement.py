@@ -12,9 +12,19 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from subfleet import cli
 from subfleet import client as client_module
 from subfleet.client import Client
+from tests import waits
+
+
+@pytest.fixture(autouse=True)
+def running_client_clock(monkeypatch):
+    """The client's read deadline leaves out pauses of this process, so a pause
+    while an answer is read is never a lost answer (tests/waits.py)."""
+    monkeypatch.setattr(client_module, "time", waits.RunningTime())
 
 
 def drop_first_answer(monkeypatch) -> list[bytes]:

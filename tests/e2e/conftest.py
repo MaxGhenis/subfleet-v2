@@ -13,11 +13,11 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
 from typing import NamedTuple
 
 import pytest
 
+from tests import waits
 from tests.fake.profile import derived_identity as claude_identity
 
 REPO = Path(__file__).resolve().parents[2]
@@ -216,9 +216,11 @@ class E2E:
         self.policy_update(change)
 
     def cli(self, *argv, timeout=20):
-        result = subprocess.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
-                                cwd=REPO, env=self.env, input="", text=True,
-                                capture_output=True, timeout=timeout)
+        # `timeout` is running time, and time the CLI sat stopped is not charged
+        # (tests/waits.py).
+        result = waits.run([sys.executable, "-m", "subfleet.cli", *map(str, argv)],
+                           cwd=REPO, env=self.env, input="", text=True,
+                           capture_output=True, timeout=timeout)
         return CLIResult(result.returncode, result.stdout, result.stderr)
 
     def run_args(self, model="astra", *extra):
@@ -241,14 +243,17 @@ class E2E:
         assert result.rc == 0, result
         return json.loads(result.stdout)
 
-    def until(self, predicate, timeout=10):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            value = predicate()
-            if value:
-                return value
-            time.sleep(.02)
-        raise AssertionError(f"condition timed out after {timeout}s\n{self.log_text()}")
+    def daemon_tree(self):
+        """The daemon's pid while it runs; waits also watch its descendants."""
+        return [self.process.pid] if self.process is not None and self.process.poll() is None else []
+
+    def until(self, predicate, timeout=10, *, watch=waits.DEFAULT):
+        """`predicate()`'s first truthy value within `timeout` seconds of running
+        time (tests/waits.py). Time the daemon or a descendant sat stopped is not
+        charged either; a test that stops the daemon on purpose passes `watch=None`."""
+        return waits.until(predicate, timeout, interval=.02,
+                           watch=self.daemon_tree if watch is waits.DEFAULT else watch,
+                           describe=self.log_text)
 
     def log_text(self):
         return "\n".join(Path(log.name).read_text(errors="replace") for log in self.logs)
@@ -256,7 +261,7 @@ class E2E:
     def crash(self):
         assert self.process is not None and self.process.poll() is None
         self.process.kill()
-        self.process.wait(timeout=3)
+        waits.wait_process(self.process, 3)
 
     def close(self):
         # Unblock a test-held worker before asking the daemon to join workers.
@@ -264,7 +269,7 @@ class E2E:
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()
             try:
-                self.process.wait(timeout=3)
+                waits.wait_process(self.process, 3)
             except subprocess.TimeoutExpired:
                 self.crash()
         from subfleet.procs import same_process

@@ -15,15 +15,25 @@ from subfleet.adapters.codex import CodexAdapter, WHAM_USAGE_URL, WHAM_RESET_CRE
 from subfleet.contracts import Credential, Lane, LaneOwner, Outcome, OutcomeClass, Reading, ReadingLabel
 from subfleet.daemon import Daemon
 from subfleet.timers import iso
+from tests import waits
 
 
 def until(fn, timeout=5):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
+    budget = waits.Budget(timeout)      # running time: a pause does not use it up
+    while not budget.expired():
         if value := fn():
             return value
         time.sleep(.01)
     raise AssertionError('timer condition did not arrive')
+
+
+def running_time(monkeypatch):
+    # The daemon, its timers and their actions run in this process and hand one
+    # another monotonic deadlines. One clock of running time for all three, so a
+    # pause of this process runs none of those deadlines out (tests/waits.py).
+    clock = waits.RunningTime()
+    for module in ('subfleet.daemon', 'subfleet.timers', 'subfleet.actions'):
+        monkeypatch.setattr(f'{module}.time', clock)
 
 
 @pytest.fixture
@@ -32,6 +42,7 @@ def daemon(tmp_path, monkeypatch):
     # daemon control/socket/SQL plus deterministic provider boundary callbacks.
     monkeypatch.setattr('subfleet.daemon.procs.boot_id', lambda: 'fake-boot')
     monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda pid: 'fake-start')
+    running_time(monkeypatch)
     policy = json.loads(Path('subfleet/default_policy.json').read_text())
     policy['timers'] = {'probe_interval_s': .15, 'keepalive_interval_s': .12}
     # Keep the production reset cooldown. A 0.6-second cooldown permits a
@@ -135,8 +146,7 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
         assert not set(ids) & {row['notice_id'] for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']}
     finally:
         daemon.stopping.set()
-        thread.join(3)
-        assert not thread.is_alive()
+        assert waits.join(thread, 3)
 
 
 def test_hung_usage_cannot_block_api_or_shutdown(daemon):
@@ -145,24 +155,23 @@ def test_hung_usage_cannot_block_api_or_shutdown(daemon):
     entered, release = threading.Event(), threading.Event()
     def opener(request, timeout):
         entered.set()
-        release.wait(5)
+        waits.wait_event(release, 5)
         return 200, b'{"rate_limit":{"limit_reached":false}}'
     daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
     thread = threading.Thread(target=daemon._control, daemon=True)
     thread.start()
     try:
-        assert entered.wait(2)
-        begin = time.monotonic()
+        assert waits.wait_event(entered, 2)
+        elapsed = waits.Stopwatch()
         assert daemon.dispatch('daemon.status', {})['timers']['probe']
-        assert time.monotonic() - begin < 1
+        assert elapsed() < 1
         daemon.close()
-        thread.join(2)
-        assert not thread.is_alive()
-        assert time.monotonic() - begin < 2
+        assert waits.join(thread, 2)
+        assert elapsed() < 2
         assert not (daemon.root / 'status.json').exists()
     finally:
         release.set()
-        thread.join(2)
+        waits.join(thread, 2)
 
 
 def test_socket_timer_status(daemon):
@@ -176,16 +185,16 @@ def test_socket_timer_status(daemon):
     thread.start()
     try:
         until(lambda: (daemon.root / 'daemon.sock').exists())
-        time.sleep(.25)
+        until(lambda: daemon.dispatch('daemon.status', {})['timers']['probe']['last_run'], timeout=.25)
         with socket.socket(socket.AF_UNIX) as sock:
             sock.settimeout(2)
             sock.connect(str(daemon.root / 'daemon.sock'))
             sock.sendall(b'{"v":1,"id":"timers","op":"daemon.status","args":{}}\n')
-            result = json.loads(sock.recv(200000))
+            result = json.loads(waits.recv_line(sock, 2))
         assert result['ok'] and result['result']['timers']['probe']['last_run']
     finally:
         daemon.stopping.set()
-        thread.join(3)
+        waits.join(thread, 3)
 
 
 def test_keepalive_uses_real_guardian_when_process_inspection_allowed(monkeypatch):
@@ -198,6 +207,7 @@ def test_keepalive_uses_real_guardian_when_process_inspection_allowed(monkeypatc
     except (OSError, procs.InspectionError):
         pytest.skip('sandbox denies process inspection; bounded turn unit tests cover this seam')
     monkeypatch.setattr('subfleet.daemon.get_adapter', lambda provider: FakeAdapter())
+    running_time(monkeypatch)
     with tempfile.TemporaryDirectory(prefix='sfg-', dir='/tmp') as temporary:
         value = Daemon(temporary, term_grace_s=.05)
         try:

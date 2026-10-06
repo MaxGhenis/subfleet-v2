@@ -5,10 +5,11 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import uuid
 
 import pytest
+
+from tests import waits
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "success"
@@ -28,8 +29,8 @@ def running(e2e, identity):
 
 
 def git(e2e, workdir, *argv):
-    result = subprocess.run(["git", "-C", str(workdir), *argv], env=e2e.env,
-                            capture_output=True, text=True, timeout=10)
+    result = waits.run(["git", "-C", str(workdir), *argv], env=e2e.env,
+                       capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
 
@@ -204,7 +205,7 @@ def test_offline_reads_after_daemon_stop_and_run_names_start_command(e2e):
     identity = job_id(submitted)
     stopped = e2e.cli("daemon", "stop", timeout=20)
     assert stopped.rc == 0, stopped
-    e2e.process.wait(timeout=3)
+    waits.wait_process(e2e.process, 3)
     assert not (e2e.root / "daemon.sock").exists()
     listed = e2e.cli("runs")
     assert listed.rc == 0 and identity in listed.stdout, listed

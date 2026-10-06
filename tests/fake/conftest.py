@@ -12,10 +12,11 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
 
 import pytest
+
+from tests import waits
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -74,11 +75,12 @@ class Harness:
     def request(self, op: str, **args) -> dict:
         with self.connect() as client:
             client.sendall((json.dumps({"v": 1, "id": "test", "op": op, "args": args}) + "\n").encode())
-            with client.makefile("rb") as stream:
-                line = stream.readline()
-                if not line:
-                    raise ConnectionError("daemon closed without a response")
-                return json.loads(line)
+            # Five seconds of running time: a pause of this process or of the
+            # daemon does not use it up (tests/waits.py).
+            line = waits.recv_line(client, 5, watch=self.daemon_tree)
+            if not line:
+                raise ConnectionError("daemon closed without a response")
+            return json.loads(line)
 
     def call(self, op: str, **args) -> dict:
         response = self.request(op, **args)
@@ -112,14 +114,17 @@ class Harness:
     def attempts(self, job_id: str) -> list[dict]:
         return self.rows("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (job_id,))
 
-    def until(self, predicate, timeout=5):
-        limit = time.monotonic() + timeout
-        while time.monotonic() < limit:
-            result = predicate()
-            if result:
-                return result
-            time.sleep(.015)
-        raise AssertionError(f"condition timed out after {timeout}s\n{self.log_text()}")
+    def daemon_tree(self) -> list[int]:
+        """The daemon's pid while it runs; waits also watch its descendants."""
+        return [self.process.pid] if self.process is not None and self.process.poll() is None else []
+
+    def until(self, predicate, timeout=5, *, watch=waits.DEFAULT):
+        """`predicate()`'s first truthy value within `timeout` seconds of running
+        time (tests/waits.py). Time the daemon or a descendant sat stopped is not
+        charged either; a test that stops the daemon on purpose passes `watch=None`."""
+        return waits.until(predicate, timeout, interval=.015,
+                           watch=self.daemon_tree if watch is waits.DEFAULT else watch,
+                           describe=self.log_text)
 
     def attempt_state(self, job_id: str, state: str) -> dict:
         def match():
@@ -144,17 +149,17 @@ class Harness:
     def crash(self) -> None:
         assert self.process is not None
         self.process.kill()
-        self.process.wait(timeout=3)
+        waits.wait_process(self.process, 3)
 
     def close(self) -> None:
         # The test owns these provider identities. Cleanup leaves no test writer.
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()
             try:
-                self.process.wait(timeout=1)
+                waits.wait_process(self.process, 1)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-                self.process.wait(timeout=2)
+                waits.wait_process(self.process, 2)
         from subfleet.procs import same_process
         for receipt in (self.root / "jobs").glob("*/a*/start.json"):
             with suppress(OSError, ValueError, KeyError):

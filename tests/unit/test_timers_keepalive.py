@@ -10,6 +10,7 @@ import pytest
 from subfleet.contracts import Credential, Lane, LaneOwner, Outcome, OutcomeClass
 from subfleet.store import Store
 from subfleet.timers import Timers, iso
+from tests import waits
 
 
 @pytest.fixture
@@ -157,7 +158,7 @@ def test_keepalive_concurrency_is_capped_at_four(rig):
             peak = max(peak, active)
             if active == 4:
                 reached_four.set()
-        assert reached_four.wait(1)
+        assert waits.wait_event(reached_four, 1)
         time.sleep(.015)
         with lock:
             active -= 1
@@ -169,25 +170,29 @@ def test_keepalive_concurrency_is_capped_at_four(rig):
     assert calls == 9
 
 
-def test_keepalive_timeout_is_bounded_and_not_retried_in_same_pass(rig):
+def test_keepalive_timeout_is_bounded_and_not_retried_in_same_pass(rig, monkeypatch):
     """C-23.29, C-16.4: each lane receives one bounded attempt and a durable timeout verdict."""
     timer, store, _, _, enroll = rig
     timer.policy["caps"]["keepalive_timeout_s"] = .04
     for index in range(5):
         enroll(f"claude-{index}")
     calls = []
+    # The timers set each deadline and the fake turn reads it on one clock of
+    # running time, so a pause of this process cannot pass a deadline early.
+    clock = waits.RunningTime()
+    monkeypatch.setattr("subfleet.timers.time", clock)
 
     def turn(lane, purpose, holder, *, cancel, deadline):
-        assert 0 < deadline - time.monotonic() <= .04
+        assert 0 < deadline - clock.monotonic() <= .04
         calls.append(lane.lane_id)
-        while time.monotonic() < deadline and not cancel.is_set():
+        while clock.monotonic() < deadline and not cancel.is_set():
             time.sleep(.002)
         return Outcome(OutcomeClass.UNKNOWN, "timed out", evidence={"timed_out": True})
 
     timer.turn = turn
-    started = time.monotonic()
+    elapsed = waits.Stopwatch()
     assert timer.keepalive_cycle() == ["timed-out"] * 5
-    assert time.monotonic() - started < .5
+    assert elapsed() < .5
     assert len(calls) == len(set(calls)) == 5
     assert [event["status"] for event in keepalive_events(store)] == ["timed-out"] * 5
     assert store.list_leases() == []
@@ -217,7 +222,7 @@ def test_shutdown_cancels_running_keepalive_and_releases_its_lane(rig):
 
     def turn(lane, purpose, holder, *, cancel, deadline):
         entered.set()
-        assert cancel.wait(1)
+        assert waits.wait_event(cancel, 1)
         return Outcome(OutcomeClass.UNKNOWN, "cancelled", evidence={"timed_out": True})
 
     timer.turn = turn
@@ -225,10 +230,10 @@ def test_shutdown_cancels_running_keepalive_and_releases_its_lane(rig):
     timer.start()
     time.sleep(.015)
     timer.tick()
-    assert entered.wait(1)
-    before = time.monotonic()
+    assert waits.wait_event(entered, 1)
+    elapsed = waits.Stopwatch()
     timer.stop()
-    assert time.monotonic() - before < .3
+    assert elapsed() < .3
     assert store.list_leases() == []
     assert timer.status()["keepalive"]["last_run"] is not None
     assert timer.status()["keepalive"]["last_error_type"] is None

@@ -13,6 +13,7 @@ import pytest
 
 from subfleet import cli, protocol
 from subfleet.contracts import Exit
+from tests import waits
 
 JOB = "20260905-120000-demo"
 
@@ -1026,9 +1027,9 @@ def test_wait_timeout_holds_even_when_the_daemon_wedges(daemon, capsys):
         return {"timeout": True}
 
     daemon({"wait": wedged})
-    started = _time.monotonic()
+    elapsed = waits.Stopwatch()
     assert run_cli(["wait", JOB, "--timeout", "1"]) == 124
-    assert _time.monotonic() - started < 4.5
+    assert elapsed() < 4.5
     capsys.readouterr()
 
 
@@ -1066,10 +1067,9 @@ def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, wor
 def test_an_unclosed_response_line_does_not_hang(daemon, capsys, workdir):
     """C-16.1 a peer that never sends a newline is bounded by the timeout."""
     daemon({"submit": lambda request: b'{"v": 1, "ok": true'})   # no newline
-    import time as _time
-    started = _time.monotonic()
+    elapsed = waits.Stopwatch()
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert _time.monotonic() - started < 30
+    assert elapsed() < 30
     capsys.readouterr()
 
 

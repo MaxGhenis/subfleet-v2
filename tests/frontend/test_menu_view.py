@@ -2,10 +2,10 @@
 
 from datetime import timedelta
 import json
-import subprocess
 
 import pytest
 
+from tests import waits
 from tests.frontend.test_status_model import NOW, ROOT, _job, lane, pytestmark
 from subfleet.status_json import build_status
 
@@ -13,7 +13,7 @@ from subfleet.status_json import build_status
 @pytest.fixture(scope="session")
 def menu_probe(tmp_path_factory):
     binary = tmp_path_factory.mktemp("subfleet-menu-view") / "probe"
-    result = subprocess.run(
+    result = waits.run(
         ["xcrun", "swiftc", "-D", "SUBFLEET_VIEW_TEST", "-parse-as-library",
          str(ROOT / "app/SubfleetApp.swift"), str(ROOT / "tests/frontend/MenuViewProbe.swift"),
          "-o", str(binary)], capture_output=True, text=True, timeout=120)
@@ -22,8 +22,8 @@ def menu_probe(tmp_path_factory):
 
 
 def invoke(menu_probe, path, *extra):
-    result = subprocess.run([str(menu_probe), str(path), *map(str, extra)],
-                            capture_output=True, text=True, timeout=20, check=True)
+    result = waits.run([str(menu_probe), str(path), *map(str, extra)],
+                       capture_output=True, text=True, timeout=20, check=True)
     return json.loads(result.stdout)
 
 

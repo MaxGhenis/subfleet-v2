@@ -13,6 +13,7 @@ from subfleet.gate import cli as gate_cli
 from subfleet.gate.certificate import write_bytes
 from subfleet.gate.service import dispatch, GateService
 from subfleet.store import utc_now
+from tests import waits
 from tests.unit.test_gate_admission import core  # Real submit/admit; fake lane/process boundary.
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/gates/peer-verdict.txt"
@@ -222,13 +223,14 @@ def test_plan_peer_process_finalizes_through_real_daemon(daemon):
     plan = daemon.workdir / "plan.md"
     plan.write_text("A process-backed agreement gate with exact revision ownership.\n")
     repository = Path(__file__).resolve().parents[2]
-    completed = subprocess.run(
+    completed = waits.run(
         [sys.executable, "-m", "subfleet", "gate", "plan", str(plan), "--peer", "astra",
          "--main-model", "fable", "--main-approve", "--expect-sha256",
          hashlib.sha256(plan.read_bytes()).hexdigest(), "--json"],
         cwd=repository, env={**os.environ, "SUBFLEET_HOME": str(daemon.root),
                              "PYTHONPATH": str(repository)},
         stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15,
+        watch=daemon.daemon_tree,
     )
     assert completed.returncode == 0, (completed.stdout, completed.stderr, daemon.log_text())
     result = json.loads(completed.stdout)
@@ -259,7 +261,6 @@ def test_plan_peer_process_finalizes_through_real_daemon(daemon):
 def test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation(core, tmp_path):
     """C-12.8, C-23.9/43: the fake child replays the real bundle without manufacturing store state."""
     import os
-    import subprocess
 
     from subfleet.contracts import Attestation, ExitInfo
     from subfleet.gate.verdict import parse_verdict
@@ -279,7 +280,7 @@ def test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation(co
                                   attempt["model_requested"], None, Path(job["prompt_path"]), None)
     repository = Path(__file__).resolve().parents[2]
     with open(launch.stdin_path, "rb") as stdin:
-        completed = subprocess.run(
+        completed = waits.run(
             launch.argv, cwd=launch.cwd, stdin=stdin, capture_output=True, timeout=3,
             env={**os.environ, **launch.env_add, "PYTHONPATH": str(repository),
                  "SUBFLEET_ATTEMPT": attempt["attempt_id"]},

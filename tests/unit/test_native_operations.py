@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from subfleet import operations, protocol
+from tests import waits
 from tests.unit.test_timers_probe import rig, events
 from tests.unit.test_timers_reset_credits import store, lane, snapshot, component, HTTP, NOW
 
@@ -81,11 +82,11 @@ def test_manual_timer_request_coalesces_with_probe_and_observes_shutdown(rig, mo
     def reset(*, target):
         assert target == 'codex-2'
         entered.set()
-        assert release.wait(3)
+        assert waits.wait_event(release, 3)
     monkeypatch.setattr(timer, 'reset_credits_cycle', reset)
     try:
         assert timer.request('reset_credits', target='codex-2')['status'] == 'scheduled'
-        assert entered.wait(3)
+        assert waits.wait_event(entered, 3)
         assert timer.request('reset_credits', target='codex-3')['status'] == 'already-running'
         assert timer.request('probe')['status'] == 'already-running'
         assert events(store, 'timer.requested') == [{'timer': 'reset_credits', 'target': 'codex-2'}]

@@ -17,6 +17,7 @@ import pytest
 
 from subfleet import cli
 from subfleet.client import Client
+from tests import waits
 
 REPO = str(Path(__file__).resolve().parents[2])
 
@@ -86,6 +87,9 @@ def stub(root, monkeypatch, tmp_path):
     """A `subfleetd` that really listens, torn down however the test ends."""
     path = _write_stub(tmp_path / "stub-subfleetd", STUB)
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(path))
+    # `daemon start` waits 10 s for the socket; in running time, a pause of this
+    # process cannot use that up while the stub is already listening.
+    monkeypatch.setattr(cli, "time", waits.RunningTime())
     yield path
     info = Client(root).lock_info() or {}
     pid = info.get("pid")
@@ -226,6 +230,7 @@ def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
         'root = Path(sys.argv[sys.argv.index("--state-root") + 1])'))
     forking.chmod(0o755)
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(forking))
+    monkeypatch.setattr(cli, "time", waits.RunningTime())   # as in `stub`
     try:
         assert cli.main(["daemon", "start"]) == 0
         assert (root / "daemon.sock").exists()
@@ -325,8 +330,8 @@ def _stopping_stub(root: Path, tmp_path: Path, mode: str):
     path = _write_stub(tmp_path / f"stub-{mode}", STOPPING_STUB)
     proc = subprocess.Popen([str(path), "--state-root", str(root), "--mode", mode])
     try:
-        deadline = _time.monotonic() + 30          # a loaded machine imports slowly
-        while _time.monotonic() < deadline:
+        budget = waits.Budget(30, watch=proc)      # a loaded machine imports slowly
+        while not budget.expired():
             info = Client(root).lock_info() or {}
             if info.get("pid") == proc.pid and info.get("proc_start"):
                 break
@@ -337,7 +342,7 @@ def _stopping_stub(root: Path, tmp_path: Path, mode: str):
     finally:
         if proc.poll() is None:
             proc.kill()
-        proc.wait(timeout=5)
+        waits.wait_process(proc, 5)
 
 
 def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(root, tmp_path,
@@ -347,7 +352,7 @@ def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(roo
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 8.0)
     with _stopping_stub(root, tmp_path, "late") as proc:
         assert cli.main(["daemon", "stop"]) == 0
-        assert proc.wait(timeout=5) == 1               # its own exit, not -SIGKILL
+        assert waits.wait_process(proc, 5) == 1        # its own exit, not -SIGKILL
     err = capsys.readouterr().err
     assert "stopped" in err and "SIGKILL" not in err
 
@@ -357,14 +362,17 @@ def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_p
     """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
     launchd's ExitTimeOut would, and the stop succeeds."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)
-    waits: list[float] = []
+    # The first wait running out is the point; the wait after SIGKILL must not
+    # be used up by a pause of this process, so both count running time.
+    monkeypatch.setattr(cli, "time", waits.RunningTime())
+    waited: list[float] = []
     real_wait = cli._wait_for_exit
     monkeypatch.setattr(cli, "_wait_for_exit",
-                        lambda pid, info, seconds: waits.append(seconds) or real_wait(pid, info, seconds))
+                        lambda pid, info, seconds: waited.append(seconds) or real_wait(pid, info, seconds))
     with _stopping_stub(root, tmp_path, "deaf") as proc:
         assert cli.main(["daemon", "stop"]) == 0
-        assert proc.wait(timeout=5) == -signal.SIGKILL
-    assert waits == [cli.DAEMON_STOP_WAIT_S, cli.DAEMON_KILL_WAIT_S]
+        assert waits.wait_process(proc, 5) == -signal.SIGKILL
+    assert waited == [cli.DAEMON_STOP_WAIT_S, cli.DAEMON_KILL_WAIT_S]
     err = capsys.readouterr().err
     assert "its own stop bound (C-5.8a) did not end it" in err and "sent SIGKILL" in err
     assert "stopped" in err

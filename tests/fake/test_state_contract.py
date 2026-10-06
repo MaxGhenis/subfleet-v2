@@ -24,6 +24,7 @@ from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
 from subfleet.procs import Containment, ProcessIdentity
+from tests import waits
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -180,16 +181,15 @@ def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
     thread = threading.Thread(target=daemon._connection, args=(server,))
     thread.start()
     try:
-        with client.makefile("rb") as stream:
-            client.sendall(b"bad-json\n")
-            error = json.loads(stream.readline())
-            assert error["ok"] is False and error["error"]["code"] == 2
-            client.sendall(protocol.encode(protocol.Request("daemon.status", id="still-alive")))
-            reply = json.loads(stream.readline())
-            assert reply["ok"] is True and reply["id"] == "still-alive"
+        client.sendall(b"bad-json\n")
+        error = json.loads(waits.recv_line(client, 2))
+        assert error["ok"] is False and error["error"]["code"] == 2
+        client.sendall(protocol.encode(protocol.Request("daemon.status", id="still-alive")))
+        reply = json.loads(waits.recv_line(client, 2))
+        assert reply["ok"] is True and reply["id"] == "still-alive"
     finally:
         client.close()
-        thread.join(timeout=3)
+        waits.join(thread, 3)
         server.close()
     assert not thread.is_alive()
 
@@ -618,10 +618,14 @@ def test_c4_5_state_transient_retries_same_lane_once_then_another(state_daemon):
             return Outcome(OutcomeClass.TRANSIENT, "fixture transport disconnected")
 
     register("codex", TransientAdapter)
+    # The bounds are read around the finalization, so a pause of this process
+    # after it does not age the retry clock past them.
+    earliest = daemon_module.after(58)
     daemon._finalize(receipt_fixture(daemon, attempt, adir, rc=1))
+    latest = daemon_module.after(61)
     job = daemon.store.get_job(job_id)
     assert job["state"] == "waiting"
-    assert 58 <= -daemon_module.age(job["next_check_at"]) <= 61
+    assert earliest <= job["next_check_at"] <= latest
     assert daemon.store.query("SELECT * FROM closures") == []
     daemon.store.update_lane("codex-1", enabled=True)
     daemon.store.update_job(job_id, next_check_at=None)

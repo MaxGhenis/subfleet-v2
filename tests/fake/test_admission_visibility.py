@@ -17,14 +17,18 @@ from subfleet import daemon as daemon_module
 from subfleet import protocol, render
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
+from tests import waits
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
 
 @pytest.fixture
-def fleet(routing_state):  # noqa: F811
+def fleet(routing_state, monkeypatch):  # noqa: F811
     service, harness = routing_state
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
                                       ReadingLabel.PROVIDER, "fixture", utcnow()))
+    # `age` is the only clock these tests move. The daemon's own clock leaves out
+    # pauses of this process, so a pause between two passes ages nothing (tests/waits.py).
+    monkeypatch.setattr(daemon_module, "time", waits.RunningTime())
     return service, harness
 
 

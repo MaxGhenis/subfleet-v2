@@ -16,6 +16,7 @@ import pytest
 
 guard = importlib.import_module("subfleet.guard.preflight")
 
+from tests import waits
 from tests.fake.guard import install_guard
 
 
@@ -126,6 +127,9 @@ for line in sys.stdin:
     monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path / "state"))
     monkeypatch.setenv(guard.CACHE_ENV, str(tmp_path / "guard-cache"))
     monkeypatch.setattr(guard, "_jq_available", lambda: True)
+    # The probe's deadline counts running time, so a pause of this process
+    # (clamshell-guard's SIGSTOP) cannot turn a verified probe into a timeout.
+    monkeypatch.setattr(guard, "time", waits.RunningTime())
     return script, report
 
 
@@ -287,9 +291,9 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
     """C-14.2, C-20.2 a wedged trust probe is bounded and reaped on refusal."""
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
-    started = time.monotonic()
+    elapsed = waits.Stopwatch()
     result = guard.preflight(fake, timeout_s=0.5)
-    assert time.monotonic() - started < 3
+    assert elapsed() < 3
     assert not result.ok and result.code == 7 and "deadline" in result.message
     assert result.override is None
     assert "daemon scheduling" in result.fix and "trust remains unverified" in result.fix
@@ -365,9 +369,9 @@ def test_preflight_deadline_comes_from_v1_environment_variable(fake_codex, monke
     fake, report_path = fake_codex
     monkeypatch.setenv(guard.TIMEOUT_ENV, "0.5")
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
-    started = time.monotonic()
+    elapsed = waits.Stopwatch()
     result = guard.preflight(fake)
-    assert time.monotonic() - started < 4
+    assert elapsed() < 4
     assert not result.ok and result.code == 7 and result.kind == guard.TIMEOUT
     assert result.timeout_s == 0.5 and "0.5s deadline" in result.message
     assert guard.TIMEOUT_ENV in result.fix
@@ -411,6 +415,9 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
     probe pid, elapsed time, deadline, transcript and stderr tail kept for diagnosis."""
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
+    # `elapsed_s` is held to the real deadline from below, which running time
+    # can undercount, so this probe reads the real clock.
+    monkeypatch.setattr(guard, "time", time)
     result = guard.preflight(fake, timeout_s=0.5)
     assert result.kind == guard.TIMEOUT and result.override is None
     assert result.message.startswith("Guard preflight timed out")
@@ -529,8 +536,8 @@ def test_guard_preflight_terminates_then_kills_its_probe_tree_at_the_deadline(fa
     # passes, exactly the npm-launcher shape of the 2026-09-20 incident.
     assert not result.ok and result.kind == guard.TIMEOUT and result.exit_status == 0
     report = json.loads(report_path.read_text())
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
+    budget = waits.Budget(3)
+    while not budget.expired():
         try:
             os.kill(report["child_pid"], 0)
         except ProcessLookupError:
@@ -854,10 +861,10 @@ def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkey
         if state["calls"] == 2:
             # The pause: wait (bounded) until the fake has seen hooks/list, then
             # a moment more for its answer to reach the pipe.
-            limit = real() + 20
-            while not answered() and real() < limit:
+            budget = waits.Budget(20)
+            while not answered() and not budget.expired():
                 time.sleep(0.05)
-            time.sleep(0.3)
+            waits.sleep(0.3)
         return real() + 3600       # every later reading is past the deadline
 
     monkeypatch.setattr(guard.time, "monotonic", paused_clock)

@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 import pytest
@@ -13,6 +12,7 @@ from subfleet.adapters import registry
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Outcome, OutcomeClass, Reading, ReadingLabel
 from subfleet.daemon import Daemon, after, utcnow
 from subfleet.store import Store
+from tests import waits
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
@@ -83,10 +83,10 @@ def test_c11_5_socket_submission_and_cli_why_print_recorded_walk(daemon):
     job_id = daemon.call("submit", **research_args(daemon))["job_id"]
     assert daemon.finished(job_id)["state"] == "succeeded"
     assert daemon.attempts(job_id)[0]["model_requested"] == "gpt-6-astra"
-    result = subprocess.run([sys.executable, "-m", "subfleet.cli", "why", job_id],
-                            env={**os.environ, "SUBFLEET_HOME": str(daemon.root)},
-                            cwd=Path(__file__).resolve().parents[2], capture_output=True,
-                            text=True, timeout=5)
+    result = waits.run([sys.executable, "-m", "subfleet.cli", "why", job_id],
+                       env={**os.environ, "SUBFLEET_HOME": str(daemon.root)},
+                       cwd=Path(__file__).resolve().parents[2], capture_output=True,
+                       text=True, timeout=5, watch=daemon.daemon_tree)
     assert result.returncode == 0, result.stderr
     assert "opus: no candidate lanes after exclusions; promoted" in result.stdout
     assert "astra on codex-1" in result.stdout
@@ -97,13 +97,14 @@ def test_c6_4_second_unmeasured_job_waits_with_persisted_reason(routing_state):
     service, harness = routing_state
     first = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
     second = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
+    before = utcnow()                    # before the pass: a pause after it cannot pass the recheck
     service._admit()
     assert len(service.store.list_attempts(first)) == 1
     assert not service.store.list_attempts(second)
     waiting = service.store.get_job(second)
     assert waiting["state"] == "waiting"
     assert waiting["wait_reason"] == "capacity"
-    assert waiting["next_check_at"] > utcnow()
+    assert waiting["next_check_at"] > before
     assert "no-slot" in service.dispatch("why", {"job_id": second})["text"]
 
 
@@ -197,10 +198,11 @@ def test_c11_4_inconclusive_probe_waits_without_closure_or_dispatch(routing_stat
     monkeypatch.setattr(service, "_execute_probe", lambda *args: Outcome(
         OutcomeClass.TRANSIENT, "disconnected", {"rc": 1}), raising=False)
     job_id = service.dispatch("submit", harness.submit_args(tier="hard"))["job_id"]
+    later = after(50)                    # before the pass: a pause after it cannot move the bound
     service._admit()
     job = service.store.get_job(job_id)
     assert job["state"] == "waiting" and job["wait_reason"] == "capacity"
-    assert job["next_check_at"] > after(50)
+    assert job["next_check_at"] > later
     assert not service.store.list_attempts() and not service.store.list_closures()
 
 

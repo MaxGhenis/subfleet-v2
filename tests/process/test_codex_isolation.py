@@ -19,6 +19,7 @@ import pytest
 
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.contracts import Credential, JobSpec, Lane, LaneOwner, Sandbox
+from tests import waits
 
 
 TESTS = Path(__file__).resolve().parents[1]
@@ -70,8 +71,8 @@ def _spawn_fake(launch, scenario, **extra_env):
     env = _fake_environment(launch, scenario, **extra_env)
     stream_path = Path(launch.raw_stream_path)
     with open(launch.stdin_path, "rb") as stdin, stream_path.open("wb") as stdout, open(launch.stderr_path, "wb") as stderr:
-        return subprocess.run(launch.argv, cwd=launch.cwd, env=env, stdin=stdin,
-                              stdout=stdout, stderr=stderr, timeout=5, check=False)
+        return waits.run(launch.argv, cwd=launch.cwd, env=env, stdin=stdin,
+                         stdout=stdout, stderr=stderr, timeout=5, check=False)
 
 
 @pytest.mark.parametrize("sandbox", list(Sandbox))
@@ -167,8 +168,8 @@ def test_nested_setsid_fake_starts_detached_grandchild(tmp_path):
         ) as child,
     ):
         try:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
+            budget = waits.Budget(5, watch=child)
+            while not budget.expired():
                 try:
                     grandchild_pid = json.loads(diagnostics_path.read_text())["nested_grandchild_pid"]
                     break
@@ -180,7 +181,7 @@ def test_nested_setsid_fake_starts_detached_grandchild(tmp_path):
             assert os.getpgid(grandchild_pid) == grandchild_pid
             assert os.getsid(grandchild_pid) == grandchild_pid
             child.terminate()
-            child.wait(timeout=2)
+            waits.wait_process(child, 2, watch=child)
             os.kill(grandchild_pid, 0)
         finally:
             if grandchild_pid is not None:
@@ -190,4 +191,4 @@ def test_nested_setsid_fake_starts_detached_grandchild(tmp_path):
                     pass
             if child.poll() is None:
                 child.kill()
-            child.wait(timeout=2)
+            waits.wait_process(child, 2)

@@ -4,12 +4,12 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
 import pytest
 
 from subfleet.status_json import build_status
+from tests import waits
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,9 +22,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun"
 def probe(tmp_path_factory):
     """Compile production model code with Foundation only; no AppKit entry point."""
     binary = tmp_path_factory.mktemp("subfleet-swift-model") / "probe"
-    compiled = subprocess.run(["xcrun", "swiftc", "-D", "SUBFLEET_MODEL_TEST", "-parse-as-library",
-                               str(ROOT / "app/SubfleetApp.swift"), str(ROOT / "tests/frontend/StatusModelProbe.swift"),
-                               "-o", str(binary)], capture_output=True, text=True, timeout=120)
+    compiled = waits.run(["xcrun", "swiftc", "-D", "SUBFLEET_MODEL_TEST", "-parse-as-library",
+                          str(ROOT / "app/SubfleetApp.swift"), str(ROOT / "tests/frontend/StatusModelProbe.swift"),
+                          "-o", str(binary)], capture_output=True, text=True, timeout=120)
     assert compiled.returncode == 0, compiled.stderr
     return binary
 
@@ -46,8 +46,8 @@ def display(probe, tmp_path, rows, *, generated_at=NOW, offline=False, now=NOW):
 def project(probe, tmp_path, payload, now=NOW):
     path = tmp_path / "status.json"
     path.write_text(json.dumps(payload))
-    result = subprocess.run([str(probe), str(path), str(now.timestamp())], check=True,
-                            capture_output=True, text=True, timeout=10)
+    result = waits.run([str(probe), str(path), str(now.timestamp())], check=True,
+                       capture_output=True, text=True, timeout=10)
     return json.loads(result.stdout)
 
 
@@ -119,7 +119,7 @@ def test_c2_1_frontend_resolves_custom_state_root(probe, tmp_path):
         args = [str(probe), "path", str(home)]
         if override is not None:
             args.append(override)
-        result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=10)
+        result = waits.run(args, check=True, capture_output=True, text=True, timeout=10)
         assert result.stdout.strip() == str(expected)
 
 

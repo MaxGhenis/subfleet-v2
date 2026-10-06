@@ -11,6 +11,8 @@ import threading
 
 import pytest
 
+from tests import waits
+
 
 def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
     """C-6.2 equal request digests reuse a job; different digests return code 2."""
@@ -97,7 +99,7 @@ def test_c4_2_starting_recovers_late_or_missing_receipt(daemon, missing_start):
         flags.append("--missing-start")
     daemon.start(*flags)
     job_id = daemon.submit("slow", delay_s=.2)
-    daemon.process.wait(timeout=3)
+    waits.wait_process(daemon.process, 3, watch=daemon.daemon_tree)
     assert daemon.process.returncode == -signal.SIGKILL
     first = daemon.attempts(job_id)[0]
     assert first["state"] == "starting"
@@ -278,7 +280,7 @@ def test_c8_3_unwritable_export_keeps_success_and_records_error(daemon):
 def test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over(daemon):
     """C-5.8 a live singleton rejects the second daemon with 69; a stale lock can be acquired."""
     daemon.start()
-    duplicate = subprocess.run(
+    duplicate = waits.run(
         [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(daemon.root)],
         capture_output=True, text=True, timeout=3,
     )
@@ -291,12 +293,12 @@ def test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over(daemon):
 def test_c16_1_malformed_line_keeps_connection_handler_alive(daemon):
     """C-16.1 malformed JSON returns code 2 and the same connection accepts the next request."""
     daemon.start()
-    with daemon.connect() as client, client.makefile("rb") as stream:
+    with daemon.connect() as client:
         client.sendall(b"not-json\n")
-        error = json.loads(stream.readline())
+        error = json.loads(waits.recv_line(client, 5, watch=daemon.daemon_tree))
         assert error["ok"] is False and error["error"]["code"] == 2
         client.sendall(b'{"v":1,"id":"after-error","op":"daemon.status","args":{}}\n')
-        response = json.loads(stream.readline())
+        response = json.loads(waits.recv_line(client, 5, watch=daemon.daemon_tree))
         assert response["ok"] is True and response["id"] == "after-error"
 
 

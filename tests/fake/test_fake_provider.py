@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 from subfleet.contracts import Credential, ExitInfo, JobSpec, Lane, LaneOwner, Sandbox
+from tests import waits
 from tests.fake_adapter import FakeAdapter
 
 
@@ -27,8 +28,8 @@ def test_c12_8_fake_provider_replays_outcomes_and_deliverable(tmp_path, scenario
                                   prompt, None)
     env = {key: value for key, value in os.environ.items() if key not in launch.env_remove}
     env.update(launch.env_add)
-    result = subprocess.run(launch.argv, input=prompt.read_bytes(), cwd=launch.cwd,
-                            capture_output=True, env=env, check=False, timeout=3)
+    result = waits.run(launch.argv, input=prompt.read_bytes(), cwd=launch.cwd,
+                       capture_output=True, env=env, check=False, timeout=3)
     assert result.returncode == rc
     Path(launch.stdout_path).write_bytes(result.stdout)
     Path(launch.stderr_path).write_bytes(result.stderr)

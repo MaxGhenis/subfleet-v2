@@ -19,6 +19,7 @@ import time
 import pytest
 
 from subfleet.procs import same_process
+from tests import waits
 
 
 #: Give the held worker time to drain before faulthandler ends the process.
@@ -32,8 +33,11 @@ SLACK_S = 10.0
 EXIT_SETTLE_S = 2.0
 
 
-def _wait_for_exit_with_lock(process, path, deadline, timeout_message):
-    """Observe lock then liveness until exit, with no serving-time sample."""
+def _wait_for_exit_with_lock(process, path, budget, timeout_message):
+    """Observe lock then liveness until exit, with no serving-time sample.
+
+    `budget` is a `waits.Budget`: time pytest or the watched process sat
+    stopped is not charged (tests/waits.py)."""
     fd = os.open(path, os.O_RDWR)
     try:
         while True:
@@ -54,17 +58,16 @@ def _wait_for_exit_with_lock(process, path, deadline, timeout_message):
                 # early unlock). Only a process that outlives the settle released
                 # the lock while it went on running.
                 try:
-                    process.wait(timeout=EXIT_SETTLE_S)
+                    waits.wait_process(process, EXIT_SETTLE_S, watch=process)
                 except subprocess.TimeoutExpired:
                     pass
                 alive = process.poll() is None
             assert held_while_stopping or not alive, "live stopping daemon released daemon.lock"
             if not alive:
                 return
-            remaining = deadline - time.monotonic()
-            assert remaining > 0, timeout_message()
+            assert not budget.expired(), timeout_message()
             try:
-                process.wait(timeout=min(.02, remaining))
+                process.wait(timeout=budget.slice(.02))
             except subprocess.TimeoutExpired:
                 pass
     finally:
@@ -91,23 +94,24 @@ os._exit(0)
     try:
         with selectors.DefaultSelector() as ready:
             ready.register(process.stdout, selectors.EVENT_READ)
-            assert ready.select(timeout=10), "owned lock child did not acknowledge stopping"
+            waits.until(lambda: ready.select(timeout=0), 10, watch=process,
+                        describe=lambda: "owned lock child did not acknowledge stopping")
             assert process.stdout.readline() == b"stopping:\n"
         if early_unlock:
             # The child stays alive until cleanup, making the early-unlock
             # interleaving deterministic even if pytest is descheduled.
             with pytest.raises(AssertionError, match="live stopping daemon released"):
-                _wait_for_exit_with_lock(process, path, time.monotonic() + 10,
+                _wait_for_exit_with_lock(process, path, waits.Budget(10, watch=process),
                                          lambda: "owned lock child did not exit")
         else:
             process.stdin.write(b"1")
             process.stdin.flush()
-            _wait_for_exit_with_lock(process, path, time.monotonic() + 10,
+            _wait_for_exit_with_lock(process, path, waits.Budget(10, watch=process),
                                      lambda: "owned lock child did not exit")
             assert process.returncode == 0
     finally:
         if process.poll() is None:
-            process.communicate(input=b"1", timeout=10)
+            waits.communicate(process, b"1", timeout=10, watch=process)
         process.stdin.close()
         process.stdout.close()
 
@@ -144,18 +148,23 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     lock = json.loads((e2e.root / "daemon.lock").read_text())
     assert lock["pid"] == old.pid
     signalled = time.monotonic()
+    # The same bound in running time: time pytest or the daemon sat stopped is
+    # not charged (tests/waits.py).
+    budget = waits.Budget(GRACE_S + SLACK_S, watch=old)
     old.send_signal(signal.SIGTERM)
     # Acknowledge the stop before observing the single-writer property. An
     # ordinary serving-time lock check says nothing about close()'s lifetime.
     e2e.until(lambda: "stopping:" in (e2e.root / "daemon.log").read_text(),
               timeout=GRACE_S + SLACK_S)
-    _wait_for_exit_with_lock(old, e2e.root / "daemon.lock", signalled + GRACE_S + SLACK_S,
+    _wait_for_exit_with_lock(old, e2e.root / "daemon.lock", budget,
                              lambda: "C-5.8a: the stopping daemon still holds daemon.lock "
                              f"{GRACE_S + SLACK_S:g} s after SIGTERM\n{e2e.log_text()}")
-    elapsed = time.monotonic() - signalled
+    elapsed, ran = time.monotonic() - signalled, budget.spent()
 
-    # Bounded, and not early: the drain had its whole grace.
-    assert GRACE_S <= elapsed <= GRACE_S + SLACK_S, elapsed
+    # Bounded, and not early: the drain had its whole grace. The grace runs on
+    # the daemon's real-time timers, so "not early" is real time; the bound is
+    # running time, which a pause of pytest or the daemon does not use up.
+    assert GRACE_S <= elapsed and ran <= GRACE_S + SLACK_S, (elapsed, ran)
     assert old.returncode == 1
     log = (e2e.root / "daemon.log").read_text()
     assert (f"stopping: if this process is still running in {GRACE_S:g} s, "

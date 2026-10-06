@@ -23,6 +23,7 @@ from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.procs import Containment, ProcessIdentity
 from subfleet.store import Store
+from tests import waits
 
 JOB = "20260905-100000-settle"
 ATTEMPT = JOB + "/a1"
@@ -85,9 +86,10 @@ def draining(core, busy_for_s: float, busy=BUSY) -> list[float]:
     """Inject a census that stays busy for `busy_for_s` after its first read, then empties."""
     calls: list[float] = []
     first: list[float] = []
+    clock = waits.RunningTime()        # a pause of this process does not drain it
 
     def contain(a):
-        now = time.monotonic()
+        now = clock.monotonic()
         first.append(now) if not first else None
         calls.append(now - first[0])
         return busy if now - first[0] < busy_for_s else EMPTY
@@ -161,8 +163,11 @@ def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon):
 
 @pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, UNVERIFIABLE],
                          ids=["survivor", "guardian-only", "unverifiable"])
-def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daemon, census):
+def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daemon, monkeypatch, census):
     """C-5.9 after exit.json the census may drain for exit_settle_s; past it, writers remain."""
+    # The window ends below by moving its start back, never by waiting it out;
+    # measured in running time, a pause of this process cannot end it early.
+    monkeypatch.setattr(daemon_module, "time", waits.RunningTime())
     daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
     atomic_publish(attempt_dir(daemon.root, JOB, 1) / "exit.json",
                    json.dumps({"rc": 0, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 60,

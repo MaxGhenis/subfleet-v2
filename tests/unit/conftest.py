@@ -13,6 +13,7 @@ from typing import Any, Callable
 import pytest
 
 from subfleet import protocol
+from tests import waits
 from subfleet.contracts import Exit
 
 # The socket path has a ~104 byte limit on macOS and pytest's tmp_path is long,
@@ -97,7 +98,7 @@ class FakeDaemon:
 
     def close(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=2)
+        waits.join(self._thread, 2)
         try:
             self._server.close()
         finally:

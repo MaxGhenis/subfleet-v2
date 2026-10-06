@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -16,10 +15,23 @@ from subfleet.adapters.codex import (
 from subfleet.capacity import from_store
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading, ReadingLabel
 from subfleet.store import Store
+from tests import waits
 
 NOW = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
 STAMP = "2026-09-05T12:00:00Z"
 GIFT = {"id": "gift-1", "reset_type": "codex_rate_limits", "status": "available"}
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """The clock `subfleet.actions` reads, in running time (tests/waits.py).
+
+    Every HTTP call waits on its worker thread against a deadline of up to
+    15 s; a pause of this process cannot pass one before the worker has had
+    its turn. A test that sets a deadline reads this clock for it."""
+    value = waits.RunningTime()
+    monkeypatch.setattr("subfleet.actions.time", value)
+    return value
 
 
 @pytest.fixture
@@ -154,7 +166,7 @@ def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, t
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
-def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path):
+def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path, clock):
     """C-16.4 C-23.13: late HTTP success cannot overwrite the bounded worker's unknown result."""
     lane(store, tmp_path)
     entered, release = threading.Event(), threading.Event()
@@ -162,12 +174,12 @@ def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path):
     def opener(request, timeout):
         if request.get_method() == "POST":
             entered.set()
-            release.wait(2)
+            waits.wait_event(release, 2)   # held in running time, as the deadline is
         return http(request, timeout)
     resets = component(store, opener)
-    started = time.monotonic()
-    result = resets.evaluate(snapshot(store), now=NOW, deadline=started + .1)
-    assert time.monotonic() - started < .5
+    elapsed = waits.Stopwatch()
+    result = resets.evaluate(snapshot(store), now=NOW, deadline=clock.monotonic() + .1)
+    assert elapsed() < .5
     assert entered.is_set() and result["status"] == "unknown"
     release.set()
     assert store.get_action(result["action_id"])["state"] == "unknown"
@@ -462,7 +474,7 @@ def test_recovery_preserves_lost_holder_result_and_aborts_uncalled_pending_inten
     assert json.loads(orphan["request_json"])["holder"] == "lost-holder"
 
 
-def test_a_stuck_list_cannot_accumulate_one_http_worker_per_cycle(store, tmp_path):
+def test_a_stuck_list_cannot_accumulate_one_http_worker_per_cycle(store, tmp_path, clock):
     """C-16.4: a timed-out lane retains its HTTP slot until its real worker finishes."""
     lane(store, tmp_path)
     entered, release = threading.Event(), threading.Event()
@@ -470,15 +482,15 @@ def test_a_stuck_list_cannot_accumulate_one_http_worker_per_cycle(store, tmp_pat
     def opener(request, timeout):
         calls.append(request)
         entered.set()
-        release.wait(2)
+        waits.wait_event(release, 2)       # held in running time, as the deadlines are
         return 200, b'{"credits":[]}'
     resets = component(store, opener)
     try:
         view = snapshot(store)
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
+        resets.evaluate(view, now=NOW, deadline=clock.monotonic() + .05)
         assert entered.is_set()
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
+        resets.evaluate(view, now=NOW, deadline=clock.monotonic() + .05)
+        resets.evaluate(view, now=NOW, deadline=clock.monotonic() + .05)
         assert len(calls) == 1
     finally:
         release.set()

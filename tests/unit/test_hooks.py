@@ -19,6 +19,7 @@ import pytest
 from subfleet import hooks
 from subfleet.client import Client
 from subfleet.contracts import Exit
+from tests import waits
 
 JOB = "20260905-120000-demo"
 OTHER = "20260905-120001-other"
@@ -359,7 +360,7 @@ def test_a_lease_is_dropped_when_its_holder_exits(root):
         assert blocked.acquire() is False, "a live holder must exclude a second waiter"
     finally:
         holder.kill()
-        holder.wait(5)
+        waits.wait_process(holder, 5)
     after = hooks.Lease(root, JOB)
     assert after.acquire() is True, "a dead holder's lease is gone with it"
     after.release()

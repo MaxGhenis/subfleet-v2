@@ -29,6 +29,7 @@ import pytest
 
 from subfleet.sessions import desktop, mirror
 from tests import sessions_fixtures as fx
+from tests import waits
 
 ONE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 TWO = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
@@ -53,6 +54,9 @@ def world(tmp_path, monkeypatch):
     log.parent.mkdir()
     log.write_text("", encoding="utf-8")
     monkeypatch.setenv(desktop.LOG_ENV, str(log))
+    # The mirror's sweep, archive and retry windows count running time, so a
+    # pause of this process between two passes cannot open one of them.
+    monkeypatch.setattr(mirror, "time", waits.RunningTime())
     root = tmp_path / "state"
     root.mkdir()
     return home, store, root, log
@@ -1314,8 +1318,8 @@ def test_a_hot_pass_skipped_for_the_lock_leaves_no_timer_event(tmp_path, monkeyp
         timers.start()
         timers._due["mirror_hot"] = 0
         timers.tick()
-        deadline = clock.monotonic() + 10
-        while "mirror_hot" in timers._running and clock.monotonic() < deadline:
+        budget = waits.Budget(10)
+        while "mirror_hot" in timers._running and not budget.expired():
             clock.sleep(0.02)
         events = [json.loads(row["data_json"]) for row in store.query(
             "SELECT data_json FROM events WHERE kind='timer.run'")]

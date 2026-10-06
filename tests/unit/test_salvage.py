@@ -10,11 +10,24 @@ import pytest
 from subfleet import salvage as salvage_module
 from subfleet.adapters.base import AdapterError
 from subfleet.salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
+from tests import waits
 
 
 def git(path, *args):
     return subprocess.run(["git", "-C", str(path), *args], check=True,
                           capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture(autouse=True)
+def git_caps_in_running_time(monkeypatch):
+    """salvage's own cap on each git call (60 s by default) counts running time, not a pause."""
+    real_run = subprocess.run
+
+    def run(cmd, **kwargs):
+        if kwargs.get("timeout") is None:
+            return real_run(cmd, **kwargs)  # the test's own git helpers
+        return waits.run(cmd, **kwargs)
+    monkeypatch.setattr(subprocess, "run", run)
 
 
 @pytest.fixture
@@ -213,11 +226,11 @@ def test_c6_8_salvage_threads_its_cap_through_every_git_call(monkeypatch, reposi
     """C-6.8 finalization's snapshot runs under the same configurable cap."""
     baseline = git_head(repository)
     (repository / "tracked.txt").write_text("changed\n")
-    real_run, caps = subprocess.run, []
+    caps = []
 
     def run(cmd, **kwargs):
         caps.append(kwargs.get("timeout"))
-        return real_run(cmd, **kwargs)
+        return waits.run(cmd, **kwargs)
     monkeypatch.setattr("subfleet.salvage.subprocess.run", run)
     assert salvage(repository, baseline, 1, timestamp="2026-09-20T10:00:00Z", timeout_s=42)
     assert caps and set(caps) == {42}

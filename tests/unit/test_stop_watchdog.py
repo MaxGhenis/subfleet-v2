@@ -23,16 +23,17 @@ import json
 import logging
 from pathlib import Path
 import signal
-import subprocess
 import sys
 import threading
 import time
+from typing import NamedTuple
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module
+from tests import waits
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -291,34 +292,49 @@ STUCK = {
 NO_LINE = {"hog-during-write"}
 
 
+class Elapsed(NamedTuple):
+    """Seconds from the child's stop to its exit, as this process saw the exit.
+
+    A pause of this process (clamshell-guard, 2026-09-27) can only make it see
+    the exit late. `real` counts that delay, so it is never short: a lower
+    bound checks it. `running` leaves out the time this process was paused
+    (tests/waits.py), so it is never long by more than scheduling: an upper
+    bound checks it. Without a pause the two are equal.
+    """
+    real: float
+    running: float
+
+
 def run_child(tmp_path: Path, kind: str, grace: float, delay: float = 0.0,
-              timeout: float = 30.0) -> tuple[int, list[dict], float, str]:
+              timeout: float = 30.0) -> tuple[int, list[dict], Elapsed, str]:
     log = tmp_path / f"{kind}.log"
     # Hypothesis replays failed examples in this same fixture. Each child's
     # single-line and dump assertions must inspect only that child's output.
     log.unlink(missing_ok=True)
     started = time.monotonic()
-    proc = subprocess.run(
+    proc = waits.run(
         [sys.executable, "-c", CHILD, kind, str(grace), str(log), str(delay)],
         cwd=REPO, capture_output=True, text=True, timeout=timeout,
         env={"PYTHONPATH": str(REPO), "PATH": "/usr/bin:/bin", "PYTHON_GIL": "1"},
     )
     ended = time.monotonic()
     lines = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+    # The child's `time.monotonic()` reads the same system clock as this process's.
     stopped = next((line["stopped_at"] for line in lines if "stopped_at" in line), started)
     text = log.read_text() if log.exists() else ""
     assert "Traceback" not in proc.stderr, proc.stderr
-    return proc.returncode, lines, ended - stopped, text
+    elapsed = Elapsed(ended - stopped, ended - stopped - waits.unrun(stopped, ended))
+    return proc.returncode, lines, elapsed, text
 
 
 def stopping_line(grace: float) -> str:
     return f"stopping: if this process is still running in {grace:g} s, "
 
 
-def assert_bounded(rc: int, elapsed: float, text: str, grace: float, kind: str) -> None:
+def assert_bounded(rc: int, elapsed: Elapsed, text: str, grace: float, kind: str) -> None:
     frame = STUCK[kind]
     assert rc == 1, text
-    assert grace - 0.05 <= elapsed <= grace + SLACK_S, (elapsed, text)
+    assert grace - 0.05 <= elapsed.real and elapsed.running <= grace + SLACK_S, (elapsed, text)
     assert "Timeout (" in text, text
     if kind not in NO_LINE:
         # The stop path and the watching thread both call `arm`; one line, one timer.
@@ -356,7 +372,7 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
     """C-5.8a: the bound never cuts a stop short or rewrites its status."""
     rc, _lines, elapsed, text = run_child(tmp_path, "clean", grace=10.0)
     assert rc == 0
-    assert elapsed < 10.0
+    assert elapsed.running < 10.0
     assert stopping_line(10.0) in text
     assert "Timeout (" not in text
 
@@ -370,7 +386,7 @@ def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
     leaves alone ends the process on time (round-4 review, low 1)."""
     rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
     assert rc == -signal.SIGALRM, text
-    assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed.real and elapsed.running <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
     assert stopping_line(1.0) + (
         f"SIGALRM ends it in {1.0 + ALARM_MARGIN_S:g} s without a stack dump "
@@ -388,7 +404,7 @@ def test_c5_8a_fallback_needs_no_new_thread_at_stop_time(tmp_path):
     # Either the original preexisting watcher or the kernel alarm can enforce
     # this property; creating a new threading.Timer cannot.
     assert rc in (1, -signal.SIGALRM), text
-    assert 1.0 - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert 1.0 - 0.05 <= elapsed.real and elapsed.running <= 1.0 + SLACK_S, (elapsed, text)
     assert {"thread_start_attempted": True} not in lines, lines
     assert text.count("stopping:") == 1, text
     assert "faulthandler: RuntimeError" in text, text
@@ -415,7 +431,7 @@ def test_c5_8a_kernel_timer_failure_ends_the_process_immediately(tmp_path):
     rc, lines, elapsed, text = run_child(tmp_path, "kernel-arm-fails", grace=10.0)
     assert rc == 1, text
     assert {"kernel_arm_attempted": True} in lines, lines
-    assert elapsed < 10.0, elapsed
+    assert elapsed.running < 10.0, elapsed
     assert text == ""
 
 
@@ -423,7 +439,7 @@ def test_c5_8a_a_blocked_faulthandler_dump_cannot_keep_the_process_alive(tmp_pat
     """The default-action alarm also ends a C watchdog blocked on its dump."""
     rc, _lines, elapsed, text = run_child(tmp_path, "blocked-dump", grace=1.0)
     assert rc == -signal.SIGALRM, text
-    assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed.real and elapsed.running <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
 
 

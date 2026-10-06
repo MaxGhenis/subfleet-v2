@@ -3,10 +3,11 @@
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 import pytest
+
+from tests import waits
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,8 +48,8 @@ raise SystemExit(main(sys.argv[1:]))
     env.update(HOME=str(home), PICK_OUTPUT=str(picked), CHILD_LOG=str(child_log), CALL_LOG=str(call_log),
                PATH="/usr/bin:/bin")
     def run(*args, **values):
-        return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
-                              input="prompt on stdin\n", capture_output=True, text=True, timeout=5)
+        return waits.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
+                         input="prompt on stdin\n", capture_output=True, text=True, timeout=5)
     def calls():
         return [json.loads(line) for line in call_log.read_text().splitlines()] if call_log.exists() else []
     return run, picked, child_log, calls, native, real

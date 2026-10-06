@@ -7,6 +7,8 @@ import subprocess
 
 import pytest
 
+from tests import waits
+
 
 @pytest.mark.parametrize("boundary", ["reserved", "starting", "running", "finalizing",
                                      "terminal", "notice", "export", "salvage"])
@@ -34,7 +36,7 @@ def test_c20_3_crash_matrix_recovers_without_duplicate_acceptance(daemon, bounda
         daemon.until(lambda: (daemon.root / "hook-finalizing.json").exists())
         (daemon.workdir / "tracked.txt").write_text("changed result\n")
         (daemon.root / "release-hook").touch()
-    daemon.process.wait(timeout=5)
+    waits.wait_process(daemon.process, 5, watch=daemon.daemon_tree)
     assert daemon.process.returncode == -signal.SIGKILL
     marker = json.loads((daemon.root / f"hook-{boundary}.json").read_text())
     assert marker["job_id"] == job_id
@@ -70,7 +72,7 @@ def test_c4_3_c15_1_sigkill_after_terminal_cannot_lose_notice(daemon):
     """C-4.3, C-15.1 a SIGKILL immediately after terminal state leaves its notice committed."""
     daemon.start("--crash-at", "terminal")
     job_id = daemon.submit()
-    daemon.process.wait(timeout=5)
+    waits.wait_process(daemon.process, 5, watch=daemon.daemon_tree)
     assert daemon.process.returncode == -signal.SIGKILL
     assert daemon.job(job_id)["state"] == "succeeded"
     assert len(daemon.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
