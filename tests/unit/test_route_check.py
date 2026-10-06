@@ -387,6 +387,17 @@ def test_c6_3_the_chosen_lane_whose_reading_ages_out_is_judged_again(policy):
     assert judged_again(policy, store, store, seconds=5) == (None, 1)
 
 
+def test_c11_3_a_stale_window_renewing_invalidates_the_lanes_fresh_ranking(policy):
+    """A stale primary reset makes even fresh weekly evidence unmeasured until reread."""
+    primary = {**reading("codex-1", .9, 4, observed=NOW - timedelta(seconds=130), resets_in=3),
+               "window": "five_hour"}
+    store = fleet(readings=[reading("codex-1", .2, 1, resets_in=600), reading("codex-2", .5, 2),
+                            reading("codex-3", .6, 3), primary])
+    assert stands(policy, store, store, seconds=0) == (None, "codex-1")
+    assert stands(policy, store, store, seconds=5) == (None, "codex-2")
+    assert judged_again(policy, store, store, seconds=5) == (None, 1)
+
+
 def test_c6_3_a_closure_that_ends_on_a_lane_it_looks_at_opens_that_lane(policy):
     """codex-1 was closed at the early evaluation; its closure ends before the
     reservation. Judged again at the check's clock, it is open and ranks first."""

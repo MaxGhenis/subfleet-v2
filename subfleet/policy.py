@@ -156,6 +156,8 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
 #: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: `weekly_reserve` and `five_hour_reserve` are fractions remaining below which
+#: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
@@ -173,6 +175,8 @@ MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
 }
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
     "pin_grace_s": 1800,
@@ -344,6 +348,9 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    for key in ("weekly_reserve", "five_hour_reserve"):
+        if not _fraction(settings[key]):
+            fail(f"admission.{key}", "must be a finite fraction between 0 and 1")
     recent = settings["desktop_recent_s"]
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")

@@ -1,4 +1,4 @@
-"""C-18.3: a busy Codex lane's usage is read beside its attempts, holding nothing.
+"""C-18.3: busy Claude and Codex lanes are read beside their attempts, holding nothing.
 
 Incident, 2026-09-30: codex-4's operator hold was released at 21:11:00Z with a
 fresh week from a reset credit spent at 20:41:57Z. Admission placed work on it
@@ -202,10 +202,11 @@ OCCUPANCY = ("attempt", "lease", "both", "probe", "turn", "turn-lease")
 
 
 @pytest.mark.parametrize("how", OCCUPANCY)
-def test_c18_3_a_busy_codex_lane_is_read_on_its_first_cycle(rig, how):
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_3_a_busy_lane_is_read_on_its_first_cycle(rig, how, provider):
     """C-18.3: work on the lane (an attempt, a slot lease, an admission probe's `slot:0`, a conversation
     turn or its `slot:turn-<n>` lease) no longer hides it, and none of it makes the read take `slot:0`."""
-    lane = rig.enroll()
+    lane = rig.enroll(provider=provider)
     rig.occupy(lane, how)
     before = leases(rig.store)
     rig.timer.probe_cycle()
@@ -219,9 +220,10 @@ def test_c18_3_a_busy_codex_lane_is_read_on_its_first_cycle(rig, how):
     assert event["lanes"] == event["busy"] == [lane.lane_id] and event["deferred"] == {}
 
 
-def test_c18_3_an_always_busy_lane_is_read_on_every_tick(rig, monkeypatch):
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_3_an_always_busy_lane_is_read_on_every_tick(rig, monkeypatch, provider):
     """C-18.3, C-18.1: the 2026-09-30 starvation. A lane never idle at a cycle is still read every cycle."""
-    lane = rig.enroll()
+    lane = rig.enroll(provider=provider)
     rig.occupy(lane, "both")
     monkeypatch.setattr("subfleet.timers.time.monotonic", lambda: rig.clock().timestamp())
     pending = []
@@ -238,9 +240,91 @@ def test_c18_3_an_always_busy_lane_is_read_on_every_tick(rig, monkeypatch):
         assert rig.row(lane)["measured"]
 
 
-def test_c18_3_the_read_holds_no_slot_and_a_job_can_take_one_during_it(rig):
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_1_busy_lanes_are_read_on_consecutive_requested_cycles(rig, provider):
+    """C-18.1: the preceding probe and fresh attempt evidence never skip a requested cycle."""
+    lane = rig.enroll(provider=provider)
+    rig.occupy(lane, "both")
+    rig.store.add_reading(Reading(lane.lane_id, "account", "seven_day", .7,
+                                  iso(rig.clock() + timedelta(days=2)), ReadingLabel.PROVIDER,
+                                  "rate-limit-event", iso(rig.clock()), attempt_id=f"job-{lane.lane_id}-0/a1"))
+    rig.timer.probe_cycle()
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id, lane.lane_id]
+    assert len(rig.wham_readings(lane)) == 4
+    assert rig.events("timer.reservation", lane) == []
+
+
+def test_c9_9_a_busy_claude_lane_uses_the_no_turn_oauth_sensor(rig, monkeypatch):
+    """C-9.9, C-18.3: a busy Claude lane reads all OAuth windows, with Claude pacing and no turn."""
+    from subfleet.adapters.claude import ClaudeAdapter, IdentityCheck, IdentityStatus, OAUTH_USAGE_URL
+    from tests.unit.test_claude_usage import PAYLOAD
+
+    lane = rig.enroll("claude-4", provider="claude")
+    rig.occupy(lane, "both")
+    requests, paced = [], []
+
+    def opener(request, timeout):
+        requests.append(request.full_url)
+        return 200, json.dumps(PAYLOAD).encode()
+
+    real = ClaudeAdapter(usage_opener=opener, now=rig.clock)
+    real.lane_identity_check = lambda lane, env: IdentityCheck(
+        IdentityStatus.VERIFIED, "ok", "x", "y", None, None, None, "t")
+    real.probe_with_model = lambda *args, **kwargs: pytest.fail("a model turn was spent")
+    rig.timer.adapter_factory = lambda provider: real if provider == "claude" else pytest.fail(provider)
+    monkeypatch.setattr("subfleet.timers.resolve_credential", lambda _: {"CLAUDE_CODE_OAUTH_TOKEN": "test-token"})
+    monkeypatch.setattr(rig.timer, "_pace_usage", lambda: paced.append(True))
+    before = leases(rig.store)
+    rig.timer.probe_cycle()
+
+    assert requests == [OAUTH_USAGE_URL] and paced == [True]
+    readings = rig.store.list_readings(lane.lane_id)
+    assert {(r["scope"], r["window"], r["source"]) for r in readings} == {
+        ("account", "five_hour", "oauth-usage"), ("account", "seven_day", "oauth-usage"),
+        ("claude-fable-5-1", "seven_day", "oauth-usage")}
+    assert leases(rig.store) == before
+    assert rig.turns == [] and rig.events("timer.reservation", lane) == []
+
+
+def test_c9_9_busy_claude_retry_after_keeps_usage_and_its_age(rig):
+    """C-9.9, C-18.3: a busy Claude 429 keeps old usage, honours Retry-After, and spends no heal."""
+    lane = rig.enroll("claude-4", provider="claude")
+    rig.occupy(lane, "both")
+    rig.timer.probe_cycle()
+    previous = rig.wham_readings(lane)
+    rig.clock.advance()
+    rig.wham.responses[lane.lane_id] = [{"status": "rate-limited", "readings": (), "retry_after_s": 120}]
+    rig.timer.probe_cycle()
+    assert rig.wham_readings(lane) == previous
+    assert rig.timer.metadata[lane.lane_id]["retry_after_until"] == iso(rig.clock() + timedelta(seconds=120))
+    rig.clock.advance()
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id, lane.lane_id]
+    rig.clock.advance()
+    rig.timer.probe_cycle()
+    assert rig.wham.calls == [lane.lane_id] * 3
+    assert rig.turns == [] and rig.events("timer.reservation", lane) == []
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_1_an_idle_failed_read_keeps_usage_and_its_observation_time(rig, provider):
+    """C-18.1, C-9.1: a failed idle read keeps prior usage and lets its age become stale honestly."""
+    lane = rig.enroll(provider=provider)
+    rig.timer.probe_cycle()
+    previous = rig.wham_readings(lane)
+    rig.clock.advance(180)
+    rig.wham.responses[lane.lane_id] = [OSError("network is down")]
+    rig.timer.probe_cycle()
+    assert rig.wham_readings(lane) == previous
+    assert all(reading["label"] == "stale-provider" for reading in rig.row(lane)["readings"]
+               if reading["window"] in ("seven_day", "five_hour"))
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_3_the_read_holds_no_slot_and_a_job_can_take_one_during_it(rig, provider):
     """C-18.3, C-6.10: no lease, no reserved probe, no `probe:` holder during the read; admission is free to place."""
-    lane = rig.enroll()
+    lane = rig.enroll(provider=provider)
     rig.occupy(lane, "both")
     before = leases(rig.store)
     seen = {}
@@ -258,12 +342,13 @@ def test_c18_3_the_read_holds_no_slot_and_a_job_can_take_one_during_it(rig):
 
 
 @pytest.mark.parametrize("status", WITHHELD + ("raise-oserror", "raise-valueerror", "timeout"))
-def test_c18_3_a_busy_read_publishes_no_credential_verdict_and_runs_no_heal(rig, status):
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_3_a_busy_read_publishes_no_credential_verdict_and_runs_no_heal(rig, status, provider):
     """C-18.3, C-23.44, C-23.47: a busy lane's attempts renew its token and report a dead one themselves."""
-    lane = rig.enroll()
+    lane = rig.enroll(provider=provider)
     rig.timer.probe_cycle()                                   # idle: the verdict to keep
     published = dict(rig.timer.metadata[lane.lane_id])
-    readings = len(rig.wham_readings(lane))
+    readings = rig.wham_readings(lane)
     rig.occupy(lane, "both")
     rig.clock.advance()
     if status == "timeout":
@@ -283,9 +368,10 @@ def test_c18_3_a_busy_read_publishes_no_credential_verdict_and_runs_no_heal(rig,
     assert rig.cycle_event()["deferred"] == {lane.lane_id: expected.get(status, status)}
     assert rig.store.get_lane(lane.lane_id).enabled
     assert rig.timer.metadata[lane.lane_id] == published
-    assert len(rig.wham_readings(lane)) == readings
+    assert rig.wham_readings(lane) == readings  # values, observation time and age are unchanged
     assert rig.turns == [] and rig.events("timer.heal", lane) == []
-    assert snapshot["offline"] is (status in ("network-error", "raise-oserror", "timeout"))
+    assert snapshot["offline"] is (provider == "codex" and
+                                   status in ("network-error", "raise-oserror", "timeout"))
 
 
 def test_c18_3_a_withheld_busy_read_is_read_again_next_cycle(rig):
@@ -866,11 +952,11 @@ def test_c18_3_an_attempt_that_finalizes_right_after_the_check_keeps_its_verdict
     assert dict.get(rig.timer.metadata, lane.lane_id) == {"verdict": "auth-dead", "probe_status": "auth-dead"}
 
 
-@pytest.mark.parametrize("case", ["operator-hold", "auth-dead", "desktop", "claude", "disabled"])
-def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case):
-    """C-18.1, C-18.3, C-10.3, C-9.8: held, dead, desktop and disabled lanes are not read; a busy Claude
-    lane is measured by its own attempts and is not read."""
-    lane = rig.enroll("claude-1" if case == "claude" else "codex-4", provider="claude" if case == "claude" else "codex",
+@pytest.mark.parametrize("case", ["operator-hold", "auth-dead", "desktop", "disabled"])
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case, provider):
+    """C-18.1, C-18.3, C-10.3: held, dead, desktop and disabled lanes of either provider stay unread."""
+    lane = rig.enroll(f"{provider}-4", provider=provider,
                       desktop=case == "desktop")
     if case in ("operator-hold", "auth-dead"):
         rig.store.put_closure(Closure(lane.lane_id, "account", "2099-12-31T00:00:00Z", ClosureReason(case),
@@ -878,7 +964,7 @@ def test_c18_3_lanes_that_are_never_read_stay_unread_when_busy(rig, case):
     if case == "disabled":
         rig.store.update_lane(lane.lane_id, enabled=0)
     rig.occupy(lane, "both")
-    assert rig.timer._claim(lane, "probe") is (BUSY if case == "claude" else None)
+    assert rig.timer._claim(lane, "probe") is None
     rig.timer.probe_cycle()
     assert rig.wham.calls == []
     assert rig.store.query("SELECT 1 FROM readings WHERE lane_id=?", (lane.lane_id,)) == []

@@ -201,9 +201,9 @@ class Timers:
             self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
         finally:
             if name == 'probe':
-                # Each lane's durable debounce starts when its probe finishes.
-                # Scheduling from cycle start could therefore skip the entire
-                # next cycle whenever a request took nonzero time.
+                # The automatic cadence starts at cycle completion. Every
+                # subsequent cycle reads each usable lane; operator requests
+                # may start another cycle before the automatic deadline.
                 with self._lock:
                     interval = self.intervals[name]
                     self._due[name] = time.monotonic() + interval
@@ -475,17 +475,17 @@ class Timers:
         epoch = self._epoch(lane) if lane.provider == 'codex' else lane.credential.epoch
         if previous.get('revoked_epoch') == epoch:
             return None
-        last = previous.get('probed_at')
-        if last and (self.now() - instant(last)).total_seconds() < self.intervals['probe']:
-            return None
+        # C-18.1: a cycle reads every usable lane, even when an operator requests
+        # another cycle immediately. The cycle's completion-based cadence owns
+        # scheduling; an attempt's reading or the preceding probe never skips it.
         until = previous.get('retry_after_until')
         if until and self.now() < instant(until):
             return None     # C-9.9: the usage endpoint asked us to wait
         holder = self._claim(lane, 'probe')
         if holder is BUSY:
-            # C-18.3: a Claude attempt measures its own lane as it ends (C-9.8);
-            # a Codex attempt never does, so only a Codex lane is read at work.
-            return self._busy_read(lane) if lane.provider == 'codex' else None
+            # C-18.3: both providers have usage sensors that spend no turn. Read
+            # beside the attempts, without holding a lease or healing a token.
+            return self._busy_read(lane)
         if not holder:
             return None
         quarantined = False
@@ -547,7 +547,7 @@ class Timers:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
 
     def _busy_read(self, lane):
-        """C-18.3: a busy Codex lane's usage read, taken beside its attempts.
+        """C-18.3: a busy Claude or Codex lane's usage read beside its attempts.
 
         The usage GET alone. It takes no lease and writes no reservation, so it
         never holds a slot a job could take, and it runs no heal turn: the lane's
@@ -560,10 +560,14 @@ class Timers:
         opened = 0
         try:
             opened = self._mark()
-            adapter = self.adapter_factory('codex')
+            adapter = self.adapter_factory(lane.provider)
             if hasattr(adapter, 'timeout'):
                 adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+            if lane.provider == 'claude':
+                self._pace_usage()
             probe = {**self._read_probe(adapter, lane, resolve_credential(lane.credential))}
+            if lane.provider == 'claude' and probe.get('retry_after_s'):
+                probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
         except (TimeoutError, OSError) as exc:
             probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
         except Exception as exc:
@@ -585,7 +589,9 @@ class Timers:
     def _publishable(self, lane, probe, opened):
         """C-18.3: what a busy read may publish, judged as it is published.
 
-        None publishes nothing. A credential verdict (`auth-dead`, `revoked`,
+        None publishes nothing. A Claude 429 publishes its Retry-After cooldown
+        only; existing provider readings keep their original observation times.
+        A credential verdict (`auth-dead`, `revoked`,
         `expired-token`, `no-auth`) or a failed read is never published from a
         busy lane: its attempts are renewing its token as it is read, and they
         report a dead credential themselves (C-23.44). A credential naming
@@ -602,7 +608,9 @@ class Timers:
         """
         account = probe.get('account_key')
         mismatch = bool(account) and account != lane.account_key
-        if not mismatch and probe.get('status') not in ('ok', 'limited'):
+        cooldown = (lane.provider == 'claude' and probe.get('status') == 'rate-limited'
+                    and bool(probe.get('retry_after_until')))
+        if not mismatch and probe.get('status') not in ('ok', 'limited') and not cooldown:
             return None
         if self._never_read(lane.lane_id):
             return None

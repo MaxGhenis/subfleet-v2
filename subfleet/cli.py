@@ -481,6 +481,8 @@ def cmd_pick(args: argparse.Namespace) -> int:
     elif data.get("best"):
         out(data["best"])
         note(f"{PROG} pick: advisory only; no lane slot is reserved")
+        for lane in data["ranked"] if args.all else data["ranked"][:1]:
+            note(f"  {lane['lane_id']}: {_format_ranking_usage(lane)}")
         if args.all:
             key = "home" if args.family == "codex" else "email"
             for lane in data["ranked"][1:]:
@@ -1111,6 +1113,20 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return worst
 
 
+def _format_ranking_usage(detail: dict[str, Any]) -> str:
+    """C-11.5: explain the same weekly/reserve evidence pick and why rank."""
+    def percent(key):
+        value = detail.get(key)
+        return "unknown" if value is None else f"{100 * value:.1f}%"
+    age = detail.get("reading_age_s")
+    return (f"reserve={detail.get('reserve_class', 'unknown')} "
+            f"weekly-scope={detail.get('weekly_scope') or 'unknown'} "
+            f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
+            f"weekly-headroom={percent('weekly_headroom')} "
+            f"five-hour-headroom={percent('five_hour_headroom')} "
+            f"reading-age={'unknown' if age is None else f'{age:.1f}s'}")
+
+
 def _format_decision(decision: dict[str, Any]) -> str:
     if not isinstance(decision, dict):
         return json.dumps(decision, default=str)
@@ -1118,6 +1134,9 @@ def _format_decision(decision: dict[str, Any]) -> str:
     for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
+        details = evaluation.get("candidate_details") or {}
+        for identity in evaluation.get("candidates") or ():
+            lines.append(f"    + {identity}: {_format_ranking_usage(details.get(identity) or {})}")
         for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
