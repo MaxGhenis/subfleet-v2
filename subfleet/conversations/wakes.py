@@ -328,7 +328,7 @@ class WakeEngine:
         """Finish registrations interrupted after the message completed."""
         for intent in self.store.query(
                 "SELECT i.*,m.conversation_id FROM final_wake_intents i JOIN messages m USING(message_id) "
-                "ORDER BY m.updated_at,m.message_id"):
+                "ORDER BY m.conversation_id,m.seq"):
             self.from_final(intent["conversation_id"], intent["message_id"], intent["final_text"])
 
     def from_final(self, cid: str, mid: str, text: str) -> None:

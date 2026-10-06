@@ -226,6 +226,64 @@ def test_final_wake_intent_survives_each_registration_boundary(svc, monkeypatch,
         restarted.close()
 
 
+@pytest.mark.parametrize("replacement", ["final-turn", "explicit-wake"])
+def test_pending_final_cannot_supersede_a_newer_rearm(svc, monkeypatch, replacement):
+    cid = bound(svc)
+    now = time.time()
+    clock = [now]
+    svc.wakes.now = lambda: clock[0]
+
+    def finished_turn(after, deadline, note):
+        mid = submit(svc, cid, after=after)
+        svc._dispatch()
+        host = svc.store.message(mid)["job_id"]
+        svc.daemon.store.add_attempt(attempt_id=host + "/a1", job_id=host, seq=1,
+                                    lane_id="claude-1", model_requested="opus", state="succeeded")
+        svc.daemon.store.update_job(host, state="succeeded")
+        adir = svc.root / "jobs" / host / "a1"
+        adir.mkdir(parents=True)
+        turn = {"state": "complete", "ended_by": "provider", "served": {},
+                "native_session_id": svc.store.conversation(cid)["native_session_id"],
+                "final_text": f'WAKE-ME: at={iso(deadline)} note="{note}"'}
+        (adir / "turn.json").write_text(json.dumps(turn))
+        runner = EndedRunner(adir, mid, cid)
+        runner.attempt_id = host + "/a1"
+        runner.attempt["attempt_id"] = runner.attempt_id
+        svc.store.set_state(mid, "running")
+        return runner
+
+    old = finished_turn(None, now + 600, "Older request")
+    with monkeypatch.context() as crash:
+        crash.setattr(svc.wakes, "from_final", lambda *_: (_ for _ in ()).throw(SimulatedCrash()))
+        with pytest.raises(SimulatedCrash):
+            svc._on_outcome(old)
+    assert svc.store.message(old.message_id)["state"] == "complete"
+    if replacement == "final-turn":
+        newer = finished_turn(old.message_id, now + 900, "Newer request")
+        svc._on_outcome(newer)
+    else:
+        svc.op_conversation_wake({"session_id": svc.store.conversation(cid)["native_session_id"],
+            "request_id": str(uuid.uuid4()), "at": iso(now + 900), "note": "Newer request"}, None)
+    svc.close()
+    restarted = ConversationService(svc.daemon)
+    restarted.wakes.now = lambda: clock[0]
+    try:
+        for _ in range(3):
+            restarted._replay_unsettled()
+        clock[0] = now + 601
+        restarted.wakes.tick(poll=False)
+        assert wake_rows(restarted, cid) == [], "older recovered final replaced the newer re-arm"
+        clock[0] = now + 901
+        for _ in range(3):
+            restarted.wakes.tick(poll=False)
+            settle_wakes(restarted, cid)
+        assert len(wake_rows(restarted, cid)) == 1
+        assert "Newer request" in wake_texts(restarted, cid)[0]
+        assert "Older request" not in wake_texts(restarted, cid)[0]
+    finally:
+        restarted.close()
+
+
 @pytest.mark.parametrize("hold", ["blocked", "throttle", "legacy", "archived"])
 def test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart(svc, tmp_path, monkeypatch, hold):
     cid = bound(svc)

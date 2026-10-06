@@ -707,12 +707,15 @@ class ConversationService:
         if conversation is None:
             raise ConversationError("no-conversation", "wake needs a calling session bound to a conversation")
         request_id = canonical_uuid(args["request_id"])
-        accepted = self.store.one("SELECT created_at FROM wake_requests WHERE conversation_id=? AND request_id=?",
-                                  (conversation["conversation_id"], request_id))
-        validation_time = datetime.fromisoformat(accepted["created_at"].replace("Z", "+00:00")).timestamp() if accepted else self.wakes.now()
-        spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
-                         now=validation_time)
-        return self.wakes.register(conversation["conversation_id"], request_id, spec)
+        with self._lock:
+            accepted = self.store.one("SELECT created_at FROM wake_requests WHERE conversation_id=? AND request_id=?",
+                                      (conversation["conversation_id"], request_id))
+            validation_time = datetime.fromisoformat(accepted["created_at"].replace("Z", "+00:00")).timestamp() if accepted else self.wakes.now()
+            spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
+                             now=validation_time)
+            # Older completion intents must register before this newer re-arm.
+            self.wakes.replay_final()
+            return self.wakes.register(conversation["conversation_id"], request_id, spec)
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -2344,7 +2347,9 @@ class ConversationService:
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
         if settlement.state == COMPLETE and turn.get("final_text"):
-            self.wakes.from_final(runner.conversation_id, runner.message_id, turn["final_text"])
+            # Drain in message order: a pending older final cannot later replace
+            # the requests from this turn. The service lock serializes re-arms.
+            self.wakes.replay_final()
         self.daemon._notify()
 
     def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:
