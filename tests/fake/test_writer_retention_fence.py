@@ -96,7 +96,8 @@ def test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fen
         assert seen["fence"] == "retention:retired", seen
         assert not seen["live"] and seen["own"] is None, seen
         assert seen["hold"]["reason"] == "lease-held" and seen["hold"]["leases"] == [fence], seen
-        assert f"held by another job: {fence}" in seen["why"], seen["why"]
+        assert (f"Held: retention is removing a finished job's worktree that its folder {nested} is in ({tree})"
+                in seen["why"]), seen["why"]
         assert daemon._job(writer)["state"] == "waiting"
         assert daemon.store.one("SELECT 1 FROM leases WHERE holder='retention:retired'") is None
         daemon._admit()

@@ -423,7 +423,8 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
         fence = [folders.exclusive_key(tree)]
-        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "folder": folder}, seen
+        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "retiring": fence,
+                                               "folder": folder}, seen
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
         assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
 
@@ -458,7 +459,7 @@ def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
         assert seen["transaction"]["hold"]["reason"].startswith("closed"), seen
         assert seen["transaction"]["reason"].startswith("closed:") and seen["transaction"]["prepared"] == 1, seen
         assert seen["look"]["hold"] == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)],
-                                        "folder": nested}, seen
+                                        "retiring": [folders.exclusive_key(tree)], "folder": nested}, seen
         assert seen["look"]["reason"] == ("lease: retention is removing a finished job's worktree that this "
                                           f"folder is in ({tree})") and seen["look"]["prepared"] == 0
         daemon.store.release_leases("retention:retired")
@@ -580,12 +581,12 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
                 # whole seconds, so a delay of 1 s can read as now.
                 assert (row["state"], row["wait_reason"]) == ("waiting", "capacity")
                 assert row["next_check_at"] >= backed_off, (look, row["next_check_at"], backed_off)
-                assert holds == {turn: {"reason": "lease-held", "leases": expected, "folder": folder,
-                                        "next_check_at": row["next_check_at"]}}, rows
+                assert holds == {turn: {"reason": "lease-held", "leases": expected, "retiring": expected,
+                                        "folder": folder, "next_check_at": row["next_check_at"]}}, rows
                 assert waiters == {"standard": [(turn, None, None, frozenset(expected))]}
                 wait = daemon._capacity_waits[turn]
                 assert wait["signature"] == "lease-held:" + ",".join(sorted(expected)) and wait["rechecks"] == look - 1
-                assert wait["hold"] == {"reason": "lease-held", "leases": expected, "folder": folder}
+                assert wait["hold"] == {"reason": "lease-held", "leases": expected, "retiring": expected, "folder": folder}
 
         check()
 
