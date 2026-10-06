@@ -145,6 +145,20 @@ def test_c6_16_a_job_passing_a_priority_waiter_of_another_tier_leaves_it_the_las
     assert admitted(service, passer)
 
 
+def test_c6_16_a_detached_tier_named_like_a_turn_queue_is_still_held(fleet):
+    """C-6.16 review r2 of PR #147: a valid detached tier spelled `…#turn` was
+    skipped by a name check and passed a waiting priority job."""
+    service, harness = fleet
+    service.policy["tiers"] = [*service.policy["tiers"], "trivial#turn"]
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="chosen")
+    oddly = submit(service, harness, pinned_model="astra", tier="trivial#turn", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(oddly)
+    assert service._holds[oddly]["behind"] == older
+
+
 def test_c6_16_only_a_priority_waiter_crosses_tiers(fleet):
     """C-4.1 a waiter that is not priority still holds back only its own tier:
     the pass looks at a trivial waiter first, and it holds no later hard job."""

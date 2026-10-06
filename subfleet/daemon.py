@@ -4457,7 +4457,7 @@ class Daemon:
             """The waiters a job of this queue may not pass, oldest first: every
             priority waiter, which the pass's order puts first, then its tier's."""
             own = waiters.get(tier, ())
-            if not priority_waiters or tier.endswith("#turn"):
+            if not priority_waiters:              # a turn pass never has any: turns are `attended`
                 return own
             first = {waiter[0] for waiter in priority_waiters}
             return [*priority_waiters, *(waiter for waiter in own if waiter[0] not in first)]
