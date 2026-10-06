@@ -401,7 +401,8 @@ def test_c18_1_probe_fields_are_additions_only():
     rows = [reading(window="seven_day", utilization=0.8), reading("claude", window="five_hour", utilization=0.2)]
     result = build_status(build_view([lane(), lane("claude")], rows, now=NOW))
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
-    assert set(result) == {"generated_at", "offline", "jobs", "conversations", "codex", "claude"}
+    assert set(result) == {"generated_at", "offline", "jobs", "conversations", "alerts", "codex", "claude"}
+    assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
     assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes"}
     assert set(codex) == V1_CODEX_ROW | PROBE_ROW
     assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
@@ -734,6 +735,9 @@ def test_c18_1_the_daemon_hands_the_timer_its_probe_records(tmp_path, monkeypatc
     """C-18.1 wired as the daemon runs it: status.json names each held lane's probe state from the daemon's own
     records, and agrees with the daemon's capacity view on every lane's verdict and probe fields."""
     from subfleet.daemon import Daemon
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     daemon = Daemon(tmp_path / "root")
     try:
@@ -769,6 +773,9 @@ def test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published(tmp_
     above cannot see the difference."""
     import threading
     from subfleet.daemon import Daemon, utcnow
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     daemon = Daemon(tmp_path / "root")
     try:

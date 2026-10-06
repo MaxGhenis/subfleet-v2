@@ -98,7 +98,8 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     its provider's, or the one lane the job's pin names) that changed: their
     rows, their reset-credit override, or their own clock (`clocks`, from
     `capacity.lane_horizons`: a reading counted fresh aged out or reached its
-    reset, one observed after the view's clock turned fresh, a closure ended).
+    reset, a stale provider window renewed, one observed after the view's clock
+    turned fresh, a closure ended).
     Every other lane is judged as it was. When a fleet or parent cap began or
     ended, which refuses or frees every lane alike, every lane of each model is
     judged again; so is every lane of a model past those the early decision

@@ -724,6 +724,77 @@ def build() -> None:
         },
     )
 
+    # 9b — the organisation block as Claude Code 2.1.284 wrote it on 2026-09-30, when an
+    #      organisation disabled claude-5's Claude Code access: no request was served.
+    sid = "55555555-5555-4555-8555-5555555555b9"
+    hook = {"type": "system", "subtype": "hook_started", "hook_id": "f1x7a2e0-0000-4000-8000-000000000001",
+            "hook_name": "SessionStart:startup", "hook_event": "SessionStart",
+            "uuid": f"{sid[:8]}-0000-4000-8000-000000000010", "session_id": sid}
+    hooked = {"type": "system", "subtype": "hook_response", "hook_id": hook["hook_id"],
+              "hook_name": "SessionStart:startup", "hook_event": "SessionStart", "output": "", "stdout": "",
+              "stderr": "", "exit_code": 0, "outcome": "success",
+              "uuid": f"{sid[:8]}-0000-4000-8000-000000000011", "session_id": sid}
+    zero = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0, "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+            "service_tier": None, "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0}}
+    placeholder = {
+        "type": "assistant",
+        "message": {"id": "2758f296-0000-4000-8000-000000000012", "container": None, "model": "<synthetic>",
+                    "role": "assistant", "stop_reason": "stop_sequence", "stop_sequence": "", "type": "message",
+                    "usage": zero, "content": [{"type": "text", "text": TEXT_ORG_BLOCK}],
+                    "context_management": None},
+        "parent_tool_use_id": None, "session_id": sid, "uuid": f"{sid[:8]}-0000-4000-8000-000000000013",
+        "error": "oauth_org_not_allowed", "is_api_error_message": True,
+        "api_error_code": "oauth_not_allowed_for_organization",
+    }
+    ended = {"type": "result", "subtype": "success", "duration_ms": 31904, "duration_api_ms": 0, "is_error": True,
+             "num_turns": 1, "result": TEXT_ORG_BLOCK, "stop_reason": "stop_sequence", "total_cost_usd": 0,
+             "usage": {**zero, "output_tokens_details": {"thinking_tokens": 0}}, "modelUsage": {},
+             "permission_denials": [], "terminal_reason": "api_error", "api_error_status": 403,
+             "api_error_code": "oauth_not_allowed_for_organization", "session_id": sid,
+             "uuid": f"{sid[:8]}-0000-4000-8000-000000000014"}
+    write_case(
+        "org-block-synthetic",
+        stdout=stream([hook, hooked, {**init_event(sid, "claude-opus-5-5"), "claude_code_version": "2.1.284"},
+                       placeholder, ended]),
+        stderr="",
+        rc=1,
+        expected={
+            "synthetic": True,
+            "provenance": (
+                "The shape of the 37 streams of 2026-09-30 15:43Z on claude-5 (for one, "
+                "~/.subfleet/jobs/20260930-114330-salvage-r3-cont3/a1/stdout, read-only): SessionStart "
+                "hook events, a system/init, Claude Code's placeholder frame (model <synthetic>, "
+                "is_api_error_message, error oauth_org_not_allowed, every usage counter zero) and a "
+                "`success` result marked is_error with api_error_status 403 and duration_api_ms 0. "
+                "Ids and uuids are replaced; the sentence and field values are verbatim."
+            ),
+            "requested_model": "claude-opus-5-5",
+            "session_id": sid,
+            "class": "auth-dead",
+            "detail_contains": "organization has disabled",
+            "evidence": {
+                "auth": "organisation block, in the placeholder frame and the error result",
+                "admission": "not reached",
+                "quota": "not reached",
+                "model_answered": False,
+            },
+            "closure": None,
+            "readings": [],
+            "deliverable": TEXT_ORG_BLOCK,
+            "attestation": {"status": "unattested", "served_model": None},
+            "stream": {
+                "init": True,
+                "assistants": 1,
+                "assistant_models": [],
+                "rate_limit_events": 0,
+                "result_subtype": "success",
+                "truncated_tail": False,
+                "bad_lines": 0,
+            },
+        },
+    )
+
     # 10 — the host CLI is older than the model: never the lane's fault.
     sid = "66666666-6666-4666-8666-666666666666"
     write_case(

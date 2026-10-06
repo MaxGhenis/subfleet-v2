@@ -97,6 +97,7 @@ enum Ops {
     static let conversationOpen = DaemonOperation<ConversationOpenArgs, ConversationOpenResult>(name: "conversation.open")
     static let conversationCreate = DaemonOperation<ConversationCreateArgs, ConversationCreateResult>(name: "conversation.create")
     static let conversationSettings = DaemonOperation<ConversationSettingsArgs, ConversationResult>(name: "conversation.settings")
+    static let conversationRename = DaemonOperation<ConversationRenameArgs, ConversationResult>(name: "conversation.rename")
     static let conversationUnblock = DaemonOperation<ConversationUnblockArgs, ConversationResult>(name: "conversation.unblock")
     static let conversationHistory = DaemonOperation<ConversationHistoryArgs, HistoryPage>(name: "conversation.history")
     static let conversationEvents = DaemonOperation<ConversationEventsArgs, EventsPage>(name: "conversation.events", longPoll: true)
@@ -104,6 +105,8 @@ enum Ops {
     static let messageSubmit = DaemonOperation<MessageSubmitArgs, Receipt>(name: "message.submit")
     static let messageStatus = DaemonOperation<MessageStatusArgs, MessageStatusResult>(name: "message.status")
     static let messageCancel = DaemonOperation<MessageCancelArgs, Receipt>(name: "message.cancel")
+    /// Deliver a queued message into the running turn (C-24.9, `steer.v1`).
+    static let messageSteer = DaemonOperation<MessageSteerArgs, Receipt>(name: "message.steer")
     static let turnInterrupt = DaemonOperation<TurnInterruptArgs, Receipt>(name: "turn.interrupt")
     static let messageResolve = DaemonOperation<MessageResolveArgs, Receipt>(name: "message.resolve")
     static let approvalList = DaemonOperation<ApprovalListArgs, ApprovalListResult>(name: "approval.list")
@@ -124,16 +127,17 @@ enum Ops {
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
         capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
-        conversationSettings.name, conversationUnblock.name, conversationHistory.name, conversationEvents.name,
-        conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name, turnInterrupt.name,
-        messageResolve.name, approvalList.name, approvalGet.name, approvalRespond.name, attachmentAdd.name,
+        conversationSettings.name, conversationRename.name, conversationUnblock.name, conversationHistory.name,
+        conversationEvents.name, conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name,
+        messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
+        approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name,
+        conversationHandoff.name, workspaceCheck.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
-        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name,
+        approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name, messageSteer.name,
     ]
 }
 
@@ -220,13 +224,29 @@ enum MessageState: String, CaseIterable {
     case approvalNeeded = "approval-needed"
     case complete, failed, interrupted, cancelled
     case deliveryUnknown = "delivery-unknown"
+    /// C-24.9: handed to the running turn, not yet settled (`steer:<host>`).
+    case steering
+    /// C-24.9: settled inside another message's turn (`steered:<host>`, `steered-unanswered:<host>`).
+    case steered
     /// `message.status` for an id the daemon does not have.
     case unknown
 
-    static let live: Set<MessageState> = [.waiting, .starting, .running, .approvalNeeded, .deliveryUnknown]
-    static let terminal: Set<MessageState> = [.complete, .failed, .interrupted, .cancelled]
+    static let live: Set<MessageState> = [.waiting, .starting, .running, .approvalNeeded, .deliveryUnknown, .steering]
+    static let terminal: Set<MessageState> = [.complete, .failed, .interrupted, .cancelled, .steered]
 
     var isTerminal: Bool { MessageState.terminal.contains(self) }
+}
+
+/// The host a steered message joined, from its `state_reason` (`steer:<host>`,
+/// `steered:<host>`, `steered-unanswered:<host>`), for a receipt or change that
+/// does not carry `steered_into` (C-24.9).
+func steeredInto(stateReason: String?) -> String? {
+    guard let reason = stateReason else { return nil }
+    for prefix in ["steer:", "steered:", "steered-unanswered:"] where reason.hasPrefix(prefix) {
+        let host = reason.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return host.isEmpty ? nil : host
+    }
+    return nil
 }
 
 /// A conversation as `_view` returns it.
@@ -235,6 +255,8 @@ struct Conversation: Codable, Equatable, Identifiable {
     var provider: String
     var native_session_id: String?
     var title: String?
+    /// A person's rename always wins over asynchronous generation.
+    var title_source: String?
     var workspace: String
     var workspace_kind: String
     /// A worktree conversation's worktree (path, branch, source, repository, base).
@@ -247,6 +269,9 @@ struct Conversation: Codable, Equatable, Identifiable {
     var blocked_by: String?
     var created_at: String
     var updated_at: String
+    /// The later of the stored update and native transcript activity in the
+    /// daemon's cached catalog; older daemons leave this absent.
+    var last_activity: String? = nil
     var last_message: LastMessage?
     var pending_approvals: Int
     var active: Bool
@@ -255,6 +280,10 @@ struct Conversation: Codable, Equatable, Identifiable {
     var live_elsewhere: Bool?
 
     var id: String { conversation_id }
+
+    var lastActivityDate: Date? {
+        [updated_at, last_activity].compactMap { $0 }.compactMap(parseTimestamp).max()
+    }
 }
 
 struct LastMessage: Codable, Equatable {
@@ -283,6 +312,8 @@ struct Receipt: Codable, Equatable {
     /// The person's text (`conversation.open`, `message.status`), at most 20,000 characters.
     var text: String?
     var text_truncated: Bool?
+    /// C-24.9: the running turn's message this one was steered into, or null.
+    var steered_into: String?
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -327,8 +358,16 @@ struct Capabilities: Codable, Equatable {
     var capabilities: [String]
     var limits: CapabilityLimits?
     var codex_writable: Bool?
+    /// `steer.v1`: the providers whose running turns take a steered message.
+    var steer_providers: [String]?
 
     func has(_ capability: String) -> Bool { capabilities.contains(capability) }
+
+    /// C-25.1: steer intent goes only to a daemon that advertises `steer.v1` for
+    /// the provider (it ignores argument keys it does not know).
+    func canSteer(_ provider: String) -> Bool {
+        has(steerCapability) && (steer_providers ?? []).contains(provider)
+    }
 }
 
 struct CapabilityLimits: Codable, Equatable {
@@ -350,6 +389,7 @@ struct ModelsListArgs: Codable, Equatable {
 struct ModelsListResult: Codable, Equatable {
     var models: [ModelEntry]
     var source: String?
+    var default_models: [String: String]?
 }
 
 /// `op_models_list`: a policy model and what a provider's catalog last said of it.
@@ -367,6 +407,8 @@ struct ModelEntry: Codable, Equatable, Identifiable {
     var fast: ModelFast
     var image_input: Bool?
     var observed_at: String?
+    /// The loaded policy retires this alias or model id; older daemons omit it.
+    var retired: Bool?
 }
 
 struct ModelFast: Codable, Equatable {
@@ -474,6 +516,11 @@ struct ConversationSettingsArgs: Codable, Equatable {
     var allow_main: Bool?
 }
 
+struct ConversationRenameArgs: Codable, Equatable {
+    var conversation_id: String
+    var title: String
+}
+
 struct ConversationResult: Codable, Equatable {
     var conversation: Conversation
 }
@@ -509,6 +556,9 @@ struct ConversationUnblockArgs: Codable, Equatable {
 
 /// The daemon advertises the two diff ops with this capability (C-25.2).
 let diffCapability = "diff.v1"
+
+/// `message.steer` and the `steering`/`steered` states (C-24.9, C-25.2).
+let steerCapability = "steer.v1"
 
 struct TurnDiffArgs: Codable, Equatable {
     var message_id: String
@@ -736,6 +786,10 @@ struct ConversationChange: Codable, Equatable {
     var ts: String?
     /// Why a message is in its state (a waiting message's hold, a failure).
     var state_reason: String?
+    /// C-24.9: the host a steered message joined, or null.
+    var steered_into: String?
+    var title: String?
+    var title_source: String?
 }
 
 // MARK: - messages
@@ -804,6 +858,14 @@ struct TurnInterruptArgs: Codable, Equatable {
     var message_id: String
 }
 
+/// `message.steer`: a queued message, by its canonical lowercase id (C-24.9).
+struct MessageSteerArgs: Codable, Equatable {
+    var message_id: String
+    /// The running turn the person steered into (C-24.9): the daemon refuses the
+    /// steer (`no-live-turn`) once another turn is the live one. Omitted when nil.
+    var into: String? = nil
+}
+
 /// A person's ruling on an ambiguous delivery; `confirm` is always the literal true (C-24.6).
 struct MessageResolveArgs: Codable, Equatable {
     enum Resolution: String, Codable { case delivered, notDelivered = "not-delivered" }
@@ -838,6 +900,9 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var approval_id: String
     var message_id: String
     var conversation_id: String
+    /// The provider's request id under the store's own name (C-27.1); a daemon
+    /// that sends it sends `request_id` too.
+    var provider_request_id: String?
     var kind: String
     var display: ApprovalDisplay
     var options: [String]
@@ -848,6 +913,10 @@ struct ApprovalView: Codable, Equatable, Identifiable {
     var request_id: String?
 
     var id: String { approval_id }
+
+    /// The provider's request id, under either name; nil only from a daemon older
+    /// than both, whose views keep independent approval-id cards (C-27.1).
+    var requestID: String? { request_id ?? provider_request_id }
 }
 
 /// The display fields a driver recorded for a provider request (claude_turn /
@@ -888,6 +957,7 @@ struct ApprovalQuestion: Codable, Equatable, Hashable {
     struct Option: Codable, Equatable, Hashable {
         var label: String
         var description: String?
+        var preview: String?
     }
     var question: String
     var header: String?

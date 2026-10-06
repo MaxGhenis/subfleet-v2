@@ -108,3 +108,51 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
     assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
     assert seen['pins'] == service.conversations.retention_pins
+    assert seen['remote_less_history_bytes'] == 64 * 1024 ** 2          # d635 N1: the default
+    service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'remote_less_history_bytes': 0}}
+    service._retention()
+    assert seen['remote_less_history_bytes'] == 0
+
+
+def test_retention_catch_up_backs_off_while_a_pass_changes_nothing(state_daemon, monkeypatch):
+    """Review of a9a6cbf4, N2: a pass that reports more work but changed nothing
+    (a job it can never decide) kept the daemon running one every 5 seconds,
+    with an event and log lines each time. The wait doubles while nothing
+    changes, up to an hour, and is 5 seconds again once a pass makes progress."""
+    service, _ = state_daemon
+    clock = [7200.0]
+    monkeypatch.setattr(daemon_module.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(daemon_module, 'after', lambda seconds: f'due:{clock[0] + seconds:g}')
+    results = iter([{'more': True, 'progressed': False}] * 3 + [{'more': True, 'progressed': True}]
+                   + [{'more': True, 'progressed': False}] * 12 + [{}])
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda *args, **kwargs: next(results))
+    waits = []
+    for _ in range(17):
+        service._retention()
+        waits.append(3600 - (clock[0] - service._last_maintenance))
+    assert waits[:4] == [10, 20, 40, 5]
+    assert waits[4:8] == [10, 20, 40, 80]
+    assert waits[14:16] == [daemon_module.RETENTION_CATCH_UP_MAX_S] * 2
+    assert waits[16] == 3600                                   # a pass with nothing more: hourly again
+    assert service._retention_catch_up_s == daemon_module.RETENTION_CATCH_UP_S
+    assert service.timers.status()['retention']['next_due'] == 'due:10800'
+
+
+def test_retention_log_lines_report_what_the_archives_added(state_daemon, monkeypatch, caplog):
+    """Final review of e50716e8, N1: the daemon's retention lines name the
+    bytes the archives added (bundles, manifests, rows) and the net on disk,
+    beside what was freed and what was moved into the archive."""
+    import logging
+    service, _ = state_daemon
+    freed = {'pruned': ['a', 'b'], 'freed_bytes': 9000, 'freed_disk_bytes': 8000, 'archived_bytes': 7000,
+             'added_bytes': 3000}
+    results = iter([{**freed, 'more': True, 'progressed': True, 'in_flight': [], 'deferred': {}}, freed])
+    monkeypatch.setattr(daemon_module, 'maintenance', lambda *args, **kwargs: next(results))
+    with caplog.at_level(logging.INFO, logger=service.log.name):
+        service._retention()
+        service._retention()
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith('retention')]
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert 'freed 9000 bytes' in line and '8000 on disk' in line and 'moved 7000 bytes' in line
+        assert 'added 3000 bytes' in line and 'net 5000 on disk' in line

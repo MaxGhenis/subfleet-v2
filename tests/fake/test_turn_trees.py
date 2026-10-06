@@ -458,6 +458,11 @@ def test_c26_14_i4_a_turn_that_ended_unrecorded_stops_sharing_its_folder(state_d
     assert service.store.turn_trees(q_mid)["ended_at"] is None                 # quarantined: not ended
     pruned = service.store.turn_trees("pruned")
     assert pruned["ended_at"] and "no longer in the job store" in pruned["error"]
-    assert {a_mid, b_mid, "pruned"} <= {c["message_id"] for c in service.store.changes_after(feed)["changes"]}
+    changes = service.store.changes_after(feed)
+    changed = {c["message_id"]: c for c in changes["changes"]}
+    assert {a_mid, b_mid, "pruned"} <= changed.keys()
+    assert changed[a_mid]["title"] == "Alpha"
+    assert changed["pruned"]["title"] is None
+    assert changes["next"] > feed
     assert service.store.open_windows() == [g_attempt["attempt_id"], b_attempt["attempt_id"],
                                             q_attempt["attempt_id"]]

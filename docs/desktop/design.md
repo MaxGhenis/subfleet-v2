@@ -167,9 +167,13 @@ whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 (review F-03). Turns have their own capacity, counted apart from detached
 jobs (C-26.9, superseding review F-05's shared slots): by default no cap at
 all, or `conversations.max_active_turns` across the fleet and
-`conversations.turn_slots_per_lane` per lane when the policy sets them. A turn waiting on an approval holds its slot for at most
-`approval_wait_s` (policy, default 3600 s), after which its approvals are
-withdrawn and the turn is stopped (D-12) with reason `approval-timeout`.
+`conversations.turn_slots_per_lane` per lane when the policy sets them.
+Approvals wait without a time limit by default: `conversations.approval_wait_s`
+is null. The former one-hour bound protected turn capacity that is now uncapped
+by default (2026-09-28). Policy may still set a positive finite number of seconds;
+an unanswered tool approval then stops its turn (D-12) with reason
+`approval-timeout`, withdrawing its approvals. Questions (AskUserQuestion)
+always wait without a limit, even when policy limits tool approvals.
 
 ### Safety
 
@@ -784,9 +788,10 @@ ops (D-8) are marked †.
 | Op | Arguments → result |
 |---|---|
 | `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`; `runs.v1` for `conversation.runs`), not a new schema. |
-| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
+| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; conversations include `last_activity`, the later of `updated_at` and their native transcript mtime from the last catalog run, sorted descending before applying `limit`; no transcript scan. `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
 | `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
-| `conversation.create` | `{request_id, provider, workspace, workspace_kind, allow_main†, title?, settings}` → `{conversation, created}`; a worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}` (C-26.10) |
+| `conversation.create` | `{request_id, provider?, workspace?, workspace_kind?, allow_main†, title?, settings}` → `{conversation, created}`; omitted provider means Claude, and an empty/omitted workspace means a private scratch folder stable by request id. Ask, Accept edits and Bypass in an in-place repo on `main`/`master` require `allow_main`; Claude Bypass is writable for protected-folder checks, including handoff (C-26.10). A worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}`. |
+| `workspace.check` | `{workspace?, provider?, permission?, workspace_kind?, allow_main?}` → `{ok, reason, fix, workspace}`; read-only folder admission using create's C-26.10 and C-13.2 checks, on the file pool. An empty/omitted workspace previews scratch without creating it; omitted provider means Claude. Advertised as `workspace.check.v1`: only a ready daemon known to lack it skips the preview and lets create decide. Until readiness is established, Start is disabled with a reason; folder validation resumes when the daemon is ready. |
 | `conversation.settings` | `{conversation_id, settings, confirm_widen?†}` → `{conversation}`; widening is person-only |
 | `conversation.unblock` † | `{conversation_id, choice:"continue"|"leave", confirm:true}` → `{conversation}` |
 | `conversation.history` | `{conversation_id, before?, limit?}` → a page of the native transcript, newest first, scrubbed (D-11); it reads at most 4 MiB of rows below its cursor (or one larger row, up to 68 MiB: the cap plus 64 MiB) and 8 MiB past it for results, and `next_before` is null once the file's first row is reached (C-29.8) |
@@ -803,7 +808,7 @@ ops (D-8) are marked †.
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}`; `state_reason` says why a message waits, so a hold shows without a second open; `state` is null on a row that reports no state change (an approval asked or answered, or a turn's end snapshot recorded), after which the client fetches that message again (D-24) |
 | `conversation.runs` | `{conversation_id, limit?}` → `{runs:[{job_id, name, kind, state, task, tier, sandbox, wait_reason, created_at, started_at, finished_at, out_path, workdir, lane_id, model_served, model_requested, attempt_state, attempts}]}`: the detached jobs whose caller is the conversation's native session (a Claude turn's tools carry it), turn jobs excluded, lane and model from the latest attempt; the app shows the live ones under the header and all of them on click |
-| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
+| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], default_models:{provider:model_id}, source}` (D-19); first-use Claude defaults to `claude-opus-5-5`; Codex follows the fleet policy's hard-tier Codex model (shipped policy: `gpt-6-astra`). When no active hard-tier choice exists, the daemon selects the first active unscoped model, or the first active model if all are scoped. The loaded policy's `retired` map excludes models by alias or id; Astra remains active in the shipped policy. Auto uses Claude unless Codex has a ready lane and Claude has none. |
 | `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed, shared:[{conversation_id, title, message_ids, from, to}]}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 | `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
@@ -907,6 +912,21 @@ includes every field that changes what is granted: Codex `grantRoot`,
 the exact request with token-shaped values masked in place, never truncated.
 `approval.respond` must carry the `request_sha256` the person saw.
 
+The conversation card shows the full masked request and offers Allow and Deny
+inline. Details remains available for revealing masked values, confirming their
+review, and adding a note. A card joins an approval by message and exact provider
+request id (`provider_request_id` on approval views), never by tool kind or display
+text alone. A notification offers Allow once only for one pending, unmasked tool
+request that offers `allow`; the action rechecks its identity and request hash.
+
+AskUserQuestion is an inline card with numbered option buttons (1–9 while its
+choices are focused), descriptions and optional previews. `multiSelect` toggles
+several choices; Other accepts free text and Skip omits that question. Several
+questions step forward and back through preserved drafts and submit once with
+one `answers` map keyed by question text; selected labels and Other text join
+with comma and space. Skipping every question sends `deny` with a skipped note,
+without stopping the turn. Composer messages leave the question pending.
+
 | Provider request | Options | Reply |
 |---|---|---|
 | Claude `can_use_tool` | allow, deny, cancel-turn | `{"behavior":"allow","updatedInput":<original>}`; deny `{"behavior":"deny","message":…}`; cancel-turn adds `"interrupt":true` |
@@ -919,7 +939,7 @@ the exact request with token-shaped values masked in place, never truncated.
 `allow` never adds `updatedPermissions`, execpolicy or network amendments.
 Pending approvals survive a daemon restart (re-derived by replay; a
 re-announced request is matched by id) and are withdrawn when the turn ends
-or `approval_wait_s` passes (D-7).
+or a configured `approval_wait_s` stops a turn waiting on a tool approval (D-7).
 
 ## 9. Attachments, drafts, retention
 
@@ -1077,6 +1097,26 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
+- ⌘K, and File > Search…, open a quick-switch palette over the window
+  (C-29.12; Max, 2026-09-27). It finds every conversation and session by
+  title, workspace and provider, and by the text of the conversations the
+  app has loaded and each session's first prompt; after a pause in typing it
+  asks `conversation.list` with `query` for sessions past the loaded page (no
+  daemon op searches transcripts, and none was added; former titles are not
+  kept, so a renamed conversation is found by its current title). Fuzzy titles
+  rank last, and a last item starts a new conversation. Matching and ranking
+  are Foundation-only (`SearchPalette.swift`), tested through the core probe:
+  text is folded off the main thread, once (unchanged messages keep their
+  folds between openings), and words are found in the folded bytes, since
+  `range(of:options:)` over megabytes of timeline takes seconds.
+- Conversation text is set in reading sizes at one scale (C-29.13; Max,
+  2026-09-27: "text is small"): body 16 pt at actual size, with View >
+  Bigger, Smaller and Actual size stepping as Claude Code's zoom does, and the
+  conversation column widening with the text. SwiftUI's text styles are fixed
+  points on macOS whatever `dynamicTypeSize` says, so views use
+  `.readingFont(_:)`, which reads the scale from the environment
+  (`TextScale.swift`, `UIReading.swift`). Code blocks have Copy and show more
+  lines 400 at a time.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 

@@ -32,6 +32,7 @@ from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
+from ..retention_git import discard_registration
 from ..salvage import SalvageError
 from ..state_files import open_state, read_state
 from . import attachments as attachment_store
@@ -47,13 +48,13 @@ from .peers import APP_EXECUTABLES, judge, peer_pid
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
-    LEGACY_OWNER, PROVIDERS, ConversationError, ConversationStore, _decode_message, _instant, canonical_native,
-    canonical_uuid, validate_settings, widens,
+    LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, _instant, canonical_native,
+    canonical_uuid, steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
 from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
-    STARTING, TERMINAL_STATES, WAITING,
+    STARTING, STEERING, STEERED, TERMINAL_STATES, WAITING,
 )
 
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
@@ -63,8 +64,8 @@ from .turn import (
 #: C-26.14), and an added op is a capability, not a new version.
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
-                protocol.JOBS_KIND_CAPABILITY, "diff.v1", "runs.v1",
-                "handoff.v1")
+                protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
+                "handoff.v1", "workspace.check.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -74,8 +75,9 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff"})
-PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock"})
+                      "conversation.create", "conversation.handoff", "workspace.check"})
+PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
+                         "message.steer"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -145,7 +147,8 @@ class ConversationService:
         # to the relay, under the message's lock, so whichever comes first is seen
         # by the other: a stop recorded first means the message is never written.
         # Striped by message id, so a relay slow to answer holds up few others.
-        self._handovers = tuple(threading.Lock() for _ in range(HANDOVER_STRIPES))
+        # A steer takes its host's and its own stripe. They may be the same.
+        self._handovers = tuple(threading.RLock() for _ in range(HANDOVER_STRIPES))
         self.log = daemon.log
         self.clock = time.monotonic
         # message id -> (refusals in a row, monotonic time of the next try)
@@ -254,7 +257,7 @@ class ConversationService:
         from .. import __version__
         return {"protocol": protocol.PROTOCOL_VERSION, "daemon_version": __version__,
                 "conversation_schema": CONVERSATION_SCHEMA, "capabilities": list(CAPABILITIES), "limits": LIMITS,
-                "codex_writable": self._codex_writable()}
+                "codex_writable": self._codex_writable(), "steer_providers": ["claude", "codex"]}
 
     def op_conversation_runs(self, args, peer) -> dict:
         """The detached jobs a conversation's turns dispatched (design §12): what
@@ -286,6 +289,7 @@ class ConversationService:
         provider = args.get("provider")
         policy = self.daemon.policy
         observed = self._catalog_cache()
+        retired = policy.get("retired") or {}
         models = []
         for short, entry in policy["models"].items():
             if provider and entry["provider"] != provider:
@@ -294,6 +298,7 @@ class ConversationService:
             # `default` is whatever one account's settings pick; a conversation names a model.
             values = [v for v in seen.get("values") or [] if v != "default"]
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
+                           "retired": short in retired or entry["id"] in retired,
                            "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
@@ -303,7 +308,22 @@ class ConversationService:
                            "fast": {"supported": seen.get("fast"),
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
-        return {"models": models, "source": "policy, and each provider's catalog as a turn last reported it"}
+        defaults = {}
+        hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
+        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard]
+        for name in ("claude", "codex"):
+            offered = [m for m in models if m["provider"] == name and not m["retired"]]
+            preferred = ["opus"] if name == "claude" else hard_models
+            default = next((m for short in preferred for m in offered if m["short"] == short), None)
+            # Retirement is defined by the loaded policy, for every model id.
+            fallback = offered
+            if default is None and fallback:
+                default = next((m for m in fallback if not policy["models"][m["short"]].get("scope")), fallback[0])
+            if default:
+                defaults[name] = default["id"]
+        return {"models": models, "default_models": defaults,
+                "source": "policy, and each provider's catalog as a turn last reported it"}
 
     def _default_effort(self, provider: str, model_id: str) -> str | None:
         """C-26.8: the effort a turn of `model_id` runs at when its message names
@@ -360,8 +380,14 @@ class ConversationService:
         return {**CONVERSATION_DEFAULTS, **(self.daemon.policy.get("conversations") or {})}
 
     def op_conversation_list(self, args, peer) -> dict:
-        conversations = [self._view(c) for c in self.store.list_conversations(
-            provider=args.get("provider"), limit=int(args.get("limit") or 200))]
+        from .catalog import activity_times
+        activity = activity_times(self.root)
+        rows = self.store.list_conversations(provider=args.get("provider"), limit=None)
+        for row in rows:
+            row["last_activity"] = self._last_activity(row, activity)
+        rows.sort(key=lambda c: c["last_activity"], reverse=True)
+        limit = max(1, min(int(args.get("limit") or 200), 1000))
+        conversations = [self._view(c) for c in rows[:limit]]
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
             from .catalog import read_catalog, refresh_running
@@ -385,16 +411,27 @@ class ConversationService:
                               "ORDER BY seq DESC LIMIT 1", (conversation["conversation_id"],))
         pending = self.store.one("SELECT COUNT(*) n FROM approvals WHERE conversation_id=? AND state='pending'",
                                  (conversation["conversation_id"],))["n"]
-        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title",
+        return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title", "title_source",
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
                                                     "updated_at")},
+                "last_activity": conversation.get("last_activity") or conversation.get("updated_at"),
                 # C-30.4: the legacy import's hold is its own column, so no outcome
                 # lifts it, but to a client it is a block like any other (the app
                 # shows a conversation with `blocked_by` as needing a decision).
                 "blocked_by": conversation.get("blocked_by") or (LEGACY_OWNER if conversation.get("legacy_hold") else None),
                 "last_message": last, "pending_approvals": pending,
                 "active": bool(last and last["state"] not in TERMINAL_STATES and last["state"] != QUEUED)}
+
+    @staticmethod
+    def _last_activity(conversation: dict, activity: dict) -> str:
+        """The row or its native transcript at the last catalog run; never a scan."""
+        updated = datetime.fromisoformat(conversation["updated_at"].replace("Z", "+00:00"))
+        native = conversation.get("native_session_id")
+        mtime = activity.get((conversation["provider"], canonical_native(native))) if native else None
+        if mtime is not None:
+            updated = max(updated, datetime.fromtimestamp(mtime, UTC))
+        return updated.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def _view_live(self, conversation: dict) -> dict:
         """`_view` plus `live_elsewhere`, from the last catalog run (D-23: no scan)."""
@@ -442,7 +479,7 @@ class ConversationService:
         return conversation
 
     def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider")
+        provider = args.get("provider") or "claude"
         request_id = args.get("request_id")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
@@ -453,15 +490,18 @@ class ConversationService:
             if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
                 raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
         self._check_codex_policy(provider, settings)
-        # One spelling per folder, as the daemon's write target (`folders.canonical`,
-        # C-6.5): symlinks resolved and each name in the case the volume stores.
-        workspace = folders.canonical(str(args.get("workspace") or ""))
-        if not os.path.isdir(workspace):
-            raise ConversationError("bad-workspace", "workspace must be an existing directory")
         kind = args.get("workspace_kind") or "in-place"
-        if kind not in ("in-place", "worktree"):
-            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
-        self._check_workspace(provider, workspace, settings)
+        if not args.get("workspace"):
+            if kind != "in-place":
+                raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+            # A draft with No folder must never inherit the daemon's repository.
+            # The request id selects a private, stable scratch folder on retries.
+            key = hashlib.sha256(request_id.encode()).hexdigest()
+            with self.store.writing():
+                workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
+        else:
+            workspace = folders.canonical(str(args["workspace"]))
+        workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=allow_main)
         existing = self.store.one("SELECT conversation_id FROM conversations WHERE request_id=?", (request_id,))
         if kind == "worktree" and existing is None and self._git_toplevel(workspace) is None:
             raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
@@ -473,6 +513,57 @@ class ConversationService:
             # cut short by a crash: the same request id finishes the same worktree.
             conversation = self._cut_worktree(conversation)
         return {"conversation": self._view(conversation), "created": created}
+
+    def op_workspace_check(self, args, peer) -> dict:
+        """A read-only preview of create's folder checks, on the same file pool."""
+        workspace = args.get("workspace")
+        try:
+            provider = args.get("provider") or "claude"
+            if provider not in PROVIDERS:
+                raise ConversationError("bad-provider", "provider is claude or codex")
+            settings = validate_settings(provider, {"model": "workspace-check", "permission": args.get("permission") or "ask"})
+            self._check_codex_policy(provider, settings)
+            kind = args.get("workspace_kind") or "in-place"
+            planned = not workspace
+            if planned:
+                if kind != "in-place":
+                    raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+                # Preview the private scratch location without making a folder.
+                workspace = str(self.root / "conversations/workspaces/workspace-check")
+            workspace = self._validate_workspace(provider, workspace, settings,
+                                                 kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
+            return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
+        except ConversationError as exc:
+            return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
+
+    def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
+                            kind: str, allow_main: bool, planned: bool = False) -> str:
+        """C-26.10 and C-13.2: check and create take precisely this path."""
+        if not isinstance(workspace, str) or not workspace:
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        workspace = folders.canonical(workspace)
+        if not planned and not os.path.isdir(workspace):
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="choose a folder or use a new scratch folder")
+        if kind not in ("in-place", "worktree"):
+            raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
+        self._check_workspace(provider, workspace, settings)
+        if kind == "worktree" and self._git_toplevel(workspace) is None:
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
+        if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
+            from ..salvage import validate_writable_workdir
+            try:
+                existing = Path(workspace)
+                while planned and not existing.exists() and existing != existing.parent:
+                    existing = existing.parent
+                validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
+            except AdapterError as exc:
+                raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
+            except SalvageError as exc:
+                raise ConversationError("git-unavailable", f"could not inspect {workspace}: {exc}", code=1,
+                                        fix="try again") from exc
+        return workspace
 
     def _git_toplevel(self, directory: str) -> str | None:
         from ..salvage import git_toplevel
@@ -516,8 +607,10 @@ class ConversationService:
             else:
                 # Not a worktree on this branch (an add cut short). No turn ever ran
                 # in it: a conversation dispatches only once its worktree is recorded.
+                # Only its own registration goes: a repository-wide `git worktree
+                # prune` would drop every other one whose tree is missing (d635).
                 shutil.rmtree(target, ignore_errors=True)
-                git("worktree", "prune")
+                discard_registration(top, target, timeout=timeout)
         if not adopted:
             has_branch = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
@@ -550,6 +643,10 @@ class ConversationService:
         self._check_codex_policy(conversation["provider"], after)
         self._check_workspace(conversation["provider"], conversation["workspace"], after)
         return {"conversation": self._view_live(self.store.update_conversation(conversation["conversation_id"], **fields))}
+
+    def op_conversation_rename(self, args, peer) -> dict:
+        return {"conversation": self._view_live(self.store.rename_conversation(
+            args["conversation_id"], args.get("title")))}
 
     def op_conversation_unblock(self, args, peer) -> dict:
         verdict = self._person(peer, "unblocking an unfinished turn")
@@ -687,11 +784,70 @@ class ConversationService:
         with self._stop_lock(canonical_uuid(args["message_id"])):
             return self._cancel(args)
 
+    def op_message_steer(self, args, peer) -> dict:
+        """Claim a queued message durably, then let the runner deliver it (C-24.9).
+
+        `into`, when given, is the host the person steered into (the turn the app
+        showed running): a steer that arrives after that turn ended (a retry, a
+        resend after the app restarted) is refused rather than joining another."""
+        self._person(peer, "steering a running turn")
+        mid = canonical_uuid(args["message_id"])
+        if args["message_id"] != mid:
+            raise ConversationError("bad-message-id", "message_id must be a canonical lowercase UUID")
+        into = args.get("into")
+        if into is not None and (not isinstance(into, str) or canonical_uuid(into) != into):
+            raise ConversationError("bad-message-id", "into must be a canonical lowercase UUID")
+        with self._stop_lock(mid), self._handover(mid), self._lock:
+            message = self.store.message(mid)
+            if message["state"] in (STEERING, STEERED):
+                return self._receipt(message)
+            if message["state"] != QUEUED or message["origin"] != "person":
+                raise ConversationError("not-queued", "only a person's queued message can steer", code=7)
+            try:
+                steerable = steerable_text(self.store.message_text(message))
+            except OSError:
+                steerable = False       # a text that cannot be read cannot be delivered either
+            if not steerable:
+                # C-24.9, DESIGN.md section 9: a `/` command or `!` shell input waits
+                # for the turn to end, as in Claude Code; the app never offers it.
+                raise ConversationError("not-steerable", "a slash command or shell input waits for the turn to end",
+                                        code=7)
+            host = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? "
+                                  "AND state IN ('running','approval-needed') ORDER BY seq DESC LIMIT 1",
+                                  (message["conversation_id"],))
+            if into is not None and (host is None or host["message_id"] != into):
+                raise ConversationError("no-live-turn", "the turn it was steered into has ended", code=7)
+            if host is None:
+                raise ConversationError("no-live-turn", "the conversation has no live turn", code=7)
+            runner = self._runner_for_message(host["message_id"])
+            if runner is None:
+                # The turn is live, but no runner has it yet (the daemon is taking it back
+                # after a restart) or any more (it is settling): it cannot take a steer at
+                # this moment, which a client may ask again about (C-29.7), rather than
+                # hear that the turn it steered into has ended.
+                raise ConversationError("not-steerable", "the running turn has no runner to take a steer now",
+                                        code=7)
+            if not runner.steerable:
+                raise ConversationError("not-steerable", "the provider cannot take a steer now", code=7)
+            self.store.claim_steer(mid, host["message_id"])
+            runner.steer(mid)
+            return self._receipt(self.store.message(mid))
+
     def _cancel(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
         message = self.store.find_message(message_id)
         if message is None:                     # never received (a store that refuses fails the op)
             return self._tombstone(message_id, args.get("conversation_id"))
+        if message["state"] == STEERING:
+            with self._handover(message_id):
+                runner = self._runner_for_message(message["steered_into"])
+                # An absent runner may be about to replay a durable relay intent.
+                if runner is None or runner.steer_written(message_id):
+                    raise ConversationError("too-late", "the provider may already have this steer",
+                                            fix="stop its host with turn.interrupt")
+                if self.store.withdraw(message_id, expect=(STEERING,), stop_at=utcnow()):
+                    return self._receipt(self.store.message(message_id))
+                message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
             # No job carries it (queued, or waiting to be submitted again): the
             # conversation store decides, in one transaction that also records the
@@ -775,8 +931,13 @@ class ConversationService:
         return bool(changed)
 
     def op_turn_interrupt(self, args, peer) -> dict:
+        mid = canonical_uuid(args["message_id"])
+        message = self.store.message(mid)
+        if message["state"] == STEERING:
+            args = {**args, "message_id": message["steered_into"]}
         with self._stop_lock(canonical_uuid(args["message_id"])):
-            return self._interrupt(args)
+            result = self._interrupt(args)
+        return self._receipt(self.store.message(mid)) if mid != args["message_id"] else result
 
     def _interrupt(self, args) -> dict:
         message_id = canonical_uuid(args["message_id"])
@@ -784,6 +945,13 @@ class ConversationService:
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
             raise ConversationError("not-running", f"the message is {message['state']}")
         with self._handover(message_id):
+            # The title's gate first (titles.py): no title write begins after the stop
+            # is recorded, and ending it never waits on one. A runner found only after
+            # this look hands the message over after the stop (the handover lock orders
+            # them), or replays one an earlier runner wrote: neither asks for a title.
+            runner = self._runner_for_message(message_id)
+            if runner is not None:
+                runner.end_title("stopped")
             # Recorded before the runner is looked up (a runner started meanwhile
             # reads it), and under the handover lock: a runner about to write the
             # message sees it first, or has already handed the message over (C-24.7).
@@ -803,27 +971,52 @@ class ConversationService:
 
     def op_message_resolve(self, args, peer) -> dict:
         verdict = self._person(peer, "resolving an ambiguous delivery")
+        with self._lock:
+            return self._resolve_message(args, verdict)
+
+    def _resolve_message(self, args, verdict) -> dict:
         message_id = canonical_uuid(args["message_id"])
         if args.get("confirm") is not True or args.get("resolution") not in ("delivered", "not-delivered"):
             raise ConversationError("confirm", "resolve needs resolution delivered|not-delivered and confirm: true")
         message = self.store.message(message_id)
         if message["state"] != DELIVERY_UNKNOWN:
             raise ConversationError("not-ambiguous", f"the message is {message['state']}")
+        conversation = self.store.conversation(message["conversation_id"])
+        needs_unblock = bool((message.get("resolution") or {}).get("requires_unblock")) or (
+            args["resolution"] == "delivered" and conversation["provider"] == "claude")
+        if needs_unblock:
+            # Preserve the Claude host's unfinished work across any order of
+            # resolving several unknown deliveries. Write this before resolving
+            # the current row, so a crash cannot lose the remaining block.
+            for row in self.store.query("SELECT message_id FROM messages WHERE conversation_id=? "
+                                        "AND state='delivery-unknown'", (message["conversation_id"],)):
+                sibling = self.store.message(row["message_id"])
+                self.store.update_message(row["message_id"],
+                                          resolution={**(sibling.get("resolution") or {}), "requires_unblock": True})
         record = {"resolution": args["resolution"], "by": {"pid": verdict.pid, "as": verdict.reason},
                   "at": utcnow()}
-        if not self.store.set_state(message_id, FAILED, reason=f"resolved-{args['resolution']}",
+        person_stopped = bool(message.get("stop_requested_at"))
+        state = INTERRUPTED if person_stopped else FAILED
+        reason = "stopped" if person_stopped else f"resolved-{args['resolution']}"
+        if not self.store.set_state(message_id, state, reason=reason,
                                     expect=(DELIVERY_UNKNOWN,), resolution=record):
             raise ConversationError("not-ambiguous", "the message was resolved meanwhile")
         conversation = self.store.conversation(message["conversation_id"])
-        if conversation["blocked_by"] == "delivery-unknown":
+        if (conversation["blocked_by"] == "delivery-unknown" and not self.store.one(
+                "SELECT 1 FROM messages WHERE conversation_id=? AND state='delivery-unknown'",
+                (message["conversation_id"],))):
             fields: dict[str, Any] = {"blocked_by": None}
-            if args["resolution"] == "delivered" and conversation["provider"] == "claude":
+            if needs_unblock:
                 # C-24.8: the person says Claude has the message and its turn ended
                 # with no `result`, so the next resume could continue it: the person
-                # chooses next (`conversation.unblock`). The session it named exists.
-                fields["blocked_by"] = "unfinished-turn"
+                # chooses next (`conversation.unblock`), unless a recorded personal
+                # stop already made that choice (C-24.7). The session it named exists.
+                if not person_stopped:
+                    fields["blocked_by"] = "unfinished-turn"
+                owner = self.store.find_message(message["steered_into"]) if message.get("steered_into") else message
+                owner = owner or message
                 attempt = self.daemon.store.one("SELECT job_id, seq FROM attempts WHERE job_id=? ORDER BY seq DESC "
-                                                "LIMIT 1", (message.get("job_id"),)) if message.get("job_id") else None
+                                                "LIMIT 1", (owner.get("job_id"),)) if owner.get("job_id") else None
                 turn = (read_turn(self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}") if attempt else None) or {}
                 if turn.get("native_session_id") and not conversation["native_session_id"]:
                     fields["native_session_id"] = turn["native_session_id"]
@@ -833,6 +1026,7 @@ class ConversationService:
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
                                            "state_reason", "settings", "served", "turn_ref", "updated_at")}
+        out["steered_into"] = steered_into(message.get("state_reason"))
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:
             out["created"] = created
@@ -853,7 +1047,10 @@ class ConversationService:
     def _approval_view(self, approval: dict) -> dict:
         # `request_id` is the provider's, as its `approval.requested` event carries it,
         # so a client joins the two exactly (C-27.5; docs/desktop/app-needs.md 5).
-        view = {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "kind", "display",
+        # `provider_request_id` is the same id under the store's own name, which the
+        # app's inline approval card has read since it shipped (C-27.2).
+        view = {k: approval[k] for k in ("approval_id", "message_id", "conversation_id", "provider_request_id",
+                                         "kind", "display",
                                          "options", "created_at", "state")}
         view["request_id"] = approval["provider_request_id"]
         return view
@@ -1356,7 +1553,7 @@ class ConversationService:
             state = message["state"]
             if message["origin"] in HANDOFF_KEEPS and state == QUEUED and self._turn_job(message) is None:
                 continue
-            if state == CANCELLED:
+            if state in (CANCELLED, STEERED):
                 continue
             if state not in (QUEUED, WAITING):
                 raise ConversationError("live-turn", f"the source has a live turn (a message is {state})",
@@ -1440,7 +1637,7 @@ class ConversationService:
 
     def _check_workspace(self, provider: str, workspace: str, settings: dict) -> None:
         """C-26.10: a writable turn may not own the state root or a provider home."""
-        writable = settings["permission"] == "accept-edits" or (provider == "codex" and settings["permission"] != "read-only")
+        writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
         protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
@@ -1624,6 +1821,14 @@ class ConversationService:
             prefix = f"turn:{row['message_id']}:"
             pinned.update(r["job_id"] for r in jobs.query(
                 "SELECT job_id FROM jobs WHERE request_id>=? AND request_id<?", (prefix, prefix[:-1] + ";")))
+        # A steer has no job of its own. Its host's relay evidence remains needed
+        # even if a prior settlement was cut short after settling the host.
+        for row in self.store.query("SELECT state_reason FROM messages WHERE state='steering'"):
+            host = self.store.find_message(steered_into(row["state_reason"]))
+            if host:
+                job = self._turn_job(host)
+                if job:
+                    pinned.add(job["job_id"])
         for row in self.store.query("SELECT conversation_id FROM conversations WHERE blocked_by IS NOT NULL"):
             pinned.update(r["job_id"] for r in jobs.query("SELECT job_id FROM jobs WHERE kind='turn' AND name=?",
                                                           (f"turn-{row['conversation_id']}",)))
@@ -1864,8 +2069,8 @@ class ConversationService:
                         # or handed off while it waits; a claim recovered after a crash
                         # goes back to `queued` (review of 6290a51, finding 2).
                         back = QUEUED if prior_state == QUEUED or prior_reason == CLAIMED else WAITING
-                        self.store.set_state(mid, back, reason=None if back == QUEUED else
-                                             prior_reason or f"deferred: {why}"[:200],
+                        self.store.set_state(mid, back, reason=(prior_reason or f"deferred: {why}"[:200])
+                                             if back == WAITING else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
                     self._defer(self.store.message(mid), why)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
@@ -1927,6 +2132,17 @@ class ConversationService:
         if message["state"] != WAITING or message.get("state_reason") != reason:
             self.store.set_state(mid, WAITING, reason=reason, expect=(QUEUED, WAITING), unbound=True)
 
+    def _missed_mark(self, mid: str, prior_reason: str | None) -> str | None:
+        """The reason a released claim puts back: a missed steer's `steer-missed:`
+        mark, which the queue orders by (C-24.5), else none. A claim a crash left
+        (`dispatching`) no longer holds the reason it replaced; the message's last
+        change back to `queued` does."""
+        if prior_reason == CLAIMED:
+            row = self.store.one("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                 "ORDER BY seq DESC LIMIT 1", (mid, QUEUED))
+            prior_reason = row["state_reason"] if row else None
+        return prior_reason if (prior_reason or "").startswith(MISSED_STEER) else None
+
     def _defer(self, message: dict, why: str) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,
         says why, and is not submitted again until its backoff passes."""
@@ -1935,7 +2151,12 @@ class ConversationService:
             count = self._deferred.get(mid, (0, 0.0))[0] + 1
             delay = min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (count - 1))
             self._deferred[mid] = (count, self.clock() + delay)
-        reason = f"deferred: {why}"[:200]
+        reason = f"deferred: {why}"
+        if message["state"] == QUEUED and (message.get("state_reason") or "").startswith(MISSED_STEER):
+            # A steer that missed its turn runs next (C-24.5): the queue orders by
+            # this mark, so a deferral of its own turn keeps it.
+            reason = f"{MISSED_STEER} {reason}"
+        reason = reason[:200]
         if message.get("state_reason") != reason:
             self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
         if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
@@ -2039,6 +2260,12 @@ class ConversationService:
         live = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED)
         rows = self.store.query(f"SELECT message_id, job_id FROM messages WHERE state IN ({','.join('?' * len(live))}) "
                                 "AND job_id IS NOT NULL", live)
+        seen = {row["message_id"] for row in rows}
+        for binding in self.store.query("SELECT DISTINCT state_reason FROM messages WHERE state='steering'"):
+            host = self.store.find_message(steered_into(binding["state_reason"]))
+            if host and host.get("job_id") and host["message_id"] not in seen:
+                rows.append(host)
+                seen.add(host["message_id"])
         for message in rows:
             if self._runner_for_message(message["message_id"]) is not None:
                 continue
@@ -2091,7 +2318,7 @@ class ConversationService:
                             on_contain=self._on_contain, log=self.log,
                             clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
                             on_catalog=self._on_catalog, handover=self._handover(turn["message_id"]),
-                            ended=ended)
+                            ended=ended, handover_for=self._handover)
         if legacy:
             # C-30.4, D-17: a pass run while the daemon was down found the
             # legacy cockpit may be using this session again. A turn that
@@ -2158,6 +2385,18 @@ class ConversationService:
             detail = attempts[-1]["outcome_detail"] if attempts else job.get("rc")
             self.store.set_state(message["message_id"], state, reason=f"{reason}: {detail}"[:200],
                                  expect=(WAITING, STARTING), expect_turn_seq=message["turn_seq"])
+        for row in self.store.query("SELECT message_id,state_reason FROM messages WHERE state='steering'"):
+            host = self.store.find_message(steered_into(row["state_reason"]))
+            if not host or self._runner_for_message(host["message_id"]) is not None:
+                continue
+            job = self._turn_job(host)
+            if job and job["state"] not in ("succeeded", "failed", "cancelled", "lost"):
+                continue
+            attempts = self.daemon.store.query("SELECT seq FROM attempts WHERE job_id=?", (job["job_id"],)) if job else []
+            if any((self.root / "jobs" / job["job_id"] / f"a{a['seq']}" / "stdin.jsonl").exists() for a in attempts):
+                continue  # Written or ambiguous frames must be replayed by the runner.
+            self.store.set_state(row["message_id"], QUEUED, reason="steer-missed: host-never-started",
+                                 expect=(STEERING,))
 
     # --- outcomes --------------------------------------------------------------
 
@@ -2200,22 +2439,52 @@ class ConversationService:
         return True
 
     def _on_outcome(self, runner: TurnRunner) -> None:
-        """Settle a message from its turn (D-12, D-14, C-24.6, C-24.8, C-26.7).
-        The decision is `reconcile.settle`'s; this applies it."""
+        # Gather without either lock: provider transcript scans may take time, and
+        # the striped stop lock also belongs to unrelated Stops and steers. Then
+        # reread the person's stop while serialized with its recording and decide
+        # using only the cached evidence (C-24.7, C-24.8, steer review finding 14).
+        # The service lock covers the host's steer snapshot through settlement, so
+        # no claim lands between them (C-24.9). Lock order stays stop then _lock;
+        # the runner never takes message handover locks here.
+        turn, provider, used, gathered = self._settlement(runner)
+
+        def evidence() -> reconcile.Evidence:
+            # The same immutable turn asks for evidence on both decisions, or on
+            # neither; a provider's terminal result needs no transcript scan.
+            assert gathered.evidence is not None
+            return gathered.evidence
+
+        with self._stop_lock(runner.message_id), self._lock:
+            message = self.store.message(runner.message_id)
+            settlement = reconcile.settle(
+                turn, provider=provider, turn_seq=used, gather=evidence,
+                person_stopped=bool(message.get("stop_requested_at")))
+            self._settle_outcome(runner, turn, settlement)
+
+    def _settlement(self, runner: TurnRunner) -> tuple[dict, str, int, reconcile.Settlement]:
+        """Gather a turn's settlement evidence without locking out Stops or steers.
+        The pure decision is made again with the fresh personal stop under the
+        locks, reusing this evidence (D-12, D-14, C-24.6, C-24.8, C-26.7)."""
         turn = read_turn(runner.adir) or {}
         message = self.store.message(runner.message_id)
-        conversation = self.store.conversation(runner.conversation_id)
-        provider = conversation["provider"]
+        provider = self.store.conversation(runner.conversation_id)["provider"]
         # The readmissions used up so far: this message's other turn jobs a provider
         # reached, less its waits for another writer (reviews of 6290a51, finding 3,
         # and of 3c1a34e, finding 4).
         used = self._provider_tries(message, besides=runner.attempt_id.rsplit("/", 1)[0])
         settlement = reconcile.settle(
             turn, provider=provider, turn_seq=used,
-            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn),
-            person_stopped=bool(message.get("stop_requested_at")))
+            gather=lambda: reconcile.gather(provider, runner.message_id, runner.adir, turn))
+        return turn, provider, used, settlement
+
+    def _settle_outcome(self, runner: TurnRunner, turn: dict, settlement: reconcile.Settlement) -> None:
+        """Apply a settlement: the host's steers first, then the host (C-24.6, C-24.9)."""
+        message = self.store.message(runner.message_id)
+        conversation = self.store.conversation(runner.conversation_id)
+        provider = conversation["provider"]
         served = {**(message.get("served") or {}), **(turn.get("served") or {}),
                   "lane_id": runner.attempt.get("lane_id"), "model": turn.get("served_model")}
+        steer_unknown = self._settle_steers(runner, turn, served, host_block=settlement.block)
         native = turn.get("native_session_id")
         # C-24.1: a Codex thread id comes only from the server's answer. A Claude
         # session id is minted here, so it is kept only once the provider holds
@@ -2240,11 +2509,13 @@ class ConversationService:
             # limited message failed without it; it cannot dispatch while the
             # original is live.
             self._continue_elsewhere(conversation, message)
-        if settlement.block:
+        block = "delivery-unknown" if steer_unknown else settlement.block
+        if block and self.store.conversation(conversation["conversation_id"])["blocked_by"] != block:
             # Before the message settles, so a settlement cut short (close() refusing
             # what a late runner writes) leaves it live, for a replay to settle whole,
-            # never settled with its conversation unblocked (C-24.8).
-            self.store.update_conversation(conversation["conversation_id"], blocked_by=settlement.block)
+            # never settled with its conversation unblocked (C-24.8). A settlement run
+            # again writes nothing new: no second change row for the watch feed.
+            self.store.update_conversation(conversation["conversation_id"], blocked_by=block)
         if settlement.readmit:
             self.store.set_state(message["message_id"], WAITING, reason=settlement.reason, expect=live,
                                  turn_seq=message["turn_seq"] + 1, job_id=None)
@@ -2259,6 +2530,55 @@ class ConversationService:
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
         self.daemon._notify()
+
+    def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:
+        """Settle every binding before its host. Positive delivery wins over drops.
+
+        A relay intent with no receipt is reported as written/unknown by the
+        runner: it can never be safely requeued from absence of provider evidence.
+        """
+        unknown = False
+        facts = turn.get("steers") or {}
+        for message in self.store.steers(runner.message_id):
+            mid = message["message_id"]
+            fact = facts.get(mid)
+            if not fact:
+                # A missing/damaged outcome never outweighs a durable relay
+                # intent. Rebuilt runners normally record this in turn.json.
+                written = getattr(runner, "steer_written", lambda _: False)(mid)
+                fact = {"frame": "written" if written else "unsent", "fate": "unknown",
+                        "detail": "missing steer outcome" if written else "not handed over"}
+            fate, frame = fact.get("fate"), fact.get("frame")
+            why = str(fact.get("detail") or fate or "host ended")[:180]
+            if fate in ("consumed", "delivered", "unanswered"):
+                prefix = "steered-unanswered" if fate == "unanswered" else "steered"
+                self.store.set_state(mid, STEERED, reason=f"{prefix}:{runner.message_id}", expect=(STEERING,),
+                                     served={**served, "steered_into": runner.message_id},
+                                     turn_ref=turn.get("turn_id"))
+            elif frame in ("unsent", "refused") or fate in ("cancelled", "refused"):
+                changed = self.store.set_state(mid, QUEUED, reason=f"steer-missed: {why}", expect=(STEERING,))
+                if changed:
+                    self.store.append_events(
+                        conversation_id=runner.conversation_id, message_id=runner.message_id,
+                        attempt_id=runner.attempt_id,
+                        events=[("command", f"cmd:steer-settle:{mid}", 0, "steer.missed",
+                                 {"message_id": mid, "why": why})],
+                        stdout_offset=runner.offset, stdin_seq=runner.next_seq - 1)
+            else:
+                # Block first: interruption here leaves a live binding for replay.
+                self.store.update_conversation(runner.conversation_id, blocked_by="delivery-unknown")
+                self.store.set_state(mid, DELIVERY_UNKNOWN, reason=f"steer:{runner.message_id}",
+                                     expect=(STEERING,), resolution={"requires_unblock": host_block == "unfinished-turn"})
+                unknown = True
+        if host_block == "unfinished-turn":
+            for row in self.store.query("SELECT message_id FROM messages WHERE conversation_id=? "
+                                        "AND state='delivery-unknown'", (runner.conversation_id,)):
+                message = self.store.message(row["message_id"])
+                self.store.update_message(row["message_id"],
+                                          resolution={**(message.get("resolution") or {}), "requires_unblock": True})
+        return unknown or bool(self.store.one(
+            "SELECT 1 FROM messages WHERE conversation_id=? AND state='delivery-unknown'",
+            (runner.conversation_id,)))
 
     def _continue_elsewhere(self, conversation: dict, message: dict) -> None:
         """D-6, C-26.7: a Claude conversation continues on another account with a

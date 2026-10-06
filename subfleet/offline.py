@@ -19,9 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
+from .store import notice_rows
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -345,6 +347,10 @@ class Offline:
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
             version = self.schema_version(conn)
+            # C-18.4: the alerts in force, from their latches, in the words they
+            # last fired with (no cycle runs without the daemon).
+            latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
+                       if "events" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -360,7 +366,14 @@ class Offline:
             "running": self.list_jobs(running=True, last=50),
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
+            "alerts": active_alerts(latches),
         }
+
+    def notices(self, session_id: str | None = None, *, resolved: bool = False) -> list[dict[str, Any]]:
+        """C-15.8: `notices` with no daemon; the same rows `notice.list` returns."""
+        with self.reading() as conn:
+            return notice_rows(lambda sql, params: conn.execute(sql, params).fetchall(),
+                               session_id, resolved=resolved)
 
     # --- kill (C-17.5, C-5.3, C-5.4) ----------------------------------------
 

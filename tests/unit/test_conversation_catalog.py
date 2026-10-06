@@ -23,7 +23,7 @@ SESSION = "5e551011-0000-4000-8000-0000000000c1"
 
 def write_transcript(projects: Path, session_id: str, cwd: str, *, mode: str | None = "default",
                      source: str | None = None, title: str | None = None,
-                     model: str = "claude-opus-5-5") -> Path:
+                     model: str = "claude-opus-5-5", entrypoint: str | None = None) -> Path:
     directory = projects / cwd.replace("/", "-")
     directory.mkdir(parents=True, exist_ok=True)
     user = {"type": "user", "uuid": "u1", "cwd": cwd, "sessionId": session_id,
@@ -35,6 +35,8 @@ def write_transcript(projects: Path, session_id: str, cwd: str, *, mode: str | N
     rows = [user, {"type": "assistant", "uuid": "a1", "cwd": cwd, "sessionId": session_id,
                    "message": {"role": "assistant", "model": model,
                                "content": [{"type": "text", "text": "done"}]}}]
+    if entrypoint:
+        rows = [{**row, "entrypoint": entrypoint} for row in rows]
     if title:
         rows.append({"type": "custom-title", "customTitle": title, "sessionId": session_id})
     path = directory / f"{session_id}.jsonl"
@@ -81,6 +83,36 @@ def test_a_transcript_is_found_under_a_named_projects_directory(tmp_path, monkey
     path = write_transcript(tmp_path / "projects", SESSION, str(work))
     assert transcripts.transcript_path(SESSION) is None
     assert transcripts.transcript_path(SESSION, tmp_path / "projects") == path
+
+
+def test_the_writer_decides_whether_a_session_continues_here(tmp_path):
+    """C-23.31, C-30.2: a desktop session one message started has a lane's prompt
+    shape (one `sdk` prompt, as the app sends it) and continues here; a `claude
+    -p` run whose prompt carries no `promptSource` is a lane run all the same."""
+    work = tmp_path / "work"
+    work.mkdir()
+    desktop = write_transcript(tmp_path / "a", SESSION, str(work), source="sdk", entrypoint="claude-desktop")
+    lane = write_transcript(tmp_path / "b", SESSION, str(work), entrypoint="sdk-cli")
+    assert catalog.claude_session(desktop)["continuable"] is True
+    assert catalog.claude_session(lane)["continue_blocker"] == "a Subfleet lane run"
+
+
+def test_a_record_cached_under_the_prompt_rule_is_read_again(tmp_path):
+    """C-23.31, C-30.1: a record cached at version 2 judged `headless` by the
+    prompt rule; a desktop session whose transcript has not changed since is
+    read again and listed, not hidden by its stale verdict."""
+    work = tmp_path / "work"
+    work.mkdir()
+    projects = tmp_path / "projects"
+    path = write_transcript(projects, SESSION, str(work), source="sdk", entrypoint="claude-desktop")
+    state = tmp_path / "state"
+    state.mkdir()
+    st = path.stat()
+    stale = {**catalog._claude_record(path), "headless": True, "workspace": None}
+    (state / "catalog-cache.json").write_text(json.dumps(
+        {str(path): {"size": st.st_size, "mtime": st.st_mtime, "version": 2, "record": stale}}))
+    (item,) = _discovered(tmp_path, projects)
+    assert (item["native_session_id"], item["continuable"]) == (SESSION, True)
 
 
 def test_a_line_that_is_not_an_object_is_not_an_entry(tmp_path):

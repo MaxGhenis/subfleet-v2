@@ -74,7 +74,7 @@ mkdir -p "$APP/Contents/MacOS"
 # one compilation. xargs appends the file list after the options.
 # shellcheck disable=SC2086 # FLAGS is a word list on purpose.
 find "$ROOT/app/Sources" -name '*.swift' -print0 | sort -z | \
-  xargs -0 xcrun swiftc -O -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" $FLAGS \
+  xargs -0 xcrun swiftc -O -whole-module-optimization -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" $FLAGS \
     -o "$APP/Contents/MacOS/$NAME"
 cp "$ROOT/app/Info.plist" "$APP/Contents/Info.plist"
 if [ "$DEV" -eq 1 ]; then

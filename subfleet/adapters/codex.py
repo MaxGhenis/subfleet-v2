@@ -158,6 +158,33 @@ def _events(path: Path) -> Iterator[dict]:
         return
 
 
+#: C-6.14, C-4.5: the thread items `codex exec --json` writes only for what the
+#: model produced: its messages and reasoning, and the commands, edits, tool
+#: calls, searches and plans it asked for. An `error` item is Codex's own.
+MODEL_ITEMS = frozenset({"agent_message", "reasoning", "command_execution", "file_change",
+                         "mcp_tool_call", "web_search", "todo_list"})
+#: The `turn.completed` usage counters a served turn fills.
+USAGE_TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens")
+
+
+def model_answered(event: object) -> bool:
+    """C-6.14, C-4.5: whether one `codex exec --json` event shows the model answering:
+    an item only the model produces (`MODEL_ITEMS`), started, updated or completed,
+    or a `turn.completed` whose usage counts a token. `thread.started`,
+    `turn.started`, `turn.failed`, `error` and an `error` item are Codex's own."""
+    if not isinstance(event, dict):
+        return False
+    kind = event.get("type")
+    if kind in ("item.started", "item.updated", "item.completed"):
+        item = event.get("item")
+        return isinstance(item, dict) and item.get("type") in MODEL_ITEMS
+    if kind == "turn.completed":
+        usage = event.get("usage")
+        return isinstance(usage, dict) and any(type(usage.get(key)) is int and usage[key] > 0
+                                               for key in USAGE_TOKEN_FIELDS)
+    return False
+
+
 def _stream_path(attempt_dir: Path, launch: Launch) -> Path:
     for path in (launch.raw_stream_path, str(attempt_dir / "stream.jsonl"), launch.stdout_path):
         if path and Path(path).is_file() and Path(path).stat().st_size:
@@ -225,6 +252,10 @@ class CodexAdapter(Adapter):
         self._opener = opener
         self._now = now
         self.timeout = timeout
+
+    def model_answered(self, event: object) -> bool:
+        """C-6.14, C-4.5: `codex.model_answered`."""
+        return model_answered(event)
 
     def _payload(self, raw: dict) -> dict:
         identity = _identity(raw)
@@ -518,16 +549,23 @@ class CodexAdapter(Adapter):
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
         session_id = launch.native_session_id
         failures = []
+        answered, read = False, 0
         for event in _events(_stream_path(attempt_dir, launch)):
+            read += 1
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
                 failures.append(event)
+            answered = answered or model_answered(event)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
         signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
+        # C-4.5, C-6.14: whether the model answered at all, whatever the class;
+        # None when no event was read, so nobody can say (C-4.5 then takes a
+        # writable attempt to have answered).
         evidence = {"rc": exit_info.rc, "signal": exit_info.signal,
-                    "authentication": None, "admission": None, "quota": None}
+                    "authentication": None, "admission": None, "quota": None,
+                    "model_answered": answered if read else None}
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:

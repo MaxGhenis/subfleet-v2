@@ -17,6 +17,8 @@ CORE_PROBE = [ROOT / "tests/frontend/CoreProbe.swift", ROOT / "tests/frontend/Co
               ROOT / "tests/frontend/CoreProbeLive.swift"]
 needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun") is None,
                                  reason="native Swift frontend validation requires macOS developer tools")
+# The ⌘K palette's matching and the text scale (C-29.12, C-29.13).
+CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
 
 
 @pytest.fixture(scope="session")
@@ -25,6 +27,19 @@ def core_probe(tmp_path_factory) -> Path:
     if sys.platform != "darwin" or shutil.which("xcrun") is None:
         pytest.skip("native Swift frontend validation requires macOS developer tools")
     return compile_probe(tmp_path_factory.mktemp("subfleet-core") / "probe", CORE_PROBE, "SUBFLEET_MODEL_TEST")
+
+
+@pytest.fixture(scope="session")
+def conversation_view_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-conversation-view") / "probe",
+                         ROOT / "tests/frontend/ConversationViewProbe.swift", "SUBFLEET_VIEW_TEST")
+
+
+@pytest.fixture(scope="session")
+def cutover_model_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-cutover-model") / "probe",
+                         [ROOT / "tests/frontend/CutoverModelProbe.swift",
+                          ROOT / "tests/frontend/CutoverViewScenarios.swift"], "SUBFLEET_UI_MODEL_TEST")
 
 
 def run_probe(probe: Path, *args, env: dict | None = None, timeout: float = 60, raw: bool = False):

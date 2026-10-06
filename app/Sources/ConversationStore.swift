@@ -32,6 +32,10 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+
+    /// A stopped turn or uncertain delivery needs the person's decision even
+    /// when no approval card is waiting.
+    var needsYouLabel: String? { blockedBy == nil ? nil : "Needs you" }
 }
 
 struct SidebarSection: Identifiable, Equatable {
@@ -43,6 +47,12 @@ struct SidebarSection: Identifiable, Equatable {
 enum SidebarGrouping: String, CaseIterable {
     case recency
     case workspace
+}
+
+private func conversationIsMoreRecent(_ lhs: Conversation, _ rhs: Conversation) -> Bool {
+    let left = lhs.lastActivityDate ?? .distantPast
+    let right = rhs.lastActivityDate ?? .distantPast
+    return left == right ? lhs.conversation_id < rhs.conversation_id : left > right
 }
 
 /// `~/…` for paths under the home directory.
@@ -122,6 +132,9 @@ enum StopAction: Equatable {
     case withdraw(messageID: String)
     /// Queued in the daemon: `message.cancel`.
     case cancel(messageID: String)
+    /// Steering (C-24.9): `message.cancel`, which the daemon takes only before the
+    /// steer's frame is written. Never `turn.interrupt`: the running turn is another message's.
+    case cancelSteer(messageID: String)
     /// Waiting, starting, running or asking: `turn.interrupt`.
     case interrupt(messageID: String)
 }
@@ -132,9 +145,181 @@ func stopAction(for messageID: String, state: String?, outboxEntry: OutboxEntry?
     if let entry = outboxEntry, entry.kind == .messageSubmit, entry.isOpen { return .withdraw(messageID: messageID) }
     switch state.flatMap(MessageState.init(rawValue:)) {
     case .queued: return .cancel(messageID: messageID)
+    case .steering: return .cancelSteer(messageID: messageID)
     case .waiting, .starting, .running, .approvalNeeded: return .interrupt(messageID: messageID)
     default: return .none
     }
+}
+
+// MARK: - Steer (C-24.9, design §1)
+
+/// The running turn a steered message would join, and the settings it runs under.
+struct SteerHost: Equatable {
+    var messageID: String
+    var settings: ConversationSettings?
+}
+
+/// The turn a steer would join: the conversation's live turn while it runs or
+/// asks, not stopping and not yet answered, when the daemon steers this provider
+/// (`steer.v1`, `steer_providers`). Otherwise nothing changes: messages queue.
+func runningSteerHost(in timeline: Timeline?, provider: String, capabilities: Capabilities?) -> SteerHost? {
+    guard capabilities?.canSteer(provider) == true, let timeline, let live = timeline.liveMessageID,
+          let turn = timeline.turn(live), turn.messageState == .running || turn.messageState == .approvalNeeded,
+          !turn.stopping, turn.outcome == nil else { return nil }
+    return SteerHost(messageID: live, settings: turn.settings)
+}
+
+/// A message may steer only under a permission at least as wide as the turn's:
+/// the daemon refuses a narrower one (`settings-narrower`), which the person chose
+/// to be safer. Unknown settings are the daemon's to judge.
+func steerPermits(_ permission: String?, into host: SteerHost) -> Bool {
+    guard let running = host.settings?.policy, let mine = permission.flatMap(PermissionPolicy.init(rawValue:)) else {
+        return true
+    }
+    return mine.rank >= running.rank
+}
+
+/// Whether the composer steers on Return (and queues for later on ⌘Return): a
+/// running turn takes steers and the conversation's permission is not narrower
+/// than the turn's. Messages queued for later do not change it: the steer lane
+/// and the queue are independent, as in Claude Code (DESIGN.md section 8). Only a
+/// queued repair message makes the daemon answer `not-next` (C-24.9); the message
+/// stays queued, its status line saying why.
+func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> SteerHost? {
+    guard let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities),
+          steerPermits(conversation.settings.permission, into: host) else { return nil }
+    return host
+}
+
+/// Whether a queued message may be steered now ("Send now" on the queue tray,
+/// DESIGN.md sections 7 to 9): the person's message, not already being steered,
+/// not a slash command or shell input, that a running turn would take.
+func canSteer(messageID: String, conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> Bool {
+    guard let timeline, let turn = timeline.turn(messageID), turn.messageState == .queued, !turn.steerRequested,
+          turn.origin == "person", steerable(text: turn.personText ?? ""),
+          let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities)
+    else { return false }
+    return steerPermits(turn.settings?.permission, into: host)
+}
+
+/// What Esc does while a turn runs (DESIGN.md sections 8 and 9).
+enum EscapeAction: Equatable {
+    /// Take this steer back into the composer.
+    case recall(messageID: String)
+    /// Nothing left to take back: stop the turn.
+    case stop(StopAction)
+    /// No turn runs.
+    case none
+}
+
+/// The newest steer the provider has not read and the daemon may still give
+/// back; with none, Stop. `unrecallable` holds each steer the daemon answered
+/// `too-late` for (its frame is written, or it left the queue: the provider may
+/// have it) with what the app saw of it then (`TooLateMark`). Esc passes over it
+/// only while that still holds (`stillTooLate`): once the app sees it back in the
+/// queue (the turn ended without reading it), steered into another turn, or
+/// otherwise moved on, Esc may take it back again.
+func escapeAction(timeline: Timeline?, unrecallable: [String: TooLateMark] = [:]) -> EscapeAction {
+    guard let timeline, let live = timeline.liveMessageID else { return .none }
+    if let steer = timeline.recallableSteers.last(where: { !stillTooLate($0, in: timeline, unrecallable: unrecallable) }) {
+        return .recall(messageID: steer)
+    }
+    return .stop(stopAction(for: live, state: timeline.turn(live)?.state, outboxEntry: nil))
+}
+
+/// The turn a steer is in, as the app sees it: the host its receipt names, or,
+/// before that receipt, the live turn it was sent to.
+func tooLateBinding(_ messageID: String, in timeline: Timeline) -> String? {
+    timeline.turn(messageID)?.steeredInto ?? timeline.liveMessageID
+}
+
+/// What the app saw of a steer when the daemon answered `too-late` for it: the
+/// turn it was in (`tooLateBinding`) and how the app showed the message.
+struct TooLateMark: Equatable {
+    var host: String
+    var state: String
+    var stateReason: String?
+    var steerRequested: Bool
+    var missed: Bool
+
+    init?(_ messageID: String, in timeline: Timeline) {
+        guard let turn = timeline.turn(messageID), let host = tooLateBinding(messageID, in: timeline) else {
+            return nil
+        }
+        self.host = host
+        state = turn.state
+        stateReason = turn.stateReason
+        steerRequested = turn.steerRequested
+        missed = turn.missedSteer
+    }
+}
+
+/// Whether a steer the daemon answered `too-late` for is still where it was then:
+/// bound to the same turn and either steering in it (its frame is written) or
+/// shown just as it was (the daemon has it somewhere the app has not seen yet:
+/// its steer's receipt, or its own turn, not folded yet). An entry for which
+/// this is false is stale: drop it.
+func stillTooLate(_ messageID: String, in timeline: Timeline, unrecallable: [String: TooLateMark]) -> Bool {
+    guard let mark = unrecallable[messageID], let now = TooLateMark(messageID, in: timeline),
+          now.host == mark.host else { return false }
+    return timeline.turn(messageID)?.messageState == .steering || now == mark
+}
+
+/// Esc's memory of the daemon's `too-late` answers (C-24.9), kept across
+/// conversations by `UIModel.escape`: each steer it passes over, with what the
+/// app saw of it then. An entry lasts only while that steer is still there
+/// (`stillTooLate`); once it moves on, Esc may take it back again.
+struct TooLateSteers: Equatable {
+    private(set) var marks: [String: TooLateMark] = [:]
+
+    /// Drop the entries for `timeline`'s steers that moved on since the daemon
+    /// answered `too-late`; another conversation's entries stay.
+    mutating func prune(_ timeline: Timeline) {
+        let current = marks
+        marks = current.filter { id, _ in
+            timeline.turn(id) == nil || stillTooLate(id, in: timeline, unrecallable: current)
+        }
+    }
+
+    /// What Esc does now: the newest steer it may take back, else Stop.
+    mutating func escape(_ timeline: Timeline?) -> EscapeAction {
+        if let timeline { prune(timeline) }
+        return escapeAction(timeline: timeline, unrecallable: marks)
+    }
+
+    /// The daemon answered `too-late` for `messageID` (the provider may have it:
+    /// the turn's next step reads it). Returns the words for what the next Esc does.
+    mutating func tooLate(_ messageID: String, in timeline: Timeline, assistant: String) -> String {
+        if let mark = TooLateMark(messageID, in: timeline) { marks[messageID] = mark }
+        let told = "\(assistant) already has it; it joins at the next step."
+        switch escapeAction(timeline: timeline, unrecallable: marks) {
+        case .recall(let next):
+            let order = timeline.recallableSteers
+            guard let at = order.firstIndex(of: next), let late = order.firstIndex(of: messageID) else {
+                return told + " Press Esc again to take back another unread message."
+            }
+            return told + (at < late ? " Press Esc again to take back the message before it."
+                                     : " Press Esc again to take back the newer message.")
+        case .stop: return told + " Press Esc again to stop the turn."
+        case .none: return told                         // no turn runs now: Esc does nothing
+        }
+    }
+}
+
+/// The composer's one-line hint while it steers and the person's picks differ
+/// from the running turn's: a steer runs under the turn's settings (design §1).
+func steerSettingsHint(picked: ConversationSettings, host: SteerHost) -> String? {
+    guard let running = host.settings else { return nil }
+    let differs = picked.model != running.model || picked.effort != running.effort || picked.fast != running.fast
+        || picked.permission != running.permission
+    return differs ? "Steering uses the running turn's settings; ⌘⏎ queues with yours" : nil
+}
+
+/// Slash commands and `!` shell input are never steered: they wait for the turn
+/// to end, as in Claude Code (DESIGN.md section 9).
+func steerable(text: String) -> Bool {
+    guard let first = text.first(where: { !$0.isWhitespace }) else { return true }
+    return first != "/" && first != "!"
 }
 
 struct BlockedChoice: Equatable {
@@ -216,7 +401,8 @@ func laneLabels(from snapshot: Snapshot?) -> [String: String] {
 /// that differs from the request is a visible warning.
 func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [String: String] = [:]) -> ServedChip? {
     let served = turn.served
-    guard !served.fields.isEmpty else { return nil }
+    // A steered message ran in its host's turn, whose chip says what served it.
+    guard !served.fields.isEmpty, turn.messageState != .steering, turn.messageState != .steered else { return nil }
     var fast: String?
     if provider == "codex" {
         // The thread's `serviceTier` is null at standard speed, and served facts
@@ -264,6 +450,8 @@ struct ConversationStoreState: Equatable {
     var catalog: Catalog?
     /// `models.list` per provider.
     var models: [String: [ModelEntry]] = [:]
+    /// Policy defaults published by `models.list`, never inferred from catalog order.
+    var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
@@ -291,7 +479,7 @@ struct ConversationStoreState: Equatable {
     // MARK: Folding daemon answers
 
     mutating func apply(list: ConversationListResult) {
-        conversations = list.conversations.map(withWatchActivity).sorted { $0.updated_at > $1.updated_at }
+        conversations = list.conversations.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
@@ -309,16 +497,24 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(models: ModelsListResult, provider: String) {
         self.models[provider] = models.models.filter { $0.provider == provider }
+        modelDefaults[provider] = models.default_models?[provider]
     }
 
     mutating func upsert(_ conversation: Conversation) {
-        let conversation = withWatchActivity(conversation)
+        var conversation = withWatchActivity(conversation)
         if let index = conversations.firstIndex(where: { $0.conversation_id == conversation.conversation_id }) {
+            // `open` and settings replies need not include the cached native
+            // activity. Keep it until the next authoritative list refresh.
+            let previous = conversations[index]
+            if let activity = previous.last_activity,
+               (parseTimestamp(activity) ?? .distantPast) > (conversation.lastActivityDate ?? .distantPast) {
+                conversation.last_activity = activity
+            }
             conversations[index] = conversation
         } else {
             conversations.insert(conversation, at: 0)
         }
-        conversations.sort { $0.updated_at > $1.updated_at }
+        conversations.sort(by: conversationIsMoreRecent)
         pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
         // A native session that now has a conversation leaves the catalog list.
         if let native = conversation.native_session_id {
@@ -357,7 +553,7 @@ struct ConversationStoreState: Equatable {
 
     mutating func apply(history page: HistoryPage, conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
-        timeline.apply(history: page)
+        timeline.apply(history: page, provider: conversation(conversationID)?.provider ?? "")
         timelines[conversationID] = timeline
     }
 
@@ -381,12 +577,22 @@ struct ConversationStoreState: Equatable {
         pendingApprovals[conversationID] = approvals.filter { $0.state == "pending" }.count
     }
 
-    /// The composer's optimistic row, before the receipt.
+    /// The composer's optimistic row, before the receipt; `steer` when it steers the running turn.
     mutating func addLocalMessage(conversationID: String, messageID: String, text: String,
-                                  attachments: [String] = [], settings: ConversationSettings? = nil) {
+                                  attachments: [String] = [], settings: ConversationSettings? = nil, steer: Bool = false) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
-        timeline.addLocal(messageID: messageID, text: text, attachments: attachments, settings: settings)
+        timeline.addLocal(messageID: messageID, text: text, attachments: attachments, settings: settings, steer: steer)
         timelines[conversationID] = timeline
+    }
+
+    /// A message the person withdrew before the daemon had it.
+    mutating func withdrawLocal(conversationID: String, messageID: String) {
+        timelines[conversationID]?.withdrawLocal(messageID: messageID)
+    }
+
+    /// The answer to a steer (nil: taken, or taken back), for the message's status line.
+    mutating func noteSteer(conversationID: String, messageID: String, refusal: OutboxFailure?) {
+        timelines[conversationID]?.noteSteer(messageID: messageID, refusal: refusal)
     }
 
     /// The person's text for a message this app sent (the receipt carries none).
@@ -394,7 +600,7 @@ struct ConversationStoreState: Equatable {
         timelines[conversationID]?.setPersonText(text, for: messageID)
     }
 
-    /// Fold an outbox report: receipts, and the conversations creates made.
+    /// Fold an outbox report: receipts, steers answered, and the conversations creates made.
     mutating func apply(outbox report: OutboxSender.Report, outbox: Outbox) {
         for receipt in report.receipts {
             apply(receipt: receipt)
@@ -402,7 +608,31 @@ struct ConversationStoreState: Equatable {
                 timelines[cid]?.setPersonText(text, for: receipt.message_id)
             }
         }
+        apply(steers: report.steers)
         for conversation in report.conversations { upsert(conversation) }
+    }
+
+    /// The person asked to steer a message (C-24.9); its status line says so at once.
+    mutating func requestSteer(conversationID: String, messageID: String) {
+        timelines[conversationID]?.requestSteer(messageID: messageID)
+    }
+
+    /// Journaled steers: one still open reads as steering, a refused one says why
+    /// its message stayed queued (also after a restart); an answered one is its
+    /// receipts' to show.
+    mutating func apply(steers: [OutboxSteer]) {
+        for steer in steers {
+            switch steer.state {
+            case .queued, .sending:
+                // Only while its message still waits: one that runs, or ran, is past steering.
+                let state = timelines[steer.conversation]?.turn(steer.messageID)?.state
+                if state == MessageState.queued.rawValue || state == "sending" {
+                    timelines[steer.conversation]?.requestSteer(messageID: steer.messageID)
+                }
+            case .refused: timelines[steer.conversation]?.noteSteer(messageID: steer.messageID, refusal: steer.failure)
+            case .acknowledged, .withdrawn: timelines[steer.conversation]?.noteSteer(messageID: steer.messageID, refusal: nil)
+            }
+        }
     }
 
     enum WatchResult: Equatable {
@@ -427,6 +657,10 @@ struct ConversationStoreState: Equatable {
             }
             if let index = conversations.firstIndex(where: { $0.conversation_id == cid }) {
                 conversations[index].pending_approvals = change.pending_approvals
+                if let title = change.title {
+                    conversations[index].title = title
+                    conversations[index].title_source = change.title_source
+                }
                 if let mid = change.message_id, let state = change.state {
                     // A message first appears as `queued`, so a queued change names the newest one.
                     let previous = conversations[index].last_message
@@ -442,7 +676,7 @@ struct ConversationStoreState: Equatable {
                let turn = timeline.turn(mid), turn.state != state || turn.stateReason != change.state_reason {
                 // A reason can change while the state stays (a deferral, then a hold).
                 timeline.apply(receipt: Receipt(message_id: mid, conversation_id: cid, state: state,
-                                                state_reason: change.state_reason))
+                                                state_reason: change.state_reason, steered_into: change.steered_into))
                 timelines[cid] = timeline
             }
             if watchBaselined && cid != focusedConversationID {
@@ -474,6 +708,8 @@ struct ConversationStoreState: Equatable {
                                             conversationID: change.conversation_id, messageID: mid,
                                             title: "Delivery unknown", body: title)
             default:
+                // A steered message settles inside its host's turn, whose completion
+                // is the one notification (C-24.9): `steering` and `steered` post nothing.
                 break
             }
         }
@@ -510,7 +746,7 @@ struct ConversationStoreState: Equatable {
             entries.append(SidebarEntry(
                 id: "cv:" + conversation.conversation_id, target: .conversation(conversation.conversation_id),
                 provider: conversation.provider, title: title, subtitle: abbreviatedPath(conversation.workspace),
-                workspace: conversation.workspace, date: parseTimestamp(conversation.updated_at),
+                workspace: conversation.workspace, date: conversation.lastActivityDate,
                 pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
@@ -591,6 +827,20 @@ struct ConversationStoreState: Equatable {
         }
         return makeServedChip(for: turn, provider: conversation.provider, laneLabels: laneLabels)
     }
+
+    /// The running turn the composer steers into, or nil when it queues (C-24.9).
+    func steerHost(forComposerOf conversationID: String) -> SteerHost? {
+        guard let conversation = conversation(conversationID) else { return nil }
+        return composerSteerHost(conversation: conversation, timeline: timelines[conversationID],
+                                 capabilities: availability.capabilities)
+    }
+
+    /// Whether a message's bubble offers Steer.
+    func offersSteer(conversationID: String, messageID: String) -> Bool {
+        guard let conversation = conversation(conversationID) else { return false }
+        return canSteer(messageID: messageID, conversation: conversation, timeline: timelines[conversationID],
+                        capabilities: availability.capabilities)
+    }
 }
 
 // MARK: - Engine
@@ -601,6 +851,8 @@ enum ConversationEngineError: Error, Equatable {
     /// A wider permission needs the confirmation sheet first.
     case widenNeedsConfirmation(from: String, to: String)
     case notOffered(String)
+    /// A steered message the running turn already has cannot be withdrawn (C-24.9).
+    case steerTooLate(String)
 }
 
 /// The daemon calls behind the store. Blocking; confine to one serial queue
@@ -701,16 +953,27 @@ final class ConversationEngine {
         let args = ConversationCreateArgs(request_id: requestID, provider: provider, workspace: workspace,
                                           workspace_kind: workspaceKind, allow_main: allowMain ? true : nil, title: title,
                                           settings: settings, confirm_widen: confirmWiden ? true : nil)
-        try outbox.enqueueCreate(args)
-        return Outbox.draftKey(requestID)
+        let entry = try outbox.enqueueCreate(args)
+        return entry.conversationID ?? Outbox.draftKey(requestID)
     }
 
     /// Journal a message (sending is `pump`). `conversation` is a daemon id or
-    /// the draft key `createConversation` returned.
+    /// the draft key `createConversation` returned. With `steer`, the message is
+    /// submitted and then steered into the running turn (C-24.9): the caller has
+    /// checked the daemon steers this provider (`composerSteerHost`).
     func send(conversation: String, text: String, staged: [StagedAttachment] = [], settings: ConversationSettings,
-              messageID: String = Outbox.newMessageID()) throws -> OutboxEntry {
+              messageID: String = Outbox.newMessageID(), steer: Bool = false, into: String? = nil) throws -> OutboxEntry {
         try outbox.enqueueSubmit(conversation: conversation, messageID: messageID, text: text, staged: staged,
-                                 settings: settings)
+                                 settings: settings, steer: steer, into: into)
+    }
+
+    /// Journal a steer of a queued message (C-24.9); sending is `pump`. A refusal
+    /// leaves the message queued, and the report says why. `into` is the running
+    /// turn the person steers into: a steer that reaches the daemon after that
+    /// turn ended is refused (`no-live-turn`), never joined to the next one.
+    @discardableResult
+    func steer(messageID: String, conversationID: String, into: String? = nil) throws -> OutboxSteer {
+        try outbox.enqueueSteer(conversation: conversationID, messageID: messageID, into: into)
     }
 
     /// Send what the outbox holds; keep the newest `keptClosedEntries` closed
@@ -723,6 +986,53 @@ final class ConversationEngine {
 
     func withdraw(_ messageID: String) throws -> OutboxSender.WithdrawOutcome {
         try sender.withdraw(messageID)
+    }
+
+    enum RecallOutcome: Equatable {
+        /// Taken back before the provider read it: its words and images go back to
+        /// the composer. The receipt is the daemon's (`cancelled`), or the tombstone
+        /// or nothing for a message it never had.
+        case recalled(text: String, staged: [StagedAttachment], receipt: Receipt?)
+        /// The provider has it already (or it runs as a turn of its own): nothing changed.
+        case tooLate(Receipt?)
+        /// A send is under way; ask again when it has an answer.
+        case inFlight
+    }
+
+    /// Esc while a turn runs (DESIGN.md sections 8 and 9): take back an unread steer
+    /// so its words return to the composer. Withdrawn through the outbox while the
+    /// daemon may not have it (D-22), else `message.cancel`, which the daemon takes
+    /// only before the steer's frame is written. Never `turn.interrupt`: the running
+    /// turn is another message's. `text` is the words when this app did not send it.
+    func recall(messageID: String, state: String?, text: String?) throws -> RecallOutcome {
+        let entry = outbox.entry(messageID)
+        let words = entry?.message?.text ?? text ?? ""
+        let staged = entry?.message?.staged ?? []
+        var state = state
+        if entry?.isOpen != true, state.flatMap(MessageState.init(rawValue:)) == nil {
+            // The app saw it before any receipt ("sending") and its send has been
+            // answered since: ask where it is now rather than guess.
+            state = try status([messageID]).first?.state
+        }
+        switch stopAction(for: messageID, state: state, outboxEntry: entry) {
+        case .withdraw:
+            switch try withdraw(messageID) {
+            case .withdrawn(let receipt): return .recalled(text: words, staged: staged, receipt: receipt)
+            case .inFlight: return .inFlight
+            case .inDaemon(let receipt): return try recall(messageID: messageID, state: receipt.state, text: text)
+            }
+        case .cancel(let id), .cancelSteer(let id):
+            do {
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: id, conversation_id: nil))
+                guard receipt.messageState == .cancelled else { return .tooLate(receipt) }
+                try outbox.withdrawSteer(id)
+                return .recalled(text: words, staged: staged, receipt: receipt)
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                return .tooLate(nil)
+            }
+        case .interrupt, .none:
+            return .tooLate(nil)
+        }
     }
 
     /// Stop a message: cancel it while queued, interrupt it once it runs.
@@ -738,11 +1048,35 @@ final class ConversationEngine {
             }
         case .cancel(let messageID):
             do {
-                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID,
+                                                                                   conversation_id: nil))
+                // Its steer not sent yet would only be refused now (one queue: nothing sends between).
+                try outbox.withdrawSteer(messageID)
+                return receipt
             } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
                 // It left `queued` since the app looked, and the provider may have
-                // it: the daemon's fix is `turn.interrupt` (op_message_cancel).
-                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+                // it: the daemon's fix is `turn.interrupt` (op_message_cancel). A
+                // message steered meanwhile is in another message's turn, and the
+                // daemon points an interrupt of it at that turn: never interrupt
+                // without knowing (a failed read is thrown, not guessed past), and
+                // interrupt only a message read as its own turn's. One queued again
+                // or settled has no turn to stop, and one queued could be steered by
+                // another client before an interrupt arrived.
+                let now = try status([messageID]).first
+                switch now?.messageState {
+                case .steering, .steered:
+                    throw ConversationEngineError.steerTooLate(messageID)
+                case .waiting, .starting, .running, .approvalNeeded:
+                    return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+                default:
+                    return now
+                }
+            }
+        case .cancelSteer(let messageID):
+            do {
+                return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                throw ConversationEngineError.steerTooLate(messageID)
             }
         case .interrupt(let messageID):
             return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
@@ -794,6 +1128,11 @@ final class ConversationEngine {
 
     func refreshCatalog() throws -> CatalogRefreshResult {
         try client.call(Ops.catalogRefresh, NoArgs())
+    }
+
+    func renameConversation(conversationID: String, title: String) throws -> Conversation {
+        try client.call(Ops.conversationRename, ConversationRenameArgs(
+            conversation_id: conversationID, title: title)).conversation
     }
 
     // MARK: Synchronous helpers (the frontend probes, and simple callers)
