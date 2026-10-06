@@ -9,7 +9,7 @@ import sys
 import time
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, event as hypothesis_event, given, settings, strategies as st
 
 from subfleet import daemon as dm, procs
 from tests.fake.test_review_pr131_probes import BOOT, NEXT_BOOT, ident, quarantine, script_table
@@ -90,6 +90,31 @@ def test_legacy_kill_owned_provider_discharges_without_force(state_daemon, monke
 
 
 @pytest.mark.parametrize("operator", [False, True])
+def test_reused_guardian_census_root_cannot_prove_provider_publication(state_daemon, monkeypatch, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness, held={"100": ident(100, "other-guardian")})
+    adir = daemon.root / "jobs" / a["job_id"] / "a1"
+    (adir / "start.json").write_text(json.dumps({"guardian_pid": 100, "boot_id": BOOT,
+                                               "proc_start": "guardian-start", "pgid": 100}))
+    # A different process at the old guardian PID is a census root because an
+    # earlier marker scan saw it. Its children cannot publish the old provider.
+    script_table(monkeypatch, {100: (1, 100, "Ss", "other-guardian"),
+                              200: (100, 100, "S", "unrelated-child")})
+    clock.advance()
+    actual, _ = resolve(daemon, a, operator)
+    assert actual["state"] == "quarantined"
+    script_table(monkeypatch, {})
+    clock.advance()
+    actual, _ = resolve(daemon, actual, operator)
+    assert actual["state"] == "quarantined", "original provider publication remains unknown"
+    script_table(monkeypatch, {}, boot=NEXT_BOOT)
+    clock.advance()
+    actual, leases = resolve(daemon, actual, operator)
+    assert actual["state"] == "lost" and not leases
+
+
+@pytest.mark.parametrize("operator", [False, True])
 def test_a_listed_descendant_survives_failed_identity_capture(state_daemon, monkeypatch, operator):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
@@ -137,6 +162,42 @@ def test_lineage_limit_keeps_newest_and_overflow_holds_until_proven_reboot(monke
         assert census.verified_empty is empty
 
 
+def test_probe_census_retains_detached_roots_and_uses_its_workdir(state_daemon, monkeypatch, tmp_path):
+    daemon, harness = state_daemon
+    a = running(daemon, harness)
+    record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+              "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+              "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+    rows = {100: (1, 100, "Ss", "guardian"), 200: (100, 200, "Ss", "shell")}
+    script_table(monkeypatch, rows)
+    scanned = []
+    monkeypatch.setattr(procs, "cwd_pids", lambda directory: scanned.append(directory) or frozenset())
+    assert 200 in daemon._probe_census(record).live_pids
+    assert scanned == [record["directory"]]
+    assert "200" not in record.get("owned_identities", {})
+    script_table(monkeypatch, {200: (1, 201, "S", "shell")})
+    assert 200 in daemon._probe_census(record).live_pids
+    script_table(monkeypatch, {})
+    assert daemon._probe_census(record).verified_empty
+
+
+def test_probe_saved_groups_never_grant_signal_authority(state_daemon, monkeypatch, tmp_path):
+    daemon, harness = state_daemon
+    a = running(daemon, harness)
+    record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+              "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+              "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+    script_table(monkeypatch, {100: (1, 100, "Ss", "guardian"), 200: (100, 200, "Ss", "shell")})
+    daemon._probe_census(record)
+    monkeypatch.setattr(procs, "same_process", lambda *args: True)
+    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
+    signalled = []
+    monkeypatch.setattr(procs, "signal_process", lambda identity, sig: signalled.append(identity.pid))
+    daemon.term_grace_s = 0
+    assert not daemon._contain_probe(record)
+    assert 200 not in signalled and "200" not in record["owned_identities"]
+
+
 @pytest.mark.parametrize("operator", [False, True])
 @pytest.mark.parametrize("source", ["cwd", "failed-cwd"])
 def test_cwd_holds_on_both_paths_and_releases_within_one_pace(state_daemon, monkeypatch, source, operator):
@@ -167,23 +228,38 @@ EVENTS = st.lists(st.tuples(st.sampled_from(("fork", "detach", "regroup", "reses
 
 
 @settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(events=EVENTS)
-def test_generated_process_tree_never_releases_visible_writers(state_daemon, monkeypatch, events):
+@given(events=EVENTS, operator=st.booleans())
+def test_generated_process_tree_never_releases_visible_writers(state_daemon, monkeypatch, events, operator):
     """An independent reachability oracle follows process-tree events.
 
     All rows model platform binaries with hidden markers. Session changes do
     not change ownership; the oracle independently expands saved groups and
-    parent links and checks both resolver paths after every event.
+    parent links, checks every census, and exercises both resolver paths across
+    generated examples.
     """
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
-    a = running(daemon, harness)
+    # This property models visibility, not crash durability. Store/recovery
+    # tests cover FULL synchronization; avoid per-example filesystem barriers.
+    daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
+    hypothesis_event("operator" if operator else "automatic")
+    # Admission and manifest publication are covered separately. Reuse one
+    # fully reserved attempt for these independent process worlds.
+    a = getattr(daemon, "_generated_tree_attempt", None)
+    if a is None:
+        a = running(daemon, harness)
+        daemon._generated_tree_attempt = a
+    else:
+        daemon.store.update_attempt(a["attempt_id"], state="running", evidence_json="{}", quarantine_reason=None)
+        daemon.store.update_job(a["job_id"], state="running", finished_at=None, rc=None)
+        daemon.store.acquire_lease("native:" + a["attempt_id"], a["attempt_id"])
     # Seed an observed shell detached from the guardian; then kill the guardian
     # so saved identities/groups, rather than its current parent links, hold it.
     rows = {100: (1, 100, "Ss", "guardian"), 200: (100, 200, "Ss", "p200")}
     script_table(monkeypatch, rows)
     daemon._record_owned(a, procs.snapshot())
     daemon._quarantine(a, daemon._contain(a), "generated tree")
+    evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
     del rows[100]
     rows[200] = (1, 200, "Ss", "p200")
     observed = {200}
@@ -213,26 +289,46 @@ def test_generated_process_tree_never_releases_visible_writers(state_daemon, mon
             changed = bool(children - visible)
             visible |= children
         script_table(monkeypatch, rows)
-        census = daemon._contain(a)
+        census = procs.containment(100, 100, None, a["attempt_id"], root=str(daemon.root),
+                                   launch_boot_id=BOOT,
+                                   guardian_identity=procs.ProcessIdentity(100, BOOT, "guardian"),
+                                   lineage_roots=tuple(procs.CensusRoot(**value)
+                                                       for value in evidence["lineage_roots"]))
         assert visible <= census.live_pids, (events, index, visible, census.to_dict())
         # Full censuses retain observations each event; inspection events
         # exercise an unchanged table between mutations of the tree.
         observed |= visible
         groups |= {rows[p][1] for p in visible}
-        clock.advance()
-        # Resolve this due attempt directly: other Hypothesis examples share
-        # the fixture's store and must not consume its eight-row queue budget.
-        if index % 2:
-            from tests.fake.test_review_pr131_probes import confirm_dead
-            confirm_dead(daemon, a)
-        else:
-            daemon._resolve_quarantine(a, None)
-        actual, leases = held(daemon, a)
         if visible:
-            assert actual["state"] == "quarantined" and leases
+            assert not census.verified_empty
         else:
-            assert actual["state"] == "lost" and not leases
+            assert census.verified_empty
             break
+        evidence = dm._retain_lineage(evidence, census.to_dict())
+    # Exercise the real store/resolver once per example; all preceding events
+    # used the production collector and durable-evidence merge in memory. The
+    # independent oracle still checks every frame, without repeated fsyncs.
+    daemon.store.update_attempt(a["attempt_id"], evidence_json=json.dumps(evidence))
+    clock.advance()
+    if operator:
+        from tests.fake.test_review_pr131_probes import confirm_dead
+        confirm_dead(daemon, a)
+    else:
+        # Older generated examples must not consume this attempt's queue budget.
+        daemon._resolve_quarantine(a, None)
+    actual, leases = held(daemon, a)
+    if visible:
+        assert actual["state"] == "quarantined" and leases
+        # End this generated world after checking its live hold. Otherwise
+        # older examples retain native leases and eventually block admission
+        # of the next example, independently of the census under test.
+        script_table(monkeypatch, {})
+        clock.advance()
+        daemon._resolve_quarantine(a, None)
+        actual, leases = held(daemon, a)
+        assert actual["state"] == "lost" and not leases
+    else:
+        assert actual["state"] == "lost" and not leases
 
 
 def inspection_available():

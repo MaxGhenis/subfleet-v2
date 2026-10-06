@@ -13,12 +13,13 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from . import boot_identity
+from . import boot_identity, folders
 
 #: C-5.12: how long one boot-identity read is reused. Only a boot session UUID
 #: is: `kern.bootsessionuuid` is fixed for a boot, while the `kern.boottime`
@@ -334,7 +335,15 @@ def cwd_pids(workdir: str) -> frozenset[int]:
     NUL fields preserve spaces and newlines in paths. A failed or malformed
     listing proves nothing. Only PIDs are returned; cwd paths are discarded.
     """
-    target = os.path.realpath(workdir)
+    def canonical(path: str) -> str:
+        if sys.platform != "darwin":
+            return os.path.realpath(path)
+        spelled, problem = folders.spelling(path)
+        if problem is not None:
+            raise InspectionError("cwd canonical spelling unavailable")
+        return spelled
+
+    target = canonical(workdir)
     found: set[int] = set()
     pid = None
     named = False
@@ -359,7 +368,7 @@ def cwd_pids(workdir: str) -> frozenset[int]:
             if pid is None or not os.path.isabs(field[1:]):
                 raise InspectionError("cwd enumeration malformed")
             named = True
-            directory = os.path.realpath(field[1:])
+            directory = canonical(field[1:])
             if os.path.commonpath((target, directory)) == target:
                 found.add(pid)
         elif field != "fcwd":
@@ -467,7 +476,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 child_unrecorded: bool = False,
                 workdir: str | None = None,
                 lineage_roots: Sequence[CensusRoot] = (),
-                lineage_overflow_boot: str | None = None) -> Containment:
+                lineage_overflow_boot: str | None = None,
+                guardian_identity: ProcessIdentity | None = None) -> Containment:
     """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
     Identities describe the census, not authority to signal. In particular a
@@ -562,7 +572,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append("lineage root limit exceeded")
         # A verified guardian's direct children establish the legacy provider
         # identities before signals or finalization can erase the parent link.
-        if guardian_pid in owned:
+        guardian_verified = False
+        if guardian_identity is not None:
+            try:
+                guardian_verified = seen.is_process(guardian_pid, guardian_identity.boot_id,
+                                                     guardian_identity.proc_start, legacy=True)
+            except InspectionError:
+                errors.append("guardian launch identity inspection unavailable")
+        if guardian_verified:
             providers = tuple(seen.identity(pid) for pid, row in table.items()
                               if row[0] == guardian_pid and live(pid))
             providers = tuple(value for value in providers if value is not None)

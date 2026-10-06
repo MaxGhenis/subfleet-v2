@@ -881,3 +881,18 @@ def test_empty_cwd_listing_is_unverifiable(monkeypatch):
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
     with pytest.raises(procs.InspectionError):
         procs.cwd_pids("/workdir")
+
+
+def test_cwd_uses_kernel_spelling_for_case_unicode_and_firmlink_aliases(monkeypatch):
+    monkeypatch.setattr(procs.sys, "platform", "darwin")
+    paths = {"/System/Volumes/Data/work": "/Work", "/work/cafe\u0301": "/Work/caf\u00e9"}
+    monkeypatch.setattr(procs.folders, "spelling", lambda path: (paths[path], None))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "p42\0fcwd\0n/work/cafe\u0301\0")
+    assert procs.cwd_pids("/System/Volumes/Data/work") == {42}
+
+
+def test_unverifiable_cwd_spelling_holds(monkeypatch):
+    monkeypatch.setattr(procs.sys, "platform", "darwin")
+    monkeypatch.setattr(procs.folders, "spelling", lambda path: (path, "permission denied"))
+    with pytest.raises(procs.InspectionError, match="canonical spelling"):
+        procs.cwd_pids("/workdir")

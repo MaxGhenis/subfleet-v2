@@ -3939,8 +3939,21 @@ class Daemon:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
     def _probe_census(self, record: dict):
-        return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+        guardian = (procs.ProcessIdentity(record["guardian_pid"], record["boot_id"], record["proc_start"])
+                    if all(record.get(key) for key in ("guardian_pid", "boot_id", "proc_start")) else None)
+        census = procs.containment(record.get("pgid"), record.get("guardian_pid"),
+                                   record.get("child_pid"), record["holder"], root=str(self.root),
+                                   recorded=_identity_union(record.get("owned_identities", {})),
+                                   launch_boot_id=record.get("boot_id"), guardian_identity=guardian,
+                                   workdir=record["directory"],
+                                   lineage_roots=tuple(procs.CensusRoot(**value)
+                                                       for value in record.get("lineage_roots", [])),
+                                   lineage_overflow_boot=record.get("lineage_overflow_boot"))
+        retained = _retain_lineage(record, census.to_dict())
+        if retained != record:
+            record.update(retained)
+            self._save_probe(record)
+        return census
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -3950,7 +3963,9 @@ class Daemon:
         pid = record.get("guardian_pid")
         leader_live = pid and procs.same_process(pid, record.get("boot_id"), record.get("proc_start"))
         if leader_live:
-            owned.update({p: ident for p, ident in census.identities.items() if p in census.group_pids})
+            owned.update({p: ident for p, ident in census.identities.items()
+                          if p in census.group_pids
+                          and census.shapes.get(p, {}).get("pgid", record.get("pgid")) == record.get("pgid")})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
         if not census.verified_empty and record.get("state") != "quarantined":
@@ -5961,6 +5976,7 @@ class Daemon:
                                    a["attempt_id"], root=str(self.root), recorded=recorded,
                                    launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
                                    child_unrecorded=child_unrecorded,
+                                   guardian_identity=procs.ProcessIdentity(**next(iter(guardian.values()))) if guardian else None,
                                    workdir=job.get("worktree") or job["workdir"],
                                    lineage_roots=tuple(procs.CensusRoot(**value)
                                                        for value in roots),

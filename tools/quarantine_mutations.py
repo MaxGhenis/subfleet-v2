@@ -12,6 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("cwd kernel aliases ignored", "subfleet/procs.py",
+     "        spelled, problem = folders.spelling(path)",
+     "        spelled, problem = os.path.realpath(path), None",
+     "tests/unit/test_procs.py::test_cwd_uses_kernel_spelling_for_case_unicode_and_firmlink_aliases"),
+    ("reused guardian root proves provider publication", "subfleet/procs.py",
+     "        if guardian_verified:", "        if guardian_pid in owned:",
+     "tests/fake/test_quarantine_detached_writers.py::test_reused_guardian_census_root_cannot_prove_provider_publication[False]"),
     ("failed identity observations forgotten", "subfleet/procs.py",
      '            incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))',
      '            pass  # mutation: forget listed writers when identity capture fails',
