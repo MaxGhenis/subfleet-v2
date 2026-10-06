@@ -60,6 +60,8 @@ struct ApprovalCard: Equatable {
     var display: ApprovalDisplay
     var options: [String]
     var state: State
+    /// Answers this app successfully submitted, retained on the settled row.
+    var answers: [String: String] = [:]
 
     var isPending: Bool { state == .pending }
     /// An event summary alone cannot identify the approval the person answers.
@@ -779,6 +781,18 @@ struct Timeline: Equatable {
     }
 
     // MARK: Approvals
+
+    mutating func noteApprovalAnswer(approvalID: String, answers: [String: String]) {
+        for messageID in order {
+            guard var turn = turns[messageID] else { continue }
+            for index in turn.items.indices {
+                guard case .approval(var card) = turn.items[index].content, card.approvalID == approvalID else { continue }
+                card.answers = answers
+                turn.items[index].content = .approval(card)
+            }
+            turns[messageID] = turn
+        }
+    }
 
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
     /// events made (which carry the provider's request id): by message and exact

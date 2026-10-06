@@ -200,6 +200,8 @@ struct SidebarView: View {
             List(selection: $selection) {
                 if !model.failedDrafts.isEmpty {
                     Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                        .tag(nil as String?)
+                        .selectionDisabled()
                     ForEach(model.failedDrafts) { draft in
                         Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
                             .windowFont(.sidebar).lineLimit(1)
@@ -210,14 +212,14 @@ struct SidebarView: View {
                 ForEach(sections) { section in
                     Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
                         .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
+                        .tag(nil as String?)
+                        .selectionDisabled()
                     ForEach(section.entries) { entry in
                         SidebarRow(entry: entry) {
                             if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
                             selection = entry.id
                         }
                         .padding(.horizontal, Theme.space.inset)
-                        .background(RoundedRectangle(cornerRadius: Theme.radius.control)
-                            .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
                         .tag(entry.id).help(entry.title + "\n" + entry.subtitle)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)

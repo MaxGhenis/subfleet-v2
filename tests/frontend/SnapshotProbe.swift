@@ -60,7 +60,7 @@ final class SnapshotClient: DaemonCalling, @unchecked Sendable {
 }
 
 @MainActor
-func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent], fixtures: [JSONValue]) throws -> UIModel {
+func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent], fixtures: [JSONValue], commands: [JSONValue]) throws -> UIModel {
     let fixture = fixtures.first { $0["id"]?.string == scenario }
     let client = SnapshotClient(fixture: fixture)
     let codex = scenario.hasPrefix("codex-") || scenario == "failed" || scenario == "text-only"
@@ -108,14 +108,15 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent], f
                                             pending_approvals: []))
     var replay = events
     if codex {
+        var commandIndex = 0
         for index in replay.indices {
             if replay[index].kind == "served" {
                 replay[index].data = .object(["lane_id": .string("codex-2"), "account": .string("max@example.com"),
                     "model": .string("gpt-6-astra"), "effort": .string("high")])
             } else if replay[index].kind == "tool.started", var data = replay[index].data.object {
                 data["name"] = .string("command")
-                let lines = (data["summary"]?.string ?? "").components(separatedBy: "\n")
-                data["summary"] = .string((lines.last?.hasPrefix("description: ") == true ? Array(lines.dropLast()) : lines).joined(separator: "\n"))
+                data["summary"] = commands[commandIndex % commands.count]["command"]!
+                commandIndex += 1
                 replay[index].data = .object(data)
             }
         }
@@ -126,7 +127,7 @@ func snapshotModel(_ root: URL, scenario: String, events: [ConversationEvent], f
     }
     if scenario == "codex-progress" {
         replay = [ConversationEvent(seq: 1, message_id: "m1", kind: "tool.started", ts: events.first?.ts,
-            data: .object(["id": .string("codex-command"), "name": .string("command"), "summary": .string("git status --short")]))]
+            data: .object(["id": .string("codex-command"), "name": .string("command"), "summary": commands[7]["command"]!]))]
     }
     let replayStart = events.first?.ts.flatMap(parseTimestamp) ?? Date()
     func replayStamp(_ seconds: Double) -> String { ISO8601DateFormatter().string(from: replayStart.addingTimeInterval(seconds)) }
@@ -275,6 +276,7 @@ struct SnapshotCanvas: View {
         let approvalsPath = CommandLine.arguments.count > 3 ? CommandLine.arguments[3]
             : fixture.deletingLastPathComponent().appendingPathComponent("approvals.json").path
         let approvalFixtures = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: approvalsPath))).array!
+        let commands = try JSONValue.parse(Data(contentsOf: fixture.deletingLastPathComponent().appendingPathComponent("codex-commands.json"))).array!
         var events = try JSONDecoder().decode([ConversationEvent].self, from: Data(contentsOf: fixture))
         let offset = Date().timeIntervalSince(parseTimestamp("2026-10-04T10:03:12Z")!)
         for i in events.indices {
@@ -290,7 +292,8 @@ struct SnapshotCanvas: View {
                 "withdrawn", "stop-too-late", "text-only"]
         for scenario in scenarios {
             for dark in [true, false] {
-                let model = try snapshotModel(root.appendingPathComponent(UUID().uuidString), scenario: scenario, events: events, fixtures: approvalFixtures)
+                let model = try snapshotModel(root.appendingPathComponent(UUID().uuidString), scenario: scenario, events: events,
+                                              fixtures: approvalFixtures, commands: commands)
                 try await render(SnapshotCanvas(model: model, scenario: scenario),
                            to: out.appendingPathComponent("\(scenario)-\(dark ? "dark" : "light").png"), dark: dark,
                            settled: { !["new", "refused", "permission"].contains(scenario) || model.newDraft.workspaceCheck != nil })

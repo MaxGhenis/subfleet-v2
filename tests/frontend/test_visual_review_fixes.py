@@ -17,7 +17,7 @@ FIXTURES = ROOT / "tests/fixtures/visual/approvals.json"
 def review_models(tmp_path_factory):
     probe = compile_probe(tmp_path_factory.mktemp("review-models") / "probe",
                           ROOT / "tests/frontend/ReviewFixProbe.swift", "SUBFLEET_MODEL_TEST")
-    return run_probe(probe, FIXTURES)
+    return run_probe(probe, FIXTURES, ROOT / "tests/fixtures/visual/codex-commands.json")
 
 
 @pytest.mark.parametrize("id,command", [("codex-command", "rm -rf build && git clean -fdx"),
@@ -35,7 +35,7 @@ def test_settled_turn_keeps_its_outcome(review_models, state, reason, text):
     assert row["visible"] and row["text"] == text
 
 
-@pytest.mark.parametrize("index,label", [(0, "git status"), (1, "python -m"),
+@pytest.mark.parametrize("index,label", [(0, "nl -ba subfleet/daemon.py"), (1, "git show 02c63203"),
     (2, "Search the web for SwiftUI keyboard navigation"), (3, "Search src for TODO"),
     (4, "Find files matching **/*.swift"), (5, "Fetch https://example.com/docs"),
     (6, "Edit 2 files (a.swift, b.swift)"), (7, "Run a command"), (8, "Write the notes")])
@@ -58,7 +58,9 @@ def review_views(tmp_path_factory):
         pytest.skip("offscreen rendered-text validation requires tesseract")
     probe = compile_probe(tmp_path_factory.mktemp("review-views") / "probe",
                           ROOT / "tests/frontend/ReviewFixViewProbe.swift", "SUBFLEET_VIEW_TEST")
-    out = run_probe(probe, FIXTURES, tmp_path_factory.mktemp("review-render"), timeout=180,
+    render = Path(os.environ.get("SF_REVIEW_RENDER", tmp_path_factory.mktemp("review-render")))
+    render.mkdir(parents=True, exist_ok=True)
+    out = run_probe(probe, FIXTURES, render, timeout=180,
                     env={"SF_REVIEW_TESSERACT": ocr})
     if path := os.environ.get("SF_REVIEW_VIEW_RESULT"):
         Path(path).write_text(json.dumps(out, indent=2) + "\n")
@@ -67,7 +69,8 @@ def review_views(tmp_path_factory):
 
 @pytest.mark.parametrize("fixture", json.loads(FIXTURES.read_text()), ids=lambda f: f["id"])
 def test_every_loaded_grant_field_is_visible_on_card_and_sheet(review_views, fixture):
-    for surface in ("card", "sheet"):
+    # Questions are answered inline; reviewOpensRequestSheet excludes them.
+    for surface in (("card",) if fixture["kind"] == "question" else ("card", "sheet")):
         text = review_views["approvals"][fixture["id"]][surface]
         for value in fixture["visible"]:
             # Wrapped paths can acquire OCR whitespace after a slash.
@@ -94,6 +97,7 @@ def test_sidebar_uses_native_keyboard_selection_and_separate_badge(review_views)
     assert review_views["sidebar"]["focus_shortcut_handled"]
     assert review_views["sidebar"]["focus_shortcut_reached_list"]
     assert review_views["sidebar"]["arrow_changed_selection"]
+    assert set(review_views["sidebar"]["arrow_path"]) == {"cv:c", "cv:second", "cv:earlier"}
     assert review_views["sidebar"]["badge_clicked"], review_views["sidebar"]
     assert review_views["sidebar"]["badge_hit_is_control"]
     assert review_views["sidebar"]["badge_is_independent"]
