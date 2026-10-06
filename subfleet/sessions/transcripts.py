@@ -22,11 +22,16 @@ keeps, verbatim in effect:
   turns either. Trailing assistant text above one is treated as interrupted:
   a genuinely finished session answers a nudge with one cheap "nothing pending"
   turn, while a missed resume strands real work.
-* **A headless lane run is not a session** (C-23.31): a `claude -p` transcript
-  holds one — or, if the lane was itself notified, two — text prompts, all of
-  them `promptSource: sdk`. A typed prompt, an absent promptSource (the desktop
-  app), or a third sdk prompt (inbox notices arrive as `sdk`; the ceremony
-  session had 93) all mean an interactive session.
+* **A headless lane run is not a session** (C-23.31). Claude Code stamps its
+  entries with the `entrypoint` of the process that wrote them: `sdk-cli` for a
+  `claude -p` run whose environment names no entrypoint, `claude-desktop` for
+  the desktop app, `cli` for a terminal. A transcript is a lane run when some
+  entry names a headless entrypoint (`HEADLESS_ENTRYPOINTS`) and none names
+  another; one entry written by any other process makes it a session. Only
+  prompts that name no `entrypoint` (older Claude Code) are read by v1's prompt
+  rule, under which a transcript of such prompts is a lane run with one or two
+  text prompts, all `promptSource: sdk`. That rule cannot read a current
+  transcript, because the desktop app sends its prompts as `sdk` too.
 
 `fingerprint` is the C-23.34 re-check: the identity of the real last turn. The
 resume stub and the app's bookkeeping rows change the file without changing it;
@@ -52,7 +57,22 @@ RESUME_STUB_ASSISTANT = "No response requested."
 MARKER = "subfleet: this session restarted"
 MUSTER_MARKER = "subfleet muster: roll call"
 
+#: C-23.31: the `entrypoint` values of a headless SDK process: `sdk-cli` for
+#: `claude -p`, `sdk-ts` and `sdk-py` for the Agent SDKs. Claude Code 2.1.286
+#: keeps an entrypoint its environment already names (the desktop app sets
+#: `claude-desktop`, and a `claude -p` started from a desktop session's shell
+#: inherits it), and otherwise sets `sdk-cli` for a non-interactive run and `cli`
+#: for an interactive one. Its own transcript reader checks a transcript's
+#: `entrypoint` against this same set. A person can drive an SDK host (a Subfleet
+#: conversation is `sdk-cli`), which is why a conversation is identified by the
+#: daemon's records, never by this shape. Every other value (`claude-desktop`,
+#: `cli`, and the rest of Claude Code's list) is a session. Measured on
+#: 2026-10-03 across one machine's 18,575 transcripts: `sdk-cli` (all 2,042
+#: Claude lane runs in the ledger), `claude-desktop` and `cli`, nothing else.
+HEADLESS_ENTRYPOINTS = frozenset({"sdk-cli", "sdk-ts", "sdk-py"})
+
 #: v1 `lanes.HEADLESS_PROMPT_SOURCE`; a `claude -p` prompt arrives via the SDK.
+#: Read only in a transcript that names no `entrypoint` (C-23.31).
 HEADLESS_PROMPT_SOURCE = "sdk"
 HEADLESS_PROMPT_LIMIT = 2
 
@@ -320,20 +340,27 @@ def headless_transcript(transcript: str | Path | None, *,
                         max_lines: int = 5000) -> bool:
     """True for a `claude -p` (SDK) run — a lane run, a probe, or a one-shot.
 
-    C-23.31: a headless lane run is not a session. Measured in v1 on 2026-09-04
-    against every kind of session on this machine: a lane's transcript holds
-    exactly one text prompt (its brief) and it arrived through the SDK. Tool
-    results are user entries too, but carry no `promptSource`. Interactive
-    sessions differ in one of two ways — a human-typed prompt (`typed` in the
-    tmux CLI, absent in the desktop app), or many sdk-sourced text prompts,
-    because inbox notices arrive as `sdk`. A lane that was itself notified may
-    show a second sdk prompt, so up to two are still a lane.
+    C-23.31: a headless lane run is not a session. Claude Code stamps its
+    entries with their writer's `entrypoint`, so the process says what it is: a
+    transcript is headless when some entry names an entrypoint in
+    `HEADLESS_ENTRYPOINTS` and none names another. One entry from the desktop
+    app or a terminal makes it a session, and a headless process that later
+    continues one (a revive, a Subfleet turn) does not make it a lane run.
+
+    A transcript in which no entry names an entrypoint (older Claude Code) is
+    judged by the rule v1 measured on 2026-09-04: a lane's transcript holds one
+    text prompt (its brief), arrived through the SDK, or two if the lane was
+    itself notified; a typed prompt, an absent `promptSource`, or a third sdk
+    prompt (inbox notices arrive as `sdk`) is a session. Tool results are user
+    entries too but are not prompts. That rule now misreads the desktop app,
+    which sends its prompts as `sdk` too (2026-10-03), so it reads only prompts
+    that name no entrypoint. Only the first `max_lines` lines are read.
     """
     if not transcript:
         return False
     path = Path(transcript).expanduser()
-    text_prompts = 0
-    first: str | None = None
+    headless_writer = False         # an entry a headless process wrote
+    legacy_prompts = 0              # sdk text prompts that name no entrypoint
     try:
         with path.open(encoding="utf-8", errors="replace") as stream:
             for index, line in enumerate(stream):
@@ -343,24 +370,30 @@ def headless_transcript(transcript: str | Path | None, *,
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if entry.get("type") != "user" or entry.get("isMeta"):
+                if not isinstance(entry, dict):
+                    continue                    # a valid line that is not an object is no entry
+                entrypoint = entry.get("entrypoint")
+                named = isinstance(entrypoint, str) and bool(entrypoint)
+                if named:
+                    if entrypoint not in HEADLESS_ENTRYPOINTS:
+                        return False            # the desktop app, a terminal: a session
+                    headless_writer = True
+                if entry.get("type") != "user" or entry.get("isMeta") or named:
                     continue
-                content = (entry.get("message") or {}).get("content")
+                message = entry.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
                 if isinstance(content, list) and content and all(
                         isinstance(item, dict) and item.get("type") == "tool_result"
                         for item in content):
                     continue                    # a tool result is not a prompt
-                source = entry.get("promptSource")
-                if source != HEADLESS_PROMPT_SOURCE:
-                    return False                # typed, or the desktop app
-                text_prompts += 1
-                if first is None:
-                    first = source
-                if text_prompts > HEADLESS_PROMPT_LIMIT:
+                if entry.get("promptSource") != HEADLESS_PROMPT_SOURCE:
+                    return False                # typed, or the desktop app before entrypoints
+                legacy_prompts += 1
+                if legacy_prompts > HEADLESS_PROMPT_LIMIT:
                     return False                # an inbox-driven interactive session
     except OSError:
         return False
-    return first == HEADLESS_PROMPT_SOURCE
+    return headless_writer or legacy_prompts > 0
 
 
 def last_permission_mode(transcript: str | Path | None) -> str | None:

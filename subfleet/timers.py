@@ -240,7 +240,9 @@ class Timers:
             self.balances[lane_id] = balance
         self.store.add_event('timer.reset-credit', data=result)
         from .status_json import write_status
-        write_status(self.root, self.snapshot(), now=self.now())
+        snapshot = self.snapshot()
+        snapshot['alerts'] = self.alerts.active()          # C-18.4: every publication
+        write_status(self.root, snapshot, now=self.now())
         return result
 
     def stop(self):
@@ -708,6 +710,7 @@ class Timers:
         snapshot['offline'] = offline
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
+        snapshot['alerts'] = self.alerts.active()          # C-18.4: every publication
         from .status_json import attach_batches, write_status
         attach_batches(self.store, snapshot)
         write_status(self.root, snapshot, now=self.now())

@@ -55,9 +55,9 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, state_root
+from .client import Client, DaemonError, DaemonUnavailable, busy_pause, state_root
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
-from .protocol import ProtocolError
+from .protocol import ProtocolError, service_notice_on_wire
 
 #: The three events, in the harness's spelling and in v1's `bin/subfleet-hook`
 #: argument spelling, which stays accepted so a half-migrated settings.json
@@ -260,6 +260,18 @@ class Lease:
 
 # --- rendering ----------------------------------------------------------------
 
+def is_message(row: dict[str, Any]) -> bool:
+    """C-15.3: a row that does not report a run's end, so not a "detached run".
+
+    A service notice (negated wire id), even one that names a job (the release
+    line's pin notice, C-11.8), and any notice that names no job (a v1 outbox
+    message the importer carried into `notices` with `job_id` NULL).
+    """
+    notice_id = row.get("notice_id")
+    negated = isinstance(notice_id, int) and not isinstance(notice_id, bool) and notice_id < 0
+    return negated or row.get("job_id") is None
+
+
 def render_pending(rows: Sequence[dict[str, Any]]) -> str:
     """v1's `notify.render_pending` shape, byte for byte where it can be.
 
@@ -268,16 +280,30 @@ def render_pending(rows: Sequence[dict[str, Any]]) -> str:
     the notice row's own `text`, which C-15.1 already fills with the job id,
     the job's state and rc, the deliverable and `-o` path of an accepted job,
     a summary naming the final attempt's class and rc, and any uncertainty.
+
+    A row that is not a run's end (`is_message`: a service notice, such as a
+    restart nudge, or a notice that names no job) gets its own header after the
+    runs, with the time it was queued: on 2026-09-29 a two-day-old restart
+    nudge was surfaced as "1 detached run dispatched by this session finished
+    while it was not running".
     """
-    if not rows:
-        return ""
-    head = (f"subfleet: {len(rows)} detached run{'s' if len(rows) != 1 else ''} "
-            "dispatched by this session finished while it was not running:")
-    blocks = [head]
-    for row in rows:
-        text = str(row.get("text") or "").strip()
-        blocks.append(text or f"run {row.get('job_id')} finished")
-    blocks.append("List: subfleet runs --mine · details: subfleet runs show <id>")
+    messages = [row for row in rows if is_message(row)]
+    runs = [row for row in rows if not is_message(row)]
+    blocks: list[str] = []
+    if runs:
+        blocks.append(f"subfleet: {len(runs)} detached run{'s' if len(runs) != 1 else ''} "
+                      "dispatched by this session finished while it was not running:")
+        for row in runs:
+            text = str(row.get("text") or "").strip()
+            blocks.append(text or f"run {row.get('job_id')} finished")
+        blocks.append("List: subfleet runs --mine · details: subfleet runs show <id>")
+    if messages:
+        blocks.append(f"subfleet: {len(messages)} message{'s' if len(messages) != 1 else ''} "
+                      "for this session:")
+        for row in messages:
+            text = str(row.get("text") or "").strip() or "(no text)"
+            queued = row.get("created_at")
+            blocks.append(f"queued {queued}:\n{text}" if queued else text)
     return "\n\n".join(blocks)
 
 
@@ -327,15 +353,20 @@ def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
         conn = Offline(root).connect()
     except Exception:                                   # noqa: BLE001 - never block
         return []
+    rows: list[dict[str, Any]] = []
     try:
-        rows = conn.execute(
-            "SELECT * FROM notices WHERE session_id=? AND "
-            "state IN ('pending','offered') ORDER BY notice_id", (session,))
-        return [dict(row) for row in rows]
-    except Exception:                                   # noqa: BLE001 - never block
-        return []
+        # The rows and ids `notice.pending` would return: job notices, then
+        # service notices negated (C-15.3).
+        for table, on_wire in (("notices", dict), ("service_notices", service_notice_on_wire)):
+            try:
+                rows += [on_wire(dict(row)) for row in conn.execute(
+                    f"SELECT * FROM {table} WHERE session_id=? AND "
+                    "state IN ('pending','offered') ORDER BY notice_id", (session,))]
+            except Exception:                           # noqa: BLE001 - never block
+                pass            # e.g. a store from before schema v2 has no service_notices
     finally:
         conn.close()
+    return rows
 
 
 # --- the events ---------------------------------------------------------------
@@ -481,6 +512,7 @@ _RETRY_FLOOR_S = 0.25
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
+    busy = 0
     while True:
         remaining = deadline - now()
         if remaining <= 0:
@@ -489,9 +521,18 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
-                                 timeout=poll + 10)
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+                                 timeout=poll + 10, retry_busy=False)
+        except DaemonError as exc:
+            if not exc.busy:
+                return int(Exit.OK)
+            # C-16.7: busy is an empty poll; ask again within the budget, and
+            # the next poll has its whole deadline.
+            busy += 1
+            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+            continue
+        except (DaemonUnavailable, ProtocolError, OSError):
             return int(Exit.OK)
+        busy = 0
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a

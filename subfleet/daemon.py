@@ -34,9 +34,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, ids, lanes_transfer, procs, protocol, render, scheduler
+from . import capacity, descriptors, host_pressure, ids, lanes_transfer, procs, protocol, render, scheduler
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
+from .alerts import operator_session
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
@@ -52,7 +53,7 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store, _json
+from .store import Store, _json, notice_fingerprint, notice_rows
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -61,6 +62,28 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-5.11: what a tick reads of every live attempt, in one statement: where its
+#: receipts are, its state, and its job's cancel request and wall limit. It
+#: names no column SQLite keeps on overflow pages: `evidence_json` averaged
+#: 8.4 KB for a running attempt on 2026-10-02, and `SELECT *` read it for every
+#: live attempt twenty times a second.
+LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
+             "j.started_at AS job_started_at,j.max_wall_s "
+             "FROM attempts a LEFT JOIN jobs j USING(job_id) "
+             "WHERE a.state IN ('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap, and only
+#: a job with a parent extends an ancestry (`scheduler._parent_blocks`). Every
+#: other attempt and job the store keeps changes no route: on 2026-10-02 the
+#: live store held 2,722 attempts (23 MB, most of it `evidence_json`) and 2,625
+#: jobs, read and turned into dicts on every evaluation, against 38 active
+#: attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+#: `state` is carried for C-6.15's host-pressure hold (#106), which leaves out the
+#: attempts of any ancestor of a job that has not started; every such job has a
+#: parent, so the rows here are all it needs.
+ROUTE_JOBS = "SELECT job_id,parent_job_id,state FROM jobs WHERE parent_job_id > '' ORDER BY created_at,rowid"
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-5.7a: a holder's newest probe record, newest first: the newest payload
@@ -96,10 +119,14 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job"})
+                            "probe-pending", "behind-older-job", "host-pressure"})
 #: C-5.10: a worker that raised is tried again this long after, doubling to the ceiling.
 WORKER_RETRY_BASE_S = .5
 WORKER_RETRY_CEILING_S = 60
+#: C-8.4: how long one retention pass may run, and how long after a pass that
+#: ran to its end, or to that deadline, the next is due.
+RETENTION_PASS_S = 60
+RETENTION_INTERVAL_S = 3600
 #: C-5.7a: a probe a look left quarantined is looked at again this long after,
 #: doubling per consecutive such look to the ceiling.
 PROBE_RECHECK_BASE_S = 1
@@ -116,6 +143,11 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+#: C-23.26: how old a delivered service notice is before retention prunes it.
+SERVICE_NOTICE_RETENTION_S = 14 * 86400
+#: C-15.3's delivery ladder, lowest first. The session hooks surface `pending`
+#: and `offered` rows; `surfaced` and `acknowledged` have reached the session.
+NOTICE_LADDER = ("pending", "offered", "surfaced", "acknowledged")
 
 
 class Unroutable(Exception):
@@ -303,6 +335,13 @@ class Daemon:
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
+        # C-5.11: live attempts known to be this daemon's own. An attempt is
+        # recorded `imported_external` when it is imported or never, so "not
+        # imported" is read once; one that is imported is read again each tick,
+        # because the importer clears the flag when it settles the run.
+        self._native: set[str] = set()
+        # Consecutive ticks on which an attempt's ownership could not be read.
+        self._v1_unread: dict[str, int] = {}
         # Raised inspections stay pending until an inspection runs to its end.
         self._inspect_retry: set[str] = set()
         # The last table read (None if the read failed) and when it expires,
@@ -332,7 +371,7 @@ class Daemon:
                                           else descriptors.max_connections(descriptors.open_file_limits()[0])))
         self.connection_idle_s = connection_idle_s
         self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
-                                   "abandoned": 0, "accept_failures": 0}
+                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -417,6 +456,8 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.15: the host's compressor occupancy, read on a worker of its own.
+        self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -713,11 +754,20 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_view(self, desktop=None):
+    def _capacity_view(self, desktop=None, *, route: bool = False):
+        """The capacity view (C-6.4, C-9.1). `route` is for a route evaluation
+        (`_pick`): it reads only the attempts and jobs a route can depend on
+        (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`), and `scheduler.evaluate` reaches the same
+        decision over them as over every row (a differential property test).
+        Status and the operator's views read every row."""
+        if route:
+            attempts, jobs = self.store.query(ROUTE_ATTEMPTS), self.store.query(ROUTE_JOBS)
+        else:
+            attempts = self.store.list_attempts()
+            jobs = self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")
         view = capacity.build_view(
             self.store.lane_rows(), self.store.list_readings(), self.store.list_closures(),
-            self.store.list_attempts(), self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid"),
-            reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
+            attempts, jobs, reading_ttl_s=self.policy["caps"]["reading_ttl_s"], desktop=desktop)
         # Probe reservations are explicit leases, not invented in-flight attempt
         # counts. A recovered probe keeps its lane unavailable until containment.
         leases = self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
@@ -835,7 +885,13 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        view = self._capacity_view(desktop)
+        view = self._capacity_view(desktop, route=True)
+        # C-6.15: the last reading, for admission and `why` only: the `pick` op's
+        # advice to a person's own session is not held. Nothing is read here,
+        # because this also runs inside the reserving transaction (C-3.3).
+        pressure = host_pressure.settings(self.policy)
+        if pressure["enabled"]:
+            view["host_pressure"] = self._host_pressure.reading(pressure["sample_s"])
         overrides = {lane["lane_id"] for lane in view["lanes"]
                      if self.timers.actions.confirmed_override(lane["lane_id"])}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
@@ -1580,43 +1636,91 @@ class Daemon:
                 return self._why_job(self._job(a.job_id))
             decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision)}
+        if op == "notice.list":
+            a = protocol.coerce_args(protocol.NoticeListArgs, args)
+            return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
+        if op == "notice.withdraw":
+            return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
+            # C-15.3: a negated id is a service notice, on every op that takes
+            # ids back (`protocol.notice_row`), and `acknowledged` is terminal
+            # in both tables: a notice is acknowledged once.
+            targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                unique: dict = {}                       # a repeated id: once, with its first fingerprint
+                for index, notice_id in enumerate(a.notice_ids):
+                    unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            tx.execute("UPDATE service_notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=?",
-                                       (utcnow(), -notice_id, a.session_id))
-                            continue
-                        tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
+                    for notice_id, fingerprint in unique.items():
+                        table, row_id = protocol.notice_row(notice_id)
+                        if fingerprint is not None:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint({"text": row[0], "created_at": row[1]}) != fingerprint:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(notice_id)
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in unique if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
-                # bytes) and `surfaced` (a hook printed it). Neither may overwrite
-                # `acknowledged`, which is terminal.
+                # bytes) and `surfaced` (a hook printed it). A mark never moves
+                # a notice down `NOTICE_LADDER`: `acknowledged` is terminal, and
+                # an offer read before a hook surfaced the notice cannot put it
+                # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
                     raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
+                movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
                 with self.store.transaction("notice." + a.state) as tx:
-                    for notice_id in a.notice_ids:
+                    for table, row_id in targets:
                         tx.execute(
-                            "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
+                            f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                            "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                            (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
+                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})",
+                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable))
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
-            notices += [{**row, "notice_id": -row["notice_id"], "job_id": None} for row in
+            notices += [protocol.service_notice_on_wire(row) for row in
                         self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))]
-            return {"notices": notices}
+            return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text", "")
-            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            text = args.get("text")
+            text = "" if text is None else text
+            if not isinstance(text, str):
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+            # C-15.8: a notice goes to the session named, else to the configured
+            # operator session; there is no default inbox nobody reads. A blank
+            # or non-string session names none, and whitespace is no text.
+            named = args.get("session_id")
+            named = named.strip() if isinstance(named, str) and named.strip() else None
+            session = named or operator_session(self.policy)
             notice_id = None
-            if text:
+            if text.strip():
+                if not session:
+                    raise protocol.ProtocolError(
+                        "ping: no session named, and alerts.operator_session is not set; "
+                        "a notice addressed to no session is never read (C-15.8)",
+                        fix="name the session: subfleet ping --session <id> TEXT")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -1628,7 +1732,8 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view), "descriptors": self._descriptor_status()}
         raise protocol.ProtocolError(f"unknown op {op}")
 
@@ -1841,7 +1946,9 @@ class Daemon:
             if client_gone is not None and client_gone():
                 # C-16.7: no one is left to read the answer. Stop now, not at
                 # the deadline, and free this thread and the client's descriptor.
-                self._count_connection("abandoned", "wait")
+                # A stream this daemon ended itself is not a client leaving.
+                if not getattr(client_gone, "ended_here", lambda: False)():
+                    self._count_connection("abandoned", "wait")
                 return {"timeout": True}
             with self.changed:
                 self.changed.wait(min(remaining, .25))
@@ -1977,6 +2084,65 @@ class Daemon:
                 pacing.pop(aid, None)
         for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
             self._inspect_retry.discard(aid)
+        self._native &= live
+        for aid in [aid for aid in self._v1_unread.copy() if aid not in live]:
+            self._v1_unread.pop(aid, None)
+
+    def _note_ownership_unread(self, aid: str, exc: BaseException) -> None:
+        """Log an attempt whose v1 ownership could not be read, on the 1st, 2nd,
+        4th, ... consecutive tick (as C-5.10 logs a failing worker), type only."""
+        count = self._v1_unread[aid] = self._v1_unread.get(aid, 0) + 1
+        if count & (count - 1) == 0:
+            self.log.error("attempt %s: whether v1 owns it could not be read: %s (%d ticks in a row); "
+                           "no pass is given until it can (principle 3)", aid, type(exc).__name__, count)
+
+    def _v1_owned(self, aid: str) -> bool:
+        """Whether v1 still executes this live attempt (`imported_external`), read
+        from its row until the answer is no (C-5.11)."""
+        if aid in self._native:
+            return False
+        row = self.store.one("SELECT evidence_json FROM attempts WHERE attempt_id=?", (aid,))
+        if row is not None and imported_external(row):
+            return True
+        self._native.add(aid)
+        return False
+
+    def _has_work(self, a: dict) -> bool:
+        """C-5.11: whether a pass over this live attempt could do anything this tick.
+
+        `_process_attempt` on a running attempt reads its exit receipt, its job's
+        cancel request and its wall limit, and then inspects its processes if an
+        inspection is due (C-5.12). When there is no receipt, no cancel request,
+        the wall limit is not reached and no inspection is due, it returns having
+        done nothing. That is what this answers, from the tick's one statement
+        and one `stat`, so that only an attempt with something to do costs a
+        worker. It decides nothing: the pass reads everything again for itself.
+        Every doubt is a yes.
+
+        `_worker_failures` is a yes for the pacing, not for any action: a pass
+        whose last run raised may act on nothing, but its success is what clears
+        C-5.10's count, and withheld, a stale count would back the next real
+        failure off longer than it should.
+        """
+        aid = a["attempt_id"]
+        if a["state"] != "running" or a["max_wall_s"] is None:
+            return True                     # launching, starting, finalizing; or a job row to miss
+        if aid in self._inspect_retry or aid in self._worker_failures:
+            return True                     # C-5.10: a pass that raised is repeated on its clock
+        if time.monotonic() >= self._inspect_next.get(aid, 0):
+            return True                     # C-5.12: an inspection is due
+        if a["cancel_requested_at"] or age(a["job_started_at"]) >= a["max_wall_s"]:
+            return True
+        child = self._children.get(aid)
+        if child is not None and child.poll() is not None:
+            return True                     # the guardian ended: the pass lets go of it
+        try:
+            os.stat(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            pass                            # unreadable is the pass's to report
+        return True
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -1984,43 +2150,171 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                live = self.store.query(LIVE_ATTEMPTS)
+                live = self.store.query(LIVE_TICK)
                 self._forget_paced({a["attempt_id"] for a in live})
                 for a in live:
-                    if imported_external(a):
+                    # Migration principle 3: a doubt about whether v1 still owns
+                    # the run is a no. No pass is given; it is asked again next
+                    # tick, and an error never ends the tick for other keys.
+                    try:
+                        owned = self._v1_owned(a["attempt_id"])
+                    except Exception as exc:        # noqa: BLE001 - logged, bounded
+                        self._note_ownership_unread(a["attempt_id"], exc)
+                        continue
+                    self._v1_unread.pop(a["attempt_id"], None)
+                    if owned:
                         continue                    # v1 still owns it (principle 3)
-                    self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
+                    # C-5.11: every live attempt is looked at each tick; the pool
+                    # is given those a pass could do something for. Every doubt
+                    # about what a pass would do is a yes, an error in the look
+                    # included: the pass raises it, keyed to this attempt, and
+                    # C-5.10 paces it. Raised here, it would end the tick for
+                    # every other key.
+                    try:
+                        offer = self._has_work(a)
+                    except Exception:               # noqa: BLE001 - the pass reports it
+                        offer = True
+                    if offer:
+                        self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
+                # C-6.15: one `vm_stat` per `sample_s` while the hold is on, on a
+                # worker of its own so that a slow one delays no admission pass.
+                # Also with nothing in flight, when it holds nothing: jobs that
+                # arrive together then meet a reading, not the lack of one.
+                pressure = host_pressure.settings(self.policy)
+                if pressure["enabled"] and self._host_pressure.due(pressure["sample_s"]):
+                    self._schedule("host-pressure", self._host_pressure.refresh, pressure["sample_s"], paced=True)
                 if self._recovery_complete.is_set():
                     self._schedule("admission", self._admit, paced=True)
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
 
     def _timer_notice(self, notice: dict) -> bool:
-        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+        """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+        one is set. With none it is delivered by being shown: `status` and
+        `status.json` list every alert in force (C-18.4), and no inbox parks it."""
+        session = operator_session(self.policy)
+        if session is None:
+            return True
+        result = self.dispatch("ping", {"session_id": session,
                                        "text": notice["subject"] + "\n" + notice["body"]})
         return result.get("notice_id") is not None
 
+    def _withdraw_notices(self, a: protocol.NoticeWithdrawArgs) -> dict:
+        """C-15.8, C-23.26: an operator withdraws a session's undelivered service notices.
+
+        Only the rows named, only that session's, and only while still `pending`
+        or `offered`: a notice a hook printed or a session acknowledged is not
+        withdrawn, and a job's notice (a positive id) is its terminal record and
+        is refused. The rows are deleted in one transaction with one
+        `notice.withdrawn` event naming each id, the session, the reason, the
+        creation span and how many of each subject went, so the withdrawal
+        claims no delivery and loses no record of what was withdrawn."""
+        jobs = sorted(notice_id for notice_id in a.notice_ids if notice_id >= 0)
+        if jobs:
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
+                "terminal record and is acknowledged, never withdrawn (C-15.8)",
+                fix=f"subfleet notices --session {a.session_id} --ack")
+        if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                "give one per id, or none")
+        if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+        listed: dict = {}
+        for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
+            if a.fingerprints:
+                listed.setdefault(-notice_id, a.fingerprints[index])
+        wanted = sorted({-notice_id for notice_id in a.notice_ids})
+        record: dict = {"session_id": a.session_id,
+                        "reason": a.reason if a.reason is not None else "withdrawn by the operator",
+                        "service_notice_ids": [], "count": 0, "first_created_at": None,
+                        "last_created_at": None, "subjects": {}}
+        with self.store.transaction("notice.withdrawn", data=record) as tx:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
+                rows = [row for row in tx.execute(
+                            f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                            "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                        if not listed or listed.get(row[0]) == notice_fingerprint(
+                            {"text": row[1], "created_at": row[2]})]
+                if rows:                            # at most one chunk's worth
+                    tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
+                               [row[0] for row in rows])
+                for notice_id, text, created_at in rows:
+                    record["service_notice_ids"].append(notice_id)
+                    subject = str(text).split("\n", 1)[0]
+                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+            record["count"] = len(record["service_notice_ids"])
+        withdrawn = set(record["service_notice_ids"])
+        return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
+                "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
+
     def _retention(self):
-        result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
+        # C-23.26, C-8.4: first, and on its own: it used to follow a completed
+        # pass only, so a store too large to finish a pass never shed its old
+        # service notices. One that fails is logged and holds retention up no
+        # longer than this line.
+        try:
+            self._prune_service_notices()
+        except sqlite3.Error as exc:
+            self.log.warning("retention: old service notices were not pruned this pass: %s", type(exc).__name__)
+        result = maintenance(self.store, self.root, cancel=self.timers.cancel,
+                             deadline=time.monotonic() + RETENTION_PASS_S)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
-        # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+            pruned = len(result.get("pruned") or ())
+            if pruned:
+                # It pruned before its time ran out, so the store is smaller and
+                # the next pass gets further: retried on C-5.10's clock, as a pass
+                # that raises is. A retry that prunes nothing waits the hour
+                # (below), so the retries end.
+                self.log.warning("retention: the pass reached its %g s deadline after pruning %d jobs; it is "
+                                 "retried on the worker clock (C-8.4, C-5.10)", RETENTION_PASS_S, pruned)
+                raise TimeoutError("retention deadline reached")
+            # C-8.4: it ran out of time before it pruned a job. The next pass
+            # sizes every job again from the first, so one offered 60 s later
+            # meets the same deadline: retried on C-5.10's clock, a store too
+            # large to size in one pass kept a worker in `lstat` half of every
+            # two minutes for as long as the daemon ran. It is due again when a
+            # completed pass would be.
+            self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: the pass reached its %g s deadline before it pruned a job (%d jobs in "
+                             "the store); the next pass is due in %g s (C-8.4)",
+                             RETENTION_PASS_S, result.get("jobs_after") or 0, RETENTION_INTERVAL_S)
+            self._last_maintenance = time.monotonic()
+            return
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+        # A raising pass remains due so the worker retry clock can re-offer it,
+        # and so does one whose own bookkeeping above raised, or that pruned
+        # before its time ran out. A pass that ran to its end, or out of time
+        # before it pruned anything, rearms the hourly interval.
         self._last_maintenance = time.monotonic()
+
+    def _prune_service_notices(self) -> int:
+        """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
+
+        Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
+        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        """
+        with self.store.transaction("service-notice.retention") as tx:
+            return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
+                              (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
 
     def _recover_then_start_timers(self):
         # HTTP reservations have no provider process and can be released on restart.
@@ -2846,6 +3140,7 @@ class Daemon:
                         label = "fleet-full" if live >= cap else "slot-kept"
                     hold = {"reason": label,
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
+                            **(scheduler.host_pressure_evidence(decision) if label == "host-pressure" else {}),
                             **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     rechecks = self._capacity_wait(
@@ -3239,6 +3534,8 @@ class Daemon:
             self._inspect_next.pop(aid, None)
             self._inspect_retry.discard(aid)
             return None
+        if imported_external(a):
+            return None                     # v1 still owns it (principle 3): the loop's check, again
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
@@ -3293,7 +3590,8 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        # C-5.12: everything above is files and rows and runs every tick. What
+        # C-5.12: everything above is files and rows, read on every pass the
+        # control loop offers (C-5.11 says which: every tick it has work). What
         # follows asks the operating system, so a healthy attempt is inspected
         # once per interval, from one process table shared by every attempt.
         # It falls due again when the table it was given expires, which is when
@@ -3871,11 +4169,19 @@ class Daemon:
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request) -> None:
         def gone() -> bool:
             return descriptors.client_gone(conn)
+
+        def ended_here() -> bool:
+            # This daemon shut the stream down after a broken reply (C-16.7):
+            # no reply can go out, but no client left either.
+            with self._connection_lock:
+                return conn in self._shut_down
+        gone.ended_here = ended_here
         if descriptors.read_only(req.op, req.args) and gone():
             # C-16.7: its client timed out and hung up while this waited for a
             # thread. A read has no one to answer; a write still runs, because a
             # client disconnect cannot cancel its durable job.
-            self._count_connection("abandoned", req.op)
+            if not ended_here() and not self.stopping.is_set():   # nor close()'s own shutdown
+                self._count_connection("abandoned", req.op)
             return
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, client_gone=gone))
@@ -3886,14 +4192,16 @@ class Daemon:
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
-        try:
-            with write_lock:
+        with write_lock:
+            try:
                 conn.sendall(protocol.encode(response))
-        except OSError:
-            # A client disconnect cannot cancel its durable job. A reply that
-            # failed part way (the client stopped reading, C-16.7) leaves a
-            # broken line, so nothing more may follow it on this connection.
-            self._end_stream(conn)
+            except OSError:
+                # A client disconnect cannot cancel its durable job. A reply that
+                # failed part way (the client stopped reading, C-16.7) leaves a
+                # broken line, so nothing more may follow it on this connection:
+                # the stream is ended before the lock is let go, so a reply
+                # waiting on the lock meets a shut socket, not the broken line.
+                self._end_stream(conn)
 
     def _decode(self, conn: socket.socket, write_lock: threading.Lock,
                 line: bytes | descriptors.Oversized) -> protocol.Request | None:
@@ -3902,14 +4210,22 @@ class Daemon:
             if line is descriptors.OVERSIZED:
                 raise protocol.ProtocolError("request exceeds 1 MiB")
             return protocol.decode_request(line)
-        except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-            try:
-                with write_lock:
-                    conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
-            except OSError:
-                # C-16.7: as in `_respond`, nothing may follow a reply that failed part way.
-                self._end_stream(conn)
-                raise
+        except (protocol.ProtocolError, ValueError, RecursionError) as exc:
+            # C-16.7: a malformed line is answered, never left to end the
+            # reader: ValueError covers bad UTF-8 and an integer past
+            # sys.int_max_str_digits, RecursionError nesting that parses but is
+            # too deep to render in an error message.
+            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
+                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
+                       else f"malformed request: {exc}")
+            with write_lock:
+                try:
+                    conn.sendall(protocol.encode(protocol.fail("", 2, message)))
+                except OSError:
+                    # C-16.7: as in `_respond`, nothing may follow a reply that
+                    # failed part way, so the stream ends before the lock goes.
+                    self._end_stream(conn)
+                    raise
             return None
 
     def _connection(self, conn: socket.socket) -> None:
@@ -3921,6 +4237,19 @@ class Daemon:
 
         def note_reply(_future) -> None:
             replied[0] = time.monotonic()
+
+        def drop_queued_reads(*, count: bool) -> None:
+            # C-16.7: no reply can reach this client any more. Its reads that no
+            # thread has reached yet are cancelled, so the connection and its
+            # place under the cap go at once instead of when a busy pool gets to
+            # them; its writes still run. Only a client that left is counted.
+            for future in pending:
+                if future in reads and future.cancel() and count:
+                    self._count_connection("abandoned", "queued read")
+
+        def ended_here() -> bool:
+            with self._connection_lock:
+                return conn in self._shut_down
         try:
             # C-16.7: reads time out instead of blocking, so a client that says
             # nothing cannot hold this reader and its descriptor for ever. The
@@ -3945,7 +4274,17 @@ class Daemon:
                     pool = self.workers if req.op == "submit" or req.op.startswith("gate.") else self.waiters if req.op == "wait" else self.requests
                     pending = [f for f in pending if not f.done()]
                     reads.intersection_update(pending)
-                    future = pool.submit(self._respond, conn, write_lock, req)
+                    try:
+                        future = pool.submit(self._respond, conn, write_lock, req)
+                    except RuntimeError as exc:
+                        # C-16.7: no thread could be started for it, or the pool
+                        # is shutting down. ThreadPoolExecutor queues the work
+                        # before starting a thread, so the request may still run
+                        # on a thread already there; this reader never sees that
+                        # future, so it counts the request and goes on reading
+                        # rather than dying and leaving the connection behind.
+                        self._count_connection("unscheduled", f"{req.op} ({exc})")
+                        continue
                     future.add_done_callback(note_reply)
                     pending.append(future)
                     if descriptors.read_only(req.op, req.args):
@@ -3953,19 +4292,17 @@ class Daemon:
                 if not chunk:
                     # Not while stopping: close()'s own SHUT_RDWR also makes the
                     # peer look gone, and close() cancels what is queued itself.
-                    with self._connection_lock:
-                        ours = conn in self._shut_down
-                    if not self.stopping.is_set() and not ours and descriptors.client_gone(conn):
-                        # C-16.7: the client closed its whole socket. Its reads that
-                        # no thread has reached yet are cancelled now, so the
-                        # connection and its place under the cap go at once instead
-                        # of when a busy pool gets to them; its writes still run.
-                        for future in pending:
-                            if future in reads and future.cancel():
-                                self._count_connection("abandoned", "queued read")
+                    # The client closed its whole socket, or this daemon ended the
+                    # stream after a broken reply.
+                    ours = ended_here()
+                    if not self.stopping.is_set() and (ours or descriptors.client_gone(conn)):
+                        drop_queued_reads(count=not ours)
                     break
         except OSError:
-            pass
+            # A stream `_decode` ended after its error reply failed part way
+            # leaves the loop here, not at end of stream.
+            if ended_here() and not self.stopping.is_set():
+                drop_queued_reads(count=False)
         finally:
             # No process waits here. Running callbacks own their response socket
             # until they finish, including after the caller closes its write half.
@@ -4019,9 +4356,16 @@ class Daemon:
                 self._readers.discard(threading.current_thread())
 
     def _end_stream(self, conn: socket.socket) -> None:
-        """C-16.7: shut a connection down after a reply that failed part way."""
+        """C-16.7: shut a connection down after a reply that failed part way.
+
+        Called with the connection's write lock held; it takes the connection
+        lock, which nothing holds while taking a write lock. Only a connection
+        still held is recorded: one already let go (its reader ended while a
+        queued request was still to run) would never be discarded again.
+        """
         with self._connection_lock:
-            self._shut_down.add(conn)
+            if conn in self._connections:
+                self._shut_down.add(conn)
         with contextlib.suppress(OSError):
             conn.shutdown(socket.SHUT_RDWR)
 
@@ -4044,7 +4388,8 @@ class Daemon:
     #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
     _CONNECTION_EVENTS = {"refused": "connections refused at the cap",
                           "idle_closed": "idle connections closed",
-                          "abandoned": "requests dropped because their client hung up"}
+                          "abandoned": "requests dropped because their client hung up",
+                          "unscheduled": "requests no pool thread could be started for"}
 
     def _count_connection(self, kind: str, detail: str | None = None) -> int:
         with self._connection_lock:
