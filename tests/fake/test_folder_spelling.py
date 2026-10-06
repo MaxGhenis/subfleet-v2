@@ -50,33 +50,45 @@ def message_in(service, workspace: str, title: str, settings: dict = SETTINGS) -
     return mid, message["job_id"]
 
 
-def test_p3_4_two_spellings_of_one_scratch_folder_hold_and_record_one_folder(tmp_path):
+@pytest.mark.parametrize("above", ["listable", "unlistable"])
+def test_p3_4_two_spellings_of_one_scratch_folder_hold_and_record_one_folder(tmp_path, above):
+    """Review of b0033e5d (P2): `unlistable` puts the folder under a directory that can
+    be searched but not listed (0111), where the spelling read from listings kept each
+    as typed: two lease keys, two `target`s, and neither turn marked as sharing."""
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
-        scratch = harness.root / "Scratch-Folder"
-        scratch.mkdir()
-        if not (harness.root / "sCRATCH-fOLDER").is_dir():
+        parent = harness.root / "Secret-Parent"
+        scratch = parent / "Scratch-Folder"
+        scratch.mkdir(parents=True)
+        if not case_insensitive(harness.root):
             pytest.skip("needs a case-insensitive volume, as APFS is by default")
         for lane_id in CODEX:
             measure(service, lane_id)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
-        first, first_job = message_in(service, str(scratch), "Upper")
-        second, second_job = message_in(service, str(harness.root / "scratch-folder"), "Lower")
-        service._admit_turns()
-        assert _live(service, first_job) and _live(service, second_job), service._holds       # I1
-        folder = folders.canonical(scratch)
-        assert folder.endswith("/Scratch-Folder")
-        assert {holder for _, holder in folders.turn_holds(service.store.query, folder)} == {first_job, second_job}
-        for job_id in (first_job, second_job):
-            attempt = service.store.one("SELECT a.*, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j "
-                                        "USING(job_id) WHERE a.job_id=?", (job_id,))
-            assert json.loads(attempt["evidence_json"])["folder"] == folder
-            manifest = json.loads((service.root / "jobs" / job_id / "manifest.json").read_text())
-            service.conversations._record_start(manifest[TURN_MANIFEST_KEY], attempt)   # as its runner does
-        store = service.conversations.store
-        rows = {mid: store.turn_trees(mid) for mid in (first, second)}
-        assert {row["target"] for row in rows.values()} == {folder}
-        assert rows[first]["shared"] == [rows[second]["attempt_id"]]                    # I4, both sides
-        assert rows[second]["shared"] == [rows[first]["attempt_id"]]
+        if above == "unlistable":
+            parent.chmod(0o111)
+        try:
+            assert os.access(parent, os.R_OK) is (above == "listable")
+            first, first_job = message_in(service, str(scratch), "Upper")
+            second, second_job = message_in(service, str(harness.root / "sECRET-pARENT" / "scratch-folder"), "Lower")
+            service._admit_turns()
+            assert _live(service, first_job) and _live(service, second_job), service._holds   # I1
+            folder = folders.canonical(scratch)
+            assert folder.endswith("/Secret-Parent/Scratch-Folder")
+            assert {holder for _, holder in folders.turn_holds(service.store.query, folder)} == {first_job,
+                                                                                                second_job}
+            for job_id in (first_job, second_job):
+                attempt = service.store.one("SELECT a.*, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j "
+                                            "USING(job_id) WHERE a.job_id=?", (job_id,))
+                assert json.loads(attempt["evidence_json"])["folder"] == folder
+                manifest = json.loads((service.root / "jobs" / job_id / "manifest.json").read_text())
+                service.conversations._record_start(manifest[TURN_MANIFEST_KEY], attempt)   # as its runner does
+            store = service.conversations.store
+            rows = {mid: store.turn_trees(mid) for mid in (first, second)}
+            assert {row["target"] for row in rows.values()} == {folder}
+            assert rows[first]["shared"] == [rows[second]["attempt_id"]]                # I4, both sides
+            assert rows[second]["shared"] == [rows[first]["attempt_id"]]
+        finally:
+            parent.chmod(0o755)
 
 
 def test_p3_4_read_only_turns_in_two_spellings_of_one_folder_hold_rows_on_one_folder(tmp_path):
@@ -137,6 +149,75 @@ def test_p3_4_conversation_create_records_one_spelling_and_a_home_in_any_case_is
                                             "confirm_widen": True, "workspace": str(tmp_path / typed)}, None)
         assert err.value.reason == "protected-workspace" and err.value.code == 7, typed
         assert str(err.value).endswith(os.path.join(canonical_home, ".claude")), str(err.value)
+
+
+def create(service, request_id: str, settings: dict, workspace) -> dict:
+    return service.op_conversation_create({"provider": "claude", "request_id": request_id, "settings": settings,
+                                           "confirm_widen": True, "workspace": str(workspace)}, None)
+
+
+def test_b0033e5d_p2_a_home_typed_in_another_case_under_an_unlistable_directory_is_protected(world, tmp_path,
+                                                                                          monkeypatch):
+    """Review of b0033e5d (P2), the reviewer's schedule: the directory above `HOME` can
+    be searched but not listed (0111) and `HOME` is typed in another case than the
+    volume stores (`…/sECRET-pARENT/uSER-hOME`). The spelling read from listings kept
+    the names below that directory as typed, so the home and `~/.claude` never matched
+    a workspace typed another way, and a writable workspace that is the home was
+    allowed. The kernel's spelling needs only search permission: the home and the
+    directory above it, typed any way, are refused, and Ask (which writes nothing) is
+    still recorded in the one spelling."""
+    if not case_insensitive(tmp_path):
+        pytest.skip("needs a case-insensitive volume, as APFS is by default")
+    service = world.service
+    monkeypatch.setattr(service, "_person", lambda peer, what: None)       # a person in the app
+    parent = tmp_path / "Secret-Parent"
+    home = parent / "User-Home"
+    (home / ".claude").mkdir(parents=True)
+    canonical_home = folders.canonical(home)
+    assert canonical_home.endswith("/Secret-Parent/User-Home")
+    monkeypatch.setenv("HOME", str(tmp_path / "sECRET-pARENT" / "uSER-hOME"))
+    widened = {**handoffs.ASK, "permission": "accept-edits"}
+    parent.chmod(0o111)
+    try:
+        assert not os.access(parent, os.R_OK)
+        asked = create(service, "c-ask", handoffs.ASK, tmp_path / "SECRET-PARENT" / "user-HOME")
+        assert asked["conversation"]["workspace"] == canonical_home
+        for n, typed in enumerate((home, parent / "user-home", tmp_path / "SECRET-PARENT" / "USER-HOME",
+                                   tmp_path / "sECRET-pARENT" / "uSER-hOME", tmp_path / "secret-parent")):
+            with pytest.raises(ConversationError) as err:
+                create(service, f"c-{n}", widened, typed)
+            assert err.value.reason == "protected-workspace" and err.value.code == 7, typed
+            assert str(err.value).endswith(os.path.join(canonical_home, ".claude")), str(err.value)
+    finally:
+        parent.chmod(0o755)
+
+
+def test_b0033e5d_p2_a_protected_path_that_cannot_be_spelled_refuses_a_writable_workspace(world, tmp_path,
+                                                                                        monkeypatch):
+    """Review of b0033e5d (P2): when a protected path's spelling cannot be established
+    (here `HOME` is under a directory that cannot be searched, mode 000), whether a
+    workspace contains it cannot be told, so a writable workspace is refused, saying
+    which path and why; it is never compared in the spelling it was typed in. Ask
+    writes nothing and is not refused."""
+    service = world.service
+    monkeypatch.setattr(service, "_person", lambda peer, what: None)
+    sealed = tmp_path / "Sealed"
+    (sealed / "User-Home" / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(sealed / "user-home"))
+    widened = {**handoffs.ASK, "permission": "accept-edits"}
+    sealed.chmod(0o000)
+    try:
+        assert create(service, "c-ask", handoffs.ASK, world.workspace)["created"]
+        with pytest.raises(ConversationError) as err:
+            create(service, "c-work", widened, world.workspace)
+        assert err.value.reason == "protected-workspace" and err.value.code == 7
+        below = os.path.join(folders.canonical(sealed), "user-home")
+        assert str(err.value) == (f"cannot tell whether {folders.canonical(world.workspace)} contains "
+                                  f"{os.path.join(sealed, 'user-home', '.claude')}: its spelling on the volume "
+                                  f"cannot be read ({below}: Permission denied)")
+        assert "searchable" in err.value.fix
+    finally:
+        sealed.chmod(0o755)
 
 
 def test_p3_4_a_handoff_s_workspace_is_spelled_one_way(world):

@@ -1444,12 +1444,13 @@ class ConversationService:
             return
         protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
         protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
-        # Both sides spelled one way (`folders.canonical`): on a case-insensitive volume
+        # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
         # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
-        # it (review of 5e9f2fbd, P3-4).
-        real = Path(folders.canonical(workspace))
+        # it (review of 5e9f2fbd, P3-4). A side whose spelling cannot be established is
+        # refused, never compared as typed (review of b0033e5d, P2).
+        real = Path(_spelled_or_refused(workspace, workspace))
         for path in protected:
-            p = Path(folders.canonical(path))
+            p = Path(_spelled_or_refused(path, workspace))
             if real == p or real in p.parents:
                 raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
                                         fix="choose a narrower directory, or Ask or read-only")
@@ -2339,6 +2340,20 @@ def _refusal(exc: BaseException) -> tuple[bool, str]:
     if isinstance(exc, (AdapterError, protocol.ProtocolError)):
         return int(exc.code) != int(Exit.OPERATIONAL), str(exc) or type(exc).__name__
     return False, f"{type(exc).__name__}: {exc}"
+
+
+def _spelled_or_refused(path: str | Path, workspace: str) -> str:
+    """C-26.10: `path`'s one spelling, for comparing `workspace` with a protected
+    path; when it cannot be established (a directory above it that cannot be
+    searched), the writable workspace is refused, as one that may contain it."""
+    spelled, doubt = folders.spelling(path)
+    if doubt is None:
+        return spelled
+    what = (f"what {workspace} contains" if os.fspath(path) == workspace
+            else f"whether {workspace} contains {path}")
+    raise ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
+                            f"({doubt})", code=7,
+                            fix="make every directory above it searchable, or choose Ask or read-only")
 
 
 def _iso_ago(seconds: float) -> str:
