@@ -37,10 +37,6 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
-    # C-5.12's shared inspection and fresh liveness must describe the same
-    # empty fixture as containment; state-only tests never inspect the host.
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
@@ -52,6 +48,13 @@ def state_daemon(tmp_path, monkeypatch):
     finally:
         daemon.close()
     harness.check_notices()                 # C-15.1, after every in-process test too
+
+
+@pytest.fixture
+def dead_guardian(monkeypatch):
+    """C-5.12: model an absent guardian for the explicit loss scenarios."""
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
 
 
 def test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts(state_daemon):
@@ -316,7 +319,7 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, dead_guardian):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)

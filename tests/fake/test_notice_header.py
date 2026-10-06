@@ -25,7 +25,7 @@ from subfleet import daemon as daemon_module
 from subfleet import hooks, render
 from subfleet.procs import Containment
 from tests.fake.notice_invariant import notice_mismatches
-from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import dead_guardian, receipt_fixture, reserve, state_daemon  # noqa: F401
 
 #: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
 INTERIM = b"I am checking the newer validation code before finalizing the review.\n"
@@ -88,7 +88,7 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
     ]
 
 
-def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon):
+def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, dead_guardian):
     """C-4.4, C-15.1 a loss without a receipt: `lost; rc=125`, the attempt's rc unknown."""
     daemon, harness = state_daemon
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
