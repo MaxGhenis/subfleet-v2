@@ -18,6 +18,24 @@ PROVIDERS = ("codex", "claude")
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
+#: C-13.1: where git finds a repository, its objects and its index when the
+#: environment names them, before `-C` and before discovery. Inherited by the
+#: daemon (a `subfleet daemon start` run from a git hook passes its caller's
+#: environment through), every salvage call went to that repository instead: a
+#: salvage wrote its ref there and reported success (adversarial review of the
+#: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
+#: temporary index a caller names), and so does the daemon's environment
+#: (`cli.STRIPPED_ENV`).
+GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
+#: C-13.1: how git reads every pathspec when the environment says so. Salvage
+#: leaves out a nested repository with no commit by a `:(top,exclude,literal)`
+#: pathspec, which `GIT_LITERAL_PATHSPECS=1` reads as a file of that name: the
+#: exclusion was lost and the snapshot failed on the repository as before, so
+#: the incident's case had no ref again (review of ceacf18b, P3-3). Dropped
+#: where `GIT_LOCATION_ENV` is.
+GIT_PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS")
 
 # C-23.14: the most characters the credential scrubber matches in one call. A
 # longer text is matched as a head and a tail excerpt within the same bound; a
@@ -257,6 +275,13 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-9.10: the reset-card and promotional-credit sensor. It reads every login under
+#: `logins_dir` (relative to the state root) every `interval_min`, spends at most
+#: one minimal turn per `heal_interval_min` renewing an expired login that backs a
+#: lane with no operator hold (`heal`), and warns `warn_days` before anything is lost.
+CLAUDE_CARDS_DEFAULTS: dict[str, Any] = {"enabled": True, "interval_min": 360, "heal": True,
+                                         "heal_interval_min": 60, "warn_days": 5,
+                                         "logins_dir": "logins"}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300
@@ -270,6 +295,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# d635, final review of e50716e8 (N1): a job whose baseline no network remote
+# holds bundles the shared history no remote holds as well as its own; above
+# this many bytes (git's measure on disk) the job is kept instead. 0 keeps
+# every such job with any such history.
+RETENTION_REMOTE_LESS_HISTORY_BYTES = 64 * 1024 ** 2
 
 # Codex window durations in minutes (C-9.7).
 WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}

@@ -371,7 +371,8 @@ def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, 
 CATALOG_STEPS = ("tick", "refresh", "advance", "exit", "stubborn", "close")
 
 
-def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch):
+@pytest.mark.parametrize("seed_start", range(0, 150, 30))
+def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, monkeypatch, seed_start):
     """C-30.1, checked after every step of 150 seeded random sequences of timer
     ticks, `catalog.refresh`, clock jumps, run exits, runs that ignore signals and
     close(), with close() at a random point or not at all:
@@ -406,7 +407,7 @@ def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, mo
     monkeypatch.setattr(service_module.os, "killpg", killpg)
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.0)
     TERM, KILL = service_module.signal.SIGTERM, service_module.signal.SIGKILL
-    for seed in range(150):
+    for seed in range(seed_start, seed_start + 30):
         rng = random.Random(seed)
         steps = [rng.choice(CATALOG_STEPS) for _ in range(rng.randint(1, 14))]
         root = tmp_path / f"s{seed}"
@@ -831,7 +832,9 @@ def test_a_refusal_that_may_pass_keeps_the_message_waiting_with_a_reason_and_a_b
     svc._dispatch()
     message = svc.store.message(mid)
     assert len(svc.daemon.submits) == 3
-    assert message["state"] == "waiting" and message["state_reason"] is None and message["job_id"] == "job-3"
+    # I3: the deferral is over once the job exists; the message says it waits for admission.
+    assert message["state"] == "waiting" and message["job_id"] == "job-3"
+    assert message["state_reason"] == "admission: sent to the daemon, which has not placed it yet"
 
 
 def test_the_backoff_is_capped(svc):
@@ -875,6 +878,37 @@ def test_an_unknown_model_fails_before_submit(svc):
     svc._dispatch()
     assert svc.store.message(mid)["state_reason"] == "not-delivered: unknown-model"
     assert svc.daemon.submits == []
+
+
+def test_a_persisted_writable_conversation_refuses_an_unspellable_protected_home_before_submit(svc, tmp_path,
+                                                                                             monkeypatch):
+    """C-26.10, review of b0033e5d (P2): existing conversations also fail closed.
+    If a provider home's spelling cannot be established when a queued turn is
+    dispatched, the message fails as never delivered, without creating a job or
+    repeatedly trying admission. Creating the row directly models a conversation
+    persisted before this check, or opened from a native session."""
+    sealed = tmp_path / "Sealed"
+    home = sealed / "User-Home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    writable = {**SETTINGS, "permission": "accept-edits"}
+    cid = conversation(svc, settings=writable)
+    mid = str(uuid.uuid4())
+    svc.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="edit",
+                             attachments=[], settings=writable)
+    sealed.chmod(0o000)
+    try:
+        assert not os.access(sealed, os.X_OK)
+        svc._dispatch()
+        message = svc.store.message(mid)
+        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: protected-workspace")
+        assert message["job_id"] is None
+        svc.clock.now += 1000
+        svc._dispatch()
+        assert svc.daemon.submits == []
+        assert svc.daemon.store.one("SELECT COUNT(*) AS n FROM jobs")["n"] == 0
+    finally:
+        sealed.chmod(0o755)
 
 
 def test_one_conversations_defect_never_holds_up_another(svc, caplog):
@@ -973,7 +1007,8 @@ def test_a_claude_turn_waits_while_another_process_holds_its_session(svc, monkey
     svc.clock.now += service_module.EXTERNAL_WRITER_RECHECK_S
     svc._dispatch()
     message = svc.store.message(mid)
-    assert (message["state"], message["state_reason"], message["job_id"]) == ("waiting", None, "job-1")
+    assert (message["state"], message["state_reason"], message["job_id"]) == (
+        "waiting", "admission: sent to the daemon, which has not placed it yet", "job-1")      # I3
     assert svc.daemon.submits[-1].request_id == f"turn:{mid}:0"
     # A stop while held withdraws it; nothing is submitted.
     other = conversation(svc, origin="native", native_session_id="s-other")
@@ -1091,6 +1126,27 @@ def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(s
     message = svc.store.message(mid)
     assert message["state"] == "queued" and message["state_reason"].startswith("deferred: the conversation's worktree")
     assert svc.daemon.submits == []
+
+
+def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch):
+    """Review of 43b8bf29, F6: `git worktree add` prints a file it could not check out in
+    its own bytes; read as strict UTF-8 that raised `UnicodeDecodeError` out of
+    `conversation.create`, not the `worktree-failed` refusal naming the file. The call is
+    faked (APFS refuses such names) and decodes as `subprocess` would."""
+    real = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if cmd[3:5] == ["worktree", "add"]:
+            stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
+            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
+            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
+        return real(cmd, *args, **kwargs)
+    monkeypatch.setattr(service_module.subprocess, "run", run)
+    with pytest.raises(ConversationError) as err:
+        create_worktree(svc, repo)
+    assert err.value.reason == "worktree-failed"
+    assert str(err.value) == "error: unable to create file caf\\xe9.txt: Permission denied\nfatal: could not reset"
+    str(err.value).encode("utf-8")                                     # a reply can carry it
 
 
 def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
@@ -1345,7 +1401,7 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
     so far. No relay listens, so nothing is sent (the runner retries its handshake)."""
     cid = conversation(svc)
     mid = submit(svc, cid)
-    svc.store.set_state(mid, "waiting")
+    svc.store.set_state(mid, "waiting", reason="admission: sent to the daemon, which has not placed it yet")
     attempt_id = turn_attempt(svc, mid, state="running", n=n)
     job = svc.root / "jobs" / attempt_id.split("/")[0]
     adir = job / "a1"
@@ -1903,6 +1959,9 @@ def test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing
     is now refused (`store-closed`). Nothing it does outlives `Daemon.close()`, so the
     removed root stays gone either way."""
     from subfleet.daemon import Daemon
+    from subfleet import procs
+    monkeypatch.setattr(procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "unit-test-start")
     root = tmp_path / "state"
     daemon = Daemon(root, tick_s=.05)
     svc = daemon.conversations
@@ -2069,7 +2128,7 @@ def test_retention_pins_name_the_turn_jobs_a_conversation_still_needs(svc):
     live = submit(svc, live_cv)
     job("live-0", f"turn:{live}:0", f"turn-{live_cv}")
     job("live-1", f"turn:{live}:1", f"turn-{live_cv}")
-    svc.store.set_state(live, "waiting", job_id="live-1", turn_seq=1)
+    svc.store.set_state(live, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id="live-1", turn_seq=1)
     settled = submit(svc, blocked_cv)
     job("blocked-0", f"turn:{settled}:0", f"turn-{blocked_cv}")
     svc.store.set_state(settled, "failed")
@@ -2108,6 +2167,38 @@ class EndedRunner(FakeRunner):
         self.attempt_id = "turn-job-0/a1"
         self.attempt = {"attempt_id": self.attempt_id, "lane_id": "claude-1"}
         self.offset, self.next_seq = 0, 1          # what settling reads to stamp its reconcile event
+
+
+@pytest.mark.parametrize("person_stopped", [False, True])
+@pytest.mark.parametrize("resolution", ["delivered", "not-delivered"])
+def test_resolving_unknown_delivery_honors_a_recorded_personal_stop(svc, tmp_path, monkeypatch,
+                                                                  person_stopped, resolution):
+    """C-24.6/7/8: resolution preserves the Stop the person already requested;
+    other delivered Claude turns still need an unfinished-turn choice."""
+    from subfleet.conversations.peers import Verdict
+
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    if person_stopped:
+        svc.op_turn_interrupt({"message_id": mid}, None)
+    adir = tmp_path / "outcome"
+    adir.mkdir()
+    (adir / "turn.json").write_text(json.dumps({"state": "failed", "ended_by": "eof",
+                                                "reason": "ended-without-result"}))
+    monkeypatch.setattr(service_module.reconcile, "gather", lambda *a, **k: service_module.reconcile.Evidence(
+        acknowledged=False, frame="written", process_gone=True, native="absent"))
+    svc._on_outcome(EndedRunner(adir, mid, cid))
+    assert svc.store.message(mid)["state"] == "delivery-unknown"
+    assert svc.store.conversation(cid)["blocked_by"] == "delivery-unknown"
+    monkeypatch.setattr(svc, "_person", lambda *a: Verdict(True, "test-person", 4242))
+    svc.op_message_resolve({"message_id": mid, "resolution": resolution, "confirm": True}, None)
+    message = svc.store.message(mid)
+    expected = ("interrupted", "stopped") if person_stopped else ("failed", f"resolved-{resolution}")
+    assert (message["state"], message["state_reason"]) == expected
+    assert message["resolution"]["resolution"] == resolution
+    assert svc.store.conversation(cid)["blocked_by"] == (
+        "unfinished-turn" if resolution == "delivered" and not person_stopped else None)
 
 
 def test_another_writer_at_launch_is_decided_once_and_never_uses_up_readmissions(svc, tmp_path, monkeypatch):
@@ -2290,3 +2381,24 @@ def test_a_conversation_lists_the_runs_its_turns_dispatched(svc):
     assert (new["lane_id"], new["model_served"], new["attempt_state"], new["attempts"], new["task"], new["tier"]) == (
         "codex-2", "gpt-6-astra", "running", 2, "build", "hard")
     assert runs[1]["lane_id"] is None and runs[1]["attempts"] == 0
+
+
+def test_an_approval_view_names_the_providers_request_under_both_names(svc):
+    """C-27.1 and C-27.5, merged for 2.1.10: `approval.list`, `conversation.open` and
+    `approval.get` name the provider's request as `provider_request_id` (the inline
+    approval card's field) and as `request_id` (approvals within reach), the same id,
+    so either client joins its card exactly."""
+    from subfleet.conversations.peers import Verdict
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc.store.set_state(mid, "running")
+    approval, _ = svc.store.add_approval(message_id=mid, conversation_id=cid, attempt_id="j/a1",
+                                         provider_request_id="perm-7", kind="tool", request={"tool": "Bash"},
+                                         display={"tool": "Bash"}, options=("allow", "deny"))
+    svc._person = lambda peer, what: Verdict(True, "test", peer)
+    views = [svc.handle("approval.list", {"conversation_id": cid}, None)["approvals"][0],
+             svc.handle("conversation.open", {"conversation_id": cid}, None)["pending_approvals"][0],
+             svc.handle("approval.get", {"approval_id": approval["approval_id"]}, None)["approval"]]
+    for view in views:
+        assert view["approval_id"] == approval["approval_id"]
+        assert view["request_id"] == view["provider_request_id"] == "perm-7"

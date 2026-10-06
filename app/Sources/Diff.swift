@@ -211,19 +211,88 @@ func diffStatsWords(_ stats: DiffStats) -> String {
 /// Why a diff has nothing to show, in the person's words; the daemon's own
 /// detail follows where it says more than the reason.
 func diffUnavailableWords(_ result: DiffResult) -> String {
+    let words: String
     switch result.reason {
-    case "no-turn": return "This message has not started a turn yet."
-    case "read-only-turn": return "This turn was read-only: it could not change files."
+    case "no-turn": words = "This message has not started a turn yet."
+    case "read-only-turn": words = "This turn was read-only: it could not change files."
     case "no-snapshot":
-        return result.message_id == nil
+        words = result.message_id == nil
             ? "No writable turn of this conversation has started in a git checkout with a commit."
             : "The workspace was not a git checkout with a commit when this turn started, so there is nothing to compare."
-    case "snapshot-failed": return "The snapshot could not be taken: \(result.detail ?? "no detail")."
-    case "snapshot-pruned": return "The repository no longer holds this snapshot, so the changes cannot be shown."
-    case "workspace-gone": return "The workspace is no longer a git checkout (moved or removed)."
-    default: return result.detail ?? "Nothing to compare."
+    case "snapshot-failed": words = "The snapshot could not be taken: \(result.detail ?? "no detail")."
+    case "snapshot-pruned": words = "The repository no longer holds this snapshot, so the changes cannot be shown."
+    case "workspace-gone": words = "The workspace is no longer a git checkout (moved or removed)."
+    default: words = result.detail ?? "Nothing to compare."
     }
+    let sharing = diffSharedWords(result).map { [$0] } ?? []
+    return ([words] + sharing).joined(separator: " ")
 }
+
+/// C-26.14 (2026-09-29): conversations share folders, so a diff never claims one
+/// conversation made it. When other conversations' turns wrote in the folder while
+/// this turn ran (or since the conversation's first turn), the pane says so above
+/// the diff; nil when none did or the daemon is older than the field.
+func diffSharedWords(_ result: DiffResult) -> String? {
+    guard let shared = result.shared, !shared.isEmpty else { return nil }
+    let names = shared.map { sharer -> String in
+        let name = sharer.title.flatMap(sharedTitleWords) ?? "an untitled conversation"
+        return sharer.to == nil ? "\(name) (still running)" : name
+    }
+    let who: String
+    switch names.count {
+    case 1: who = names[0]
+    case 2: who = "\(names[0]) and \(names[1])"
+    default: who = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+    let when = result.message_id == nil ? "since this conversation's first turn began" : "during this turn"
+    let whose = shared.count == 1 ? "its" : "their"
+    return "This folder was also changed by \(who) \(when); the diff may include \(whose) edits."
+}
+
+/// The most of a title the note above a diff quotes, in characters.
+let sharedTitleLimit = 60
+
+/// A title as that note quotes it: one line, at most `sharedTitleLimit` characters
+/// with an ellipsis where it was cut (a title is whatever a person or a native
+/// session gave it, of any length); nil for a blank one, which reads as untitled.
+func sharedTitleWords(_ title: String) -> String? {
+    let line = title.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+    if line.isEmpty { return nil }
+    let short = line.count > sharedTitleLimit ? line.prefix(sharedTitleLimit - 1) + "\u{2026}" : Substring(line)
+    return "\u{201C}\(short)\u{201D}"
+}
+
+/// What the daemon cut or hid, so a short diff is not taken for the whole one:
+/// the listing's and the text's cuts, scrubbed values, and the nested
+/// repositories with no commit a live snapshot left out (`to.skipped`, C-13.1),
+/// the first `diffSkippedShown` by name.
+func diffNotes(_ result: DiffResult) -> [String] {
+    var notes: [String] = []
+    if result.files_truncated { notes.append("Only the first \(result.files.count) files are listed.") }
+    if !result.stats.complete { notes.append("Git's listing was cut; the counts cover the listed files only.") }
+    if result.truncated { notes.append("The diff is cut at its size limit; the rest is not shown.") }
+    if result.scrubbed > 0 {
+        notes.append("\(result.scrubbed) value\(result.scrubbed == 1 ? "" : "s") that looked like credentials are replaced.")
+    }
+    if let skipped = result.to?.skipped, !skipped.isEmpty {
+        let one = skipped.count == 1
+        let more = skipped.count - diffSkippedShown
+        let names = skipped.prefix(diffSkippedShown).joined(separator: ", ") + (more > 0 ? " and \(more) more" : "")
+        notes.append("\(skipped.count) nested repositor\(one ? "y" : "ies") with no commit \(one ? "is" : "are") not shown: \(names).")
+    }
+    return notes
+}
+
+/// An empty comparison still discloses other conversations' overlapping writes:
+/// edits can cancel out, leaving no net changes to show (C-26.14).
+func diffEmptyWords(_ result: DiffResult) -> String {
+    let notes = diffNotes(result)
+    let sharing = diffSharedWords(result).map { [$0] } ?? []
+    return ([notes.isEmpty ? "No changes." : "No changes to show."] + sharing + notes).joined(separator: " ")
+}
+
+/// How many left-out repositories `diffNotes` names, as the daemon's notice does.
+let diffSkippedShown = 5
 
 /// What the Changes pane shows: a whole conversation, or one turn of it.
 enum ChangesScope: Hashable {

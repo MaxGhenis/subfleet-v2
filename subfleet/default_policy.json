@@ -121,6 +121,14 @@
     "headroom_floor_pct": 15,
     "min_interval_min": 30
   },
+  "claude_cards": {
+    "enabled": true,
+    "interval_min": 360,
+    "heal": true,
+    "heal_interval_min": 60,
+    "warn_days": 5,
+    "logins_dir": "logins"
+  },
   "timers": {
     "probe_interval_s": 60,
     "keepalive_interval_s": 18300
@@ -159,13 +167,17 @@
   },
   "admission": {
     "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": null,
     "pin_grace_s": 1800,
-    "pin_hold_far_s": 604800
+    "pin_hold_far_s": 604800,
+    "prove_idle_s": 900,
+    "prove_wait_s": 300
   },
   "conversations": {
-    "approval_wait_s": 3600,
+    "approval_wait_s": null,
     "stop_sigint_after_s": 10,
     "stop_close_after_s": 20,
     "stop_contain_after_s": 30,

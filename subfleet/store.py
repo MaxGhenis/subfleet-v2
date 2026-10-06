@@ -23,16 +23,17 @@ wait is reported (rate-limited) through the store lock's `LockWatch`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,24 @@ from .lockwatch import WatchedLock, thread_name
 
 SCHEMA_VERSION = 6
 Row = dict[str, Any]
+
+# Canonical observations use the partial time index; offset/fractional clocks
+# use the parsed-time expression index. Both UNION branches search time bounds.
+WEEKLY_HISTORY_SQL = (
+    "SELECT * FROM readings WHERE window='seven_day' AND label IN ('provider','stale-provider') "
+    "AND observed_at BETWEEN ? AND ? AND observed_at GLOB ? "
+    "UNION ALL SELECT * FROM readings WHERE window='seven_day' "
+    "AND label IN ('provider','stale-provider') AND NOT observed_at GLOB ? "
+    "AND julianday(observed_at) BETWEEN julianday(?) AND julianday(?)"
+)
+
+
+def weekly_history_params(now: str | datetime | None = None) -> tuple[str, ...]:
+    from .quota_projection import instant
+    at = instant(now) if now is not None else datetime.now(timezone.utc)
+    end = at.isoformat(timespec="seconds").replace("+00:00", "Z")
+    start = (at - timedelta(hours=24)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return start, end, Store.CANONICAL_TS, Store.CANONICAL_TS, start, at.isoformat()
 
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
 STATEMENT_RESERVE = 2
@@ -81,6 +100,96 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _pin_notice_key(data_json: str | None) -> tuple | None:
+    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
+    try:
+        data = json.loads(data_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+        return None
+    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+
+
+#: C-11.8: the expression `events_pin_notice` indexes, character for character.
+PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
+
+
+def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                    rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+    """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
+    `job.pin_noticed` event. `rows` are service notice rows with their stored
+    (positive) ids. A row matches its event by id, session and creation time
+    together: a service notice's id is reused once the row with the highest id is
+    deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
+    old pin notice's id names none."""
+    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    found: dict[int, str] = {}
+    ids = sorted({key[0] for key in wanted})
+    # Exactly the events that name one of these notices, newest first, with no
+    # window (`events_pin_notice`): events naming no notice (a pin with no one to
+    # tell, C-15.8, and every event's empty audit row) once crowded a deliverable
+    # notice's event out of the newest 1,000 and left that notice unnamed. The
+    # CASE keeps json_extract off a payload json_valid refuses, since SQLite does
+    # not promise to test WHERE terms in written order. Such a row names no notice:
+    # a pin record holds strings, ints and lists of strings, never a float, so it
+    # is never a NaN or Infinity payload that json.loads would read and json_valid
+    # refuse. No ORDER BY: it would steer the planner to `events_kind`, which
+    # walks every pin event; the few matches are ordered here, newest first.
+    events = []
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        events += query("SELECT event_id,job_id,data_json FROM events WHERE kind='job.pin_noticed' AND "
+                        f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+    for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
+        key = _pin_notice_key(event["data_json"])
+        if key in wanted and event["job_id"]:
+            found.setdefault(wanted[key], event["job_id"])
+    return found
+
+
+def notice_fingerprint(row: Mapping[str, Any]) -> str:
+    """C-15.8: what a listed notice is beyond its id: its creation time and a digest
+    of its text. A notice's id is reused once the newest row is deleted (neither
+    notice table has AUTOINCREMENT), so `--ack` and `--withdraw` act on a row only
+    while it still has the fingerprint the listing showed. Two rows alike in id,
+    session, creation second and text are one notice to the session that reads it."""
+    digest = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{row['created_at']} {digest}"
+
+
+#: C-15.8: the columns `notices` lists, common to job and service notices.
+NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
+
+
+def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
+                *, resolved: bool = False) -> list[dict[str, Any]]:
+    """C-15.8: a session's notices (every session's when None), as `notices` lists them.
+
+    Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
+    `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
+    service notice carries its id negated, and the job a pin's notice is about
+    (else none), as `notice.pending` returns it, so one id names one row across
+    both tables. Ordered by session
+    (a job notice with no caller session sorts first, as ""), then creation.
+    """
+    where, params = [], []
+    if session_id is not None:
+        where.append("session_id=?")
+        params.append(session_id)
+    if not resolved:
+        where.append("state IN ('pending','offered')")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS}, job_id FROM notices{clause}", params)]
+    service = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
+    about = pin_notice_jobs(query, service)
+    rows += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
+    rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    for row in rows:
+        row["fingerprint"] = notice_fingerprint(row)            # what `--ack`/`--withdraw` send back
+    return rows
 
 
 class SchemaVersionError(RuntimeError):
@@ -723,6 +832,10 @@ class Store:
 
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
+
+    def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:
+        """Read only 24 hours of weekly provider history, apart from newest evidence."""
+        return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
 
     def put_closure(self, closure: Closure) -> int:
         """One open closure per lane and scope: a later end extends the row in place.

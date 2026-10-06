@@ -95,6 +95,29 @@ def test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one(state_daemon
         daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))
 
 
+
+def test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock(state_daemon, monkeypatch):
+    """C-7.3: the family is cancelled atomically, so every member carries the same
+    `cancel_requested_at` and `finished_at` even when the clock ticks between rows
+    (a loaded CI runner did, 2026-10-06: two cancel times in one family)."""
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+
+    def submit(**extra):
+        return daemon.dispatch("submit", harness.submit_args(**extra))["job_id"]
+
+    parent = submit()
+    child = submit(parent_job_id=parent)
+    grandchild = submit(parent_job_id=child)
+    ticks = iter(range(1000))
+    real = daemon_module.utcnow
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: real()[:-3] + f"{next(ticks) % 60:02d}Z")   # a new second every call
+    daemon.dispatch("kill", {"job_id": parent})
+    family = [daemon.store.get_job(job) for job in (parent, child, grandchild)]
+    assert {job["state"] for job in family} == {"cancelled"}
+    assert len({job["cancel_requested_at"] for job in family}) == 1
+    assert len({job["finished_at"] for job in family}) == 1
+
 def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
     """C-7.3, C-7.4 cancelling a queued parent atomically cancels dependent descendants only."""
     daemon, harness = state_daemon
@@ -186,19 +209,15 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 
 def admitted_reader(daemon, conn):
-    """A reader thread for `conn`, registered as `_admit_connection` registers one.
-
-    Since F1 (C-16.1) `_connection` serves only a connection admission counted,
-    so a test that hands it a socket pair registers the pair first.
-    """
+    """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
+    `_connection` lets it go when its last reply is out."""
     with daemon._connection_lock:
-        daemon._reading.add(conn)
         daemon._connections.add(conn)
     return threading.Thread(target=daemon._connection, args=(conn,))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
-    """C-16.1 malformed input returns code 2 while the same socket handler accepts another line."""
+    """C-16.1, C-16.7 malformed input returns code 2 while the same socket handler accepts another line."""
     daemon, _ = state_daemon
     server, client = socket.socketpair()
     server.settimeout(2)

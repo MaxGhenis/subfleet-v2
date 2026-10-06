@@ -19,9 +19,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
+from .store import WEEKLY_HISTORY_SQL, notice_rows, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -70,7 +73,7 @@ def _duration_s(started: Any, finished: Any) -> float | None:
     return max(0.0, (end - begin).total_seconds())
 
 
-def age_adjusted_label(label: Any, observed_at: Any) -> Any:
+def age_adjusted_label(label: Any, observed_at: Any, *, now: datetime | None = None) -> Any:
     """C-9.1: a `provider` reading beyond `reading_ttl_s` is `stale-provider`.
 
     The stored label records what the reading was when the daemon wrote it.
@@ -81,7 +84,7 @@ def age_adjusted_label(label: Any, observed_at: Any) -> Any:
     observed = _parse_ts(observed_at)
     if observed is None:
         return "stale-provider"
-    age = (datetime.now(timezone.utc) - observed).total_seconds()
+    age = ((now if now is not None else datetime.now(timezone.utc)) - observed).total_seconds()
     return "provider" if age <= READING_TTL_S else "stale-provider"
 
 
@@ -319,6 +322,7 @@ class Offline:
                 "SELECT * FROM lanes ORDER BY lane_id")]
 
     def status(self) -> dict[str, Any]:
+        at = datetime.now(timezone.utc)
         with self.reading() as conn:
             tables = self._tables(conn)
             lanes = [dict(row) for row in conn.execute(
@@ -336,6 +340,8 @@ class Offline:
             closures = [dict(row) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
                 " ORDER BY lane_id, until_at")] if "closures" in tables else []
+            weekly_samples = [dict(row) for row in conn.execute(
+                WEEKLY_HISTORY_SQL, weekly_history_params(at))] if "readings" in tables else []
             in_flight: dict[str, int] = {}
             if "attempts" in tables:
                 marks = ",".join("?" for _ in LIVE_ATTEMPT_STATES)
@@ -345,22 +351,54 @@ class Offline:
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
             version = self.schema_version(conn)
+            # C-18.4: the alerts in force, from their latches, in the words they
+            # last fired with (no cycle runs without the daemon).
+            latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
+                       if "events" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
             reading["label"] = age_adjusted_label(reading.get("label"),
-                                                  reading.get("observed_at"))
+                                                  reading.get("observed_at"), now=at)
+        for lane in lanes:
+            lane["weekly_projections"] = weekly_projections(
+                {**lane, "readings": [row for row in readings if row["lane_id"] == lane["lane_id"]]},
+                now=at, samples=weekly_samples)
         return {
             "offline": True,
+            "now": at.isoformat().replace("+00:00", "Z"),
             "state_root": str(self.root),
             "schema_version": version,
             "lanes": lanes,
             "readings": readings,
+            "weekly_samples": weekly_samples,
             "closures": closures,
             "running": self.list_jobs(running=True, last=50),
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
+            "alerts": active_alerts(latches),
+            "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
         }
+
+    def _cards_view(self) -> dict[str, Any]:
+        from . import claude_cards
+        from .policy import PolicyError, load_policy
+        try:
+            policy = load_policy(self.root / "policy.json")
+        except (PolicyError, OSError):
+            policy = {}
+        if not claude_cards.settings(policy)["enabled"]:
+            return {"read_at": None, "accounts": [], "warnings": [], "disabled": True}
+        try:
+            return claude_cards.load_view(self.root, policy, datetime.now(timezone.utc))
+        except Exception as exc:                    # noqa: BLE001 - status never fails on this section
+            return {"read_at": None, "accounts": [], "warnings": [], "error_type": type(exc).__name__}
+
+    def notices(self, session_id: str | None = None, *, resolved: bool = False) -> list[dict[str, Any]]:
+        """C-15.8: `notices` with no daemon; the same rows `notice.list` returns."""
+        with self.reading() as conn:
+            return notice_rows(lambda sql, params: conn.execute(sql, params).fetchall(),
+                               session_id, resolved=resolved)
 
     # --- kill (C-17.5, C-5.3, C-5.4) ----------------------------------------
 

@@ -6,6 +6,9 @@ specification those clauses cite. Transition plan: `~/subfleet-desktop-transitio
 Code maps of the base revision (`3f155e5`) are in `docs/desktop/maps/`;
 citations of the form `file.py:N` refer to that revision.
 
+Continuation amendment, 2026-10-04: C-24.10–12 add durable unattended wakes,
+clear blocks superseded outside Subfleet, and show native turns after binding.
+
 Revision 2 folds in an adversarial review of revision 1 by five independent
 lenses (durability, v2 integration, security, provider protocol, product),
 recorded in `docs/desktop/reviews/2026-09-24-contract-review.md` with each
@@ -167,9 +170,13 @@ whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 (review F-03). Turns have their own capacity, counted apart from detached
 jobs (C-26.9, superseding review F-05's shared slots): by default no cap at
 all, or `conversations.max_active_turns` across the fleet and
-`conversations.turn_slots_per_lane` per lane when the policy sets them. A turn waiting on an approval holds its slot for at most
-`approval_wait_s` (policy, default 3600 s), after which its approvals are
-withdrawn and the turn is stopped (D-12) with reason `approval-timeout`.
+`conversations.turn_slots_per_lane` per lane when the policy sets them.
+Approvals wait without a time limit by default: `conversations.approval_wait_s`
+is null. The former one-hour bound protected turn capacity that is now uncapped
+by default (2026-09-28). Policy may still set a positive finite number of seconds;
+an unanswered tool approval then stops its turn (D-12) with reason
+`approval-timeout`, withdrawing its approvals. Questions (AskUserQuestion)
+always wait without a limit, even when policy limits tool approvals.
 
 ### Safety
 
@@ -339,9 +346,13 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 an existing session's recorded cwd (C-30.2: that of the transcript copy it
 continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
-repository). Turns run in place and hold `worktree:<git toplevel or
-directory>`; two conversations on one checkout take turns (a lease wait,
-never a refusal; review F-06). A directory outside git is allowed. A checkout
+repository). Turns run in place. Two conversations on one checkout run at
+once: each turn holds a row of its own on the folder
+(`worktree-turn:<git toplevel or directory>:<job id>`), never the exclusive
+`worktree:` lease, which only a detached writer holds (C-24.5, 2026-09-29;
+the owner's ruling "nothing should be queued"). Until then they took turns
+on `worktree:<git toplevel or directory>` (a lease wait, never a refusal;
+review F-06). A directory outside git is allowed. A checkout
 on `main` or `master` needs `allow_main`, person-only, settable at creation or
 on an existing conversation with confirmation. C-13.2 still binds every
 detached job.
@@ -567,7 +578,14 @@ attempts can share one); before the end snapshot exists it compares the start
 with the working tree now and says so (`to.live: true`). `conversation.diff`
 compares the start snapshot of the conversation's first writable turn with the
 working tree now, so it also shows what the person changed between turns,
-which a finished turn's `turn.diff` leaves out. Both run on the file pool
+which a finished turn's `turn.diff` leaves out. A `to` that is the working
+tree now lists the nested repositories with no commit its snapshot left out
+(`to.skipped`, C-13.1), which the diff cannot show, and the Changes pane says
+so; a stored end's list is in the turn's receipt and evidence. Conversations
+share folders (D-16), so neither claims one conversation made what it shows:
+each carries `shared`, the other conversations whose turns wrote in the folder
+while this turn ran (or since the conversation's first turn), which the Changes
+pane names above the diff (C-26.14, 2026-09-29). Both run on the file pool
 `conversation.history` uses (C-25.3), read git's plumbing (`diff-tree` with no
 external diff driver or textconv filter), and return at most 1,000 files and
 512 KiB of unified diff, cut at a line with `truncated: true`; the bound is on
@@ -773,9 +791,10 @@ ops (D-8) are marked †.
 | Op | Arguments → result |
 |---|---|
 | `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`; `runs.v1` for `conversation.runs`), not a new schema. |
-| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
+| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; conversations include `last_activity`, the later of `updated_at` and their native transcript mtime from the last catalog run, sorted descending before applying `limit`; no transcript scan. `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
 | `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
-| `conversation.create` | `{request_id, provider, workspace, workspace_kind, allow_main†, title?, settings}` → `{conversation, created}`; a worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}` (C-26.10) |
+| `conversation.create` | `{request_id, provider?, workspace?, workspace_kind?, allow_main†, title?, settings}` → `{conversation, created}`; omitted provider means Claude, and an empty/omitted workspace means a private scratch folder stable by request id. Ask, Accept edits and Bypass in an in-place repo on `main`/`master` require `allow_main`; Claude Bypass is writable for protected-folder checks, including handoff (C-26.10). A worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}`. |
+| `workspace.check` | `{workspace?, provider?, permission?, workspace_kind?, allow_main?}` → `{ok, reason, fix, workspace}`; read-only folder admission using create's C-26.10 and C-13.2 checks, on the file pool. An empty/omitted workspace previews scratch without creating it; omitted provider means Claude. Advertised as `workspace.check.v1`: only a ready daemon known to lack it skips the preview and lets create decide. Until readiness is established, Start is disabled with a reason; folder validation resumes when the daemon is ready. |
 | `conversation.settings` | `{conversation_id, settings, confirm_widen?†}` → `{conversation}`; widening is person-only |
 | `conversation.unblock` † | `{conversation_id, choice:"continue"|"leave", confirm:true}` → `{conversation}` |
 | `conversation.history` | `{conversation_id, before?, limit?}` → a page of the native transcript, newest first, scrubbed (D-11); it reads at most 4 MiB of rows below its cursor (or one larger row, up to 68 MiB: the cap plus 64 MiB) and 8 MiB past it for results, and `next_before` is null once the file's first row is reached (C-29.8) |
@@ -792,8 +811,8 @@ ops (D-8) are marked †.
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}`; `state_reason` says why a message waits, so a hold shows without a second open; `state` is null on a row that reports no state change (an approval asked or answered, or a turn's end snapshot recorded), after which the client fetches that message again (D-24) |
 | `conversation.runs` | `{conversation_id, limit?}` → `{runs:[{job_id, name, kind, state, task, tier, sandbox, wait_reason, created_at, started_at, finished_at, out_path, workdir, lane_id, model_served, model_requested, attempt_state, attempts}]}`: the detached jobs whose caller is the conversation's native session (a Claude turn's tools carry it), turn jobs excluded, lane and model from the latest attempt; the app shows the live ones under the header and all of them on click |
-| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
-| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
+| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], default_models:{provider:model_id}, source}` (D-19); first-use Claude defaults to `claude-opus-5-5`; Codex follows the fleet policy's hard-tier Codex model (shipped policy: `gpt-6-astra`). When no active hard-tier choice exists, the daemon selects the first active unscoped model, or the first active model if all are scoped. The loaded policy's `retired` map excludes models by alias or id; Astra remains active in the shipped policy. Auto uses Claude unless Codex has a ready lane and Claude has none. |
+| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed, shared:[{conversation_id, title, message_ids, from, to}]}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 | `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
 
@@ -896,6 +915,21 @@ includes every field that changes what is granted: Codex `grantRoot`,
 the exact request with token-shaped values masked in place, never truncated.
 `approval.respond` must carry the `request_sha256` the person saw.
 
+The conversation card shows the full masked request and offers Allow and Deny
+inline. Details remains available for revealing masked values, confirming their
+review, and adding a note. A card joins an approval by message and exact provider
+request id (`provider_request_id` on approval views), never by tool kind or display
+text alone. A notification offers Allow once only for one pending, unmasked tool
+request that offers `allow`; the action rechecks its identity and request hash.
+
+AskUserQuestion is an inline card with numbered option buttons (1–9 while its
+choices are focused), descriptions and optional previews. `multiSelect` toggles
+several choices; Other accepts free text and Skip omits that question. Several
+questions step forward and back through preserved drafts and submit once with
+one `answers` map keyed by question text; selected labels and Other text join
+with comma and space. Skipping every question sends `deny` with a skipped note,
+without stopping the turn. Composer messages leave the question pending.
+
 | Provider request | Options | Reply |
 |---|---|---|
 | Claude `can_use_tool` | allow, deny, cancel-turn | `{"behavior":"allow","updatedInput":<original>}`; deny `{"behavior":"deny","message":…}`; cancel-turn adds `"interrupt":true` |
@@ -908,7 +942,7 @@ the exact request with token-shaped values masked in place, never truncated.
 `allow` never adds `updatedPermissions`, execpolicy or network amendments.
 Pending approvals survive a daemon restart (re-derived by replay; a
 re-announced request is matched by id) and are withdrawn when the turn ends
-or `approval_wait_s` passes (D-7).
+or a configured `approval_wait_s` stops a turn waiting on a tool approval (D-7).
 
 ## 9. Attachments, drafts, retention
 
@@ -1009,6 +1043,13 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   tool call`, or `Running <tool>` while a tool call is open) and
   counts up the seconds since that began: a long think or a slow tool reads
   as work, not as a hang (Max, 2026-09-24: two silent minutes read as broken).
+- A waiting message's strip is its `state_reason`, `<kind>: <detail>`, in
+  words (C-24.4, 2026-09-29): what admission's last turn pass found (the job
+  and conversation holding a lease, closed lanes and their first reset,
+  lanes' other reasons), and "Waiting for capacity" only for `capacity:`. A
+  message with no reason reads as such, never as capacity: on 2026-09-28
+  four messages read "Waiting for capacity" for hours while another
+  conversation's turn held their folder.
 - A conversation whose Claude session a live process outside Subfleet holds
   (`live_elsewhere` on every conversation view, from the last catalog run if
   it is fresh) shows D-17's words above the composer: open in the Claude app
@@ -1059,6 +1100,26 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   not the last row, which may be a queued bubble.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
+- ⌘K, and File > Search…, open a quick-switch palette over the window
+  (C-29.12; Max, 2026-09-27). It finds every conversation and session by
+  title, workspace and provider, and by the text of the conversations the
+  app has loaded and each session's first prompt; after a pause in typing it
+  asks `conversation.list` with `query` for sessions past the loaded page (no
+  daemon op searches transcripts, and none was added; former titles are not
+  kept, so a renamed conversation is found by its current title). Fuzzy titles
+  rank last, and a last item starts a new conversation. Matching and ranking
+  are Foundation-only (`SearchPalette.swift`), tested through the core probe:
+  text is folded off the main thread, once (unchanged messages keep their
+  folds between openings), and words are found in the folded bytes, since
+  `range(of:options:)` over megabytes of timeline takes seconds.
+- Conversation text is set in reading sizes at one scale (C-29.13; Max,
+  2026-09-27: "text is small"): body 16 pt at actual size, with View >
+  Bigger, Smaller and Actual size stepping as Claude Code's zoom does, and the
+  conversation column widening with the text. SwiftUI's text styles are fixed
+  points on macOS whatever `dynamicTypeSize` says, so views use
+  `.readingFont(_:)`, which reads the scale from the environment
+  (`TextScale.swift`, `UIReading.swift`). Code blocks have Copy and show more
+  lines 400 at a time.
 
 ### `status.json` (C-18.2, C-29.6; review IR-18, IR-34)
 
@@ -1252,3 +1313,82 @@ labelled handoff, whose brief now reads Codex rollouts too:
   the app asks once per conversation.
 - Codex-app threads in `~/.codex` continue by labelled handoff unless the
   relocation test passes.
+
+## Continuation amendment (2026-10-04)
+
+**D-28. A conversation can arrange its next turn.** Detached runs submitted
+inside a turn carry that turn's job as their parent. The daemon collects their
+terminal outcomes and sends one Subfleet message when the conversation is idle.
+The message carries every new completion; consumed job ids survive restarts.
+It waits for the running turn to end because the steer interface intentionally
+accepts only person messages, binds each steer to its host, and requires a
+person's peer check. A service wake has its own visible origin and the same
+durable message/turn dispatch path. Hooks do not repeat notices it carries.
+`subfleet wait` and `run --wait` return receipts without acknowledging notices;
+only `notice.ack` and `runs show` acknowledge (C-15.3), so a waiter returning
+after a turn ends cannot consume the only wake.
+
+An agent can call:
+
+```sh
+subfleet wake --runs JOB1 JOB2 --pr owner/repo#12 --at 2026-10-04T12:00:00Z --note 'Inspect progress'
+```
+
+`conversation.wake` resolves the calling session or the calling turn job (a
+new session may not be bound yet), and returns a request id. Supply
+`--request-id UUID` for retry across CLI invocations. Runs wait for all listed
+jobs; PRs wait for any named event; kinds in one request are alternatives.
+The final-text compatibility grammar is consecutive trailing lines:
+
+```text
+WAKE-ME: runs=JOB1,JOB2 prs=owner/repo#12,owner/repo#13 at=2026-10-04T12:00:00Z note="Inspect the results"
+```
+
+Fields are optional and unique, separated by whitespace with shell quoting;
+one trigger is required. Empty run/PR placeholders are ignored when another trigger exists. Bullets, bold markup and a standard DONE, WAITING ON MAX or HANDED TO close-out are accepted; fences, quotes and indented code are excluded. Invalid lines produce a visible refusal without discarding valid lines. Each line registers independently and replay uses its
+message id, so it does not register twice. Each conversation has at most one
+pending wake per kind; replacement consumes the older kind. A trigger kind
+lists at most 16 targets and a note has at most 4,000 characters. Times must
+have a timezone and be at least five minutes away on first acceptance.
+Final-text timers must meet this floor both from now and from turn-job creation
+(message creation if no job exists); a replay keeps its original acceptance.
+
+PR state is read by one batched `gh api graphql --input -` invocation across
+conversations per cycle, at least 60 seconds apart (persisted even across
+restart), with a 20-second timeout. Head checks, PR state and submitted review
+ids form a durable baseline. Merge/close, completed check transitions and new
+submitted reviews latch readiness even when a conversation cannot wake yet.
+Re-arms retain the last fired request's snapshot; an observation that never reached a wake cannot become a new baseline. With no previous snapshot, dated events strictly after registration cover the gap before the first observation; final-text watches use turn-job creation (or message creation) so an event during the turn is still announced. Partial alias errors preserve other watches and refuse the inaccessible watch once, with an explicit message. Refused targets persist per conversation; a re-arm is refused visibly without creating another wake. Transport failures and incomplete check sets prove no event. The bounded PR worker never holds dispatch and is joined on shutdown. A pending all-of run request gathers its targets into one wake; only the runs kind of a request for already-delivered results is satisfied silently, leaving its timer and PR alternatives armed. A registered run whose row has been pruned counts as finished with state `pruned`. A durable activation timestamp and one-time snapshot exclude historical completions on upgrade while retaining new completions within that same stored second. Notice repair uses a durable queue with batches of at most 500, and completed repairs cause no writes; job lookups are indexed and automatic discovery and request evaluation are paced to once per second. Eligibility is read without a write transaction and target reads are batched. An idle evaluation commits nothing and does not wake long-poll readers.
+
+Wakes wait behind blocks, legacy holds, archives, personal input, turns and
+leases. The same transaction rechecks these guards when it accepts a wake and
+consumes its triggers. Eight consecutive unattended wakes impose a 30-minute
+cooldown before each later wake: several build/review rounds can finish before
+a self-sustaining loop is slowed. A person message resets the counter. If it
+arrives while a wake awaits capacity, the guarded no-attempt cancellation
+withdraws that wake's job and keeps the wake message queued behind personal
+input. Person predecessors and person FIFO are unchanged.
+
+**D-29. A block protects an execution boundary, not an obsolete timestamp.**
+The store keeps `blocked_at` separately from `updated_at`, so sending into a
+blocked conversation does not move the boundary. A catalog transcript mtime
+strictly after it is the continuation criterion; it is not a count of new turns. Catalog and live-writer checks are paced at five seconds per unchanged block. Clear only after
+the fresh C-26.3 live-writer check passes and Subfleet has no live/queued turn
+or lease. Record `conversation.unblocked: continued-elsewhere` atomically with
+clearing the observed block. Preserve handoff and import holds. Historical
+unknown messages become failed as superseded, with no inferred delivery or
+automatic resend. Pre-upgrade blocks use the last settled blocked-turn time.
+
+**D-30. Binding does not freeze native history.** The catalog keeps exact paths
+and file metadata for bound sessions too, including sessions hidden as known
+attempts. `conversation.open` returns one bounded history page on a dedicated read pool;
+history reads prefer catalog paths and can use recorded attempt paths or the
+exact Claude workspace/session path before catalog discovery. They never scan
+native trees. Prompt UUIDs (Claude)
+and turn-context ids (Codex) classify ownership. Synthetic user rows such as
+interrupts, compaction summaries and task notifications do not divide a turn. Subfleet-owned native rows are
+deduplicated against its event stream. Outside rows survive the first-event
+boundary, read "Made in another app", and merge in timestamp order. If a group
+is larger than the read cap and ownership is unavailable, the older conservative
+filter applies until an earlier page identifies it. Reopening refreshes the
+tail and changing conversations scrolls to the newest row at the bottom.

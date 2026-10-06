@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated": "2026-09-24",
+  "updated": "2026-10-04",
   "statuses": [
     "open",
     "recovered",
@@ -69,7 +69,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
+      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design \u00a715, \u00a716). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
     },
     {
       "id": "M-5",
@@ -129,6 +129,18 @@
       "status": "open",
       "evidence": [],
       "notes": ""
+    },
+    {
+      "id": "M-9b",
+      "requirement": "Offer steering a queued follow-up into the running Claude or Codex turn",
+      "source": "Max, steer request (2026-09-27)",
+      "clauses": [
+        "C-24.9",
+        "C-29.7"
+      ],
+      "status": "open",
+      "evidence": [],
+      "notes": "Daemon and app sides of steer.v1 are implemented, and the 2026-09-28 steer review's findings are resolved (image steers, the Claude watchdog, queue position, late steers, Esc, the contract). Live provider verification remains: the Claude fold and Codex turn/steer behaviour against real CLIs (docs/steer-provider-claims.md) and test_core_live step 14, which cannot run inside a Subfleet lane."
     },
     {
       "id": "M-10",
@@ -199,6 +211,34 @@
       "status": "open",
       "evidence": [],
       "notes": ""
+    },
+    {
+      "id": "M-15",
+      "requirement": "A keyboard shortcut to search, like \u2318K",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.12"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_search.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Palette over the window: conversations and sessions by title, workspace, provider and loaded message text, fuzzy titles last, and a new-conversation item; the daemon's catalog query for sessions past the loaded page. Not done: former titles (not kept anywhere) and a full-text search of transcripts the app has not loaded (no daemon op). Not yet seen in the installed app."
+    },
+    {
+      "id": "M-16",
+      "requirement": "Readable text: conversation text was small",
+      "source": "Max, 2026-09-27",
+      "clauses": [
+        "C-29.13"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_text_scale.py",
+        "tests/frontend/test_reading_view.py"
+      ],
+      "notes": "Body 16 pt at actual size; View > Bigger, Smaller and Actual size step as Claude Code's zoom does and persist one scale; the conversation column widens with it. Not yet seen in the installed app."
     },
     {
       "id": "P-1",
@@ -445,7 +485,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "design §11 Recovery: drain turn jobs before a daemon rollback."
+      "notes": "design \u00a711 Recovery: drain turn jobs before a daemon rollback."
     },
     {
       "id": "R-8",
@@ -508,6 +548,45 @@
         "~/subfleet-desktop-recovery/20260924T121841Z/legacy-state/INVENTORY.md: 6 messages, all finished; pending journal {}; 0 attachments"
       ],
       "notes": "The import itself is R-9."
+    },
+    {
+      "id": "R-11",
+      "requirement": "Durable unattended check-backs wait for meaningful changes and respect person input",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.10"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_wakes.py; tests/fake/test_conversation_wakes_fake.py; tests/e2e/test_conversation_wakes_e2e.py"
+      ],
+      "notes": "Review follow-up validation is recorded in docs/reports/2026-10-04-continuation.md."
+    },
+    {
+      "id": "R-12",
+      "requirement": "Superseded Claude blocks clear only after the outside writer has ended",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.11"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_wakes.py: moot-block differential and lease cases"
+      ],
+      "notes": "The criterion is catalog mtime after blocked_at, not a count of gained turns."
+    },
+    {
+      "id": "R-13",
+      "requirement": "Native history remains available and does not duplicate Subfleet turns",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.12"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_history.py; tests/frontend/test_core_timeline.py"
+      ],
+      "notes": "Exact known transcript paths bridge the first catalog pass without scanning trees."
     }
   ]
 }

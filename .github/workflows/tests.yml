@@ -18,7 +18,10 @@ jobs:
     runs-on: macos-15
     # The release line's suite (6,228 tests, the desktop workspace's included)
     # took 12 min 22 s on Python 3.12 on 2026-09-27; 15 min cancelled 3.14.
-    timeout-minutes: 30
+    # Retention by archive (#76) adds about 22 minutes: its real-filesystem tests
+    # took the 3.14 job to 26.5 minutes on 2026-10-04, and the 2.1.11 integration
+    # ran past 30. Raised until those tests are made faster (hub follow-up).
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:

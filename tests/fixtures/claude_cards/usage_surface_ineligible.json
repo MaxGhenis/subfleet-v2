@@ -1,0 +1,118 @@
+{
+ "amber_cistern": null,
+ "amber_gauge": null,
+ "amber_ladder": null,
+ "brass_thimble": null,
+ "cedar_ember": {
+  "at_limit": false,
+  "cooldown_until": null,
+  "eligible": false,
+  "event_props": null,
+  "exhausted": [],
+  "grants": [],
+  "ineligible_reason": "surface",
+  "next_grant_id": null,
+  "weekly_resets_at": null
+ },
+ "cinder_cove": null,
+ "copper_kite": null,
+ "extra_usage": null,
+ "five_hour": {
+  "limit_dollars": null,
+  "locked_reason": null,
+  "remaining_dollars": null,
+  "resets_at": "2026-10-05T17:09:59.923124+00:00",
+  "used_dollars": null,
+  "utilization": 16.0
+ },
+ "harbor_lantern": null,
+ "iguana_necktie": {
+  "limit_dollars": 250,
+  "locked_reason": null,
+  "remaining_dollars": 250.0,
+  "resets_at": "2026-11-05T07:59:00+00:00",
+  "used_dollars": 0.0,
+  "utilization": 0.0
+ },
+ "juniper_tide": null,
+ "limits": [
+  {
+   "group": "session",
+   "is_active": false,
+   "kind": "session",
+   "percent": 16,
+   "resets_at": "2026-10-05T17:09:59.923124+00:00",
+   "scope": null,
+   "severity": "normal"
+  },
+  {
+   "group": "weekly",
+   "is_active": true,
+   "kind": "weekly_all",
+   "percent": 74,
+   "resets_at": "2026-10-10T13:59:59.923149+00:00",
+   "scope": null,
+   "severity": "normal"
+  },
+  {
+   "group": "weekly",
+   "is_active": false,
+   "kind": "weekly_scoped",
+   "percent": 0,
+   "resets_at": "2026-10-10T14:00:00+00:00",
+   "scope": {
+    "model": {
+     "display_name": "Fable",
+     "id": null
+    },
+    "surface": null
+   },
+   "severity": "normal"
+  }
+ ],
+ "member_dashboard_available": false,
+ "nimbus_quill": null,
+ "omelette_promotional": null,
+ "seven_day": {
+  "limit_dollars": null,
+  "locked_reason": null,
+  "remaining_dollars": null,
+  "resets_at": "2026-10-10T13:59:59.923149+00:00",
+  "used_dollars": null,
+  "utilization": 74.0
+ },
+ "seven_day_breakdown": {
+  "as_of": "2026-10-05T15:10:42.935315+00:00",
+  "rows": [
+   {
+    "display_name": "Claude Code",
+    "key": "claude_code",
+    "percent": 100
+   },
+   {
+    "display_name": "Chats",
+    "key": "chat",
+    "percent": 0
+   },
+   {
+    "display_name": "Cowork",
+    "key": "cowork",
+    "percent": 0
+   },
+   {
+    "display_name": "Other",
+    "key": "other",
+    "percent": 0
+   }
+  ],
+  "window_started_at": "2026-10-03T13:59:59.923149+00:00"
+ },
+ "seven_day_cowork": null,
+ "seven_day_oauth_apps": null,
+ "seven_day_omelette": null,
+ "seven_day_opus": null,
+ "seven_day_sonnet": null,
+ "spend": null,
+ "tangelo": null,
+ "wattle_ember": null
+}

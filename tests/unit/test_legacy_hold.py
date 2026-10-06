@@ -394,6 +394,9 @@ class RecordingRunner:
     def interrupt(self, reason="stopped"):
         self.interrupts.append(reason)
 
+    def end_title(self, why):
+        pass
+
     def withhold(self, reason):
         assert not self.started, "withheld after the runner started"
         self.withheld.append(reason)
@@ -438,7 +441,7 @@ def test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversat
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
         aid = running_attempt(world, daemon, cid, first)
         svc._adopt_runners()
         (runner,) = RecordingRunner.made
@@ -495,7 +498,7 @@ def test_an_adopted_turn_on_a_held_conversation_never_writes_its_message(world, 
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
         aid = running_attempt(world, daemon, cid, first)
         adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
         log = [{"kind": "intent", "seq": 1, "tag": "init", "op": "write"}, {"kind": "written", "seq": 1}]
@@ -538,7 +541,7 @@ def test_a_person_s_stop_stands_over_the_hold(world, tmp_path):
         outcome(svc, tmp_path, first, cid, state="interrupted", reason="stopped-before-send",
                 stop_reason="legacy-owner", user_frame_written=False)
         message = svc.store.message(first)
-        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
+        assert (message["state"], message["state_reason"]) == ("interrupted", "stopped")
     finally:
         svc.close()
 
@@ -794,13 +797,56 @@ def _registered(world: World, *, subfleet: bool, session: str = SESSION) -> subp
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], env=env)
     # C-26.3: a row holds its session only while its `procStart` is its pid's
     # start as `TZ=UTC ps -o lstart=` prints it (Claude Code 2.1.280 writes it so).
-    started = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "lstart="], capture_output=True, text=True,
-                             env={**os.environ, "TZ": "UTC"}).stdout.strip()
-    (world.claude / "sessions").mkdir(exist_ok=True)
-    (world.claude / "sessions" / f"{process.pid}.json").write_text(
-        json.dumps({"sessionId": session, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
-        encoding="utf-8")
+    try:
+        started = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "lstart="], capture_output=True, text=True,
+                                 env={**os.environ, "TZ": "UTC"}).stdout.strip()
+        (world.claude / "sessions").mkdir(exist_ok=True)
+        (world.claude / "sessions" / f"{process.pid}.json").write_text(
+            json.dumps({"sessionId": session, "pid": process.pid, "cwd": str(world.workspace), "procStart": started}),
+            encoding="utf-8")
+    except BaseException:
+        # Setup can fail before the caller owns cleanup, for example when its
+        # sandbox refuses ps. Do not leave the 120-second sleeper behind.
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        process.wait()
+        raise
     return process
+
+
+def test_registration_setup_failure_reaps_its_child(tmp_path, monkeypatch):
+    """A denied inspection preserves its error and leaves no fixture sleeper alive."""
+    world = types.SimpleNamespace(claude=tmp_path / "claude", workspace=tmp_path)
+    failure = PermissionError("fixture inspection denied")
+    children = []
+    popen = subprocess.Popen
+
+    def spawn(*args, **kwargs):
+        child = popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    def refuse(argv, **kwargs):
+        assert argv[0] == "/bin/ps" and children[0].poll() is None
+        raise failure
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(subprocess, "run", refuse)
+    try:
+        with pytest.raises(PermissionError) as caught:
+            _registered(world, subfleet=False)
+        assert caught.value is failure
+        assert len(children) == 1
+        child = children[0]
+        assert child.returncode is not None             # the helper waited, not this test's poll
+        assert child.poll() == child.returncode
+        with pytest.raises(ChildProcessError):
+            os.waitpid(child.pid, os.WNOHANG)            # already reaped
+    finally:
+        for child in children:                         # clean up even when checking the old helper
+            if child.poll() is None:
+                child.kill()
+            child.wait()
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
@@ -1081,7 +1127,7 @@ def test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden(
     svc, daemon = service(world)
     try:
         first = submit(svc, world.conversation_id())
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
         svc.store.update_message(first, stop_requested_at="2026-09-25T20:00:00.000Z")
         aid = running_attempt(world, daemon, world.conversation_id(), first)
         adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
@@ -1121,7 +1167,7 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
     svc, daemon = service(world)
     cid = world.conversation_id()
     mid = submit(svc, cid)
-    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(mid, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, mid)
     adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
     tags, receipts = [], []
@@ -1148,7 +1194,7 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
         assert tags == ["init", "close"] and runner.driver.outcome.reason == "stopped-before-send"
         assert json.loads((adir / "turn.json").read_text())["user_frame_written"] is False
         message = svc.store.message(mid)
-        assert (message["state"], message["state_reason"]) == ("failed", "not-delivered: stopped-before-send")
+        assert (message["state"], message["state_reason"]) == ("interrupted", "stopped")
     finally:
         svc.close()
 
@@ -1164,7 +1210,7 @@ def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, 
     svc, daemon = service(world)
     cid = world.conversation_id()
     mid = submit(svc, cid)
-    svc.store.set_state(mid, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(mid, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, mid)
     adir = world.root / "jobs" / "turn-cv-held-20260925" / "a1"
     (adir / "stdout").write_text(json.dumps(_init_answer()) + "\n")
@@ -1348,7 +1394,7 @@ def test_a_runner_the_store_refuses_to_mark_is_still_started(world, monkeypatch)
     svc, daemon = service(world)
     try:
         first = submit(svc, cid)
-        svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+        svc.store.set_state(first, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
         running_attempt(world, daemon, cid, first)
         real = svc.store.set_state
 
@@ -1420,7 +1466,7 @@ def test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop(world
     svc, daemon = service(world)
     cid = world.conversation_id()
     first = submit(svc, cid)
-    svc.store.set_state(first, WAITING, expect=("queued",), job_id="turn-cv-held-20260925")
+    svc.store.set_state(first, WAITING, reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="turn-cv-held-20260925")
     aid = running_attempt(world, daemon, cid, first)
     (world.root / "jobs" / "turn-cv-held-20260925" / "a1" / "stdout").write_text(json.dumps(_init_answer()) + "\n")
     other = next(m for m in (str(uuid.uuid4()) for _ in range(1000)) if svc._handover(m) is not svc._handover(first))

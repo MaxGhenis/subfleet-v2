@@ -1,11 +1,17 @@
-"""Snapshot-based alert conditions and durable event latches (C-23.27, C-23.52)."""
+"""Snapshot-based alert conditions and durable event latches (C-23.27, C-23.52).
+
+An alert in force is shown by `subfleet status` and `status.json` (C-18.4),
+whatever else delivers it: a notice for `alerts.operator_session` when one is
+configured (C-15.8, C-18.1), and nothing more when none is.
+"""
 
 from __future__ import annotations
 
 import json
 import shlex
+import threading
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -98,6 +104,11 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             add("codex-fleet-low", "warn", "codex: only one dispatchable lane",
                 f"Only {_home(available[0])} has observed headroom. Run: subfleet status", home="fleet:codex")
 
+    for warning in (snapshot.get("claude_cards") or {}).get("warnings") or ():
+        condition = card_condition(warning, at)
+        if condition:
+            add(**condition)
+
     expiry = snapshot.get("capacity_expiry") or {}
     unused = expiry.get("projected_unused_windows_raw", expiry.get("projected_unused_windows"))
     if not _number(unused):
@@ -110,40 +121,178 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
     return list(conditions.values())
 
 
+def _when(value: Any, now: datetime) -> str:
+    if not isinstance(value, str) or not value:
+        return "an unknown time"
+    left = instant(value) - now
+    days = left.total_seconds() / 86400
+    return f"{value} (in {days:.1f} days)" if days >= 0 else value
+
+
+def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] | None:
+    """C-9.10: one card or credit warning as an alert condition.
+
+    Every body says what is at risk and when, and that spending it is the
+    operator's act: Subfleet reads cards and credits and never redeems one.
+    """
+    kind, login = warning.get("kind"), str(warning.get("login") or "?")
+    lanes = ", ".join(warning.get("lanes") or ()) or "no lane"
+    who = f"{login} ({lanes})"
+    home = f"claude-cards:{login}"
+    never = "Subfleet never redeems or claims; using it is your call."
+    # A card kept through a read that listed none is as last listed, not as read now.
+    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the read at "
+              f"{warning.get('unlisted_at') or 'a later time'} listed none ({warning.get('unlisted')}), so check "
+              f"Settings, Usage. " if warning.get("unlisted") else "")
+    if kind == "card-expiring":
+        subject = f"claude: unused limit reset on {login} expires soon"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}) "
+                f"that expire at {_when(warning.get('at'), now)}. Use it from Settings, Usage, Reset for free "
+                f"(web or desktop) before then, or it is lost. {listed}{never}")
+    elif kind == "card-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: unused limit reset on {login} is lost if its plan lapses"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}); "
+                f"{reasons}. A card is lost when the plan is cancelled or downgraded before it is used. "
+                f"{listed}{never}")
+    elif kind == "credit-expiring":
+        subject = f"claude: {warning.get('label')} on {login} expires soon"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left, "
+                f"expiring at {_when(warning.get('at'), now)}; what is unspent then is lost. {never}")
+    elif kind == "credit-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: {warning.get('label')} on {login} may go with its plan"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left; {reasons}. "
+                f"When two of these accounts' plans ended (2026-09-30, 2026-10-04) their usage stopped showing "
+                f"the credit. {never}")
+    elif kind == "card-lost":
+        why = "with its plan" if warning.get("reason") == "lapse" else "unused at its end"
+        subject = f"claude: a limit reset on {login} was lost {why}"
+        body = (f"{who} held {', '.join(warning.get('grants') or ())} unused at the last read; it was lost "
+                f"{why} (seen {warning.get('at')}).")
+    elif kind == "credit-lost":
+        credits = ", ".join(f"{row.get('label')} (${(row.get('remaining_dollars') or 0):.2f})"
+                            for row in warning.get("credits") or ())
+        if warning.get("reason") == "lapse":
+            subject = f"claude: {login}'s plan lapsed with promotional credit unspent"
+            body = (f"{who} had {credits} left at the last read and its plan has lapsed (seen "
+                    f"{warning.get('at')}). When two of these accounts' plans ended (2026-09-30, 2026-10-04) "
+                    f"their usage stopped showing the credit.")
+        else:
+            subject = f"claude: a promotional credit on {login} ended unspent"
+            body = f"{who} had {credits} left at the last read; a read after its end shows it unspent or gone (seen {warning.get('at')})."
+    elif kind == "credit-claimable":
+        subject = f"claude: {login} has an unclaimed promotional credit"
+        body = (f"{who} is eligible for the cloud-session credit and has not claimed it. Claim it in the Claude "
+                f"app, at claude.ai/code/claim-credit, or with /claim-credit in Claude Code. {never}")
+    else:
+        return None
+    # A warning that stops because the card or credit was used or lost is not
+    # a recovery: its latch clears without a "recovered" notice. A loss is told
+    # once.
+    lost = kind in ("card-lost", "credit-lost")
+    return {"key": f"claude-{kind}:{warning.get('key')}", "severity": "warn", "subject": subject,
+            "body": body, "home": home, "recover": False, **({"once": True} if lost else {"daily": True})}
+
+
+def operator_session(policy: Mapping[str, Any]) -> str | None:
+    """C-15.8: the session `alerts.operator_session` names, or None when it names none.
+
+    There is no default: a notice for a session id nobody holds is never read
+    (2026-10-03, 1,637 alerts parked for the literal `operator` since 9/19).
+    """
+    value = (policy.get("alerts") or {}).get("operator_session")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+#: C-18.4: the order `status` lists alerts in; an unknown severity sorts as `warn`.
+SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
+
+LATCH_QUERY = "SELECT data_json FROM events WHERE kind='alert-latch' ORDER BY event_id"
+
+
+def load_latches(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each alert key's newest latch state, from `alert-latch` events in event order."""
+    latches: dict[str, dict[str, Any]] = {}
+    for event in rows:
+        try:
+            data = json.loads(event["data_json"])
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        key = data.get("key") or data.get("alert_key")
+        if isinstance(key, str):
+            state = data.get("latch") or data.get("state") or data
+            if isinstance(state, dict):
+                latches[key] = dict(state)
+        else:
+            # Importers may preserve the entire v1 alerts.json map in one
+            # event, or one row per v1 key. Both are append-only evidence.
+            states = data.get("latches", data)
+            if isinstance(states, dict):
+                for key, state in states.items():
+                    if isinstance(state, dict) and "active" in state:
+                        latches[key] = dict(state)
+    return latches
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def active_alerts(latches: Mapping[str, Mapping[str, Any]],
+                  current: Mapping[str, Mapping[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """C-18.4: every alert in force, as `status` and `status.json` show it.
+
+    An alert is in force while its latch is active: it fired and has not been
+    cleared, which an offline cycle never does (C-23.27). Its words are the
+    latest cycle's (`current`) when that cycle saw the condition, else the ones
+    it last fired with; a latch written before alerts kept their words shows
+    its key. `since` is when the latch last became active, null when that was
+    before latches recorded it.
+    """
+    rows = []
+    for key, state in latches.items():
+        if not state.get("active"):
+            continue
+        fresh = (current or {}).get(key) or {}
+        rows.append({"key": key,
+                     "severity": _text(fresh.get("severity")) or _text(state.get("severity")),
+                     "subject": _text(fresh.get("subject")) or _text(state.get("subject")) or key,
+                     "body": _text(fresh.get("body")) or _text(state.get("body")) or "",
+                     "home": _text(fresh.get("home")) or _text(state.get("home")),
+                     "since": _text(state.get("since")), "last_sent": _text(state.get("last_sent"))})
+    rows.sort(key=lambda row: (SEVERITY_ORDER.get(row["severity"] or "warn", 1),
+                               row["since"] or "", row["key"]))
+    return rows
+
+
 class Alerts:
-    """Persist latches in events; delivery is the daemon's ping notice callback."""
+    """Persist latches in events; delivery is the daemon's callback (C-15.8)."""
 
     def __init__(self, store: Any, policy: Mapping[str, Any], deliver: Callable[[dict[str, Any]], Any]):
         self.store, self.policy, self.deliver = store, policy, deliver
+        # `active` is read from request threads while a cycle writes; every
+        # change to the two maps below is made under this lock.
+        self._lock = threading.Lock()
         self.latches = self._load_latches()
+        self._current: dict[str, dict[str, Any]] = {}
 
     def _load_latches(self) -> dict[str, dict[str, Any]]:
-        latches: dict[str, dict[str, Any]] = {}
-        for event in self.store.query("SELECT data_json FROM events WHERE kind='alert-latch' ORDER BY event_id"):
-            try:
-                data = json.loads(event["data_json"])
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(data, dict):
-                continue
-            key = data.get("key") or data.get("alert_key")
-            if isinstance(key, str):
-                state = data.get("latch") or data.get("state") or data
-                if isinstance(state, dict):
-                    latches[key] = dict(state)
-            else:
-                # Importers may preserve the entire v1 alerts.json map in one
-                # event, or one row per v1 key. Both are append-only evidence.
-                states = data.get("latches", data)
-                if isinstance(states, dict):
-                    for key, state in states.items():
-                        if isinstance(state, dict) and "active" in state:
-                            latches[key] = dict(state)
-        return latches
+        return load_latches(self.store.query(LATCH_QUERY))
 
     def _persist(self, key: str, state: dict[str, Any]) -> None:
         self.store.add_event("alert-latch", data={"key": key, **state})
-        self.latches[key] = state
+        with self._lock:
+            self.latches[key] = state
+
+    def active(self) -> list[dict[str, Any]]:
+        """C-18.4: the alerts in force now (`active_alerts`)."""
+        with self._lock:
+            latches = {key: dict(state) for key, state in self.latches.items() if state.get("active")}
+            current = dict(self._current)
+        return active_alerts(latches, current)
 
     @staticmethod
     def _homes(key: str, state: Mapping[str, Any]) -> set[str]:
@@ -172,6 +321,8 @@ class Alerts:
 
         conditions = evaluate_conditions(snapshot, now=at)
         current = {condition["key"]: condition for condition in conditions}
+        with self._lock:
+            self._current = current
         active_homes = set().union(*(self._homes(key, value) for key, value in current.items())) if current else set()
         config = self.policy.get("alerts", {})
         interval = max(6.0, float(config.get("realert_hours", 6))) * 3600
@@ -186,10 +337,16 @@ class Alerts:
                 due = False
             state = {**previous, "active": True, "home": condition["home"],
                      "homes": sorted(self._homes(key, condition)), "recover": condition.get("recover", True)}
+            if not previous.get("active"):
+                state["since"] = timestamp(at)          # C-18.4
             if due:
                 if self.deliver(dict(condition)) is False:
                     continue
                 state["last_sent"] = timestamp(at)
+                # C-18.4: the words it fired with, for a `status` read before
+                # the next cycle sees the condition (or from the store, offline).
+                state.update(severity=condition["severity"], subject=condition["subject"],
+                             body=condition["body"])
                 sent.append(key)
             if state != previous:
                 self._persist(key, state)

@@ -95,6 +95,7 @@ final class QuotaStore: ObservableObject {
     var hasProblem: Bool {
         guard let snap else { return true }
         if snap.offline == true || snap.isStale(now: loadedAt) || snap.codex.fleet.dispatchable_now == 0 { return true }
+        if alertsNeedAttention(snap) { return true }
         let rows = snap.codex.homes.map { codexDisplay($0, snapshot: snap, now: loadedAt) }
             + (snap.claude.accounts ?? []).map { claudeDisplay($0, snapshot: snap, now: loadedAt) }
         return rows.contains { $0.tone == .error || $0.tone == .warning }
@@ -195,6 +196,33 @@ struct JobRowView: View {
     }
 }
 
+struct AlertsView: View {
+    let alerts: [AlertRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ALERTS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(alerts) { alert in
+                let display = alertDisplay(alert)
+                HStack(alignment: .top, spacing: 6) {
+                    Circle().fill(toneColor(display.tone)).frame(width: 7, height: 7).padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(display.title).font(.callout).foregroundStyle(toneColor(display.tone))
+                        // Selectable, so the command it names can be copied.
+                        if !display.detail.isEmpty {
+                            Text(display.detail).font(.caption2).foregroundStyle(.secondary)
+                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let since = display.since {
+                            Text("since \(clock(since))").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct JobsView: View {
     let jobs: JobsSection?
 
@@ -273,6 +301,10 @@ struct ContentView: View {
             if snap.isStale(now: store.loadedAt) {
                 Label("Snapshot is stale. Check that the daemon is running.", systemImage: "clock.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.orange)
+            }
+            if let alerts = snap.alerts, !alerts.isEmpty {
+                Divider()
+                AlertsView(alerts: alerts).accessibilityIdentifier("alerts-section")
             }
             Divider()
             JobsView(jobs: snap.jobs).accessibilityIdentifier("jobs-section")

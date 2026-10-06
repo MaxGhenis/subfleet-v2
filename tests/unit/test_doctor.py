@@ -348,6 +348,17 @@ def test_live_pings_the_daemon(daemon, root):
     assert item["status"] == doctor.PASS and "2.0.0a0" in item["detail"]
 
 
+def test_c15_8_live_ping_carries_no_text_so_it_parks_no_notice(daemon, root):
+    """C-15.8, C-16.2 the liveness ping has no text and names no session: a ping
+    with text parks a notice, and every `doctor --live` used to park a "doctor"
+    notice for the literal session `operator`, which nothing reads."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "t"}})
+    assert doctor.check_live(root)["status"] == doctor.PASS
+    assert server.ops() == ["ping"]
+    assert not server.requests[0].args.get("text")
+    assert not server.requests[0].args.get("session_id")
+
+
 def test_live_fails_when_nothing_is_listening(root):
     """C-17.5 everything that needs the daemon exits 69 when it is not there,
     and `--live` is exactly the check that needs it."""
@@ -502,3 +513,53 @@ def test_guard_preflight_settings_row_fails_on_a_cache_override_outside_the_root
     monkeypatch.setenv(guard.CACHE_ENV, "../shared")
     item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
     assert item["status"] == doctor.FAIL and guard.CACHE_ENV in item["detail"] and guard.CACHE_ENV in item["fix"]
+
+
+# --- descriptors (C-16.6, C-16.7) ---------------------------------------------
+
+def test_c16_6_the_plist_row_reads_number_of_files(tmp_path):
+    """C-16.6 absent plist and absent key are unknown (the daemon raises its own
+    limit); a low value fails; a written value passes."""
+    import plistlib
+    plist = tmp_path / "com.subfleet.daemon.plist"
+    assert doctor.check_launchd_limit(plist)["status"] == doctor.UNKNOWN
+    plist.write_bytes(plistlib.dumps({"Label": "com.subfleet.daemon"}))
+    item = doctor.check_launchd_limit(plist)
+    assert item["status"] == doctor.UNKNOWN and "daemon install" in item["fix"]
+    plist.write_bytes(plistlib.dumps({"SoftResourceLimits": {"NumberOfFiles": 256}}))
+    item = doctor.check_launchd_limit(plist)
+    assert item["status"] == doctor.FAIL and "runs --running" in item["fix"]
+    plist.write_bytes(cli._plist(tmp_path))
+    assert doctor.check_launchd_limit(plist)["status"] == doctor.PASS
+
+
+def test_c16_6_live_reports_the_daemons_descriptors(daemon, root):
+    """C-16.6, C-16.7 `--live` reads `descriptors` from daemon.status and judges it."""
+    budget = {"soft_limit": 65536, "hard_limit": None, "open": 37, "connections": 2,
+              "max_connections": 512, "refused": 0, "idle_closed": 1, "abandoned": 3,
+              "accept_failures": 0}
+    daemon({"daemon.status": lambda request: {"descriptors": budget}})
+    item = doctor.check_descriptors_live(root)
+    assert item["status"] == doctor.PASS
+    assert "37 open of soft limit 65536 (hard unlimited); 2 of 512 client connections" in item["detail"]
+    budget.update(soft_limit=256)
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+    budget.update(soft_limit=4096, open=4000)
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+    budget.update(open=None)                     # the daemon could not even list /dev/fd
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+
+
+def test_c16_6_live_descriptors_is_unknown_for_an_older_daemon(daemon, root):
+    daemon({"daemon.status": lambda request: {"pid": 1}})
+    assert doctor.check_descriptors_live(root)["status"] == doctor.UNKNOWN
+
+
+def test_c16_6_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
+    """C-17.5 the plist row is offline (a file read); the daemon's own numbers are `--live` only."""
+    daemon({"ping": lambda request: {"pong": True, "version": "t"},
+            "daemon.status": lambda request: {"descriptors": {"soft_limit": 65536, "open": 9}}})
+    names = {item["check"] for item in doctor.checks(root)}
+    live = {item["check"] for item in doctor.checks(root, live=True)}
+    assert "launchd open-file limit" in names and "daemon descriptors" not in names
+    assert "daemon descriptors" in live

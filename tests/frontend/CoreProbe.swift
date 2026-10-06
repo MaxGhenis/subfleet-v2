@@ -76,12 +76,12 @@ func codec<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec {
 let codecs: [String: OpCodec] = {
     let all = [
         codec(Ops.capabilities), codec(Ops.conversationList), codec(Ops.conversationOpen), codec(Ops.conversationCreate),
-        codec(Ops.conversationSettings), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
+        codec(Ops.conversationSettings), codec(Ops.conversationRename), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
         codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
-        codec(Ops.messageCancel), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
+        codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
         codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
-        codec(Ops.conversationHandoff),
+        codec(Ops.conversationHandoff), codec(Ops.workspaceCheck), codec(Ops.conversationWake),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
@@ -139,7 +139,8 @@ func project(_ card: ApprovalCard) -> [String: Any] {
     case .withdrawn: state = "withdrawn"
     }
     return ["request_id": card.requestID as Any? ?? NSNull(), "approval_id": card.approvalID as Any? ?? NSNull(),
-            "kind": card.kind, "options": card.options, "state": state, "display": jsonObject(card.display),
+            "kind": card.kind, "options": card.options, "state": state, "actionable": card.isActionable,
+            "display": jsonObject(card.display),
             "shown": card.display.shownFields.map { [$0.key, $0.value] },
             "questions": card.questions.map { $0.question }]
 }
@@ -165,6 +166,11 @@ func project(_ item: TimelineItem) -> [String: Any] {
         out["type"] = "error"; out["message"] = message; out["kind"] = kind as Any? ?? NSNull(); out["will_retry"] = willRetry
     case .notice(let text):
         out["type"] = "notice"; out["text"] = text
+    case .taskNotification(let notice):
+        out["type"] = "task_notification"; out["summary"] = notice.summary; out["status"] = notice.status
+        out["exit_code"] = notice.exitCode as Any? ?? NSNull(); out["detail"] = notice.detail
+    case .steered(let messageID):
+        out["type"] = "steered"; out["steered"] = messageID
     }
     return out
 }
@@ -179,6 +185,9 @@ func project(_ turn: TurnTimeline) -> [String: Any] {
                                                                            "served_model": $0.servedModel as Any? ?? NSNull()] } as Any? ?? NSNull(),
         "limits": turn.limits.map(jsonObject) as Any? ?? NSNull(), "diff": turn.diff as Any? ?? NSNull(),
         "status_text": turn.statusText, "streaming": turn.isStreaming, "pending_approvals": turn.pendingApprovals.count,
+        "steered_into": turn.steeredInto as Any? ?? NSNull(), "steer_delivered_in": turn.steerDeliveredIn as Any? ?? NSNull(),
+        "steer_requested": turn.steerRequested, "steer_refusal": turn.steerRefusal?.reason as Any? ?? NSNull(),
+        "placed_steer": turn.isPlacedSteer, "unread_steer": turn.isUnreadSteer, "read_steer": turn.isReadSteer,
     ]
 }
 
@@ -186,15 +195,23 @@ func project(_ timeline: Timeline) -> [String: Any] {
     [
         "cursor": timeline.cursor, "resets": timeline.resets, "order": timeline.order,
         "items": timeline.items.map(project), "turns": Dictionary(uniqueKeysWithValues: timeline.order.compactMap { id in
-            timeline.turn(id).map { (id, project($0)) } }),
+            timeline.turn(id).map { turn in
+                var out = project(turn)
+                // What the status line shows: a steered message's words follow the turn it joins.
+                out["status_text"] = timeline.statusText(of: id) ?? turn.statusText
+                return (id, out)
+            } }),
         "history_before": timeline.historyBefore as Any? ?? NSNull(), "history_complete": timeline.historyComplete,
         "history_added": timeline.historyAddedByLastPage,
         "unknown_kinds": timeline.unknownKinds, "pending_cards": timeline.pendingApprovalCards.map(project),
         "live_message": timeline.liveMessageID as Any? ?? NSNull(),
+        "placed_steers": timeline.placedSteers.sorted(), "recallable_steers": timeline.recallableSteers,
         // What the conversation view pins and follows (design §12).
         "display_order": timeline.displayOrder, "pending_items": timeline.pendingApprovalItems.map(\.id),
         "pinned_turn": timeline.pinnedTurn?.messageID as Any? ?? NSNull(),
         "review_label": reviewButtonLabel(pending: timeline.pendingApprovalItems.count) as Any? ?? NSNull(),
+        "review_opens_sheet": timeline.pendingApprovalItems.first?.pendingCard.map(reviewOpensRequestSheet) as Any?
+            ?? NSNull(),
         "followed_item": timeline.followedItem?.id as Any? ?? NSNull(), "caught_up": timeline.caughtUp,
         "history_pages": timeline.historyPagesLoaded,
     ]
@@ -209,7 +226,8 @@ func pageResult(_ result: Timeline.PageResult) -> String {
 }
 
 /// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"pending"}|{"history"}|{"local"}|
-/// {"reopen"}|{"elsewhere"}]}`. `approvals` attaches views; `pending` is the daemon's whole pending set,
+/// {"steer_request"}|{"escape"}|{"esc"}|{"too_late"}|{"steer_answer"}|{"reopen"}|{"elsewhere"}]}`.
+/// `approvals` attaches views; `pending` is the daemon's whole pending set,
 /// attached and reconciled as the store does; `reopen` begins a new read, as focusing does. After each
 /// step the conversation view's `ApprovalFollower` is asked where to scroll, as the view asks it:
 /// `"reveal": true` on a step is the person asking, which stands until a row answers it;
@@ -217,6 +235,7 @@ func pageResult(_ result: Timeline.PageResult) -> String {
 func runFold(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
     var timeline = Timeline(conversationID: input["conversation_id"]?.string ?? "cv")
+    var tooLate = TooLateSteers()        // what `UIModel.escape` keeps between presses
     var results: [String] = []
     var snapshots: [[String: Any]] = []
     var follower = ApprovalFollower()
@@ -241,11 +260,45 @@ func runFold(_ data: Data) throws -> [String: Any] {
             results.append("reopen")
         } else if let history = step["history"] {
             let asked = timeline.historyBefore
-            timeline.apply(history: try history.decode(HistoryPage.self))
+            timeline.apply(history: try history.decode(HistoryPage.self), provider: input["provider"]?.string ?? "claude")
             results.append(timeline.shouldFollowHistory(askedBefore: asked) ? "history:follow" : "history")
         } else if let local = step["local"] {
-            timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "")
+            timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "",
+                              steer: local["steer"]?.bool ?? false)
             results.append("local")
+        } else if let steered = step["steer_request"]?.string {
+            timeline.requestSteer(messageID: steered)
+            results.append("steer_request")
+        } else if let passed = step["escape"] {
+            // Esc, passing over the steers the daemon answered too-late for just now: a
+            // list of ids, each recorded as `UIModel.escape` records such an answer.
+            var answered = TooLateSteers()
+            for id in passed.array?.compactMap(\.string) ?? [] {
+                _ = answered.tooLate(id, in: timeline, assistant: "Claude")
+            }
+            switch answered.escape(timeline) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
+        } else if step["esc"]?.bool == true {
+            // Esc as `UIModel.escape` does it, with what earlier `too_late` steps left.
+            switch tooLate.escape(timeline) {
+            case .recall(let id): results.append("escape:recall:" + id)
+            case .stop(let action): results.append("escape:stop:" + ((project(action)["message_id"] as? String) ?? "none"))
+            case .none: results.append("escape:none")
+            }
+        } else if let late = step["too_late"]?.string {
+            // The daemon answered `message.cancel` of this steer `too-late`.
+            results.append("too-late:" + tooLate.tooLate(late, in: timeline, assistant: step["assistant"]?.string ?? "Claude"))
+        } else if let answer = step["steer_answer"] {
+            // The outbox's answer to a steer: `refusal` null when the daemon took it.
+            let refusal = answer["refusal"].flatMap { $0.isNull ? nil : $0 }.map {
+                OutboxFailure(code: $0["code"]?.int, reason: $0["reason"]?.string, message: $0["message"]?.string ?? "",
+                              retryable: false)
+            }
+            timeline.noteSteer(messageID: answer["message_id"]?.string ?? "", refusal: refusal)
+            results.append("steer_answer")
         }
         if step["reveal"]?.bool == true { reveal = true }
         if step["elsewhere"]?.bool == true {
@@ -266,6 +319,43 @@ func runFold(_ data: Data) throws -> [String: Any] {
 
 // MARK: - Main
 
+/// Exercise the exact state used by the inline card without importing SwiftUI.
+func runQuestions(_ data: Data) throws -> [String: Any] {
+    let input = try JSONValue.parse(data)
+    let questions = try input["questions"]?.decode([ApprovalQuestion].self) ?? []
+    var state = QuestionCardState(questions: questions)
+
+    func snapshot() -> [String: Any] {
+        ["current_index": state.currentIndex,
+         "current_question": state.currentQuestion?.question as Any? ?? NSNull(),
+         "selected": state.currentAnswer?.selectedOptionIndices.sorted() ?? [],
+         "uses_other": state.currentAnswer?.usesOther ?? false,
+         "other_text": state.currentAnswer?.otherText ?? "",
+         "skipped": state.currentAnswer?.skipped ?? false,
+         "answered_count": state.answeredCount,
+         "can_continue": state.canContinue, "can_submit": state.canSubmit,
+         "has_previous": state.hasPrevious, "is_last": state.isLastQuestion,
+         "answers": state.answers, "decision": state.submissionDecision]
+    }
+
+    var snapshots = [snapshot()]
+    var results: [Bool] = []
+    for step in input["steps"]?.array ?? [] {
+        switch step["do"]?.string {
+        case "select": results.append(state.selectOption(Int(step["index"]?.int ?? -1)))
+        case "number": results.append(state.selectNumber(Int(step["number"]?.int ?? 0)))
+        case "other": state.selectOther(); results.append(true)
+        case "text": state.setOtherText(step["text"]?.string ?? ""); results.append(true)
+        case "skip": state.skipCurrent(); results.append(true)
+        case "next": results.append(state.advance())
+        case "back": results.append(state.goBack())
+        default: results.append(false)
+        }
+        snapshots.append(snapshot())
+    }
+    return ["questions": questions.map(jsonObject), "snapshots": snapshots, "results": results]
+}
+
 @main
 struct CoreProbe {
     static func main() throws {
@@ -285,6 +375,9 @@ struct CoreProbe {
                 ["path": section.path, "header": section.header, "binary": section.binary,
                  "lines": section.lines.map { [$0.kind.rawValue, $0.text, $0.old as Any? ?? NSNull(), $0.new as Any? ?? NSNull()] }]
             })
+        case "diff-notes":
+            // diff-notes <result.json>: what the Changes pane says a diff result cut or hid
+            emit(diffNotes(try JSONDecoder().decode(DiffResult.self, from: readFile(arguments[2]))))
         case "roundtrip":
             // roundtrip <op> <result.json>: decode the result as the op's model, encode it again
             FileHandle.standardOutput.write(try opCodec(arguments[2]).roundTrip(readFile(arguments[3])))
@@ -352,6 +445,20 @@ struct CoreProbe {
                   "hidden_lines": code.hiddenLines])
         case "fold":
             emit(try runFold(readFile(arguments[2])))
+        case "questions":
+            emit(try runQuestions(readFile(arguments[2])))
+        case "approval-notification":
+            let input = try JSONValue.parse(readFile(arguments[2]))
+            let detail = try input["detail"]!.decode(ApprovalDetail.self)
+            let target = ApprovalNotificationTarget(detail: detail)
+            let checks = try input["checks"]?.decode([ApprovalDetail].self) ?? []
+            let candidates = try input["candidates"]?.decode([ApprovalView].self) ?? []
+            emit(["target": target.map(jsonObject) as Any? ?? NSNull(),
+                  "roundtrip": target.map { ApprovalNotificationTarget(userInfo: $0.userInfo) == $0 } ?? false,
+                  "can_allow": checks.map { target?.canAllow($0) ?? false },
+                  "candidate": ApprovalNotificationTarget.candidate(from: candidates,
+                    conversationID: detail.approval.conversation_id,
+                    messageID: detail.approval.message_id)?.approval_id as Any? ?? NSNull()])
         default:
             if let handled = try extraCommand(arguments) {
                 emit(handled)

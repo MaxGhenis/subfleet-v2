@@ -1,0 +1,36 @@
+NOTE 1 (write after commit, same size, mtime restored, store link dropped):
+  pruned: ['job-hl'] | conflicts folder exists: True
+  files anywhere holding the new bytes: ['state/retention-conflicts/job-hl/worktree/vendored.js', 'state/retention-conflicts/job-hl/worktree/pair-a.bin', 'state/retention-conflicts/job-hl/worktree/pair-b.bin']
+  archive holds (first byte): {'pair-a.bin': b'A', 'vendored.js': b'S'}
+NOTE 2a (tree in the sweep's quarantine for the whole pass, moved back after):
+  pruned: [] | rows left: True
+  deferred: {'job-q': "tree away: <tmp>/state/worktrees/job-q is at <tmp>/state/worktrees/.disk-guard-removing.job-q, another tool's quarantine; kept until it is back or gone"}
+  after move back: tree exists: True | registration: ok | archive trees: no archive
+  untracked work archived: no archive (job kept)
+NOTE 2b (tree back between begin and quarantine):
+  pruned: [] | deferred: {'job-qb': "tree away: <tmp>/state/worktrees/job-qb is at <tmp>/state/worktrees/.disk-guard-removing.job-qb, another tool's quarantine; kept until it is back or gone"}
+  tree exists: False | admin dir left: True | its backlink names: <tmp>/state/worktrees/.disk-guard-removing.job-qb/.git
+  `git worktree list` says: []
+  private commit in the bundle: no bundle
+  after `git worktree prune` and gc, commit present: True
+NOTE 2c (tree moved away between begin and lock):
+  pruned: [] | admin dir exists: True
+  sweep's move back worked: True
+  tree at: job-qa | its .git: gitdir: <tmp>/home/project/.git/worktrees/job-qa
+  git works in it: True
+  untracked work archived: no archive (job kept) | deferred: {'job-qa': 'changed: <tmp>/state/worktrees/job-qa left after its registration was read'}
+NOTE 3 (allocated tree, jobs.worktree NULL, cancelled):
+  pruned: ['job-cut'] | tree left: False | registration left: False
+  next pass sees it: [] {} | tree still left: False
+NOTE 4 (no salvage; tree and workdir gone, repository there, no other job of it):
+  pruned: ['job-lane'] | deferred: {}
+  archive git: {'common': None, 'anchor': None} | registration left: True | private commit in bundle: no bundle
+NOTE 4 (with salvage; tree and workdir gone, repository there, no other job of it):
+  pruned: [] | deferred: {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1: repository not found (workdir <tmp>/lanes/lane-1 is gone)'}
+  three days later: [] {'job-lane': 'salvage not archivable: refs/subfleet-salvage/detached-x-a1: repository not found (workdir <tmp>/lanes/lane-1 is gone)'}
+NOTE 4 (no salvage; tree and workdir gone, repository there, another job of it in the store):
+  pruned: ['job-lane'] | deferred: {}
+  archive git: {'common': '<tmp>/home/project/.git', 'anchor': '430ce1ccf5134b891ce4cdd206f1c0989631af02'} | registration left: False | private commit in bundle: True
+NOTE 4 (with salvage; tree and workdir gone, repository there, another job of it in the store):
+  pruned: ['job-lane'] | deferred: {}
+  salvage in anchor: True | private commit in bundle: True

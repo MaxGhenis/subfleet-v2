@@ -6,22 +6,55 @@
 // a tool approval and a question as the development app, retry and withdraw
 // through the outbox, send an image, notify for an unfocused conversation, and
 // continue a native session from the catalog. Every exchange is written to
-// the exchanges file for the test to check against the daemon's own JSON.
+// the exchanges file for the test to check against the daemon's own JSON. A daemon
+// that advertises `steer.v1` is also steered into a running turn (step 14).
+//
+// A step the later ones wait behind (a turn left running, a card left
+// unanswered) is `require`d: when it fails the run stops there, with the app
+// core's state and the daemon's view of it in `notes`, instead of every later
+// step waiting out its own timeout (a 300 s cascade that hid the first failure).
 import Foundation
+
+/// A required step failed: the run stops after recording it.
+struct LiveStop: Error {
+    let check: String
+}
 
 final class LiveRun {
     var checks: [[String: Any]] = []
     var notes: [String: Any] = [:]
     let started = Date()
+    /// What the app core holds, and what the daemon says now, for a run that stopped.
+    var dump: (() -> Any)?
 
     func check(_ name: String, _ passed: Bool, _ detail: Any = NSNull()) {
         checks.append(["name": name, "passed": passed, "detail": detail,
                        "at": Date().timeIntervalSince(started)])
     }
+
+    /// A check the rest of the run depends on: a failure stops it.
+    func require(_ name: String, _ passed: Bool, _ detail: Any = NSNull()) throws {
+        check(name, passed, detail)
+        if !passed { throw LiveStop(check: name) }
+    }
 }
 
 func runLive(_ arguments: [String]) throws -> Any {
     let run = LiveRun()
+    do {
+        try driveLive(arguments, run)
+    } catch let stop as LiveStop {
+        run.notes["stopped_at"] = stop.check
+        run.notes["state"] = run.dump?() ?? NSNull()
+    } catch {
+        run.check("the run ends without an error", false, describe(error))
+        run.notes["stopped_at"] = "the run ends without an error"
+        run.notes["state"] = run.dump?() ?? NSNull()
+    }
+    return ["checks": run.checks, "notes": run.notes]
+}
+
+private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     let appDirectory = URL(fileURLWithPath: arguments[2])
     let workspace = arguments[3]
     let nativeSession = arguments[4]
@@ -33,8 +66,8 @@ func runLive(_ arguments: [String]) throws -> Any {
 
     // The development build's endpoint: SUBFLEET_HOME, never ~/.subfleet.
     guard case .ready(let endpoint) = resolveDaemonEndpoint(flavor: .development) else {
-        run.check("endpoint resolves for the development build", false)
-        return ["checks": run.checks]
+        try run.require("endpoint resolves for the development build", false)
+        return
     }
     run.check("endpoint resolves for the development build", true, endpoint.root.path)
     let client = DaemonClient(endpoint: endpoint)
@@ -52,6 +85,22 @@ func runLive(_ arguments: [String]) throws -> Any {
     var engine = ConversationEngine(client: client, outbox: outbox)
     var state = ConversationStoreState()
     let settings = ConversationSettings(model: "opus[1m]", permission: "ask")
+
+    // A stopped run's state: what the app core held, and the daemon's view of the same
+    // turns now (an approval listed now that a card lacked was read too early).
+    run.dump = {
+        var daemon: [String: Any] = [:]
+        for (id, timeline) in state.timelines {
+            let turns = timeline.order.filter { $0 != Timeline.conversationKey }
+            let approvals = try? engine.approvals(conversationID: id)
+            let receipts = try? engine.status(turns)
+            daemon[id] = ["approvals": approvals.map { $0.map { jsonObject($0) } } as Any? ?? NSNull(),
+                          "messages": receipts.map { $0.map { jsonObject($0) } } as Any? ?? NSNull()]
+        }
+        return ["app": ["timelines": state.timelines.mapValues { project($0) }, "pending_approvals": state.pendingApprovals,
+                        "focused": state.focusedConversationID ?? NSNull(), "watch_cursor": state.watchCursor],
+                "daemon": daemon]
+    }
 
     func follow(_ cid: String, timeout: TimeInterval = 60, until: (Timeline) -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -91,8 +140,8 @@ func runLive(_ arguments: [String]) throws -> Any {
 
     // 1. Discovery.
     state.availability = engine.checkAvailability()
-    run.check("capabilities: the daemon speaks conversations.v1", state.availability.isReady,
-              state.availability.capabilities?.capabilities ?? [])
+    try run.require("capabilities: the daemon speaks conversations.v1", state.availability.isReady,
+                    state.availability.capabilities?.capabilities ?? [])
     run.notes["codex_writable"] = state.availability.capabilities?.codex_writable ?? NSNull()
     if let models = try? engine.models(provider: "claude") {
         state.apply(models: models, provider: "claude")
@@ -111,8 +160,8 @@ func runLive(_ arguments: [String]) throws -> Any {
     run.check("the outbox sent create, first and follow-up in order",
               report.acknowledged == [requestID, first.key, slow.key], report.acknowledged)
     guard let cid = outbox.entry(requestID)?.conversationID else {
-        run.check("conversation created", false)
-        return ["checks": run.checks, "notes": run.notes]
+        try run.require("conversation created", false, [project(report), outbox.entry(requestID).map(project) as Any? ?? NSNull()])
+        return
     }
     run.notes["conversation_id"] = cid
     state.apply(outbox: report, outbox: outbox)
@@ -136,7 +185,7 @@ func runLive(_ arguments: [String]) throws -> Any {
         timeline.turn(first.key)?.outcome != nil && (timeline.turn(slow.key)?.isStreaming ?? false)
     }
     let timeline1 = state.timelines[cid]
-    run.check("the first turn completed with its text; the follow-up streams", streamed)
+    try run.require("the first turn completed with its text; the follow-up streams", streamed)
     run.check("delta then text: the first turn's final text",
               timeline1.map { finalText($0, first.key) } == "Fake Claude read 11 characters.",
               timeline1.flatMap { finalText($0, first.key) } ?? NSNull())
@@ -167,8 +216,8 @@ func runLive(_ arguments: [String]) throws -> Any {
     let stopReceipt = try engine.stop(action)
     run.check("the interrupt is recorded", stopReceipt?.stop_requested == true)
     let stopped = untilState(slow.key, ["interrupted", "failed", "complete"])
-    run.check("the follow-up ends interrupted (stopped)", stopped?.state == "interrupted" && stopped?.state_reason == "stopped",
-              [stopped?.state ?? "", stopped?.state_reason ?? ""])
+    try run.require("the follow-up ends interrupted (stopped)", stopped?.state == "interrupted" && stopped?.state_reason == "stopped",
+                    [stopped?.state ?? "", stopped?.state_reason ?? ""])
     _ = follow(cid, timeout: 20) { $0.turn(slow.key)?.outcome != nil }
     run.check("the stopped turn's text is final", state.timelines[cid]?.turn(slow.key)?.isStreaming == false)
     let afterStop = try engine.open(.conversation(cid))
@@ -180,13 +229,13 @@ func runLive(_ arguments: [String]) throws -> Any {
     let approvalMessage = try engine.send(conversation: cid, text: "run something [fake:approval]", settings: settings)
     _ = engine.pump()
     let carded = follow(cid) { !($0.turn(approvalMessage.key)?.pendingApprovals.isEmpty ?? true) }
-    run.check("the approval card appears from approval.requested", carded)
+    try run.require("the approval card appears from approval.requested", carded)
     let pending = try engine.approvals(conversationID: cid)
     state.apply(approvals: pending, conversationID: cid)
     let card = state.timelines[cid]?.turn(approvalMessage.key)?.pendingApprovals.first
-    run.check("the card joins its approval id", card?.approvalID != nil && card?.approvalID == pending.first?.approval_id,
-              card.map(project) ?? NSNull())
     run.check("the Dock badge counts it", state.pendingApprovalCount == 1, state.pendingApprovalCount)
+    try run.require("the card joins its approval id", card?.approvalID != nil && card?.approvalID == pending.first?.approval_id,
+                    card.map(project) ?? NSNull())
     if let approvalID = card?.approvalID {
         do {
             let detail = try engine.approvalDetail(approvalID)
@@ -196,15 +245,17 @@ func runLive(_ arguments: [String]) throws -> Any {
                       && (detail.approval.display.input ?? "").contains("echo approved-by-person"),
                       jsonObject(detail.approval.display))
             let answer = try engine.respond(to: detail, decision: "allow")
-            run.check("approval.respond accepted", answer.approval.state == "answered", answer.approval.state)
+            try run.require("approval.respond accepted", answer.approval.state == "answered", answer.approval.state)
             let again = try engine.respond(to: detail, decision: "allow")
             run.check("a repeated answer is recognised", again.duplicate == true)
+        } catch let stop as LiveStop {
+            throw stop
         } catch {
-            run.check("approval.get and approval.respond as the app", false, describe(error))
+            try run.require("approval.get and approval.respond as the app", false, describe(error))
         }
     }
     let approved = untilState(approvalMessage.key, ["complete", "failed"])
-    run.check("the approved turn completes", approved?.state == "complete", approved?.state ?? "")
+    try run.require("the approved turn completes", approved?.state == "complete", approved?.state ?? "")
     _ = follow(cid, timeout: 20) { $0.turn(approvalMessage.key)?.outcome != nil }
     let approvalTurn = state.timelines[cid]?.turn(approvalMessage.key)
     let resolvedCard = approvalTurn?.items.compactMap { item -> ApprovalCard? in
@@ -224,21 +275,24 @@ func runLive(_ arguments: [String]) throws -> Any {
     // 6. A question, answered with a chosen label.
     let question = try engine.send(conversation: cid, text: "[fake:question]", settings: settings)
     _ = engine.pump()
-    _ = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
-    state.apply(approvals: try engine.approvals(conversationID: cid), conversationID: cid)
-    if let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first, let id = questionCard.approvalID {
-        run.check("the question card lists its questions", questionCard.kind == "question"
-                  && questionCard.questions.first?.question == "Which color?"
-                  && questionCard.questions.first?.options?.map(\.label) == ["Blue", "Red"])
+    let asked = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
+    try run.require("the question card appears from approval.requested", asked)
+    let questions = try engine.approvals(conversationID: cid)
+    state.apply(approvals: questions, conversationID: cid)
+    let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
+    try run.require("the question card joins its approval id", questionCard?.approvalID != nil
+                    && questionCard?.approvalID == questions.first?.approval_id, questionCard.map(project) ?? NSNull())
+    try run.require("the question card lists its questions", questionCard?.kind == "question"
+              && questionCard?.questions.first?.question == "Which color?"
+              && questionCard?.questions.first?.options?.map(\.label) == ["Blue", "Red"], questionCard.map(project) ?? NSNull())
+    if let id = questionCard?.approvalID {
         let detail = try engine.approvalDetail(id)
         _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
-    } else {
-        run.check("the question card lists its questions", false)
     }
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }
-    run.check("the answer reaches the provider", state.timelines[cid].flatMap { finalText($0, question.key) }
-              == "You chose {\"Which color?\": \"Blue\"}.", state.timelines[cid].flatMap { finalText($0, question.key) } ?? NSNull())
+    try run.require("the answer reaches the provider", state.timelines[cid].flatMap { finalText($0, question.key) }
+                    == "You chose {\"Which color?\": \"Blue\"}.", state.timelines[cid].flatMap { finalText($0, question.key) } ?? NSNull())
 
     // 7. Idempotent retry: the app stopped after sending, before the receipt.
     let retried = try engine.send(conversation: cid, text: "idempotent retry", settings: settings)
@@ -295,12 +349,12 @@ func runLive(_ arguments: [String]) throws -> Any {
     let staged = try AttachmentStager.stage(image, in: paths.attachmentsDirectory)
     let pictured = try reopenedEngine.send(conversation: cid, text: "look at this", staged: [staged], settings: settings)
     let pictureReport = reopenedEngine.pump()
-    run.check("the image message is accepted after the withdrawn one", pictureReport.acknowledged.contains(pictured.key)
-              && reopened.entry(pictured.key)?.lastAfterMessageID == ordered.key)
+    try run.require("the image message is accepted after the withdrawn one", pictureReport.acknowledged.contains(pictured.key)
+                    && reopened.entry(pictured.key)?.lastAfterMessageID == ordered.key, project(pictureReport))
     _ = untilState(pictured.key, ["complete", "failed"])
     _ = follow(cid, timeout: 30) { $0.turn(pictured.key)?.outcome != nil }
-    run.check("the provider received the image", state.timelines[cid].flatMap { finalText($0, pictured.key) }
-              == "Fake Claude read 12 characters and 1 image(s).", state.timelines[cid].flatMap { finalText($0, pictured.key) } ?? NSNull())
+    try run.require("the provider received the image", state.timelines[cid].flatMap { finalText($0, pictured.key) }
+                    == "Fake Claude read 12 characters and 1 image(s).", state.timelines[cid].flatMap { finalText($0, pictured.key) } ?? NSNull())
 
     // 11. History: the transcript's rows of Subfleet turns stay out; their user rows give text.
     state.apply(open: try engine.open(.conversation(cid)))
@@ -331,8 +385,8 @@ func runLive(_ arguments: [String]) throws -> Any {
         if let page = try? engine.watch(after: state.watchCursor, wait: 2) { state.apply(watch: page) }
         intents += state.drainNotifications()
     }
-    run.check("an approval in an unfocused conversation notifies", intents.contains { $0.kind == .approval && $0.conversationID == otherID },
-              intents.map { $0.id })
+    try run.require("an approval in an unfocused conversation notifies",
+                    intents.contains { $0.kind == .approval && $0.conversationID == otherID }, intents.map { $0.id })
     run.check("the badge counts the unfocused approval", (state.pendingApprovals[otherID] ?? 0) == 1, state.pendingApprovalCount)
     if let pendingOther = try engine.approvals(conversationID: otherID).first {
         let detail = try engine.approvalDetail(pendingOther.approval_id)
@@ -386,5 +440,48 @@ func runLive(_ arguments: [String]) throws -> Any {
                   older.first?.hasPrefix("user: native probe") == true && older.count == 2, older)
     }
 
-    return ["checks": run.checks, "notes": run.notes]
+    // 14. Steer (C-24.9), when the daemon advertises it for Claude: a message sent while a
+    // turn runs goes into that turn. Whether the provider takes it at a step or it misses
+    // the turn and runs next (DESIGN.md section 4), it settles once and is drawn once.
+    if state.availability.capabilities?.canSteer("claude") == true {
+        state.focus(cid)
+        let host = try engine.send(conversation: cid, text: "steer into me [fake:slow]", settings: settings)
+        _ = engine.pump()
+        let running = untilState(host.key, ["running", "approval-needed"])
+        state.apply(open: try engine.open(.conversation(cid)))
+        _ = follow(cid, timeout: 20) { $0.turn(host.key)?.accepted == true }
+        let composer = state.conversation(cid).flatMap {
+            composerSteerHost(conversation: $0, timeline: state.timelines[cid], capabilities: state.availability.capabilities)
+        }
+        run.check("steer: the composer steers into the running turn", running != nil && composer?.messageID == host.key,
+                  composer?.messageID ?? NSNull())
+        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true)
+        let report = engine.pump()
+        state.apply(outbox: report, outbox: outbox)
+        let answer = outbox.steer(steered.key)
+        run.check("steer: the daemon takes the steer", answer?.state == .acknowledged
+                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""),
+                  answer.map { jsonObject($0.receipt) } ?? NSNull())
+        // A slow turn ends only when stopped; a steer it has not taken by then runs next.
+        Thread.sleep(forTimeInterval: 3)
+        _ = try? engine.stop(.interrupt(messageID: host.key))
+        let settled = untilState(steered.key, ["steered", "complete", "failed", "cancelled", "delivery-unknown"],
+                                 timeout: 90)
+        run.check("steer: the steered message settles once, in the turn or as the next one",
+                  ["steered", "complete"].contains(settled?.state ?? ""), settled.map(jsonObject) ?? NSNull())
+        run.notes["steer"] = settled?.state ?? "unsettled"
+        _ = follow(cid, timeout: 30) { $0.turn(host.key)?.outcome != nil }
+        state.apply(open: try engine.open(.conversation(cid)))
+        try? engine.catchUp(&state, conversationID: cid)
+        let drawn = state.timelines[cid]?.items.filter { $0.id == "person:\(steered.key)" }.count ?? 0
+        run.check("steer: the steered message is drawn once", drawn == 1, drawn)
+        if settled?.state == "steered" {
+            run.check("steer: it is drawn inside the turn that took it",
+                      state.timelines[cid]?.placedSteers.contains(steered.key) == true
+                      || state.timelines[cid]?.turn(steered.key)?.steeredInto == host.key,
+                      state.timelines[cid]?.turn(steered.key).map(project) ?? NSNull())
+        }
+    } else {
+        run.notes["steer"] = "skipped: the daemon does not advertise steer.v1 for claude"
+    }
 }

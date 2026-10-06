@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import dataclasses
 import errno
 import faulthandler
+import itertools
 import fcntl
+import functools
 import hashlib
 import json
 import logging
-import math
 import os
 from pathlib import Path
-import select
+import resource
 import signal
 import shutil
 import socket
@@ -29,15 +31,17 @@ import threading
 import time
 import weakref
 from uuid import uuid4
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
+from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
+from .alerts import operator_session
 from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
@@ -51,15 +55,16 @@ from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, load_policy,
                      policy_hash, resolve_model, turn_cap)
-from .retention import maintenance
+from .retention import RetentionState, maintenance
+from .retention_git import discard_registration
 from .salvage import (
-    SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
-    validate_writable_workdir, working_tree,
+    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
+    utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store
+from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -68,6 +73,34 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+#: C-5.11: what a tick reads of every live attempt, in one statement: where its
+#: receipts are, its state, and its job's cancel request and wall limit. It
+#: names no column SQLite keeps on overflow pages: `evidence_json` averaged
+#: 8.4 KB for a running attempt on 2026-10-02, and `SELECT *` read it for every
+#: live attempt twenty times a second.
+LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
+             "j.started_at AS job_started_at,j.max_wall_s "
+             "FROM attempts a LEFT JOIN jobs j USING(job_id) "
+             "WHERE a.state IN ('reserved','starting','running','finalizing')")
+#: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
+#: active attempt occupies a lane slot or counts against a parent's cap; only a
+#: job with a parent extends an ancestry (`scheduler._parent_blocks`); and on
+#: this line an active attempt's job says by its `kind` whether it counts as a
+#: turn (C-26.9). Every other attempt and job the store keeps changes no route:
+#: on 2026-10-02 the live store held 2,722 attempts (23 MB, most of it
+#: `evidence_json`) and 2,625 jobs, read and turned into dicts on every
+#: evaluation, against 38 active attempts and 26 jobs with a parent.
+ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+                  "WHERE state IN ('reserved','starting','running','finalizing') ORDER BY reserved_at,seq")
+#: `state` is carried for C-6.15's host-pressure hold, which leaves out the
+#: attempts of any ancestor of a job that has not started; every such job has a
+#: parent, so it is among these rows.
+#: `+created_at` keeps `jobs_created` (C-3.7) from serving the order: with it the
+#: planner scanned every job (2.3 ms on the live store, 2026-10-06) instead of the
+#: two index lookups and an in-memory sort of the few rows found (0.05 ms).
+ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job_id > '' OR job_id IN "
+              "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')) "
+              "ORDER BY +created_at,rowid")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -88,6 +121,16 @@ PROBE_RECORD = (
 #: `store.STATEMENT_RESERVE` (2) of them; a read that finds none free waits at
 #: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
+#: d635: seconds a retention pass may start new work; a started job gets its
+#: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
+RETENTION_PASS_S = 180
+#: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
+RETENTION_INTERVAL_S = 3600
+#: Set to "1" in the daemon's environment, retention selects, archives and deletes
+#: nothing (2.1.11 ships it dormant; see `_retention`).
+RETENTION_DORMANT_ENV = "SUBFLEET_RETENTION_DORMANT"
+#: d635: seconds between passes while a backlog is being worked off.
+RETENTION_CATCH_UP_S = 5
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -100,6 +143,21 @@ LOOKUP_OPS = frozenset({"list", "show", "notice.pending"})
 #: next pass (`route-moved`). No route is ever evaluated with the lock held.
 ROUTE_TRIES = 3
 
+#: C-16.6: `accept` failures that say the process or the system is short of
+#: something for now, not that the socket is gone. The daemon waits and accepts
+#: again; any other error still ends `serve_forever`.
+ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM,
+                              errno.ECONNABORTED, errno.EINTR, errno.EAGAIN})
+ACCEPT_RETRY_BASE_S = .05
+ACCEPT_RETRY_CEILING_S = 2.0
+#: C-16.6: `accept` failing without a break for this long is not a moment's
+#: shortage but a leak outside the capped connections (a runner's relay socket, a
+#: child's pipes): the daemon ends `serve_forever`, so launchd starts a fresh one,
+#: rather than stay alive and deaf holding the lock.
+ACCEPT_GIVE_UP_S = 300
+#: C-16.7: how long `close()` waits, in all, for connection readers to return.
+READER_JOIN_S = 2.0
+
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
 ADMISSION_IDLE_LOG_S = 60
@@ -111,7 +169,8 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job", "route-moved", "machine-busy"})
+                            "probe-pending", "behind-older-job", "route-moved", "machine-busy",
+                            "lane-proving"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -125,6 +184,96 @@ WORKER_RETRY_CEILING_S = 60
 #: kinds), before finalization records the failure and goes on without it, so a
 #: turn's finalization waits on its diff for at most a few capped git calls.
 TURN_TREE_TRIES = 3
+#: C-13.1: tries at a finalizing job's salvage while git fails transiently,
+#: before finalization records the failure and goes on without a salvage ref.
+#: Any other failure is recorded at once: retrying it could only fail the same
+#: way, and until finalization ends the attempt holds its lane (2026-09-27: two
+#: finished attempts held Codex lanes for hours on a snapshot that could not
+#: succeed). The worktree is kept either way (C-13.4).
+SALVAGE_TRIES = 3
+#: C-6.8: how an attempt ends whose launch-time main/master re-check git gave no answer
+#: to (`_launch`), and how `_defer_after_launch` counts those in a row.
+LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
+#: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
+#: job's notice name; both give the count of all of them.
+SALVAGE_SKIPPED_SHOWN = 5
+#: C-6.14: the event that records a model answering on a lane (`_record_answer`),
+#: and how many of the newest a starting daemon reads to remember what was proven.
+ANSWER_EVENT = "lane.answered"
+ANSWER_SEED_ROWS = 5000
+#: C-6.14: a running attempt's stream is read for its model's first answer at most
+#: this often, this many bytes a look, holding at most this much of one line.
+ANSWER_READ_INTERVAL_S = 1.0
+ANSWER_READ_CHUNK = 256 * 1024
+ANSWER_LINE_MAX = 4 * 1024 * 1024
+
+
+def _skipped(paths: list[str]) -> dict:
+    """C-13.1: what the evidence records of the paths a snapshot left out: how
+    many, and the first `SALVAGE_SKIPPED_SHOWN`."""
+    return {"count": len(paths), "paths": paths[:SALVAGE_SKIPPED_SHOWN]}
+
+
+def _left_out(skipped: dict) -> str:
+    """C-13.1: `_skipped`'s record as a notice names it."""
+    count, paths = skipped["count"], skipped["paths"]
+    shown = ", ".join(f"'{path}'" for path in paths) + (", ..." if count > len(paths) else "")
+    return f"{count} nested repositor{'y' if count == 1 else 'ies'} with no commit, kept only in the worktree: {shown}"
+
+
+def _lane_fault_of(evidence_json: str | None) -> dict | None:
+    """C-4.5: the lane fault an attempt's evidence records (`Daemon._lane_fault`), or None."""
+    try:
+        evidence = json.loads(evidence_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    fault = evidence.get("lane_fault") if isinstance(evidence, dict) else None
+    return fault if isinstance(fault, dict) else None
+
+
+def _evidence_key(evidence_json: str | None, key: str) -> Any:
+    """`key` of an attempt's evidence, or None when there is none or it does not parse."""
+    try:
+        evidence = json.loads(evidence_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    return evidence.get(key) if isinstance(evidence, dict) else None
+
+
+def _epoch(stamp: str | None) -> float | None:
+    """`stamp` (as `utcnow` writes one) in epoch seconds, or None when it does not parse."""
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _held_event(data_json: str | None) -> dict | None:
+    """C-13.1: a `salvage.baseline_held` event's data as `_pin_baseline` writes it, else
+    None: a ref that is one line of valid UTF-8 (`path_text`), a commit in hex, a seq
+    that is a number, and `skipped`, when there is one, as `_skipped` makes it from
+    `path_text` paths. A notice is written from it inside the transaction that cancels
+    or fails a job, so an event that is anything else is left out, never a reason that
+    transaction cannot commit: a `skipped` that was not checked raised out of `kill`, and
+    so would a commit holding a lone surrogate, at its `encode()` (review of the P2 fix)."""
+    try:
+        data = json.loads(data_json or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    ref, commit, seq, skipped = data.get("ref"), data.get("commit"), data.get("seq"), data.get("skipped", {})
+    text = lambda value: isinstance(value, str) and value == path_text(value)   # noqa: E731
+    if not (text(ref) and ref and isinstance(commit, str) and len(commit) in (40, 64)
+            and not commit.strip("0123456789abcdef") and type(seq) is int):
+        return None
+    if skipped != {} and not (isinstance(skipped, dict) and set(skipped) == {"count", "paths"}
+                              and type(skipped["count"]) is int and isinstance(skipped["paths"], list)
+                              and all(text(path) for path in skipped["paths"])):
+        return None
+    return data
+
+
 #: C-6.12: what evaluating one job's route may raise without ending the pass
 #: (`PolicyError` is a ValueError), whether from the job's own fields, a policy
 #: that `load_policy` does not fully validate (a `reserve` that is not a mapping
@@ -137,6 +286,11 @@ ROUTE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 #: after, doubling per consecutive failure to the ceiling, as C-6.8's are.
 ROUTE_RETRY_BASE_S = 5
 ROUTE_RETRY_CEILING_S = 300
+#: C-23.26: how old a delivered service notice is before retention prunes it.
+SERVICE_NOTICE_RETENTION_S = 14 * 86400
+#: C-15.3's delivery ladder, lowest first. The session hooks surface `pending`
+#: and `offered` rows; `surfaced` and `acknowledged` have reached the session.
+NOTICE_LADDER = ("pending", "offered", "surfaced", "acknowledged")
 
 
 class _RouteMoved(Exception):
@@ -248,20 +402,14 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def utcnow_ms() -> str:
+    """The conversation store's clock format (milliseconds), for C-26.14's turn windows."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def after(seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(
         timespec="seconds").replace("+00:00", "Z")
-
-
-def _pin_notice_key(data_json: str | None) -> tuple | None:
-    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
-    try:
-        data = json.loads(data_json or "{}")
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
-        return None
-    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
 
 
 def _later(stamp: str, seconds: float) -> str:
@@ -283,76 +431,6 @@ def age(timestamp: str | None) -> float:
 
 def json_bytes(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n").encode()
-
-
-#: How many client connections the daemon reads at once. A connection holds one
-#: reader thread from connect until its client closes, so the reader pool is this
-#: size; a connection past it is told the daemon is busy at once rather than
-#: queued until its client gives up. (2026-09-25: 32 readers and 71 open
-#: connections, from `wait`s, the app's watches and hooks, left every new request
-#: waiting out the client's 15 s.) Only connections still read count: one whose
-#: client has left while its request still runs does not (review of the hotfix,
-#: F1: abandoned `wait`s had held every place for up to their deadline).
-MAX_CONNECTIONS = 512
-#: The descriptor soft limit the daemon asks for at start: room for every
-#: connection, the stores, and the pipes of the processes it starts. launchd
-#: starts an agent with 256, and `accept` failing with EMFILE stopped the daemon
-#: (eleven times in the log by 2026-09-25).
-OPEN_FILES = 4096
-#: `accept` failing without a break for this long is not a moment's shortage:
-#: the daemon exits, so launchd starts a fresh one.
-ACCEPT_GIVE_UP_S = 300
-#: Errors `accept` returns while the system is short of descriptors or memory, or
-#: a client gave up in the queue: the daemon keeps serving and tries again.
-ACCEPT_TRANSIENT = frozenset({errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM, errno.ECONNABORTED,
-                              errno.EINTR})
-
-
-def raise_open_file_limit(want: int = OPEN_FILES) -> tuple[int, int]:
-    """Raise the descriptor soft limit toward `want`, never past the hard limit, and
-    return the (soft, hard) limits in force afterwards."""
-    import resource
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    target = want if hard == resource.RLIM_INFINITY else min(want, hard)
-    if soft != resource.RLIM_INFINITY and soft < target:
-        try:
-            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
-            soft = target
-        except (ValueError, OSError):
-            pass            # the kernel's own cap is lower: keep what there is
-    return soft, hard
-
-
-def busy_answer(message: str) -> bytes:
-    """The line a connection the daemon cannot serve now is answered with, before
-    its request is read (C-16.1): exit 69 and "try again shortly", for request id
-    "", since no request was read. Nothing else sends 69 over the socket."""
-    return protocol.encode(protocol.fail("", Exit.DAEMON_UNAVAILABLE, message, fix="try again shortly"))
-
-
-def peer_gone(conn: socket.socket) -> bool:
-    """Whether a client has closed its connection, not merely its write half: its
-    end reports that nothing written can be read any more (kqueue's `EV_EOF` on
-    the write filter; `POLLHUP` where there is no kqueue). A client that closed
-    only its write half still reads the answers to what it sent. False when it
-    cannot be told."""
-    try:
-        fd = conn.fileno()
-        if fd < 0:
-            return True
-        if hasattr(select, "kqueue"):
-            queue = select.kqueue()
-            try:
-                events = queue.control([select.kevent(fd, select.KQ_FILTER_WRITE, select.KQ_EV_ADD)], 1, 0)
-            finally:
-                queue.close()
-            return any(event.flags & select.KQ_EV_EOF for event in events)
-        poller = select.poll()
-        poller.register(fd, select.POLLOUT)
-        return any(flags & select.POLLHUP for _, flags in poller.poll(0))
-    except (OSError, ValueError):
-        return False
-
 
 
 def _text(path: Path) -> str:
@@ -384,7 +462,8 @@ def _git_prefix(workdir: str, cap: float) -> str | None:
     `/System/Volumes/Data` firmlink to its committed name; `os.path.relpath` of
     the caller's spelling does not (review, 2026-09-25). None when git cannot say."""
     try:
-        shown = subprocess.run(["git", "-C", workdir, "rev-parse", "--show-prefix"], capture_output=True, timeout=cap)
+        shown = subprocess.run(["git", "-C", workdir, "rev-parse", "--show-prefix"], capture_output=True,
+                               env=_git_env(None), timeout=cap)
     except (OSError, subprocess.SubprocessError):
         return None
     if shown.returncode:
@@ -394,10 +473,13 @@ def _git_prefix(workdir: str, cap: float) -> str | None:
 
 def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | None:
     """Whether `commit` holds the directory `prefix` (relative to `top`), so a
-    worktree cut at it will: None when git cannot say."""
+    worktree cut at it will: None when git cannot say. Under salvage's environment
+    (`_git_env`): `--literal-pathspecs` with `GIT_GLOB_PATHSPECS` set is a fatal
+    error, and the daemon's own scrub (`cli.STRIPPED_ENV`) holds only when
+    `daemon start` started it (review of the P3-3 fix)."""
     try:
         found = subprocess.run(["git", "--literal-pathspecs", "-C", top, "ls-tree", "-d", "-z", commit, "--", prefix],
-                               capture_output=True, timeout=cap)
+                               capture_output=True, env=_git_env(None), timeout=cap)
     except (OSError, subprocess.SubprocessError):
         return None
     if found.returncode:
@@ -406,7 +488,25 @@ def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | 
     return any(meta.split()[1:2] == [b"tree"] and path == os.fsencode(prefix) for meta, path in entries)
 
 
+def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
+    """Run `__init__`; if it raises, give back what it had acquired, then re-raise.
+
+    `main` exits when construction fails, but an embedded daemon (the tests)
+    would otherwise keep `daemon.log`'s descriptor, its handler on a logger
+    whose `id()`-based name a later daemon may reuse, the store and the lock.
+    """
+    @functools.wraps(init)
+    def wrapper(self, *args, **kwargs):
+        try:
+            init(self, *args, **kwargs)
+        except BaseException:
+            self._release_partial_init()
+            raise
+    return wrapper
+
+
 class Daemon:
+    @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
@@ -415,7 +515,9 @@ class Daemon:
                  stop_grace_s: float = STOP_GRACE_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
-                 desktop_prober: Callable[[], Any] | None = None):
+                 desktop_prober: Callable[[], Any] | None = None,
+                 max_connections: int | None = None,
+                 connection_idle_s: float = descriptors.CONNECTION_IDLE_S):
         self.root = Path(state_root).expanduser().resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
@@ -427,6 +529,8 @@ class Daemon:
         self._exit_settle: dict[str, float] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
+        # C-13.1: attempt id -> transient failures of its salvage so far.
+        self._salvage_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         # C-5.8a: how long `watch_stop` lets a stopping process live, and what
         # `close()` calls first, on its own thread, to start that bound. Only
@@ -453,6 +557,13 @@ class Daemon:
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
+        # C-5.11: live attempts known to be this daemon's own. An attempt is
+        # recorded `imported_external` when it is imported or never, so "not
+        # imported" is read once; one that is imported is read again each tick,
+        # because the importer clears the flag when it settles the run.
+        self._native: set[str] = set()
+        # Consecutive ticks on which an attempt's ownership could not be read.
+        self._v1_unread: dict[str, int] = {}
         # C-5.11: attempts whose last inspection raised and has not yet been
         # repeated to its end; until it has, a pass that cannot inspect is DEFERRED.
         self._inspect_retry: set[str] = set()
@@ -468,16 +579,26 @@ class Daemon:
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
         self._last_maintenance = time.monotonic()
-        # Every connection not yet closed, for shutdown; `_reading`, those whose
-        # reader still runs, is what `MAX_CONNECTIONS` counts (C-16.1).
+        self._retention_dormant_logged = False
+        # d635: deferrals and measured sizes carried between retention passes.
+        self._retention_state = RetentionState()
+        # C-16.7: every client connection held, from `accept` until its last
+        # reply has been written; what the cap counts, and what `close()` shuts.
         self._connections: set[socket.socket] = set()
-        self._reading: set[socket.socket] = set()
-        self._busy_refusals = 0
         self._connection_lock = threading.Lock()
         # C-15.5: `wait` requests between dispatch and their answer being sent, so
         # `close` can let each answer before it shuts the connections down.
         self._waits_answering = 0
         self._waits_answered = threading.Condition()
+        # C-16.7: the most client connections held at once is derived, at each
+        # `accept`, from the open-file limit this process has then (main raises
+        # it first) and the conversation turns running (`max_connections`); a
+        # caller may pin it. How long one with nothing outstanding may stay
+        # silent. Counts are for daemon.status.
+        self._pinned_max_connections = None if max_connections is None else max(1, int(max_connections))
+        self.connection_idle_s = connection_idle_s
+        self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
+                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0}
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -497,15 +618,32 @@ class Daemon:
             raise
         self._ident = ident
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
+        # A daemon collected with its close cut short left its handler on this
+        # logger, whose `id()`-based name this one now has: its lines would go to
+        # that daemon's log too. Let it go (the stream stays open while
+        # faulthandler or `_HELD_STREAMS` holds it; review of 65dcb6d, P3).
+        for stale in list(self.log.handlers):
+            self.log.removeHandler(stale)
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
-        self._enable_stack_dumps()
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
         # says so: `daemon stacks` signals only a daemon whose lock says
-        # `stack_dumps`, never one that would die of the signal.
-        self._write_lock(stack_dumps=True)
+        # `stack_dumps`, never one that would die of the signal. A daemon saying so
+        # is already one of `_ADVERTISED`, and stays until its lock stops saying so;
+        # one that could not make the signal safe does not say so.
+        advertise = self._enable_stack_dumps()
+        # From here the lock may say `stack_dumps` (a write cut short may have said
+        # it): only now can a failed rewrite keep this daemon in `_ADVERTISED`.
+        self._dumps.may_advertise = advertise
+        self._write_lock(stack_dumps=advertise)
+        soft, hard = descriptors.open_file_limits()
+        self.log.info("open-file limit %s (hard %s); up to %d client connections with no turn running, "
+                      "idle ones closed after %g s",
+                      descriptors.limit_for_display(soft) or "unlimited",
+                      descriptors.limit_for_display(hard) or "unlimited",
+                      self.max_connections, self.connection_idle_s)
         for directory in ("jobs", "lanes", "worktrees"):
             (self.root / directory).mkdir(mode=0o700, exist_ok=True)
         policy_path = self.root / "policy.json"
@@ -516,24 +654,24 @@ class Daemon:
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
+        self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
         self._seed_lanes()
-        self.workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix="subfleet-io")
+        # 13: retention's pass (d635) can hold one worker for minutes; the other
+        # twelve are what attempts, admission and exports had before.
+        self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
-        self.readers = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-socket")
-        # Not 0: `time.monotonic()` counts from boot, so a daemon started in the
-        # machine's first minute would log nothing until it passed 60 (F10).
-        self._accept_trouble_logged = -math.inf
-        self._accept_failing_since: float | None = None
-        self._busy_logged = -math.inf
-        self._reader_trouble_logged = -math.inf
+        # C-16.7: each connection the daemon holds has a reader thread of its own
+        # (`_hold_connection`), so none waits for one; `close()` joins them.
+        self._readers: set[threading.Thread] = set()
         # A `wait` holds its thread for up to WAIT_POLL_MAX_S on its hub event (C-15.5), so
-        # there is one for every connection that could send one (review of the
+        # there is one for every connection the daemon may hold (review of the
         # descriptor hotfix: at 16, a 17th wait queued until its client gave up).
-        self.waiters = ThreadPoolExecutor(max_workers=MAX_CONNECTIONS, thread_name_prefix="subfleet-wait")
+        self.waiters = ThreadPoolExecutor(max_workers=descriptors.CONNECTIONS_CEILING,
+                                          thread_name_prefix="subfleet-wait")
         # Milestone 9: desktop conversations (C-24 to C-30). Its own store and pools.
         from .conversations.service import ConversationService
         self.conversations = ConversationService(self)
@@ -547,6 +685,9 @@ class Daemon:
         self.lock_watch.add(self.conversations.store._lock)
         self.lock_watch.add(self.conversations.store._writes)
         self.lock_watch.watch_reads("store", self.store.read_holds)       # C-3.7
+        # C-16.7: connections this daemon shut down after a reply failed part
+        # way; their end of stream is not a client leaving.
+        self._shut_down: set[socket.socket] = set()
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
@@ -557,8 +698,59 @@ class Daemon:
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
 
+    def _release_partial_init(self) -> None:
+        """Undo a construction that raised part way (see `_released_on_failure`).
+
+        Each step runs on its own: one that fails must neither stop the rest nor
+        replace the error that made construction fail.
+        """
+        def closing_log():
+            if (handler := self.__dict__.get("_log_handler")) is not None:
+                self.log.removeHandler(handler)
+                # C-3.6: only a stream nothing may hold closes, whatever the step
+                # below met or where the loop's swallowed exception landed (reviews
+                # of 9a514a7 and 674b99b, P2: a flag defaulting to "may close").
+                if self._may_close_log():
+                    handler.stream.close()
+
+        def no_stack_dumps():
+            # C-3.6, as at a normal close (`_disable_stack_dumps`): `daemon.lock`
+            # stops saying `stack_dumps` first, then SIGUSR1 is handed on; a lock
+            # that cannot stop keeps the handler and its stream (review of
+            # 3c8fe55, P0, and of 02c6320). The lock fd is still open here: its
+            # finalizer runs last.
+            if "_dumps_token" in self.__dict__:
+                self._disable_stack_dumps()
+        steps = [no_stack_dumps, closing_log]
+        steps += [functools.partial(executor.shutdown, wait=False)
+                  for executor in (self.__dict__.get(name)
+                                   for name in ("workers", "requests", "lookups", "waiters"))
+                  if executor is not None]
+        if (conversations := self.__dict__.get("conversations")) is not None:
+            steps.append(conversations.close)           # its pools and its store
+        if (wait_hub := self.__dict__.get("wait_hub")) is not None:
+            steps.append(wait_hub.stop)
+        if (store := self.__dict__.get("store")) is not None:
+            steps.append(store.close)
+        if (finalizer := self.__dict__.get("_lock_finalizer")) is not None:
+            steps.append(finalizer)                    # closing the fd releases the flock
+        for step in steps:
+            with contextlib.suppress(Exception):
+                step()
+
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
+        # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
+        # seconds of the last answer on it, and attempt id -> when an attempt in
+        # flight first answered (it is then no pilot): replaced whole under
+        # `_answer_lock`, and seeded from the `lane.answered` events once the store
+        # opens (`_load_answers`). Attempt id -> how far its stream has been read for
+        # that answer. `_answer_news` says an answer came since the detached pass looked.
+        self._answer_lock = threading.Lock()
+        self._lane_answers: dict[str, float] = {}
+        self._attempt_answers: dict[str, float] = {}
+        self._answer_reads: dict[str, dict] = {}
+        self._answer_news = False
         # C-6.10: job id -> the verdict a capacity wait keeps reaching, and how
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
@@ -599,6 +791,8 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
+        self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
         # by side (`_admit_turns` beside `_admit`), so a turn never waits for a
         # detached job's evaluation, workspace or probe. `_admission_lock` guards
@@ -917,9 +1111,15 @@ class Daemon:
         values.update(overrides)
         return JobSpec(**values)
 
-    def _capacity_rows(self) -> dict:
+    def _capacity_rows(self, *, route: bool = False) -> dict:
         """C-3.7: every row a capacity view is built from, read in one committed
         state off the store lock (inside a transaction, the transaction's own).
+
+        `route` is for a route evaluation (`_pick`): it reads only the attempts
+        and jobs a route can depend on (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`, C-11.2),
+        and `scheduler.evaluate` reaches the same decision over them as over
+        every row (a differential property test). Status and the operator's
+        views read every row.
 
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
@@ -927,8 +1127,11 @@ class Daemon:
         with self.store.snapshot():
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
-                    "closures": self.store.list_closures(), "attempts": self.store.list_attempts(),
-                    "jobs": self.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")}
+                    "closures": self.store.list_closures(),
+                    "attempts": self.store.query(ROUTE_ATTEMPTS) if route else self.store.list_attempts(),
+                    "jobs": self.store.query(ROUTE_JOBS if route else "SELECT * FROM jobs ORDER BY created_at,rowid")}
+            if not route:
+                rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
             # counts. A recovered probe keeps its lane unavailable until containment.
             leases = self.store.query(capacity.PROBE_LEASES)
@@ -949,7 +1152,164 @@ class Daemon:
         view["desktop_in_use"] = desktop_in_use
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
-        return self.timers.enrich_view(view, rows["timers"])
+        view = self.timers.enrich_view(view, rows["timers"])
+        # C-6.14: then each lane's pilot, at the view's clock, as `_route_rows` lays them.
+        turns = {row["job_id"] for row in view.get("jobs", ()) if row.get("kind") == "turn"}
+        attempts = [{**row, "kind": "turn" if row.get("job_id") in turns else "detached"}
+                    for row in view.get("attempts", ()) if row.get("state") in capacity.ACTIVE_ATTEMPT_STATES]
+        return capacity.mark_pilots(view, self._pilot_marks(attempts, capacity._time(view["now"])))
+
+    # --- lane answers and pilots (C-6.14) --------------------------------------
+
+    def _pilot_marks(self, attempts, instant: datetime) -> dict[str, str]:
+        """C-6.14: `capacity.pilot_marks` over `attempts` (rows with `attempt_id`,
+        `lane_id`, `state` and `kind`) at `instant`, from what has answered by now."""
+        settings = admission_settings(self.policy)
+        return capacity.pilot_marks(attempts, answered=self._attempt_answers, lane_answers=self._lane_answers,
+                                    now=instant.timestamp(), idle_s=settings["prove_idle_s"],
+                                    wait_s=settings["prove_wait_s"])
+
+    def _load_answers(self) -> tuple[dict[str, float], dict[str, float]]:
+        """C-6.14: what the newest `lane.answered` events say: each lane's last answer,
+        and which attempts still in flight have answered. A restart keeps what was
+        proven, so it neither holds a lane that answered a minute ago nor takes an
+        attempt that answered before it for a pilot."""
+        lanes: dict[str, float] = {}
+        attempts: dict[str, float] = {}
+        live = {row["attempt_id"] for row in self.store.query(
+            "SELECT attempt_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")}
+        for row in self.store.query("SELECT ts,lane_id,attempt_id FROM events WHERE kind=? "
+                                    "ORDER BY event_id DESC LIMIT ?", (ANSWER_EVENT, ANSWER_SEED_ROWS)):
+            when = _epoch(row["ts"])
+            if when is None or not row["lane_id"]:
+                continue
+            lanes[row["lane_id"]] = max(lanes.get(row["lane_id"], when), when)
+            if row["attempt_id"] in live:
+                attempts.setdefault(row["attempt_id"], when)
+        return lanes, attempts
+
+    def _record_answer(self, lane_id: str, source: str, *, attempt: dict | None = None) -> None:
+        """C-6.14: a model answered on `lane_id`, so the lane is proven now, and an
+        attempt that answered is no pilot. Remembered first, then recorded as a
+        `lane.answered` event (`source`: the attempt's `stream`, its `finalization`,
+        an admission `probe`, a timer's `keepalive` or `heal`); an attempt's answer
+        is recorded once. A store error is logged, never raised: the memory is
+        what admission reads."""
+        now = datetime.now(timezone.utc).timestamp()           # the clock views are built on
+        attempt_id = attempt["attempt_id"] if attempt else None
+        idle = admission_settings(self.policy)["prove_idle_s"]
+        with self._answer_lock:
+            if attempt_id is not None and attempt_id in self._attempt_answers:
+                return
+            lanes = dict(self._lane_answers)
+            last = lanes.get(lane_id)
+            lanes[lane_id] = now if last is None else max(last, now)
+            self._lane_answers = lanes
+            if attempt_id is not None:
+                self._attempt_answers = {**self._attempt_answers, attempt_id: now}
+            # C-6.10: only an answer on a lane that was not proven can free one. A
+            # proven lane's every start answers too, and a look at every backed-off
+            # wait for each would be the cost C-6.10 keeps timer probes out of.
+            freed = idle is not None and (last is None or now - last >= idle)
+            self._answer_news = self._answer_news or freed
+        self._answer_reads.pop(attempt_id, None)
+        try:
+            self.store.add_event(ANSWER_EVENT, job_id=attempt["job_id"] if attempt else None,
+                                 attempt_id=attempt_id, lane_id=lane_id, data={"source": source})
+        except (sqlite3.Error, OSError) as exc:
+            self.log.warning("lane %s answered (%s) but the record could not be written: %s",
+                             lane_id, source, type(exc).__name__)
+        if freed:
+            self._notify()
+
+    def _take_answer_news(self) -> bool:
+        """C-6.10, C-6.14: whether a model answered since the detached pass last asked.
+        A pilot's answer frees its lane as a released lease frees a slot, so the
+        jobs waiting for it are looked at on the next pass, not on their backed-off
+        clocks."""
+        with self._answer_lock:
+            news, self._answer_news = self._answer_news, False
+        return news
+
+    def _read_answer(self, a: dict, adir: Path) -> None:
+        """C-6.14: read what a live detached attempt's stream added since the last look,
+        at most every `ANSWER_READ_INTERVAL_S` and `ANSWER_READ_CHUNK` bytes at a time,
+        and stop at the first event its adapter says shows the model answering
+        (`Adapter.model_answered`). Only the stream file, opened only as a regular
+        file; nothing here raises."""
+        aid = a["attempt_id"]
+        if aid in self._attempt_answers:
+            return
+        try:
+            state = self._answer_reads.get(aid)
+            now = time.monotonic()
+            if state is None:
+                lane = self.store.get_lane(a["lane_id"])
+                state = {"path": self._saved_launch(a).stdout_path, "offset": 0, "tail": b"", "skip": False,
+                         "next": 0.0, "adapter": get_adapter(lane.provider) if lane else None}
+                self._answer_reads[aid] = state
+            if state["adapter"] is None or now < state["next"]:
+                return
+            state["next"] = now + ANSWER_READ_INTERVAL_S
+            settings = admission_settings(self.policy)
+            wait, idle = settings["prove_wait_s"], settings["prove_idle_s"]
+            if wait is not None and idle is not None and not state.get("lapsed") and age(a["reserved_at"]) >= wait:
+                # C-6.14: said once per attempt, and only of a lane still unproven;
+                # `capacity.pilot_marks` is what lets the lane go.
+                state["lapsed"] = True
+                last = self._lane_answers.get(a["lane_id"])
+                if last is None or datetime.now(timezone.utc).timestamp() - last >= idle:
+                    self.log.warning("attempt %s on lane %s has shown no model answering for %d s; it no longer "
+                                     "holds the lane, which takes one more attempt (C-6.14)",
+                                     aid, a["lane_id"], wait)
+                    with self._answer_lock:                # the lane is free: the jobs held for it look now
+                        self._answer_news = True
+                    self._notify()
+            with open_regular(state["path"]) as stream:
+                size = os.fstat(stream.fileno()).st_size
+                if size <= state["offset"]:
+                    return
+                stream.seek(state["offset"])
+                data = stream.read(min(size - state["offset"], ANSWER_READ_CHUNK))
+            state["offset"] += len(data)
+            if state["skip"]:
+                # The rest of a line longer than `ANSWER_LINE_MAX`, which is no event read whole.
+                cut = data.find(b"\n")
+                if cut < 0:
+                    return
+                data, state["skip"] = data[cut + 1:], False
+            lines = (state["tail"] + data).split(b"\n")
+            state["tail"] = lines.pop()
+            if len(state["tail"]) > ANSWER_LINE_MAX:
+                state["tail"], state["skip"] = b"", True
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if state["adapter"].model_answered(event):
+                    self._record_answer(a["lane_id"], "stream", attempt=a)
+                    return
+        except (FileNotFoundError, NotRegularFile):
+            return                      # nothing written yet, or no stream to read
+        except Exception as exc:        # never the attempt's trouble: its finalization still decides
+            self.log.debug("attempt %s: its stream could not be read for an answer: %s", aid, type(exc).__name__)
+
+    def _forget_answers(self, live: set[str]) -> None:
+        """C-6.14: drop what was read and heard of attempts no longer in flight."""
+        for aid in [aid for aid in self._answer_reads.copy() if aid not in live]:
+            self._answer_reads.pop(aid, None)
+        with self._answer_lock:
+            if any(aid not in live for aid in self._attempt_answers):
+                self._attempt_answers = {aid: when for aid, when in self._attempt_answers.items() if aid in live}
+
+    @staticmethod
+    def _answered(outcome: Outcome, provider_class: str) -> bool:
+        """C-6.14: does a finished attempt's outcome show its model answering? Its
+        adapter's `model_answered`, or an adapter verdict of `ok`, which no adapter
+        reaches without an answer: a stream shape the predicate does not know must
+        not leave a lane that serves every attempt forever one attempt wide."""
+        return (outcome.evidence or {}).get("model_answered") is True or provider_class == OutcomeClass.OK.value
 
     def _session_rows(self) -> dict | None:
         """Claude Code's live-session registry, read at most every `REGISTRY_READ_TTL_S`.
@@ -1221,7 +1581,7 @@ class Daemon:
         exclusions = job.get("exclusions") or ()
         if isinstance(exclusions, str):
             exclusions = json.loads(exclusions)
-        rows = self._capacity_rows()
+        rows = self._capacity_rows(route=True)
         # The instant the view is built at: it keeps closures and labels readings
         # on it, and gives `evaluate` its whole second (C-6.3's clock check).
         instant = datetime.now(timezone.utc)
@@ -1251,13 +1611,34 @@ class Daemon:
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
 
-    @staticmethod
-    def _needs_probe(decision, job: dict) -> bool:
-        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for admission."""
+    def _needs_probe(self, decision, job: dict) -> bool:
+        """C-6.12: `scheduler.probe_required`, which checks the job's authorization, for
+        admission; and C-4.5, C-6.14: a job that has moved on from an `auth-dead` lane is
+        never a pilot. On a lane not proven it waits for Subfleet's own probe (C-11.4),
+        which runs on the lane's credential with none of the job's settings, so its
+        `auth-dead` is the lane's (it disables the lane, C-23.44) and its answer proves
+        the lane. Then a second `auth-dead` on a proven lane points at the job."""
         try:
-            return scheduler.probe_required(decision, job)
+            if scheduler.probe_required(decision, job):
+                return True
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
+        return bool(decision.chosen_lane and job.get("kind") != "turn"
+                    and admission_settings(self.policy)["prove_idle_s"] is not None
+                    and not self._lane_proven(decision.chosen_lane)
+                    and self._moved_on_from(job["job_id"]))
+
+    def _lane_proven(self, lane_id: str) -> bool:
+        """C-6.14: has a model answered on `lane_id` within `admission.prove_idle_s`, now?"""
+        idle = admission_settings(self.policy)["prove_idle_s"]
+        last = self._lane_answers.get(lane_id)
+        return idle is None or (last is not None and datetime.now(timezone.utc).timestamp() - last < idle)
+
+    def _moved_on_from(self, job_id: str) -> int:
+        """C-4.5: how many lane faults the job has moved on from (at most one)."""
+        return sum(1 for row in self.store.query(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND outcome_class='auth-dead'", (job_id,))
+            if _lane_fault_of(row["evidence_json"]))
 
     def _retry_pin(self, job: dict) -> tuple[list[dict], tuple[str, ...], dict | None]:
         """C-4.5: a job's attempts, the lanes they exclude, and the one-time retry pin.
@@ -1389,7 +1770,13 @@ class Daemon:
             # `caller_session`.
             fence: tuple[str | None, str] | None = None
             resume_workspace = None
+            retire_fence = None
             if args.kind == "resume":
+                # d635: while the resume reads its source's job directory, and
+                # until its own row pins the source (C-8.4 `parent`), retention
+                # may not start retiring the source (review Astra 9). Not
+                # `fence`, which is C-26.13's session fence just above.
+                retire_fence = self._fence_resume(args)
                 args, resume = self._resume_submission(args)
                 # Where the resume starts is the source's, not the request's: it
                 # stays out of the digest, so a resume retried across an upgrade
@@ -1468,9 +1855,16 @@ class Daemon:
                                                "to run it here without writing")
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
-                # named by -C, so `/repo` and `/repo/sub` are one place to write.
-                write_target = (git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or str(workdir)
+                # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
+                # spelled one way (`folders.canonical`, as a conversation's workspace
+                # is): a folder outside git kept the case it was typed in, so
+                # `~/Scratch` and `~/scratch` were two keys for one folder.
+                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
+                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`).
+                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
+                               if turn is not None and write_target is None else None)
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -1587,8 +1981,8 @@ class Daemon:
                         raise
                     raise _written_by_policy(exc, args.task) from exc
             else:
-                # C-26.1, IR-12: a turn waits for its workspace at admission (the
-                # `worktree:` lease), it is never refused here.
+                # C-26.1, IR-12: a turn waits for its workspace at admission (a
+                # detached writer's `worktree:` lease, C-24.5), it is never refused here.
                 cleared = None
             if mcp_servers and mcp_found is None:
                 # Only a retry of an accepted request gets here without entries
@@ -1619,7 +2013,15 @@ class Daemon:
                 # in it the job starts (the caller's place in the repository) are
                 # known now.
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
-                top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                try:
+                    top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                except SalvageError as exc:
+                    # C-6.8: exit 1 with nothing stored, as the checks above; only
+                    # the prompt has been written, under a job id nobody was given.
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
                 prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
@@ -1655,6 +2057,7 @@ class Daemon:
                             if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
+                         **({"folder": read_folder} if read_folder else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
@@ -1664,6 +2067,8 @@ class Daemon:
                     self._validate_conflicts(values, cleared, write_target)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
+                if retire_fence is not None:
+                    tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", retire_fence)
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True,
                     **self._where_it_writes(job_id, sandbox.value)}
@@ -1774,6 +2179,24 @@ class Daemon:
         """The lane an already accepted request was pinned to, when that is a lane id (C-6.2)."""
         row = self.store.one("SELECT pinned_lane FROM jobs WHERE request_id=?", (request_id,))
         return {"lane_id": row["pinned_lane"]} if row and row["pinned_lane"] and self.store.get_lane(row["pinned_lane"]) else None
+
+    def _fence_resume(self, args: protocol.SubmitArgs) -> tuple[str, str] | None:
+        """Hold `retire:<source>` for this resume, or refuse it while retention is
+        retiring the source (d635). The job's insert releases the fence; one a
+        refused or retried submit leaves is stale, and any resume fence found here
+        is (submits are serialized by the submit lock), as is one retention finds
+        older than `retention.FENCE_STALE_S`."""
+        if not args.parent_job_id:
+            return None
+        key, holder = f"retire:{args.parent_job_id}", f"resume:{args.request_id}"
+        with self.store.transaction("retention.fenced", data={"lease_key": key}) as tx:
+            tx.execute("DELETE FROM leases WHERE lease_key LIKE 'retire:%' AND holder LIKE 'resume:%'")
+            row = tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if row:
+                raise AdapterError(f"resume refused: {args.parent_job_id} is being archived by retention",
+                                   code=int(Exit.OPERATIONAL), fix="retry in a minute")
+            tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+        return key, holder
 
     def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
         """Resolve the native session on its original lane before persisting a resume."""
@@ -2070,9 +2493,17 @@ class Daemon:
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
-                for key in {f"worktree:{job['workdir']}", f"worktree:{write_target or job['workdir']}"}:
-                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (key,)):
+                for folder in {job["workdir"], write_target or job["workdir"]}:
+                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
                         raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                    # C-6.5, C-24.5: a writable conversation turn holds its folder with a
+                    # row of its own (one live after its job ended, while its attempt is
+                    # quarantined, too); a detached writer never joins it there.
+                    turns = folders.turn_holds(self.store.query, folder, (folders.TURN,))
+                    if turns:
+                        raise AdapterError(f"worktree {folder} is being written by a conversation turn ({turns[0][1]})",
+                                           fix="wait for the conversation's turn to end, or run the job in its own "
+                                               "worktree (without --in-place)")
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
@@ -2157,9 +2588,11 @@ class Daemon:
                                lane.lane_id, type(exc).__name__)
         return record
 
-    def dispatch(self, op: str, args: dict, arrived: float | None = None) -> dict:
-        """Answer one op. `arrived` is when its request was read off the socket
-        (`time.monotonic()`), for a `wait`, whose deadline runs from then."""
+    def dispatch(self, op: str, args: dict, arrived: float | None = None, *,
+                 client_gone: Callable[[], bool] | None = None) -> dict:
+        """Answer one op (C-16.2). `arrived` is when its request was read off the
+        socket (`time.monotonic()`), for a `wait`, whose deadline runs from then;
+        `client_gone`, from the socket, lets a long read stop early (C-16.7)."""
         if op == "pick":
             from . import picker
             a = protocol.coerce_args(protocol.PickArgs, args)
@@ -2228,7 +2661,8 @@ class Daemon:
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
         if op == "wait":
-            return self.wait(protocol.coerce_args(protocol.WaitArgs, args), arrived=arrived)
+            return self.wait(protocol.coerce_args(protocol.WaitArgs, args), arrived=arrived,
+                             client_gone=client_gone)
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args))
         if op == "lanes":
@@ -2260,55 +2694,92 @@ class Daemon:
                 return self._why_job(self._job(a.job_id))
             decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
             return {"decision": decision, "text": render.why(decision)}
+        if op == "notice.list":
+            a = protocol.coerce_args(protocol.NoticeListArgs, args)
+            return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
+        if op == "notice.withdraw":
+            return self._withdraw_notices(protocol.coerce_args(protocol.NoticeWithdrawArgs, args))
         if op.startswith("notice."):
             a = protocol.coerce_args(
-                protocol.NoticeMarkArgs if op == "notice.mark" else protocol.NoticeArgs,
+                protocol.NoticeMarkArgs if op == "notice.mark" else
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
                 args)
+            # C-15.3: a negated id is a service notice, on every op that takes
+            # ids back (`protocol.notice_row`), and `acknowledged` is terminal
+            # in both tables: a notice is acknowledged once.
+            targets = [protocol.notice_row(notice_id) for notice_id in a.notice_ids]
+            answered: dict = {}
             if op == "notice.ack":
+                # C-15.8: with fingerprints (`notices --ack`), a row is acknowledged
+                # only while it is still the one listed, since ids are reused; the
+                # answer says which were and which were kept.
+                if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+                    raise protocol.ProtocolError(
+                        f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                        "give one per id, or none")
+                if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                unique: dict = {}                       # a repeated id: once, with its first fingerprint
+                for index, notice_id in enumerate(a.notice_ids):
+                    unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
+                stamp, acknowledged = utcnow(), []
                 with self.store.transaction("notice.acknowledged") as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            tx.execute("UPDATE service_notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=?",
-                                       (utcnow(), -notice_id, a.session_id))
-                            continue
-                        tx.execute("UPDATE notices SET state='acknowledged',acknowledged_at=? WHERE notice_id=? AND session_id=? AND state!='acknowledged'", (utcnow(), notice_id, a.session_id))
+                    for notice_id, fingerprint in unique.items():
+                        table, row_id = protocol.notice_row(notice_id)
+                        if fingerprint is not None:
+                            row = tx.execute(f"SELECT text, created_at FROM {table} WHERE notice_id=? AND session_id=?",
+                                             (row_id, a.session_id)).fetchone()
+                            if row is None or notice_fingerprint({"text": row[0], "created_at": row[1]}) != fingerprint:
+                                continue
+                        if tx.execute(f"UPDATE {table} SET state='acknowledged',acknowledged_at=? "
+                                      "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
+                                      (stamp, row_id, a.session_id)).rowcount:
+                            acknowledged.append(notice_id)
+                answered = {"acknowledged": acknowledged,
+                            "kept": [notice_id for notice_id in unique if notice_id not in acknowledged]}
             if op == "notice.mark":
                 # C-15.3's non-terminal states, for the delivery layers that are
                 # not an acknowledgement: `offered` (a transport accepted the
-                # bytes) and `surfaced` (a hook printed it). Neither may overwrite
-                # `acknowledged`, which is terminal.
+                # bytes) and `surfaced` (a hook printed it). A mark never moves
+                # a notice down `NOTICE_LADDER`: `acknowledged` is terminal, and
+                # an offer read before a hook surfaced the notice cannot put it
+                # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
                     raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
+                movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
                 with self.store.transaction("notice." + a.state) as tx:
-                    for notice_id in a.notice_ids:
-                        if notice_id < 0:
-                            # A service notice (negated id, as `notice.ack` takes it):
-                            # marked in its own table, or a hook that printed it would
-                            # print it again at every prompt.
-                            tx.execute(
-                                "UPDATE service_notices SET state=?,transport=COALESCE(?,transport),"
-                                "offered_at=COALESCE(offered_at,?),"
-                                "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                                "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                                (a.state, a.transport, stamp, a.state, stamp, -notice_id, a.session_id))
-                            continue
+                    for table, row_id in targets:
                         tx.execute(
-                            "UPDATE notices SET state=?,transport=COALESCE(?,transport),"
+                            f"UPDATE {table} SET state=?,transport=COALESCE(?,transport),"
                             "offered_at=COALESCE(offered_at,?),"
                             "acknowledged_at=CASE WHEN ?='acknowledged' THEN ? ELSE acknowledged_at END "
-                            "WHERE notice_id=? AND session_id=? AND state!='acknowledged'",
-                            (a.state, a.transport, stamp, a.state, stamp, notice_id, a.session_id))
+                            f"WHERE notice_id=? AND session_id=? AND state IN ({','.join('?' * len(movable))})",
+                            (a.state, a.transport, stamp, a.state, stamp, row_id, a.session_id, *movable))
             notices = self.store.query("SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             service = self.store.query("SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id", (a.session_id,))
             about = self._pin_notice_jobs(service) if service else {}
-            notices += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
-            return {"notices": notices}
+            notices += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])} for row in service]
+            return {"notices": notices, **answered}
         if op == "ping":
-            text = args.get("text", "")
-            session = args.get("session_id") or self.policy.get("alerts", {}).get("operator_session") or "operator"
+            text = args.get("text")
+            text = "" if text is None else text
+            if not isinstance(text, str):
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+            # C-15.8: a notice goes to the session named, else to the configured
+            # operator session; there is no default inbox nobody reads. A blank
+            # or non-string session names none, and whitespace is no text.
+            named = args.get("session_id")
+            named = named.strip() if isinstance(named, str) and named.strip() else None
+            session = named or operator_session(self.policy)
             notice_id = None
-            if text:
+            if text.strip():
+                if not session:
+                    raise protocol.ProtocolError(
+                        "ping: no session named, and alerts.operator_session is not set; "
+                        "a notice addressed to no session is never read (C-15.8)",
+                        fix="name the session: subfleet ping --session <id> TEXT")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -2320,8 +2791,11 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
-                    "timers": self.timers.status(), "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
-                    "admission": self._admission_status(view), "connections": self.connection_status(),
+                    "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "claude_cards": self.timers.cards_view(),  # C-9.10
+                    "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
+                    "admission": self._admission_status(view),
+                    "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
         raise protocol.ProtocolError(f"unknown op {op}")
@@ -2615,10 +3089,12 @@ class Daemon:
                     "dedupe_key": args.dedupe_key, "kind": args.kind}
         raise protocol.ProtocolError(f"unknown sessions action {action!r}")
 
-    def wait(self, args: protocol.WaitArgs, arrived: float | None = None) -> dict:
+    def wait(self, args: protocol.WaitArgs, arrived: float | None = None, *,
+             client_gone: Callable[[], bool] | None = None) -> dict:
         """C-15.4's long poll. The deadline runs from `arrived`, when the request was
         read: one that waited for a thread past its client's deadline looks once and
-        answers (review of the descriptor hotfix, F1)."""
+        answers (review of the descriptor hotfix, F1). With `client_gone` it also
+        ends, within `CLIENT_POLL_S`, when its client has closed its socket (C-16.7)."""
         try:
             deadline = (time.monotonic() if arrived is None else arrived) + max(
                 0, min(float(args.deadline_s), WAIT_POLL_MAX_S))
@@ -2632,15 +3108,38 @@ class Daemon:
         # be done. It registers before its first read, so no commit is missed; a
         # waiter used to re-read every job on every wake-up of every waiter.
         with self.wait_hub.watching(job_ids) as ready:
+            read = True
             while True:
-                ready.clear()
-                answer = self._wait_answer(job_ids)
-                if answer is not None:
-                    return answer
+                if read:
+                    ready.clear()
+                    answer = self._wait_answer(job_ids)
+                    if answer is not None:
+                        return answer
+                    read_at = time.monotonic()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or self.stopping.is_set():
+                    # C-15.5: once more when the deadline passes, or the daemon
+                    # stops, always: a job that ended after the hub's last look is
+                    # answered, never reported as a timeout (review of 3c8fe55, P0).
+                    # Even after a read on this pass: its snapshot may predate a
+                    # commit that has not woken this waiter yet, since the hub wakes
+                    # only after its own read (reviews r2 and r3, P2). It costs one
+                    # read per timed-out poll.
+                    answer = self._wait_answer(job_ids)
+                    return answer if answer is not None else {"timeout": True}
+                if client_gone is not None and client_gone():
+                    # C-16.7: no one is left to read the answer. Stop now, not at
+                    # the deadline, and free this thread and the client's descriptor.
+                    # A stream this daemon ended itself is not a client leaving.
+                    if not getattr(client_gone, "ended_here", lambda: False)():
+                        self._count_connection("abandoned", "wait")
                     return {"timeout": True}
-                ready.wait(remaining)
+                read = ready.wait(remaining if client_gone is None
+                                  else min(remaining, descriptors.CLIENT_POLL_S))
+                # A hub that cannot run (no thread to be had) leaves each waiter
+                # to read for itself, every `recheck_s` (C-15.5).
+                read = read or (not self.wait_hub.running
+                                and time.monotonic() - read_at >= self.wait_hub.recheck_s)
 
     def _wait_answer(self, job_ids: list[str]) -> dict | None:
         """The answer to a `wait` if every job has ended and every export is done."""
@@ -2652,6 +3151,7 @@ class Daemon:
             for job in jobs:
                 job["attempt"] = self.store.one(
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
     def kill(self, args: protocol.KillArgs) -> dict:
@@ -2667,20 +3167,24 @@ class Daemon:
             if job["state"] in TERMINAL:
                 return {"job_id": args.job_id, "status": "already finished"}
             rows = tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) SELECT j.* FROM jobs j JOIN family f USING(job_id)", (args.job_id,)).fetchall()
+            now = utcnow()      # C-7.3: one cancel, one instant, for the whole family
             for raw in rows:
                 row = dict(raw)
                 if row["state"] in TERMINAL:
                     continue
-                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?", (utcnow(), row["job_id"]))
+                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?", (now, row["job_id"]))
                 active = tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (row["job_id"],)).fetchone()
                 if not active:
-                    tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (utcnow(), row["job_id"]))
+                    tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
                     tx.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
-                    self._notice(tx, row, "cancelled before launch")
+                    # C-13.1, C-15.1: a job with an attempt behind it was waiting to try again.
+                    earlier = self._earlier_attempt(tx, row)
+                    self._notice(tx, row, "cancelled while waiting to retry" + earlier if earlier
+                                 else "cancelled before launch")
         self._notify()
         return {"job_id": args.job_id, "status": "cancel requested"}
 
-    def _notice(self, tx, job: dict, summary: str) -> None:
+    def _notice(self, tx, job: dict, summary: str, *, again: bool = False) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
 
         The header is read here, from the job row as this transaction left it,
@@ -2692,6 +3196,10 @@ class Daemon:
         job ended without one (incident: 2026-09-24, the header came from the
         attempt, so cancelled jobs were announced `ok; rc=0` with an `-o` path
         that was never written).
+
+        `again` writes one more notice for a job that already has one: a
+        quarantine's release whose salvage failed or left paths out (C-13.1),
+        found after the job's notice went out at the quarantine.
         """
         row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind "
                          "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
@@ -2700,9 +3208,9 @@ class Daemon:
         if row is None or row["state"] not in TERMINAL:
             raise RuntimeError(f"notice for {job['job_id']} before its terminal state "
                                f"({row['state'] if row else 'no job row'})")
-        if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
+        if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
-        text = render.notice_header(dict(row), self.root) + "\n" + summary
+        text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -2791,6 +3299,65 @@ class Daemon:
                 pacing.pop(aid, None)
         for aid in [aid for aid in self._inspect_retry.copy() if aid not in live]:
             self._inspect_retry.discard(aid)
+        self._native &= live
+        for aid in [aid for aid in self._v1_unread.copy() if aid not in live]:
+            self._v1_unread.pop(aid, None)
+
+    def _note_ownership_unread(self, aid: str, exc: BaseException) -> None:
+        """Log an attempt whose v1 ownership could not be read, on the 1st, 2nd,
+        4th, ... consecutive tick (as C-5.10 logs a failing worker), type only."""
+        count = self._v1_unread[aid] = self._v1_unread.get(aid, 0) + 1
+        if count & (count - 1) == 0:
+            self.log.error("attempt %s: whether v1 owns it could not be read: %s (%d ticks in a row); "
+                           "no pass is given until it can (principle 3)", aid, type(exc).__name__, count)
+
+    def _v1_owned(self, aid: str) -> bool:
+        """Whether v1 still executes this live attempt (`imported_external`), read
+        from its row until the answer is no (C-5.11)."""
+        if aid in self._native:
+            return False
+        row = self.store.one("SELECT evidence_json FROM attempts WHERE attempt_id=?", (aid,))
+        if row is not None and imported_external(row):
+            return True
+        self._native.add(aid)
+        return False
+
+    def _has_work(self, a: dict) -> bool:
+        """C-5.11: whether a pass over this live attempt could do anything this tick.
+
+        `_process_attempt` on a running attempt reads its exit receipt, its job's
+        cancel request and its wall limit, and then inspects its processes if an
+        inspection is due (C-5.12). When there is no receipt, no cancel request,
+        the wall limit is not reached and no inspection is due, it returns having
+        done nothing. That is what this answers, from the tick's one statement
+        and one `stat`, so that only an attempt with something to do costs a
+        worker. It decides nothing: the pass reads everything again for itself.
+        Every doubt is a yes.
+
+        `_worker_failures` is a yes for the pacing, not for any action: a pass
+        whose last run raised may act on nothing, but its success is what clears
+        C-5.10's count, and withheld, a stale count would back the next real
+        failure off longer than it should.
+        """
+        aid = a["attempt_id"]
+        if a["state"] != "running" or a["max_wall_s"] is None:
+            return True                     # launching, starting, finalizing; or a job row to miss
+        if aid in self._inspect_retry or aid in self._worker_failures:
+            return True                     # C-5.10: a pass that raised is repeated on its clock
+        if time.monotonic() >= self._inspect_next.get(aid, 0):
+            return True                     # C-5.12: an inspection is due
+        if a["cancel_requested_at"] or age(a["job_started_at"]) >= a["max_wall_s"]:
+            return True
+        child = self._children.get(aid)
+        if child is not None and child.poll() is not None:
+            return True                     # the guardian ended: the pass lets go of it
+        try:
+            os.stat(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            pass                            # unreadable is the pass's to report
+        return True
 
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
@@ -2798,12 +3365,33 @@ class Daemon:
         # permission to run by this daemon instance.
         while not self.stopping.is_set():
             try:
-                live = self.store.query(LIVE_ATTEMPTS)
+                live = self.store.query(LIVE_TICK)
                 self._forget_paced({a["attempt_id"] for a in live})
+                self._forget_answers({a["attempt_id"] for a in live})        # C-6.14
                 for a in live:
-                    if imported_external(a):
+                    # Migration principle 3: a doubt about whether v1 still owns
+                    # the run is a no. No pass is given; it is asked again next
+                    # tick, and an error never ends the tick for other keys.
+                    try:
+                        owned = self._v1_owned(a["attempt_id"])
+                    except Exception as exc:        # noqa: BLE001 - logged, bounded
+                        self._note_ownership_unread(a["attempt_id"], exc)
+                        continue
+                    self._v1_unread.pop(a["attempt_id"], None)
+                    if owned:
                         continue                    # v1 still owns it (principle 3)
-                    self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
+                    # C-5.11: every live attempt is looked at each tick; the pool
+                    # is given those a pass could do something for. Every doubt
+                    # about what a pass would do is a yes, an error in the look
+                    # included: the pass raises it, keyed to this attempt, and
+                    # C-5.10 paces it. Raised here, it would end the tick for
+                    # every other key.
+                    try:
+                        offer = self._has_work(a)
+                    except Exception:               # noqa: BLE001 - the pass reports it
+                        offer = True
+                    if offer:
+                        self._schedule(a["attempt_id"], self._process_attempt, a["attempt_id"], paced=True)
                 for job_id in self._pending_exports():
                     self._schedule("export:" + job_id, self._export, job_id, paced=True)
                 if self._recovery_complete.is_set():
@@ -2815,39 +3403,176 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
 
     def _timer_notice(self, notice: dict) -> bool:
-        result = self.dispatch("ping", {"session_id": self.policy.get("alerts", {}).get("operator_session"),
+        """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+        one is set. With none it is delivered by being shown: `status` and
+        `status.json` list every alert in force (C-18.4), and no inbox parks it."""
+        session = operator_session(self.policy)
+        if session is None:
+            return True
+        result = self.dispatch("ping", {"session_id": session,
                                        "text": notice["subject"] + "\n" + notice["body"]})
         return result.get("notice_id") is not None
 
+    def _withdraw_notices(self, a: protocol.NoticeWithdrawArgs) -> dict:
+        """C-15.8, C-23.26: an operator withdraws a session's undelivered service notices.
+
+        Only the rows named, only that session's, and only while still `pending`
+        or `offered`: a notice a hook printed or a session acknowledged is not
+        withdrawn, and a job's notice (a positive id) is its terminal record and
+        is refused. The rows are deleted in one transaction with one
+        `notice.withdrawn` event naming each id, the session, the reason, the
+        creation span and how many of each subject went, so the withdrawal
+        claims no delivery and loses no record of what was withdrawn."""
+        jobs = sorted(notice_id for notice_id in a.notice_ids if notice_id >= 0)
+        if jobs:
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
+                "terminal record and is acknowledged, never withdrawn (C-15.8)",
+                fix=f"subfleet notices --session {a.session_id} --ack")
+        if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
+            raise protocol.ProtocolError(
+                f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
+                "give one per id, or none")
+        if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+        listed: dict = {}
+        for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
+            if a.fingerprints:
+                listed.setdefault(-notice_id, a.fingerprints[index])
+        wanted = sorted({-notice_id for notice_id in a.notice_ids})
+        record: dict = {"session_id": a.session_id,
+                        "reason": a.reason if a.reason is not None else "withdrawn by the operator",
+                        "service_notice_ids": [], "count": 0, "first_created_at": None,
+                        "last_created_at": None, "subjects": {}}
+        with self.store.transaction("notice.withdrawn", data=record) as tx:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ",".join("?" * len(chunk))
+                where = (f"session_id=? AND state IN ('pending','offered') AND notice_id IN ({marks})")
+                rows = [row for row in tx.execute(
+                            f"SELECT notice_id, text, created_at FROM service_notices WHERE {where} "
+                            "ORDER BY notice_id", (a.session_id, *chunk)).fetchall()
+                        if not listed or listed.get(row[0]) == notice_fingerprint(
+                            {"text": row[1], "created_at": row[2]})]
+                if rows:                            # at most one chunk's worth
+                    tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
+                               [row[0] for row in rows])
+                for notice_id, text, created_at in rows:
+                    record["service_notice_ids"].append(notice_id)
+                    subject = str(text).split("\n", 1)[0]
+                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+            record["count"] = len(record["service_notice_ids"])
+        withdrawn = set(record["service_notice_ids"])
+        return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
+                "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
+
     def _retention(self):
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
-        # conversation service pins the turn jobs it still needs (IR-17).
+        # conversation service pins the turn jobs it still needs (IR-17). d635:
+        # retirement archives before it deletes; a pass retires a bounded batch,
+        # oldest first, and says when more is waiting, so a backlog is worked
+        # off in catch-up passes seconds apart instead of timing out hourly.
+        # Once per retention call (one bounded batch), including interruptions.
+        try:
+            self._prune_service_notices()
+        except Exception as exc:
+            self.log.warning("retention: service notices were not pruned: %s", type(exc).__name__)
+        if os.environ.get(RETENTION_DORMANT_ENV) == "1":
+            # 2.1.11 ships retention by archive dormant (hub, 2026-10-06): its
+            # fences match a job's own tree exactly, so a turn or a lease on a
+            # folder inside a finished job's tree is not seen (retention-archive.md
+            # §15, fixed by the stack on #134). The installer sets this in the
+            # launchd plist, never in policy.json (d574); unset, nothing changes.
+            if not self._retention_dormant_logged:
+                self.log.warning("retention: dormant (%s=1): no job is selected, archived or deleted",
+                                 RETENTION_DORMANT_ENV)
+                self._retention_dormant_logged = True
+            self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
                              pins=self.conversations.retention_pins,
-                             cancel=self.timers.cancel, deadline=time.monotonic() + 60)
-        if result.get("interrupted"):
-            if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+                             cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
+                             state=self._retention_state,
+                             remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        pruned = len(result.get("pruned") or ())
+        progressed = bool(pruned or result.get("progressed"))
+        interrupted = result.get("interrupted")
+        if interrupted == "cancelled":
+            self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
+        if result.get("holder_scan_failed"):
+            # Quarantining and rolling back is action, but another batch cannot
+            # retire jobs while the shared process listing is unavailable.
+            self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in an hour",
+                             result.get("jobs_after", 0))
+            self._last_maintenance = time.monotonic()
+            return
+        if interrupted:
+            if not progressed:
+                self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+                self.log.warning("retention: deadline reached before it pruned a job or advanced; "
+                                 "%d jobs in the store; next pass in an hour", result.get("jobs_after", 0))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        with self.store.transaction("service-notice.retention") as tx:
-            tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?", (after(-14 * 86400),))
-        self.timers.mark("retention", next_due=after(3600))
+            self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
+                             "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
+            # Stay due. _schedule records the error and applies C-5.10.
+            raise TimeoutError("retention deadline reached after progress")
+        for error in (result.get("errors") or [])[:5]:
+            self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
+        if result.get("more") and progressed:
+            delay = RETENTION_CATCH_UP_S
+            self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
+                          "archive, which added %d bytes; net %d on disk), %d in flight, %d deferred; "
+                          "continuing in %g seconds",
+                          len(result.get("pruned") or ()), result.get("freed_bytes") or 0,
+                          result.get("freed_disk_bytes") or 0, result.get("archived_bytes") or 0,
+                          result.get("added_bytes") or 0,
+                          (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0),
+                          len(result.get("in_flight") or ()), len(result.get("deferred") or {}), delay)
+            self.timers.mark("retention", next_due=after(delay))
+            self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
+            return
+        if result.get("pruned"):
+            self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive, "
+                          "which added %d bytes (bundles, manifests, rows); net %d on disk",
+                          len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
+                          result.get("archived_bytes") or 0, result.get("added_bytes") or 0,
+                          (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0))
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
         # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+        # Completed and non-advancing passes rearm the hourly interval last.
         self._last_maintenance = time.monotonic()
 
+    def _prune_service_notices(self) -> int:
+        """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
+
+        Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
+        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        """
+        with self.store.transaction("service-notice.retention") as tx:
+            return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
+                              (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
+
     def _recover_then_start_timers(self):
+        # d635: a resume's fence on its source lives only while its submit runs.
+        with self.store.transaction("retention.fence_released", data={"reason": "restart"}) as tx:
+            tx.execute("DELETE FROM leases WHERE lease_key LIKE 'retire:%' AND holder LIKE 'resume:%'")
         # HTTP reservations have no provider process and can be released on restart.
         for lease in self.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:timer:%'"):
             if lease["holder"] not in self.timers.active_holders and not self._probe_record(lease["holder"]):
@@ -2959,9 +3684,11 @@ class Daemon:
             record.update(state="completed")
             self._save_probe(record)
             shutil.rmtree(directory, ignore_errors=True)
+        if outcome.cls == OutcomeClass.OK:
+            self._record_answer(lane.lane_id, purpose)              # C-6.14: a keepalive or heal turn answered
         return dataclasses.replace(outcome, evidence=evidence)
 
-    def _workspace(self, job: dict) -> tuple[str, str | None, str | None]:
+    def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
         """C-6.8: every git call here is capped by policy, and a call that did
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
@@ -2986,24 +3713,85 @@ class Daemon:
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
+                    # `backslashreplace`: git's messages can quote a file name that is
+                    # not UTF-8, which a strict read raised as `UnicodeDecodeError`
+                    # out of the admission pass on every try (review of cda4c161, N1).
                     result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True,
+                                            capture_output=True, text=True, errors="backslashreplace",
+                                            env=_git_env(None),
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
                     raise
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap)
-                    raise AdapterError("could not allocate worktree: " + (result.stderr.strip()[-300:] or f"git exited {result.returncode}"),
-                                       fix="check repository and state-root permissions")
+                    # A git killed by a signal did not finish, as a timed-out one did not.
+                    killed = _failure("worktree", result) if result.returncode < 0 else None
+                    error = "could not allocate worktree: " + (
+                        str(killed) if killed else result.stderr.strip()[-300:] or f"git exited {result.returncode}")
+                    if killed or _transient_git(result.stderr):
+                        raise SalvageError(error, transient=True)
+                    raise AdapterError(error, fix="check repository and state-root permissions")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
+        skipped: list[str] = []
         if head and job["sandbox"] == "workspace-write":
-            baseline = working_tree(workdir, head, timeout_s=cap)
+            baseline = working_tree(workdir, head, timeout_s=cap, left_out=skipped)
         elif head:
             baseline = git_tree(workdir, head, timeout_s=cap)
-        return workdir, head, baseline
+        return workdir, head, baseline, [path_text(path) for path in skipped]
+
+    def _pin_baseline(self, job: dict, previous: list, workspace: str, head: str | None,
+                      baseline: str | None, skipped: list[str] | tuple[str, ...] = ()) -> dict | None:
+        """C-13.1: the salvage artifact holding the next attempt's start snapshot, when
+        the job's last attempt's salvage failed; else None.
+
+        That attempt's work is then only in this snapshot (`baseline`, from
+        `_workspace`): a tree object no ref holds, which `gc` may prune and the
+        next attempt goes on to edit, with nobody told (review of cda4c161, N2).
+        So it is held under `refs/subfleet-salvage/<job id>-a<seq>-baseline`
+        before the attempt is reserved, and recorded as that attempt's artifact
+        (role `salvage`), which retention keeps like any salvage ref (C-13.4).
+        What the snapshot left out (`skipped`, nested repositories with no
+        commit, which no ref can hold) is named in the `salvage.baseline_held`
+        event, as the attempt's evidence names it (`baseline_skipped`).
+        A failure to hold it is C-6.8's, as the snapshot's own is: the job waits
+        or fails, and nothing runs in the worktree meanwhile.
+
+        A job that ends before its retry is reserved records the ref as its last
+        attempt's artifact and names it in its notice (`_earlier_attempt`). One
+        cancelled while this pass wrote the ref, before its event, had its notice
+        written without it; so when the event is new and the job has ended, the
+        ref is recorded here and told in one more notice (review of ceacf18b, P2).
+        """
+        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous:
+            return None
+        if not json.loads(previous[-1]["evidence_json"] or "{}").get("salvage_error"):
+            return None
+        if not head or not baseline:
+            raise SalvageError(f"attempt a{previous[-1]['seq']}'s salvage failed and {workspace} "
+                               "has no commit to hold its work on")
+        seq = len(previous) + 1
+        ref, commit = pin_baseline(workspace, job["job_id"], seq, baseline, head,
+                                   timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        artifact = {"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}
+        # The ref may be written before capacity becomes available. Record it
+        # then, once, so it remains discoverable even if no retry is reserved.
+        with self.store.transaction("salvage.baseline_recorded", job_id=job["job_id"]) as tx:
+            held = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held'",
+                              (job["job_id"],)).fetchall()
+            if not any(json.loads(row[0]).get("ref") == ref for row in held):
+                data = {"ref": ref, "commit": commit, "seq": seq, "after": previous[-1]["attempt_id"],
+                        **({"skipped": _skipped(skipped)} if skipped else {})}
+                tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                           (utcnow(), "salvage.baseline_held", job["job_id"], previous[-1]["attempt_id"],
+                            json.dumps(data)))
+                current = dict(tx.execute("SELECT * FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone())
+                if current["state"] in TERMINAL:
+                    self.store.add_artifact(previous[-1]["attempt_id"], **artifact)
+                    self._notice(tx, current, "as the job ended, " + self._held_line(current, data), again=True)
+        return artifact
 
     def _where_it_writes(self, job_id: str, sandbox: str) -> dict:
         """For the caller (review of d261): the sandbox the job got, and for a
@@ -3033,13 +3821,13 @@ class Daemon:
 
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
-        """Best effort: a failure here is reported by the add that follows it."""
+        """Best effort: a failure here is reported by the add that follows it.
+
+        Only this path's registration is removed. A repository-wide `git
+        worktree prune` would also drop every other registration whose tree is
+        missing at that moment (d635: never run a repository-wide prune)."""
         shutil.rmtree(workdir, ignore_errors=True)
-        try:
-            subprocess.run(["git", "-C", repository, "worktree", "prune"],
-                           capture_output=True, timeout=cap)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        discard_registration(repository, workdir, timeout=cap)
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
@@ -3242,6 +4030,8 @@ class Daemon:
             self._save_probe(record)
             self.store.release_leases(record["holder"])
             shutil.rmtree(record["directory"], ignore_errors=True)
+            if outcome.cls == OutcomeClass.OK:
+                self._record_answer(record["lane_id"], record["timer_kind"])     # C-6.14
             return
         with self.store.transaction("probe.completed", job_id=record["job_id"], lane_id=record["lane_id"],
                                     data={"model": record["model_id"], "class": outcome.cls.value,
@@ -3265,6 +4055,8 @@ class Daemon:
             tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
                        (utcnow(), record["job_id"]))
         shutil.rmtree(record["directory"], ignore_errors=True)
+        if outcome.cls == OutcomeClass.OK:
+            self._record_answer(record["lane_id"], "probe")        # C-6.14: C-11.4's probe is a model turn
 
     def _recover_probes(self) -> None:
         """C-5.3–7, C-8.4: recover each durable probe before admitting more work."""
@@ -3372,7 +4164,10 @@ class Daemon:
             outcome = self._probe_candidate(job, decision, holder)
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
-            elif outcome.cls != OutcomeClass.LIMITED:
+            elif outcome.cls not in (OutcomeClass.LIMITED, OutcomeClass.AUTH_DEAD):
+                # A `limited` probe closed its lane and an `auth-dead` one disabled it
+                # (C-23.44), so the next evaluation goes elsewhere at once; anything
+                # else waits.
                 # C-6.10: this wait keeps its own 60 s clock and is never brought
                 # forward (a released lease must not re-probe the provider), but a
                 # probe that ends the same way adds no second decision row.
@@ -3419,6 +4214,8 @@ class Daemon:
         if not lock.acquire(blocking=wait):
             return
         try:
+            self._pass_seq[kind] += 1                 # C-24.4: notes of an older pass never land last
+            seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
             # A pass that raises leaves both as the last whole pass left them: half
@@ -3430,6 +4227,17 @@ class Daemon:
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
             lock.release()
+        if kind == "turn":
+            # C-24.4 (I3): every message a turn pass left waiting says why, and one it
+            # placed says it is starting. Its failure is logged, never the pass's.
+            try:
+                self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()), seq=seq)
+                self._note_error = None
+            except Exception as exc:                      # noqa: BLE001
+                error = f"{type(exc).__name__}: {exc}"[:300]
+                if error != self._note_error:             # said once, not every tick
+                    self.log.warning("admission: could not note why turns wait: %s", error)
+                self._note_error = error
         # C-6.11 over both kinds' holds. The other pass never waits for the note
         # lock, and its placements are noted next time. `_note_admission` builds a
         # view at most once per ten minutes of idleness, which delays this pass's
@@ -3574,6 +4382,8 @@ class Daemon:
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
             freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
+        if kind == "detached" and self._take_answer_news():
+            freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
         # C-6.9: who is waiting on each detached job, and C-6.13: how busy the
         # machine is, each read once for the pass. A turn is always `attended` and
@@ -3777,7 +4587,9 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             try:
-                workspace, head, baseline = self._workspace(job)
+                baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
+                workspace, head, baseline, skipped = self._workspace(job)
+                pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -3797,10 +4609,14 @@ class Daemon:
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
-                holds[job["job_id"]] = {"reason": "workspace"}
+                holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
+                                        "error": str(exc)[:200]}
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
+            # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
+            read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
+                           if job["kind"] == "turn" and write_target is None else None)
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -3975,6 +4791,11 @@ class Daemon:
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if kind == "turn" and not decision.chosen_lane:
+                                # C-24.4, C-29.11: what each lane said, for the message's
+                                # reason (`conversations.waits`), never just "capacity".
+                                from .conversations import waits as turn_waits
+                                hold["lanes"] = turn_waits.lane_summary(decision)
                             rechecks = self._capacity_wait(
                                 job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
@@ -4025,11 +4846,33 @@ class Daemon:
                             leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                         if job["out_path"]:
                             leases.append((f"out:{job['out_path']}", job["job_id"]))
-                        if job["sandbox"] == "workspace-write":
+                        # Keys this job needs free but does not take (C-6.5, C-24.5): a turn
+                        # shares its folder with other turns, so it never holds the
+                        # exclusive key, yet it may not write beside a detached writer.
+                        blockers: list[str] = []
+                        read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
+                        if job["sandbox"] == "workspace-write" and job["kind"] == "turn":
+                            # C-24.5 (the owner's ruling of 2026-09-28, "nothing should be
+                            # queued"): conversations that share a folder run at once, as
+                            # sessions of the Claude app do. Each turn holds its own row, so
+                            # retention and a detached writer still see the folder in use.
+                            leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
+                            blockers.append(folders.exclusive_key(write_target))
+                        elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
-                            # at submit.
+                            # at submit. A detached writer still writes alone: it waits
+                            # while a conversation turn writes there.
                             leases.append((f"worktree:{write_target}", job["job_id"]))
+                            blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                        elif job["kind"] == "turn" and read_folder:
+                            # C-8.4, C-13.4: a read-only turn excludes no writer, but
+                            # retention never removes a folder a turn is working in.
+                            leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
+                            fence = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
+                                               (folders.exclusive_key(read_folder),)).fetchone()
+                            if fence and str(fence[0]).startswith("retention:"):
+                                blockers.append(folders.exclusive_key(read_folder))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -4048,20 +4891,27 @@ class Daemon:
                         current = {key: r[0] for key, _ in leases
                                    if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())}
                         contested = [key for key, holder in leases if key in current and current[key] != holder]
+                        blocked = [key for key in dict.fromkeys(blockers)
+                                   if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())
+                                   and r[0] != job["job_id"]]
                         # A lease this job already holds (a retry keeps its job-held
                         # ones) is never queued behind a job waiting for it: that job
                         # waits for this one to run and release it (review of PR #72).
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
-                        if contested or queued:
-                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested)))
+                        if contested or blocked or queued:
+                            waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(contested + blocked)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
-                            hold = {"reason": "lease-held", "leases": contested,
+                            # A key it only needs free (`blocked`) is never queued for: turns
+                            # share their folder, so no turn takes it from another, and no
+                            # detached job takes a turn's row. It is among the keys the waiter
+                            # waits for, so a job holding it is never held behind the waiter.
+                            hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
@@ -4069,9 +4919,18 @@ class Daemon:
                             break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                        evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    **({"baseline_ref": pinned["path"]} if pinned else {}),
+                                    **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
+                        if job["kind"] == "turn":
+                            # C-26.14: the turn's window opens before its start snapshot, and
+                            # its folder is where another turn's window may overlap it.
+                            evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps({"baseline_commit": head, "model_short": decision.chosen_model}), utcnow()))
+                                    json.dumps(evidence), utcnow()))
+                        if pinned:
+                            self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
                                    (job["job_id"], aid, utcnow(), self.policy_digest, json.dumps(dataclasses.asdict(decision))))
                         tx.execute("UPDATE jobs SET state='running',wait_reason=NULL,next_check_at=NULL,worktree=?,started_at=COALESCE(started_at,?) WHERE job_id=?",
@@ -4126,6 +4985,7 @@ class Daemon:
             if status != "placed":
                 continue
             tally["placed"] += 1
+            tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
             # the next one, that is a release the next pass must still see.
@@ -4270,9 +5130,14 @@ class Daemon:
         probes = store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'")
         unavailable = {row["lease_key"].split(":")[1]: row["holder"] for row in probes}
         unavailable.update({lane["lane_id"]: "credential-latched" for lane in lanes if capacity.credential_latched(lane)})
-        attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,j.kind,j.parent_job_id "
+        attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        # C-6.14: each lane's pilot, from the attempts in flight now and what has
+        # answered by now, as `_capacity_view` lays them: an attempt placed or an
+        # answer heard since the early view changes the lane, which is judged again.
+        for lane_id, pilot in self._pilot_marks(attempts, capacity._time(capacity._iso(now))).items():
+            unavailable.setdefault(lane_id, pilot)
         # C-6.9's parent cap counts the attempts under each of the job's parents:
         # every job on those ancestries, from the snapshot or, if newer, by id.
         known = {row["job_id"]: row for row in rows["view"]["jobs"]}
@@ -4363,20 +5228,10 @@ class Daemon:
         return episodes
 
     def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
-        """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from
-        its `job.pin_noticed` event, so `notice.pending` names the job and a session
-        Subfleet launched surfaces it as it does a job's end (C-26.13). A row matches
-        its event by id, session and creation time together: a service notice's id is
-        reused once the row with the highest id is deleted (it has no AUTOINCREMENT),
-        and a ping, a nudge or an alert that gets an old pin notice's id names none."""
-        wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
-        found: dict[int, str] = {}
-        for event in self.store.query("SELECT job_id,data_json FROM events WHERE kind='job.pin_noticed' "
-                                      "ORDER BY event_id DESC LIMIT 1000"):
-            key = _pin_notice_key(event["data_json"])
-            if key in wanted and event["job_id"]:
-                found.setdefault(wanted[key], event["job_id"])
-        return found
+        """C-11.8, C-15.2: service notice id -> the job a pin's notice is about
+        (`store.pin_notice_jobs`), so `notice.pending` names the job and a session
+        Subfleet launched surfaces it too (C-26.13), as a message (C-15.3)."""
+        return pin_notice_jobs(self.store.query, rows)
 
     def _pin_view(self, desktop, *, refresh: bool = True) -> dict:
         """C-11.8: what `scheduler.pin_unadmittable` reads, as a view has it: every lane
@@ -4448,28 +5303,32 @@ class Daemon:
                          **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
-        """C-11.8: the job's one notice, to its caller's session (else the operator's,
-        as `ping` addresses one), unless the store says one went already and was not
-        withdrawn unread: a job that ran and came back, or outlived a restart, is not
-        told twice. A `job.pin_noticed` event names the notice (id, session, creation
-        time). The episode, as it is now."""
+        """C-11.8: the job's one notice, to its caller's session (else the configured
+        operator session, as `ping` addresses one), unless the store says one went
+        already and was not withdrawn unread: a job that ran and came back, or
+        outlived a restart, is not told twice. A `job.pin_noticed` event names the
+        notice (id, session, creation time). With neither session there is no one to
+        tell (C-15.8): the event is recorded with no notice, so the job is still
+        told once, and `why` and `status.json` show its hold. The episode, as it is now."""
         job_id = job["job_id"]
         counts = self.store.one(
             "SELECT sum(kind='job.pin_noticed') AS noticed, sum(kind='job.pin_notice_withdrawn') AS withdrawn "
             "FROM events WHERE job_id=? AND kind IN ('job.pin_noticed','job.pin_notice_withdrawn')", (job_id,))
         if not (counts and (counts["noticed"] or 0) > (counts["withdrawn"] or 0)):
-            session = (job["caller_session"] or (self.policy.get("alerts") or {}).get("operator_session")
-                       or "operator")
+            session = job["caller_session"] or operator_session(self.policy)
             record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "session_id": session,
                       "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None,
                       "created_at": now}
-            with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
-                                        data=record) as tx:
-                cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
-                                    "VALUES(?,?,'pending',?)",
-                                    (session, render.pin_notice(job_id, stuck, episode.get("fail_at")), now))
-                record["service_notice_id"] = cursor.lastrowid
-            self._notify()
+            if session is None:
+                self.store.add_event("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"], data=record)
+            else:
+                with self.store.transaction("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"],
+                                            data=record) as tx:
+                    cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                        "VALUES(?,?,'pending',?)",
+                                        (session, render.pin_notice(job_id, stuck, episode.get("fail_at")), now))
+                    record["service_notice_id"] = cursor.lastrowid
+                self._notify()
         episode = {**episode, "noticed": True}
         self._pin_episodes[job_id] = episode
         return episode
@@ -4576,8 +5435,10 @@ class Daemon:
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
         tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-        self._notice(tx, job, f"skipped: session {job['caller_session']} already has a live "
-                              f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}")
+        earlier = self._earlier_attempt(tx, job)      # C-13.1: a retry of a revive
+        self._notice(tx, job, ("failed while preparing the retry: " if earlier else "")
+                     + f"skipped: session {job['caller_session']} already has a live "
+                       f"revive ({holder}) holding {revive_lease_key(job['caller_session'])}" + earlier)
 
     @staticmethod
     def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
@@ -4594,7 +5455,10 @@ class Daemon:
             verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
             message = f"git {verb} timed out after {exc.timeout:g} s"
         else:
-            message = str(exc) or type(exc).__name__
+            # Valid UTF-8, as C-13.1's: the record reaches an event and the job's notice,
+            # which SQLite writes as strict UTF-8 (review of cda4c161, N1; a `SalvageError`
+            # already is, and this holds for any other error's text).
+            message = utf8_text(str(exc)) or type(exc).__name__
         return transient, {"error_type": type(cause).__name__, "error": message[:500]}
 
     def _workspace_failed(self, job: dict, exc: BaseException) -> None:
@@ -4634,7 +5498,9 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
             tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
-            self._notice(tx, job, detail)
+            # C-13.1, C-15.1: a job with an attempt behind it was preparing its retry.
+            earlier = self._earlier_attempt(tx, job)
+            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier)
         self._notify()
 
     def _launch(self, a: dict) -> None:
@@ -4708,9 +5574,19 @@ class Daemon:
             return
         except SalvageError as exc:
             # C-6.8: the main/master re-check did not finish. Launching anyway
-            # would skip it, so the attempt ends with the cause recorded.
+            # would skip it, so nothing is launched. A transient failure (a
+            # timeout, EMFILE or ENOMEM, a git killed by a signal) says nothing
+            # about the checkout, so the attempt ends as one whose guardian could
+            # not be started does, and the job is queued again while it has
+            # attempts left: its next admission asks again, after C-6.8's backoff
+            # (`_defer_after_launch`).
+            # As a spawn error it was classified `unknown`, which is never
+            # retried, and ended the job (review of ceacf18b, P3-5).
             self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
-            self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
+            if exc.transient:
+                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {exc}", deferred=exc)
+            else:
+                self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
@@ -4808,6 +5684,8 @@ class Daemon:
             self._inspect_next.pop(aid, None)
             self._inspect_retry.discard(aid)
             return None
+        if imported_external(a):
+            return None                     # v1 still owns it (principle 3): the loop's check, again
         child = self._children.get(aid)
         if child and child.poll() is not None:
             self._children.pop(aid, None)
@@ -4831,6 +5709,8 @@ class Daemon:
             self._starting_deadlines.pop(aid, None)
             self._boundary("running", a["job_id"], aid)
             a = self.store.get_attempt(aid)
+        if job["kind"] != "turn" and a["state"] in ("starting", "running"):
+            self._read_answer(a, adir)          # C-6.14: files only, paced; never raises
         if receipt:
             self._begin_finalizing(a, receipt)
             return
@@ -4865,7 +5745,8 @@ class Daemon:
             else:
                 self._quarantine(a, census, "start grace expired without a receipt")
             return
-        # C-5.12: everything above is files and rows and runs every tick. What
+        # C-5.12: everything above is files and rows, read on every pass the
+        # control loop offers (C-5.11 says which: every tick it has work). What
         # follows asks the operating system, so a healthy attempt is inspected
         # once per interval, from one process table shared by every attempt.
         # It falls due again when the table it was given expires, which is when
@@ -5064,20 +5945,57 @@ class Daemon:
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
-    def _unlaunched(self, a: dict, detail: str) -> None:
+    def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None) -> None:
+        """An attempt that ended before its provider could run: `failed`, or
+        `interrupted` when the job was cancelled, its leases released, and the job
+        queued again while it has attempts left.
+
+        `deferred` is the transient failure of the launch-time main/master re-check
+        (C-6.8). A job queued again after one waits under C-6.8's backoff before its
+        next admission asks git again, 5 s doubling per consecutive attempt that
+        ended so to the 300 s ceiling, and the wait is a `job.workspace_deferred`
+        event, as admission's are. Queued at once, a launch-time check that kept
+        getting no answer while admission's got one used up the job's attempts in
+        as many passes (review of the P3-5 fix).
+        """
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,finished_at=? WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["attempt_id"], job["job_id"]))
-            retry = not cancel and a["seq"] < job["max_attempts"]
+            retry = not cancel and self._attempts_left(tx, job, a)
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
+            if retry and deferred is not None:
+                self._defer_after_launch(tx, job, deferred)
             if not retry:
-                self._notice(tx, job, detail)
+                # C-13.1, C-15.1: a retry that never launched names the attempt before it.
+                earlier = self._earlier_attempt(tx, job, before=a["seq"])
+                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier)
         self._notify()
+
+    def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
+        """C-6.8: `_unlaunched`'s wait after a launch-time main/master re-check that git
+        gave no answer to. The count is of the job's latest attempts that ended so, in a
+        row, read from the store, so the admission pass that succeeds between two of them
+        (and resets admission's own count) does not reset it."""
+        count = 0
+        for (detail,) in tx.execute("SELECT outcome_detail FROM attempts WHERE job_id=? ORDER BY seq DESC",
+                                    (job["job_id"],)).fetchall():
+            if not (detail or "").startswith(LAUNCH_CHECK_UNFINISHED):
+                break
+            count += 1
+        delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (max(count, 1) - 1))
+        next_check = after(delay)
+        _, record = self._workspace_error(exc)
+        record.update(stage="launch", deferrals=count, next_check_at=next_check)
+        with self.store.transaction("job.workspace_deferred", job_id=job["job_id"], data=record) as inner:
+            inner.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
+                          "WHERE job_id=? AND state='queued'", (next_check, job["job_id"]))
+        self.log.warning("job %s launch-time branch check got no answer (%d in a row), next check in %d s: %s: %s",
+                         job["job_id"], count, delay, record["error_type"], record["error"])
 
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
         with self.store.transaction("attempt.finalizing", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
@@ -5148,7 +6066,9 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
-            self._notice(tx, job, "quarantined: " + detail)
+            # C-13.1, C-15.1: a quarantined retry names the attempt before it.
+            earlier = self._earlier_attempt(tx, job, before=a["seq"])
+            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
@@ -5157,7 +6077,7 @@ class Daemon:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
-        artifacts = []
+        artifacts, salvage_evidence = [], {}
         job = self._job(a["job_id"])
         if job["kind"] == "turn":
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
@@ -5166,11 +6086,20 @@ class Daemon:
             self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
                              "released from quarantine with writers still live; no end snapshot")
         elif census.verified_empty:
-            artifacts, _ = self._salvage(job, a)
-        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release}) as tx:
+            artifacts, _, salvage_evidence = self._salvage(job, a, retry=False)
+        with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **salvage_evidence}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+            actual = self.store.get_attempt(a["attempt_id"])
+            if salvage_evidence and actual["state"] == "quarantined":
+                # C-13.1: `kill --confirm-dead` answered before this ran, and the
+                # job's notice went out when it was quarantined, so what salvage
+                # could not save is told in the evidence and in one more notice.
+                evidence = {**json.loads(actual["evidence_json"] or "{}"), **salvage_evidence}
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+                self._notice(tx, job, f"released from quarantine (attempt a{a['seq']})"
+                             + self._salvage_summary(job, artifacts, salvage_evidence), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
         self._notify()
 
@@ -5208,28 +6137,162 @@ class Daemon:
         job = self._job(a["job_id"])
         return Launch((), {}, (), job.get("worktree") or job["workdir"], job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
 
-    def _salvage(self, job: dict, a: dict) -> tuple[list[dict], str | None]:
+    def _salvage(self, job: dict, a: dict, *, retry: bool = True) -> tuple[list[dict], str | None, dict]:
+        """C-13.1: a writable job's salvage at finalization; the artifacts, the
+        checkpoint (HEAD after) and what the attempt's evidence records of it:
+        `salvage_error` when salvage failed, and `salvage_skipped` (how many, and
+        the first `SALVAGE_SKIPPED_SHOWN`) when the snapshot left out nested
+        repositories with no commit, which then exist only in the worktree.
+
+        The receipt `salvage.json` makes a replayed finalization take nothing
+        twice. A transient git failure raises, so the worker tries again with
+        its backoff, until `SALVAGE_TRIES` tries in all have failed (the count is
+        in memory, so a restart starts it again); that failure, or any other, is
+        recorded and finalization goes on without a salvage ref, which ends the
+        attempt and frees its lane. Retention then keeps the dirty worktree
+        (C-13.4). A quarantine's release passes `retry=False`: an operator's
+        one-shot request is never offered again, so it records at once.
+        """
         if job["sandbox"] != "workspace-write":
-            return [], None
+            return [], None, {}
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt_path = adir / "salvage.json"
         receipt = self._read_json(receipt_path)
         if receipt is None:
+            workspace = job.get("worktree") or job["workdir"]
             baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
             cap = self.policy["caps"]["workspace_git_timeout_s"]
-            result = salvage(job.get("worktree") or job["workdir"], baseline, a["seq"],
-                             writable=True, state="finalizing", timestamp=a["reserved_at"],
-                             baseline_tree=a.get("baseline_tree"), timeout_s=cap)
-            receipt = {"result": dataclasses.asdict(result) if result else None,
-                       "checkpoint": git_head(job.get("worktree") or job["workdir"], timeout_s=cap)}
+            result = checkpoint = error = None
+            skipped: list[str] = []
+            try:
+                result = salvage(workspace, baseline, a["seq"],
+                                 writable=True, state="finalizing", timestamp=a["reserved_at"],
+                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
+                checkpoint = git_head(workspace, timeout_s=cap)
+            except (SalvageError, OSError) as exc:
+                failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
+                transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                if retry and transient and failures < SALVAGE_TRIES:
+                    raise
+                # git's own words: paths and refs, never a credential. A snapshot
+                # already written stands when only reading HEAD after it failed.
+                # Valid UTF-8 whatever it quotes, or the receipt could not be
+                # written, on this try or any other (N1; a `SalvageError` already
+                # is, and this holds for any other error's text).
+                stage = "checkpoint" if result else "salvage"
+                error = utf8_text(f"{stage} failed: {exc}")[:500]
+                self.log.warning("attempt %s %s", a["attempt_id"], error)
+            self._salvage_failures.pop(a["attempt_id"], None)
+            # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
+            # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
+            # cannot be written is a finalization that raises on every try.
+            skipped = [path_text(path) for path in skipped]
+            receipt = {"result": {**dataclasses.asdict(result), "skipped": skipped} if result else None,
+                       "checkpoint": checkpoint, "error": error, "skipped": skipped}
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]
+        evidence = {"salvage_error": receipt["error"]} if receipt.get("error") else {}
+        # A receipt written before `skipped` had its own key lists them in the result.
+        skipped = receipt.get("skipped", (result or {}).get("skipped")) or []
+        if skipped:
+            evidence["salvage_skipped"] = _skipped(skipped)
+            self.log.warning("attempt %s salvage left out %d nested repositor%s with no commit, first %r",
+                             a["attempt_id"], len(skipped), "y" if len(skipped) == 1 else "ies", skipped[0])
         if not result:
-            return [], receipt["checkpoint"]
+            return [], receipt["checkpoint"], evidence
         ref = result.get("ref") or result.get("ref_name")
         commit = result.get("commit") or result.get("commit_sha")
-        return [{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}], receipt["checkpoint"]
+        return ([{"role": "salvage", "path": ref, "sha256": hashlib.sha256(commit.encode()).hexdigest(), "bytes": 0}],
+                receipt["checkpoint"], evidence)
+
+    @staticmethod
+    def _salvage_summary(job: dict, artifacts: list[dict], evidence: dict) -> str:
+        """C-13.1: the notice's lines for what salvage could not save ("" when it saved
+        everything): its error, the paths it left out, and where they still are."""
+        lines = [evidence["salvage_error"]] if evidence.get("salvage_error") else []
+        skipped = evidence.get("salvage_skipped")
+        if skipped:
+            lines.append(f"salvage left out {_left_out(skipped)}")
+        if lines and (skipped or not artifacts):
+            lines[-1] += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
+        return "".join("\n" + line for line in lines)
+
+    @staticmethod
+    def _held_line(job: dict, held: dict) -> str:
+        """C-13.1: a start snapshot admission held after a failed salvage (a
+        `salvage.baseline_held` event's data), as one line of a notice."""
+        line = f"the worktree after attempt a{held['seq'] - 1} is held under {held['ref']}"
+        if held.get("skipped"):
+            line += (f", which left out {_left_out(held['skipped'])}; "
+                     f"the worktree is kept: {job.get('worktree') or job['workdir']}")
+        return line
+
+    def _earlier_attempt(self, tx, job: dict, *, before: int | None = None) -> str:
+        """C-13.1, C-15.1: the notice's lines for a job's last attempt before `before`
+        (any, when None), for a job that ends without finalizing another; "" when it
+        has none.
+
+        That is a job cancelled while it waits to try again, or failed, refused or
+        skipped while its retry is prepared (`_fail_queued`, `_skip_revive`), and
+        a retry that never launched or was quarantined. The attempt's line, as C-15.1 gives it
+        (`attempt a<seq>: <class>, rc=<rc>: <detail>`), what its salvage could not
+        save (`_salvage_summary`), and the start snapshot admission held after it
+        when that salvage failed (`_pin_baseline`, named by its event), which no
+        attempt records when no retry was reserved (the job was cancelled while
+        it waited for capacity): it is recorded here as the job's last attempt's
+        salvage artifact, so retention keeps it (C-13.4) and `runs show` lists it.
+        Before, such a job's notice said "cancelled before launch" or gave only
+        the retry's workspace error, and nothing of the failed salvage or the ref
+        (review of ceacf18b, P2).
+
+        An attempt that never launched (`_unlaunched`: its guardian could not be
+        started, or the main/master re-check got no answer from git) changed
+        nothing in the worktree, so the attempt before it is named too, back to
+        one that ran: a retry reserved on a1's held snapshot and queued again at
+        launch, then cancelled, had named only itself, and nothing of a1's failed
+        salvage or of the ref that holds a1's work.
+        """
+        attempts = [dict(row) for row in tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq",
+                                                    (job["job_id"],)).fetchall()]
+        earlier = [attempt for attempt in attempts if before is None or attempt["seq"] < before]
+        if not earlier:
+            return ""
+        unlaunched = {row[0] for row in tx.execute(
+            "SELECT attempt_id FROM events WHERE job_id=? AND kind='attempt.no_launch'", (job["job_id"],)).fetchall()}
+        recorded = {row[0] for row in tx.execute(
+            "SELECT r.path FROM artifacts r JOIN attempts a USING(attempt_id) WHERE a.job_id=? AND r.role='salvage'",
+            (job["job_id"],)).fetchall()}
+        events = [held for (data,) in tx.execute(
+            "SELECT data_json FROM events WHERE job_id=? AND kind='salvage.baseline_held' ORDER BY event_id",
+            (job["job_id"],)).fetchall() if (held := _held_event(data)) is not None]
+        lines = ""
+        for last in reversed(earlier):
+            evidence = json.loads(last["evidence_json"] or "{}")
+            # The attempt's own start snapshot (`baseline_ref`) holds the work of the
+            # attempt before it, never its own: counted as its salvage, a retry whose
+            # own salvage failed lost "the worktree is kept" (review of the P2 fix).
+            own = [dict(row) for row in tx.execute("SELECT * FROM artifacts WHERE attempt_id=? AND role='salvage'",
+                                                   (last["attempt_id"],)).fetchall()
+                   if row["path"] != evidence.get("baseline_ref")]
+            held = []
+            for data in events:
+                if data.get("after") != last["attempt_id"]:
+                    continue
+                artifact = {"role": "salvage", "path": data["ref"],
+                            "sha256": hashlib.sha256(data["commit"].encode()).hexdigest(), "bytes": 0}
+                if data["ref"] not in recorded:
+                    self.store.add_artifact(attempts[-1]["attempt_id"], **artifact)
+                    recorded.add(data["ref"])
+                held.append((data, artifact))
+            rc = "-" if last["rc"] is None else last["rc"]
+            lines += (f"\nattempt a{last['seq']}: {last['outcome_class'] or 'unknown'}, rc={rc}: "
+                      f"{last['outcome_detail'] or '-'}"
+                      + self._salvage_summary(job, own + [artifact for _, artifact in held], evidence)
+                      + "".join("\n" + self._held_line(job, data) for data, _ in held))
+            if last["attempt_id"] not in unlaunched:
+                break
+        return lines
 
     def _turn_trees(self, job: dict, a: dict, *, retry: bool = True, error: str | None = None) -> dict:
         """C-26.10, C-26.14 (design D-25): a turn's end, taken while its leases are held.
@@ -5257,7 +6320,7 @@ class Daemon:
             receipt = {"workspace": job.get("worktree") or job["workdir"], "writable": writable,
                        "head_before": evidence.get("baseline_commit"),
                        "start_tree": a.get("baseline_tree") if writable else None,
-                       "head_after": None, "end_tree": None, "error": error}
+                       "head_after": None, "end_tree": None, "skipped": [], "error": error}
             if error is None:
                 try:
                     receipt.update(turn_diff.end_snapshot(
@@ -5268,7 +6331,7 @@ class Daemon:
                     transient = getattr(exc, "transient", False) or transient_os_error(exc)
                     if retry and transient and failures < TURN_TREE_TRIES:
                         raise
-                    receipt["error"] = f"end snapshot failed: {exc}"[:500]
+                    receipt["error"] = utf8_text(f"end snapshot failed: {exc}")[:500]     # as `_salvage`'s
             self._tree_failures.pop(a["attempt_id"], None)
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))
@@ -5389,6 +6452,10 @@ class Daemon:
                        f"is not a finished deliverable")
         if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
+        if not lost and self._answered(outcome, provider_verdict["class"]):
+            # C-6.14: before the attempt leaves flight, so a pilot that answered and
+            # ended at once frees its lane rather than handing the hold to another.
+            self._record_answer(a["lane_id"], "finalization", attempt=a)
         artifacts = [x for x in [deliverable,
                      self._artifact(Path(launch.stdout_path), "stdout"),
                      self._artifact(Path(launch.stderr_path), "stderr"),
@@ -5400,12 +6467,12 @@ class Daemon:
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
-        trees = None
+        trees, salvage_evidence = None, {}
         if job["kind"] == "turn":
             salvage_artifacts, checkpoint = [], None
             trees = self._turn_trees(job, a)
         else:
-            salvage_artifacts, checkpoint = self._salvage(job, a)
+            salvage_artifacts, checkpoint, salvage_evidence = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
@@ -5422,25 +6489,39 @@ class Daemon:
                 ok = not lost and outcome.cls == OutcomeClass.OK
                 cancel = cancel and not ok
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
-            retry = (not cancel and a["seq"] < job["max_attempts"] and
+            # C-4.5: a lane fault (an `auth-dead` lane, on an unpinned job whose
+            # workspace it left as it found it) moves the job on to the next
+            # candidate as `limited` does, and `max_attempts` does not count it.
+            moved = self._uncharged(tx, job["job_id"], before=a["seq"])
+            fault = None if lost or cancel or moved else self._lane_fault(job, a, outcome, checkpoint,
+                                                                           salvage_artifacts, salvage_evidence)
+            # C-23.44: a job that already moved on from one auth-dead lane and meets
+            # another is itself the common factor. It ends, and this lane stays
+            # enabled for the next attempt there to judge.
+            again = not lost and outcome.cls == OutcomeClass.AUTH_DEAD and moved > 0
+            retry = (not cancel and (fault is not None or self._attempts_left(tx, job, a) and
                      ((lost and job["sandbox"] == "read-only") or
                       (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
-                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient))))
+                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
-            evidence.update(classification=outcome.evidence, checkpoint=checkpoint)
+            evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
-                                                                     "end_tree", "error")}
+                                                                     "end_tree", "skipped", "error")}
             if provider_verdict["class"] != outcome.cls.value:
                 evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
+            if fault is not None:
+                evidence["lane_fault"] = fault
+            if again:
+                evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
-            if outcome.cls == OutcomeClass.AUTH_DEAD:
+            if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
                 self.store.update_lane(a["lane_id"], enabled=0)
                 self.timers.record_auth_dead(a["lane_id"])
             self._record_identity(a["lane_id"], outcome)   # C-10.6
@@ -5470,13 +6551,96 @@ class Daemon:
                     summary += f"\noutput kept, not accepted: {deliverable_path}"
                     if job["out_path"]:
                         summary += f"; -o {job['out_path']} was not written"
+                summary += self._salvage_summary(job, salvage_artifacts, salvage_evidence)
+                if receipt and receipt.get("spawn_error") and receipt.get("child_pid") is None:
+                    # C-13.1, C-15.1: no provider ran (refused on main at launch, a home
+                    # or credential that could not be resolved, a binary that could not
+                    # be spawned), so nothing changed in the worktree, and the attempt
+                    # before it is named as for one that never launched (review of the
+                    # P2 fix: a1's failed salvage and the ref holding its work were in
+                    # no notice).
+                    summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        if fault is not None:
+            self.log.warning("job %s: lane %s went auth-dead on attempt a%d (%s); the lane is disabled and the "
+                             "job moves on to the next lane, this attempt not counted (C-4.5)",
+                             job["job_id"], a["lane_id"], a["seq"], outcome.detail)
+        if again:
+            self.log.warning("job %s: attempt a%d met auth-dead on a second lane, %s (%s); two lanes refusing one "
+                             "job points at the job, so %s is left enabled and the job ends (C-23.44)",
+                             job["job_id"], a["seq"], a["lane_id"], outcome.detail, a["lane_id"])
         if not retry:
             self._boundary("terminal", a["job_id"], a["attempt_id"])
             self._boundary("notice", a["job_id"], a["attempt_id"])
         if accepted:
             self._export(job["job_id"])
         self._notify()
+
+    @staticmethod
+    def _lane_fault(job: dict, a: dict, outcome: Outcome, checkpoint: str | None,
+                    salvage_artifacts: list[dict], salvage_evidence: dict) -> dict | None:
+        """C-4.5: what makes an attempt's `auth-dead` its lane's fault and not the
+        job's, as its evidence records it, or None.
+
+        The lane refused the credential (C-9.3: an organisation block, a revoked
+        token, an explicit refusal, all from the CLI's own words, never the
+        model's), so the next lane can run the job; the job pinned no lane, so it
+        may move; it is no conversation turn (its conversation decides its
+        failover, C-26.7); and the attempt changed nothing the next one would
+        start from: the job is read-only, or its salvage found the end tree equal
+        to the start snapshot (no ref written, none left out, no error) and HEAD
+        where it was, and its model never answered (`model_answered` False: nothing
+        ran, so nothing outside the worktree changed either). A job the lane could
+        have changed waits for reconciliation (C-13.3) as before. The caller gives a
+        job one lane fault: a second `auth-dead` ends it (`_finalize`). 2026-09-30: an organisation disabled claude-5's
+        Claude Code access, and 37 jobs from about 20 sessions failed there with
+        rc 5, after one attempt each, while other lanes were coming back.
+        """
+        if outcome.cls != OutcomeClass.AUTH_DEAD or job["pinned_lane"] or job["kind"] == "turn":
+            return None
+        answered = (outcome.evidence or {}).get("model_answered")
+        fault = {"class": outcome.cls.value, "lane_id": a["lane_id"], "seq": a["seq"], "model_answered": answered}
+        if job["sandbox"] == "read-only":
+            return {**fault, "workspace": "read-only"}
+        if answered is not False:
+            # A writable attempt whose model answered may have pushed, commented or
+            # written outside its worktree, which no tree shows; where the adapter
+            # cannot say, it is taken to have.
+            return None
+        baseline = json.loads(a["evidence_json"] or "{}").get("baseline_commit") or job["workdir_head"]
+        if salvage_artifacts or salvage_evidence or not checkpoint or checkpoint != baseline:
+            return None
+        return {**fault, "workspace": "unchanged", "head": checkpoint}
+
+    @staticmethod
+    def _uncharged(conn, job_id: str, *, before: int) -> int:
+        """C-4.5: the job's attempts before `before` that were lane faults (at most
+        one: a job moves on once), which `max_attempts` does not count."""
+        return sum(1 for (data,) in conn.execute(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND seq<? AND outcome_class='auth-dead'",
+            (job_id, before)) if _lane_fault_of(data))
+
+    def _attempts_left(self, conn, job: dict, a: dict) -> bool:
+        """C-4.5: may the job have an attempt after `a`, which is no lane fault?
+        `max_attempts` counts every attempt but the one lane fault a job may have
+        had before it: that attempt ran nothing (a writable job's), or only read."""
+        return a["seq"] - self._uncharged(conn, job["job_id"], before=a["seq"]) < job["max_attempts"]
+
+    @staticmethod
+    def _moved_on(conn, job_id: str) -> str:
+        """C-4.5, C-15.1: the notice's line for each lane fault the job moved on from."""
+        lines = ""
+        for seq, lane_id, detail, data in conn.execute(
+                "SELECT seq,lane_id,outcome_detail,evidence_json FROM attempts "
+                "WHERE job_id=? AND outcome_class='auth-dead' ORDER BY seq", (job_id,)).fetchall():
+            if _lane_fault_of(data):
+                lines += (f"\nattempt a{seq}: lane {lane_id} went auth-dead ({detail or '-'}); it is disabled until "
+                          f"`subfleet lanes enroll` rebinds its credential, and the job moved on to the next lane "
+                          f"without counting the attempt")
+            elif _evidence_key(data, "auth_dead_again"):
+                lines += (f"\nattempt a{seq}: lane {lane_id} answered auth-dead too; two lanes refusing one job "
+                          f"points at the job, so {lane_id} was left enabled")
+        return lines
 
     def _export(self, job_id: str) -> None:
         with self._busy_lock:
@@ -5518,21 +6682,36 @@ class Daemon:
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
                  arrived: float | None = None) -> None:
+        def gone() -> bool:
+            return descriptors.client_gone(conn)
+
+        def ended_here() -> bool:
+            return self._ended_here(conn)
+        gone.ended_here = ended_here
+        if descriptors.read_only(req.op, req.args) and gone():
+            # C-16.7: its client timed out and hung up while this waited for a
+            # thread. A read has no one to answer; a write still runs, because a
+            # client disconnect cannot cancel its durable job. A stopping daemon
+            # has shut the socket down itself, and so has one that ended the
+            # stream after a broken reply: neither is a client leaving.
+            if not self.stopping.is_set() and not ended_here():
+                self._count_connection("abandoned", req.op)
+            return
         if req.op != "wait":
-            return self._answer(conn, write_lock, req, arrived)
+            return self._answer(conn, write_lock, req, arrived, gone)
         with self._waits_answered:
             self._waits_answering += 1
         try:
-            self._answer(conn, write_lock, req, arrived)
+            self._answer(conn, write_lock, req, arrived, gone)
         finally:
             with self._waits_answered:
                 self._waits_answering -= 1
                 self._waits_answered.notify_all()
 
     def _answer(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                arrived: float | None = None) -> None:
+                arrived: float | None, client_gone: Callable[[], bool]) -> None:
         try:
-            response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived))
+            response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone))
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
         except (ValueError, TypeError, KeyError) as exc:
@@ -5540,66 +6719,122 @@ class Daemon:
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
+        send_reply(conn, write_lock, response, end_stream=self._end_stream)
+
+    def _decode(self, conn: socket.socket, write_lock: threading.Lock,
+                line: bytes | descriptors.Oversized) -> protocol.Request | None:
+        """One framed line as a request, or None after answering why it is not one."""
         try:
-            with write_lock:
-                conn.sendall(protocol.encode(response))
-        except OSError:
-            pass  # A client disconnect cannot cancel its durable job.
+            if line is descriptors.OVERSIZED:
+                raise protocol.ProtocolError("request exceeds 1 MiB")
+            return protocol.decode_request(line)
+        except (protocol.ProtocolError, ValueError, RecursionError) as exc:
+            # C-16.7: a malformed line is answered, never left to end the reader:
+            # ValueError covers bad UTF-8 and an integer past
+            # sys.int_max_str_digits, RecursionError nesting that parses but is
+            # too deep to render in an error message (as #55 on main).
+            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
+                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
+                       else f"malformed request: {exc}")
+            if not send_reply(conn, write_lock, protocol.fail("", 2, message), end_stream=self._end_stream):
+                raise OSError("the reply to an undecodable request failed part way")
+            return None
+
+    def _start_request(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
+                       arrived: float, peer: int | None) -> Future | None:
+        """Start one request where it runs (C-16.5, C-25.3): a future, or None when
+        it was answered here, on the connection's own thread."""
+        if self.conversations.owns(req.op):
+            # Conversation ops run on the conversation pools: the long polls on
+            # their own (C-25.4), the file work on its own (C-25.3).
+            return self.conversations.pool_for(req.op).submit(
+                self.conversations.respond, conn, write_lock, req, peer)
+        if req.op == "ping" and not protocol.ping_writes(req.args):
+            # C-16.5, C-15.8: a liveness question is answered here, never queued:
+            # it reads nothing, so a slow daemon still says at once that it is alive.
+            self._respond(conn, write_lock, req, arrived)
+            return None
+        # Submission filesystem work and long polls have separate pools;
+        # ordinary read/cancel operations stay responsive.
+        pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
+                self.waiters if req.op == "wait" else
+                self.lookups if req.op in LOOKUP_OPS else self.requests)
+        return pool.submit(self._respond, conn, write_lock, req, arrived)
 
     def _connection(self, conn: socket.socket) -> None:
-        with self._connection_lock:
-            if conn not in self._reading:
-                return      # refused after `submit` had queued it (`_admit_connection`)
         write_lock = threading.Lock()
-        pending = []
-        gone = False
+        pending: list[Future] = []
+        reads: set[Future] = set()              # pending futures whose request only reads
+        framer = descriptors.LineFramer()
+        replied = [0.0]                         # when a reply last finished (monotonic)
         from .conversations.peers import peer_pid
-        peer = peer_pid(conn)       # C-25.6: who is asking, read from the socket
+        peer = peer_pid(conn)                   # C-25.6: who is asking, read from the socket
+
+        def note_reply(_future=None) -> None:
+            replied[0] = time.monotonic()
         try:
-            with conn.makefile("rb") as reader:
-                while not self.stopping.is_set():
-                    line = reader.readline(1024 * 1024 + 1)
-                    if not line:
-                        break
-                    arrived = time.monotonic()
-                    try:
-                        if len(line) > 1024 * 1024:
-                            raise protocol.ProtocolError("request exceeds 1 MiB")
-                        req = protocol.decode_request(line)
-                    except (protocol.ProtocolError, UnicodeDecodeError) as exc:
-                        with write_lock:
-                            conn.sendall(protocol.encode(protocol.fail("", 2, str(exc))))
-                        continue
-                    # Submission filesystem work and long polls have separate
-                    # pools; ordinary read/cancel operations stay responsive.
+            # C-16.7: reads time out instead of blocking, so a client that says
+            # nothing cannot hold this reader and its descriptor for ever. The
+            # same timeout bounds sending a reply to a client that stops reading.
+            conn.settimeout(self.connection_idle_s)
+            while not self.stopping.is_set():
+                try:
+                    chunk = conn.recv(65536)
+                except TimeoutError:
                     pending = [f for f in pending if not f.done()]
-                    if self.conversations.owns(req.op):
-                        pending.append(self.conversations.pool_for(req.op).submit(
-                            self.conversations.respond, conn, write_lock, req, peer))
+                    reads.intersection_update(pending)
+                    if pending or time.monotonic() - replied[0] < self.connection_idle_s:
+                        continue           # a reply is being worked on, or went out recently
+                    self._count_connection("idle_closed")
+                    break
+                arrived = time.monotonic()      # C-15.4: a `wait`'s deadline runs from here
+                for line in framer.feed(chunk) if chunk else framer.finish():
+                    req = self._decode(conn, write_lock, line)
+                    if req is None:
                         continue
-                    if req.op == "ping" and not req.args.get("text"):
-                        # C-16.5: a liveness question is answered here, never
-                        # queued: it reads nothing, so a slow daemon still says
-                        # at once that it is alive.
-                        self._respond(conn, write_lock, req, arrived)
+                    pending = [f for f in pending if not f.done()]
+                    reads.intersection_update(pending)
+                    try:
+                        future = self._start_request(conn, write_lock, req, arrived, peer)
+                    except RuntimeError as exc:
+                        # The pool could not start a thread. The standard pool has
+                        # queued the call before it tried, so the request may still
+                        # run (and answer) when a worker frees, but it has no
+                        # future to wait on here. The reader goes on, and the count
+                        # says so (review of 3c8fe55, P2), as `unscheduled` as on
+                        # main (#55). A pool shut down by a stopping daemon refuses
+                        # the same way, and is not counted.
+                        if not self.stopping.is_set():
+                            self._count_connection("unscheduled", f"{req.op} ({exc})")
                         continue
-                    pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
-                            self.waiters if req.op == "wait" else
-                            self.lookups if req.op in LOOKUP_OPS else self.requests)
-                    pending.append(pool.submit(self._respond, conn, write_lock, req, arrived))
+                    if future is None:
+                        note_reply()
+                        continue
+                    future.add_done_callback(note_reply)
+                    pending.append(future)
+                    if descriptors.read_only(req.op, req.args):
+                        reads.add(future)
+                if not chunk:
+                    break
         except OSError:
-            gone = True
+            pass
         finally:
-            # C-16.1: the connection stops counting against `MAX_CONNECTIONS` when
-            # its reader returns, not when its last request does (F1).
+            # Not while stopping: close()'s own SHUT_RDWR also makes the peer look
+            # gone, and close() cancels what is queued itself. Nor after this
+            # daemon ended the stream itself (`_end_stream`): that is not a client
+            # leaving either.
             with self._connection_lock:
-                self._reading.discard(conn)
-            # A client that has gone cannot read an answer: what it sent that no
-            # pool has started is dropped. One that closed only its write half
-            # still gets every answer.
-            if gone or peer_gone(conn):
-                for f in pending:
-                    f.cancel()
+                ours = conn in self._shut_down
+            if not self.stopping.is_set() and (ours or descriptors.client_gone(conn)):
+                # C-16.7: the client closed its whole socket, or this daemon ended
+                # the stream after a broken reply. Either way no reply can reach
+                # it, so its reads no thread has reached yet are cancelled now: the
+                # connection and its place under the cap go at once instead of when
+                # a busy pool gets to them. Its writes still run. Only a client
+                # that left is counted.
+                for future in pending:
+                    if future in reads and future.cancel() and not ours:
+                        self._count_connection("abandoned", "queued read")
             # No process waits here. Running callbacks own their response socket
             # until they finish, including after the caller closes its write half.
             def finish(_=None):
@@ -5607,9 +6842,133 @@ class Daemon:
                     conn.close()
                     with self._connection_lock:
                         self._connections.discard(conn)
+                        self._shut_down.discard(conn)
             for f in pending:
                 f.add_done_callback(finish)
             finish()
+
+    @property
+    def max_connections(self) -> int:
+        """C-16.7: the most client connections held at once, now: pinned by the
+        caller, or derived from the open-file soft limit, less what the running
+        conversation turns hold of their own (`descriptors.TURN_DESCRIPTORS` each)."""
+        if self._pinned_max_connections is not None:
+            return self._pinned_max_connections
+        return descriptors.max_connections(descriptors.open_file_limits()[0], live_turns=self._live_turns())
+
+    def _live_turns(self) -> int:
+        """Conversation turns whose runner is still going: each holds its relay
+        socket to the guardian (C-26.4) and reads the turn's stdout."""
+        service = self.__dict__.get("conversations")       # none yet while __init__ runs
+        return service.live_runners() if service is not None else 0
+
+    def _hold_connection(self, conn: socket.socket) -> None:
+        """C-16.7: hold a new connection, with a reader of its own, up to the cap.
+
+        Each admitted connection gets its own reader thread, so it is read at
+        once; a pool's idle-thread count is a heuristic and could leave one
+        queued behind the others (review of #43, F1). One over the cap, or one
+        for which no reader thread can start, is answered busy at once and
+        closed, before anything is read, instead of waiting with its descriptor
+        open while its client times out.
+        """
+        cap = self.max_connections
+        with self._connection_lock:
+            held = len(self._connections)
+            admitted = held < cap and not self.stopping.is_set()
+            if admitted:
+                self._connections.add(conn)       # close() shuts down whatever is here
+                self._connection_counts["accepted"] += 1
+        if not admitted:
+            self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
+                         "connection over the cap")
+            return
+        reader = threading.Thread(target=self._read_connection, args=(conn,),
+                                  name="subfleet-socket", daemon=True)
+        with self._connection_lock:
+            self._readers.add(reader)
+        try:
+            reader.start()
+        except RuntimeError as exc:               # no thread could start
+            with self._connection_lock:
+                self._readers.discard(reader)
+                self._connections.discard(conn)
+            # Nothing was read, so the answer is busy, and the client may try again.
+            # Logged through the refusal count (1st, 2nd, 4th ...), not once per
+            # connection: out of threads, every client would add a line.
+            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
+                         f"connection no reader thread could start for ({exc})")
+
+    def _read_connection(self, conn: socket.socket) -> None:
+        try:
+            self._connection(conn)
+        finally:
+            with self._connection_lock:
+                self._readers.discard(threading.current_thread())
+
+    def _ended_here(self, conn: socket.socket) -> bool:
+        """C-16.7: whether this daemon shut the stream down after a broken reply:
+        no reply can go out, but no client left either."""
+        with self._connection_lock:
+            return conn in self._shut_down
+
+    def _end_stream(self, conn: socket.socket) -> None:
+        """C-16.7: shut a connection down after a reply that failed part way. Its
+        callers hold the connection's write lock, so no other reply can follow
+        the broken one. Only a connection still held is recorded: a request a
+        stalled pool ran after its reader had closed the socket and let it go
+        must not leave an entry nothing removes (review of 3c8fe55, P2)."""
+        with self._connection_lock:
+            if conn in self._connections:
+                self._shut_down.add(conn)
+        with contextlib.suppress(OSError):
+            conn.shutdown(socket.SHUT_RDWR)
+
+    def _refuse(self, conn: socket.socket, message: str, detail: str) -> None:
+        """C-16.7: answer busy (exit 69) before reading anything, and close."""
+        if self.stopping.is_set():
+            conn.close()                       # shutting down: not busy, just gone
+            return
+        self._count_connection("refused", detail)
+        try:
+            conn.setblocking(False)            # a fresh socket's buffer takes one line
+            conn.send(busy_answer(message))
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    #: C-16.7: what `_count_connection` logs, at the 1st, 2nd, 4th, 8th, ... time.
+    _CONNECTION_EVENTS = {"refused": "connections refused busy",
+                          "idle_closed": "idle connections closed",
+                          "abandoned": "requests dropped because their client hung up",
+                          "unscheduled": "requests whose pool could not start a thread"}
+
+    def _count_connection(self, kind: str, detail: str | None = None) -> int:
+        with self._connection_lock:
+            self._connection_counts[kind] += 1
+            count = self._connection_counts[kind]
+            held = len(self._connections)
+        if kind in self._CONNECTION_EVENTS and count & (count - 1) == 0:   # the log stays bounded
+            self.log.warning("client connections: %d %s so far%s (%d of %d held)",
+                             count, self._CONNECTION_EVENTS[kind],
+                             f", the last a {detail}" if detail else "", held, self.max_connections)
+        return count
+
+    def _descriptor_status(self) -> dict:
+        """C-16.6, C-16.7: the open-file limit, what is open, and what the connection cap has done."""
+        soft, hard = descriptors.open_file_limits()
+        turns = self._live_turns()
+        with self._connection_lock:
+            held = len(self._connections)
+            counts = dict(self._connection_counts)
+        return {"soft_limit": descriptors.limit_for_display(soft),
+                "hard_limit": descriptors.limit_for_display(hard),
+                "open": descriptors.open_descriptors(), "connections": held,
+                "max_connections": self.max_connections, "idle_s": self.connection_idle_s,
+                "live_turns": turns,
+                "reserve": descriptors.DESCRIPTOR_RESERVE + descriptors.TURN_DESCRIPTORS * turns,
+                **counts}
 
     def serve_forever(self) -> None:
         sock_path = self.root / "daemon.sock"
@@ -5617,14 +6976,16 @@ class Daemon:
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
-        # The kernel's largest queue (128 on macOS): connections wait there while
-        # this loop pauses on a shortage, and one past it is refused outright,
-        # which a client reads as "no daemon" (review of the hotfix, F4).
-        self._socket.listen(socket.SOMAXCONN)
+        # C-16.7: socket.SOMAXCONN, 128, which is also macOS's default
+        # kern.ipc.somaxconn cap: connections wait there while this loop pauses
+        # on a shortage. A burst past a full backlog is refused at connect,
+        # which the CLI reports as no daemon at all.
+        self._socket.listen(max(64, socket.SOMAXCONN))
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
         self.lock_watch.start()
+        failures, failing_since = 0, 0.0
         try:
             while not self.stopping.is_set():
                 try:
@@ -5636,51 +6997,41 @@ class Daemon:
                         break
                     if exc.errno not in ACCEPT_TRANSIENT:
                         raise
-                    # The daemon keeps serving the connections it has and tries
-                    # again (before, it exited here). The one `accept` failed on
-                    # is lost: macOS drops it, and its client reads the end of
-                    # the connection with no answer (review of the hotfix, F4).
-                    self._accept_trouble(exc)
+                    # C-16.6: out of descriptors or buffers is a condition to
+                    # wait out, not a reason to exit. On 2026-09-24 one EMFILE
+                    # here ended the daemon while its clients waited on replies.
+                    # The connection `accept` failed on is lost: macOS drops it,
+                    # and its client reads the end of the stream with no answer.
+                    now = time.monotonic()
+                    failures += 1
+                    if failures == 1:
+                        failing_since = now
+                    self._count_connection("accept_failures")
+                    if now - failing_since >= ACCEPT_GIVE_UP_S:
+                        self.log.error("accept has failed without a break for %d s (%s, %d in a row); "
+                                       "exiting so launchd starts a fresh daemon", ACCEPT_GIVE_UP_S,
+                                       errno.errorcode.get(exc.errno, exc.errno), failures)
+                        raise
+                    delay = min(ACCEPT_RETRY_CEILING_S, ACCEPT_RETRY_BASE_S * 2 ** min(failures - 1, 16))
+                    if failures & (failures - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                        self.log.error("accept failed: %s (%d in a row, %d connections open, %s descriptors, next try in %g s)",
+                                       errno.errorcode.get(exc.errno, exc.errno), failures,
+                                       len(self._connections), descriptors.open_descriptors() or "unknown", delay)
+                    # A sleep, not `self.stopping.wait`: this is the main thread,
+                    # where the SIGTERM/SIGINT handler runs and calls
+                    # `stopping.set()`. `Event.wait` holds the event's
+                    # non-reentrant lock except while it blocks, so a signal in
+                    # that window would leave `set()` waiting on its own thread
+                    # for ever. The loop sees `stopping` on its next pass, at
+                    # most one pause (2 s) late. (Release line's hotfix review, F5.)
+                    time.sleep(delay)
                     continue
-                self._accept_failing_since = None
-                self._admit_connection(conn)
+                if failures:
+                    self.log.info("accept recovered after %d failures", failures)
+                    failures = 0
+                self._hold_connection(conn)
         finally:
             self.close()
-
-    def _admit_connection(self, conn: socket.socket) -> None:
-        """Give an accepted connection a reader, or answer it busy at once."""
-        reader_error = None
-        with self._connection_lock:
-            busy = len(self._reading) >= MAX_CONNECTIONS
-            if not busy:
-                self._reading.add(conn)
-                self._connections.add(conn)
-                # submit queues work before starting a thread, and can then
-                # raise. Keep the reader behind its admission check until that
-                # outcome is known: a busy answer must mean nothing was read.
-                try:
-                    self.readers.submit(self._connection, conn)
-                except RuntimeError as exc:
-                    self._reading.discard(conn)
-                    self._connections.discard(conn)
-                    reader_error = exc
-        if busy:
-            self._refuse_busy(conn, f"the daemon is serving {MAX_CONNECTIONS} connections")
-            return
-        if reader_error is not None:
-            now = time.monotonic()
-            if now - self._reader_trouble_logged >= 60:
-                self._reader_trouble_logged = now
-                self.log.warning("cannot start a reader (%s): telling new clients the daemon is busy", reader_error)
-            self._refuse_busy(conn, "the daemon cannot start a reader for this connection")
-
-    def connection_status(self) -> dict:
-        """C-16.1 for `daemon.status`: connections read now, against the cap; every
-        connection not yet closed (one whose request outlives its client included);
-        and how many were answered busy since the daemon started."""
-        with self._connection_lock:
-            return {"reading": len(self._reading), "open": len(self._connections), "cap": MAX_CONNECTIONS,
-                    "refused_busy": self._busy_refusals}
 
     def _write_lock(self, *, stack_dumps: bool) -> None:
         """Write this daemon's identity to `daemon.lock` (C-5.3), and whether
@@ -5690,85 +7041,136 @@ class Daemon:
         os.pwrite(self._lock_fd, json_bytes(record), 0)
         os.fsync(self._lock_fd)
 
-    def _enable_stack_dumps(self) -> None:
+    def _enable_stack_dumps(self) -> bool:
         """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
 
         `faulthandler` writes from the signal handler itself, so the dump
         arrives even when every Python thread is stuck behind a lock, the GIL
         or a pool (`subfleet daemon stacks` sends the signal). Registered as
         soon as the log is open, and before `daemon.lock` says so: SIGUSR1's
-        default action is to end the process.
+        default action is to end the process. False when the signal could not
+        be made safe: the lock must then not say `stack_dumps`.
         """
-        global _STACK_DUMPS
+        self._dumps = _DumpsState(self.root / "daemon.lock")
+        self._dumps_token = next(_DUMPS_TOKENS)
         stream = self._log_handler.stream
         stream.flush()
-        # A daemon built earlier in this process (tests build several) may hold
-        # the registration still. `faulthandler.register` over a live one only
-        # changes the file: it would not put its handler back over the SIG_IGN
-        # below, and the signal would be ignored while the lock says
-        # `stack_dumps` (review of 78a8476). Let it go first (a no-op if none).
-        faulthandler.unregister(signal.SIGUSR1)
-        if threading.current_thread() is threading.main_thread():
-            # What faulthandler puts back when it lets the signal go (at close,
-            # or as the interpreter exits): ignore it, so a SIGUSR1 that races
-            # the close ends nothing. A child started while the handler is in
-            # place gets the default action back at exec, as with any handler.
-            signal.signal(signal.SIGUSR1, signal.SIG_IGN)
-        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
-        _STACK_DUMPS = weakref.ref(self)
+        with _DUMPS_LOCK:
+            return self._take_sigusr1(stream)
+
+    def _take_sigusr1(self, stream) -> bool:
+        """`_enable_stack_dumps`, under `_DUMPS_LOCK`: take SIGUSR1 and join
+        `_ADVERTISED`, so no daemon handing the signal on in between finds this
+        one missing and lets it go (review of 1efa0ef, P3)."""
+        global _STACK_DUMPS
+        if threading.current_thread() is not threading.main_thread() and callable(
+                signal.getsignal(signal.SIGUSR1)):
+            # The host has a Python SIGUSR1 handler of its own. Python's exit resets
+            # it to the default action before faulthandler lets the signal go, and
+            # off the main thread nothing can put SIG_IGN in Python's table in its
+            # place: a `daemon stacks` during that exit would end the host (review
+            # of 78bfbf0, P2). So this daemon does not dump stacks.
+            self.log.warning("SIGUSR1 has a Python handler of the host's own, and this daemon was built "
+                             "off the main thread: it does not dump stacks on SIGUSR1")
+            return False
+        if not _ADVERTISED:
+            # Taking the signal fresh. A daemon built earlier in this process
+            # (tests build several) may hold the registration still, and
+            # `faulthandler.register` over a live one only changes the file: it
+            # would not put its handler back over the SIG_IGN below, and the
+            # signal would be ignored while the lock says `stack_dumps` (review
+            # of 78a8476). Let it go first (a no-op if none).
+            faulthandler.unregister(signal.SIGUSR1)
+            _HELD_STREAMS.clear()
+            # What faulthandler saves now is what it puts back whenever it lets
+            # the signal go: at the last close, on either thread, and as the
+            # interpreter exits. Ignored, so a SIGUSR1 that races any of those
+            # ends nothing (review of 2300b43, P2: the default action, saved
+            # beneath a daemon built off the main thread, ended the host). A
+            # child started while the handler is in place gets the default
+            # action back at exec, as with any handler; one started after the
+            # last close inherits SIGUSR1 ignored.
+            try:
+                _ignore_sigusr1()
+            except (OSError, AttributeError) as exc:
+                # Registered over the default action, faulthandler would put that
+                # back at the last close or at exit (review of 78bfbf0, P2).
+                self.log.warning("could not set SIGUSR1 to be ignored beneath its handler (%s): "
+                                 "this daemon does not dump stacks on SIGUSR1", exc)
+                return False
+        # Joined, then settled: SIGUSR1 goes to this daemon's stream, replaced in
+        # place while another daemon's lock says `stack_dumps`, never let go first
+        # (review r3, P1). A take that raises (a KeyboardInterrupt anywhere here)
+        # leaves and settles again (reviews of 67b9adc and 6506619, P2).
+        try:
+            _ADVERTISED[self._dumps_token] = (weakref.ref(self), stream, self._dumps)
+            _settle_sigusr1()
+        except BaseException:
+            _ADVERTISED.pop(self._dumps_token, None)
+            _settle_sigusr1()
+            raise
+        return True
 
     def _disable_stack_dumps(self) -> None:
-        """Unregister before the log closes, so no dump is written to a closed or
-        reused descriptor; a later daemon in the same process keeps its own.
-        `daemon.lock` stops saying `stack_dumps` first (C-3.6)."""
-        global _STACK_DUMPS
+        """C-3.6: `daemon.lock` stops saying `stack_dumps`, then this daemon leaves
+        `_ADVERTISED` and SIGUSR1 is settled (`_settle_sigusr1`), all before its log
+        may close (`_may_close_log`), so no dump is written to a closed or reused
+        descriptor. If the lock may still say so (read back after the rewrite,
+        whatever cut it short: EIO, ENOSPC, or an exception landing in it), this
+        daemon stays in `_ADVERTISED`, its stream kept open there, until its lock
+        read back by path stops saying so, and SIGUSR1 is left as it is: `daemon stacks` against this root still reads a
+        living pid and the flag (reviews of 02c6320, eac0706, 4fc5b49 and 9a514a7).
+        Holder or not, the same rule. A daemon that never came to write the flag,
+        or whose lock reads back without it, leaves (reviews of 3cac1e8 and
+        6506619). Marked as leaving first, so a settle by any later take or leave
+        drops it once its lock reads back without the flag, should an exception
+        cut this close short before it leaves (review of 674b99b)."""
+        token = self.__dict__.get("_dumps_token")
+        if (state := self.__dict__.get("_dumps")) is not None:
+            state.leaving = True
         try:
             self._write_lock(stack_dumps=False)
-        except OSError as exc:
-            self.log.warning("daemon.lock could not drop stack_dumps: %s", exc)
-        if _STACK_DUMPS is not None and _STACK_DUMPS() is self:
-            faulthandler.unregister(signal.SIGUSR1)
-            _STACK_DUMPS = None
+        except BaseException as exc:
+            if self._lock_may_still_advertise():
+                if not isinstance(exc, OSError):
+                    raise                                  # it stays; the interrupted close keeps the stream
+                self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
+                                 "into this log", exc)
+                return                                     # it stays in `_ADVERTISED`, its stream kept
+            self._leave_advertised(token)
+            if not isinstance(exc, OSError):
+                raise
+            return
+        self._leave_advertised(token)
 
-    def _accept_trouble(self, exc: OSError) -> None:
-        """Say so at most once a minute, and pause so a full queue is not spun on;
-        failing without a break for `ACCEPT_GIVE_UP_S`, give up, so launchd starts a
-        fresh daemon (a leak outside the connections would otherwise leave this one
-        alive but deaf)."""
-        now = time.monotonic()
-        if self._accept_failing_since is None:
-            self._accept_failing_since = now
-        elif now - self._accept_failing_since >= ACCEPT_GIVE_UP_S:
-            self.log.error("accept has failed for %d s (%s); exiting so a fresh daemon starts",
-                           ACCEPT_GIVE_UP_S, exc)
-            raise exc
-        if now - self._accept_trouble_logged >= 60:
-            self._accept_trouble_logged = now
-            with self._connection_lock:
-                open_now = len(self._connections)
-            self.log.warning("accept failed (%s) with %d connections open; serving on", exc, open_now)
-        # Not `stopping.wait`: a SIGTERM handler setting the same event while this
-        # thread holds its lock would deadlock (review, F5); the loop checks it next.
-        time.sleep(.2)
+    def _lock_may_still_advertise(self) -> bool:
+        """C-3.6: whether `daemon.lock` may say `stack_dumps` now (`_lock_may_say_stack_dumps`)."""
+        return _lock_may_say_stack_dumps(self.__dict__.get("_dumps"))
 
-    def _refuse_busy(self, conn: socket.socket, message: str) -> None:
-        """A connection the daemon cannot read now is answered at once, never
-        queued; counted, and said in the log at most once a minute."""
-        with self._connection_lock:
-            self._busy_refusals += 1
-            refused, reading = self._busy_refusals, len(self._reading)
-        now = time.monotonic()
-        if now - self._busy_logged >= 60:
-            self._busy_logged = now
-            self.log.warning("%d connections open: telling new clients the daemon is busy (%d refused so far)",
-                             reading, refused)
-        try:
-            conn.settimeout(1)
-            conn.sendall(busy_answer(message))
-        except OSError:
-            pass
-        finally:
-            conn.close()
+    def _leave_advertised(self, token) -> None:
+        """C-3.6: leave `_ADVERTISED` and settle SIGUSR1, one step under
+        `_DUMPS_LOCK`. The settle runs whoever holds the signal, and repairs what
+        an earlier exception left (reviews of 9a514a7 and 674b99b)."""
+        with _DUMPS_LOCK:
+            try:
+                _ADVERTISED.pop(token, None)
+            finally:
+                _settle_sigusr1()
+
+    def _may_close_log(self) -> bool:
+        """C-3.6: whether this daemon's log stream may close: no hand-off can pick it
+        (it is not in `_ADVERTISED`) and faulthandler cannot hold it (it is not in
+        `_HELD_STREAMS`, after a settle that moves the signal off it if it is). A
+        stream that may not close stays open while either may still hold it,
+        which costs a descriptor, never a dump into a closed or reused one
+        (reviews of 674b99b and 65dcb6d)."""
+        stream = self._log_handler.stream
+        with _DUMPS_LOCK:
+            if self.__dict__.get("_dumps_token", object()) in _ADVERTISED:
+                return False
+            if stream in _HELD_STREAMS:
+                _settle_sigusr1()
+            return stream not in _HELD_STREAMS
 
     def close(self) -> None:
         if self._closed:
@@ -5799,10 +7201,23 @@ class Daemon:
                 except OSError:
                     pass
         self.timers.stop()
+        # C-16.7: a reader returns as soon as its socket is shut down. The wait
+        # is bounded all the same; the C-5.8a bound covers the rest of the stop.
+        with self._connection_lock:
+            readers = list(self._readers)
+        joined_by = time.monotonic() + READER_JOIN_S
+        for reader in readers:
+            reader.join(max(0.0, joined_by - time.monotonic()))
         self.conversations.close()
-        for pool in (self.readers, self.requests, self.lookups, self.waiters, self.workers):
+        for pool in (self.requests, self.lookups, self.waiters, self.workers):
             pool.shutdown(wait=True, cancel_futures=True)
         self.lock_watch.stop()
+        with self._connection_lock:
+            # A reader that has not returned by now closes nothing, so its
+            # connection is closed here (C-16.7); an embedded daemon would keep it.
+            for conn in self._connections:
+                conn.close()
+            self._connections.clear()
         self.store.close()
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
@@ -5810,12 +7225,119 @@ class Daemon:
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
-        self._log_handler.stream.close()
+        if self._may_close_log():
+            self._log_handler.stream.close()   # else faulthandler may hold it, or a hand-off pick it
+
+
+@dataclasses.dataclass
+class _DumpsState:
+    """C-3.6: what a settle needs to know of a member of `_ADVERTISED`, kept in its
+    entry and shared with the daemon, so a member whose daemon object has been
+    collected can still be judged (review of 8ebe6b6, P3)."""
+    lock_path: Path
+    leaving: bool = False                  # it began to rewrite its lock without the flag
+    may_advertise: bool = False            # it came to write the flag (set just before that write)
+
+
+def _lock_may_say_stack_dumps(state: _DumpsState | None) -> bool:
+    """C-3.6: whether a member's `daemon.lock` may say `stack_dumps` now: it came to
+    write the flag (`may_advertise`), and reading it back does not show it without,
+    read by its path as `daemon stacks` reads it (a record that does not parse says
+    nothing; a later daemon's record there is what `daemon stacks` would act on). A
+    read that fails cannot tell, so it may. By path, not by descriptor: a settle
+    asks of members whose close has ended, whose descriptor number another file may
+    have reused."""
+    if state is None or not state.may_advertise:
+        return False
+    try:
+        raw = state.lock_path.read_bytes()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        return False
+    return isinstance(record, dict) and record.get("stack_dumps") is True
 
 
 #: C-3.6: the daemon whose log SIGUSR1 dumps into (one per process in service;
 #: a test process may build many).
 _STACK_DUMPS: weakref.ref | None = None
+#: C-3.6: every daemon in this process whose `daemon.lock` says `stack_dumps`, in
+#: the order they took the signal: token -> (a weak reference to it, the log stream a dump
+#: for it goes to, its `_DumpsState`). One leaves only once its lock has stopped
+#: saying so; one whose lock cannot be rewritten stays, holding its stream open,
+#: until its lock, read back by path, stops saying so. While any stands,
+#: SIGUSR1 keeps a handler: `daemon stacks` against that root reads a living pid
+#: and the flag and sends the signal, which with no handler would be ignored and
+#: dump nothing (and, before review of 2300b43 put SIG_IGN beneath every fresh
+#: registration, would end a host built off the main thread). A dump goes to the
+#: stream of the one registered last; for the others it lands in that log.
+_ADVERTISED: dict[int, tuple[weakref.ref, Any]] = {}
+_DUMPS_TOKENS = itertools.count()
+#: Taking SIGUSR1 with joining `_ADVERTISED`, and leaving it with handing the
+#: signal on, are each one step under this lock (review of 1efa0ef, P3). The
+#: signal handler itself never takes it: faulthandler runs in C.
+_DUMPS_LOCK = threading.RLock()
+#: C-3.6: every log stream faulthandler may hold for SIGUSR1. A stream joins before
+#: it is registered and the others leave only once that registration has
+#: returned, and all leave only once the handler has gone, so wherever an
+#: exception lands this holds at least the stream faulthandler holds. No stream
+#: in it closes (`Daemon._may_close_log`). Changed only under `_DUMPS_LOCK`
+#: (review of 674b99b: ordering alone left one window or another open).
+_HELD_STREAMS: set[Any] = set()
+
+
+def _settle_sigusr1() -> None:
+    """C-3.6, under `_DUMPS_LOCK`: make SIGUSR1's registration match `_ADVERTISED`.
+
+    Members that began to leave, or whose daemon object has been collected, and
+    whose lock reads back without the flag go first (review of 8ebe6b6, P3: a
+    collected member could never be judged). Then the signal dumps into the
+    stream of the member that took it last, or, when none is left, its handler
+    goes, back to the SIG_IGN beneath it. Idempotent, and run by every take and every leave, whoever holds the
+    signal: whatever an exception cut short in an earlier one, the next repairs
+    (reviews of eac0706, 4fc5b49, 9a514a7 and 674b99b)."""
+    global _STACK_DUMPS
+    for token, (ref, _, state) in list(_ADVERTISED.items()):
+        if (state.leaving or ref() is None) and not _lock_may_say_stack_dumps(state):
+            _ADVERTISED.pop(token, None)
+    if _ADVERTISED:
+        holder, stream, _ = next(reversed(_ADVERTISED.values()))
+        _STACK_DUMPS = holder
+        _HELD_STREAMS.add(stream)
+        faulthandler.register(signal.SIGUSR1, file=stream, all_threads=True, chain=False)
+        _HELD_STREAMS.intersection_update((stream,))       # faulthandler let the others go
+    else:
+        _STACK_DUMPS = None
+        faulthandler.unregister(signal.SIGUSR1)
+        _HELD_STREAMS.clear()
+
+
+def _ignore_sigusr1() -> None:
+    """C-3.6: set SIGUSR1 to be ignored, from any thread. `signal.signal` works
+    only on the main thread; off it, libc's `signal()` sets the same
+    process-wide action (Python's own table then still says what it said)."""
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+        return
+    libc = ctypes.CDLL(None, use_errno=True)              # this process's own symbols: no ldconfig
+    libc.signal.restype = ctypes.c_void_p
+    libc.signal.argtypes = (ctypes.c_int, ctypes.c_void_p)
+    if libc.signal(signal.SIGUSR1, 1) == ctypes.c_void_p(-1).value:   # SIG_IGN, SIG_ERR
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+
+
+def log_open_file_limit(log: logging.Logger, before: int, after: int, hard: int) -> None:
+    """C-16.6: say what raising the open-file limit at start achieved."""
+    if after != before:
+        log.info("open-file limit raised from %s to %s at start", before, after)
+    elif after != resource.RLIM_INFINITY and after < descriptors.OPEN_FILES_WANTED:
+        log.warning("open-file limit left at %s: the hard limit (%s) or the kernel allows no more",
+                    after, descriptors.limit_for_display(hard) or "unlimited")
 
 
 def _keychain_read(argv) -> bool:
@@ -5941,13 +7463,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
     args = parser.parse_args(argv)
-    limits = raise_open_file_limit()
+    limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
-    daemon.log.info("open files: soft limit %s, hard limit %s", *limits)
+    log_open_file_limit(daemon.log, *limits)
     daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "
                     "thread's Python stack to this log", os.getpid())
     arm = watch_stop(daemon.stopping, daemon.stop_grace_s, daemon.root / "daemon.log")

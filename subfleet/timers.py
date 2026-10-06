@@ -14,7 +14,7 @@ import threading
 import time
 from uuid import uuid4
 
-from . import capacity
+from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
@@ -39,7 +39,7 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, cards_sensor=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
@@ -66,6 +66,11 @@ class Timers:
         self._session_mirror = None
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
                                          thread_name_prefix='subfleet-timer-lane')
+        # C-9.10: the card sensor reads every login in turn and may spend a heal
+        # turn on some; minutes in the worst case, so it never takes a cycle
+        # worker a probe or a keepalive is waiting for.
+        self._cards = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-cards')
+        self._cards_sensor = cards_sensor
         self._running = set()
         self.active_holders = set()
         self._probe_holders = {}
@@ -95,10 +100,17 @@ class Timers:
             hot_interval = policy.get('sessions', {}).get('mirror_hot_interval_s', 2)
             if hot_interval:
                 self.intervals['mirror_hot'] = hot_interval
+        cards = claude_cards.settings(policy)
+        if cards['enabled']:
+            self.intervals['claude_cards'] = float(cards['interval_min']) * 60
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror', 'mirror_hot')}
+                                     'retention', 'mirror', 'mirror_hot', 'claude_cards')}
         self.metadata = self._latest('timer.verdict')
+        # Failure pacing is sensor state, not a credential/admission verdict.
+        # Busy failures are withheld from metadata but still need a durable
+        # cooldown so requested cycles and restarts cannot hammer a missing sensor.
+        self._usage_backoff = self._latest('timer.usage-backoff')
         # Each lane's verdict is replaced whole, under this lock, so that putting
         # one back after a failed publication can check it is still the one in
         # place and replace it as one step (C-18.3). Only dictionary work is done
@@ -125,6 +137,9 @@ class Timers:
                 return
             self.started = True
             for name, interval in self.intervals.items():
+                # C-9.10: the first card read comes a minute after start, not a
+                # whole interval later; a restart must not hide a card for hours.
+                interval = min(interval, 60) if name == 'claude_cards' else interval
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
                 self._due[name] = time.monotonic() + interval
             self._status['retention']['next_due'] = iso(self.now() + timedelta(hours=1))
@@ -158,13 +173,17 @@ class Timers:
                 # Timestamp precision is seconds in the store; monotonic deadlines
                 # below still bound fractional test intervals and per-lane work.
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
-                pool = self._mirror if name in ('mirror', 'mirror_hot') else self._cycles
+                pool = (self._mirror if name in ('mirror', 'mirror_hot')
+                        else self._cards if name == 'claude_cards' else self._cycles)
                 pool.submit(self._run, name)
 
     def request(self, name, *, target=None):
         """Queue operator maintenance on the same workers and overlap guard."""
-        if name not in ('probe', 'keepalive', 'reset_credits'):
+        if name not in ('probe', 'keepalive', 'reset_credits', 'claude_cards'):
             raise ValueError('unknown maintenance timer')
+        if name == 'claude_cards' and 'claude_cards' not in self.intervals:
+            return {'status': 'disabled', 'timer': name,
+                    'detail': 'claude_cards.enabled is false in the policy; nothing was read.'}
         with self._lock:
             if self.cancel.is_set():
                 return {'status': 'stopping', 'timer': name}
@@ -186,7 +205,7 @@ class Timers:
                 self._running.discard(name)
             raise
         callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-        self._cycles.submit(self._run, name, callback)
+        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
 
     def _run(self, name, callback=None):
@@ -201,9 +220,9 @@ class Timers:
             self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
         finally:
             if name == 'probe':
-                # Each lane's durable debounce starts when its probe finishes.
-                # Scheduling from cycle start could therefore skip the entire
-                # next cycle whenever a request took nonzero time.
+                # The automatic cadence starts at cycle completion. Every
+                # subsequent cycle reads each usable lane; operator requests
+                # may start another cycle before the automatic deadline.
                 with self._lock:
                     interval = self.intervals[name]
                     self._due[name] = time.monotonic() + interval
@@ -297,6 +316,9 @@ class Timers:
         snapshot['model_names'] = {entry['id']: short for short, entry in self.policy.get('models', {}).items()
                                    if isinstance(entry, dict) and entry.get('id')}
         self.fence_probes(snapshot)
+        snapshot['alerts'] = self.alerts.active()          # C-18.4: every publication
+        if 'claude_cards' not in snapshot:
+            snapshot['claude_cards'] = self.cards_view()   # C-9.10: every publication
         return write_status(self.root, snapshot, now=self.now())
 
     def probe_rows(self):
@@ -336,12 +358,106 @@ class Timers:
         return (fleet_cap is not None and
                 sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) >= fleet_cap)
 
+    # --- Claude limit-reset cards and promotional credits (C-9.10) -----------
+
+    def cards_view(self):
+        """The card snapshot as status, `status.json` and alerts read it. A
+        file that cannot be read is an empty view, never a failed publication;
+        a sensor switched off shows nothing, so no alert outlives its reads."""
+        if not claude_cards.settings(self.policy)['enabled']:
+            return {'read_at': None, 'accounts': [], 'warnings': [], 'disabled': True}
+        try:
+            return claude_cards.load_view(self.root, self.policy, self.now())
+        except Exception as exc:                        # noqa: BLE001 - see docstring
+            return {'read_at': None, 'accounts': [], 'warnings': [], 'error_type': type(exc).__name__}
+
+    def _card_lanes(self):
+        """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force.
+
+        A hold is read from the closures and from its own `lane.held` and
+        `lane.released` events: `Store.put_closure` keeps one open closure per
+        lane and scope, so a hold that ends before an open provider limit on the
+        account scope leaves no `operator-hold` row, though it is in force.
+        Releasing such a hold changes no row and so writes no `lane.released`
+        event; the hold then lasts until its own end, which errs toward spending
+        nothing.
+        """
+        now = iso(self.now())
+        held = {row['lane_id'] for row in self.store.query(
+            "SELECT DISTINCT lane_id FROM closures WHERE reason='operator-hold' AND released_at IS NULL AND until_at>?",
+            (now,))}
+        until = {}
+        for row in self.store.query("SELECT lane_id,kind,data_json FROM events WHERE kind IN ('lane.held','lane.released') "
+                                    "ORDER BY event_id"):
+            if row['kind'] == 'lane.released':
+                until.pop(row['lane_id'], None)
+                continue
+            try:
+                value = json.loads(row['data_json'] or '{}').get('until')
+            except ValueError:
+                continue
+            if isinstance(value, str) and value > until.get(row['lane_id'], ''):
+                until[row['lane_id']] = value
+        held |= {lane_id for lane_id, value in until.items() if value > now}
+        return [{'lane_id': row['lane_id'], 'identity': row['identity'], 'label': row['label'],
+                 'account_key': row['account_key'], 'enabled': bool(row['enabled']),
+                 'held': row['lane_id'] in held}
+                for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
+                                            "WHERE provider='claude' ORDER BY created_at,rowid")]
+
+    def _card_sensor(self):
+        if self._cards_sensor is None:
+            from .adapters.claude import ENROLL_MODEL, ENROLL_PROMPT, home_login
+            claude_bin = getattr(self.adapter_factory('claude'), 'claude_bin', 'claude')
+            # C-23.47: the CLI renews its own login when it runs; one minimal
+            # turn under the login's folder is the heal, and the sensor only
+            # reads the store the CLI wrote.
+            self._cards_sensor = claude_cards.Sensor(
+                login_reader=home_login,
+                heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
+                                                         prompt=ENROLL_PROMPT, cancel=self.cancel),
+                version=lambda: claude_cards.cli_version(claude_bin),
+                now=self.now)
+        return self._cards_sensor
+
+    def claude_cards_cycle(self):
+        """C-9.10: read every login's cards, credits and plan; publish the snapshot.
+
+        Its requests are GETs, never a claim: no code path here or in
+        `claude_cards` can redeem a card or claim a credit. It is not free of
+        cost: it may spend one heal turn (C-23.47) on each expired login that
+        backs a lane, unless an operator hold covers one of its lanes, at most
+        once per `claude_cards.heal_interval_min` per login. Usage reads are
+        paced with the probe's (C-9.9).
+        """
+        if self.cancel.is_set():
+            return None
+        config = claude_cards.settings(self.policy)
+        path = self.root / claude_cards.SNAPSHOT_FILE
+        previous = claude_cards.read_snapshot(path)
+        snapshot = claude_cards.refresh(
+            self._card_sensor(),
+            logins=claude_cards.discover_logins(claude_cards.logins_folder(self.root, self.policy)),
+            lanes=self._card_lanes, previous=previous, heal=bool(config['heal']),
+            heal_after_s=float(config['heal_interval_min']) * 60, pace=self._pace_usage,
+            stop=self.cancel.is_set, checkpoint=lambda partial: claude_cards.write_snapshot(path, partial))
+        claude_cards.write_snapshot(path, snapshot)
+        summary = {'read_at': snapshot['read_at'],
+                   'accounts': {row['login']: {'status': row.get('status'), 'lanes': row.get('lanes', []),
+                                               'unused': sum(grant['resets_left'] for grant in
+                                                             claude_cards.unused_cards(row, self.now()))}
+                                for row in snapshot['accounts']},
+                   'heals': sorted(row['login'] for row in snapshot['accounts'] if row.get('healed'))}
+        self.store.add_event('timer.claude-cards', data=summary)
+        return summary
+
     def stop(self):
         with self._lock:
             self.cancel.set()
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
+        self._cards.shutdown(wait=True, cancel_futures=True)
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
@@ -475,17 +591,22 @@ class Timers:
         epoch = self._epoch(lane) if lane.provider == 'codex' else lane.credential.epoch
         if previous.get('revoked_epoch') == epoch:
             return None
-        last = previous.get('probed_at')
-        if last and (self.now() - instant(last)).total_seconds() < self.intervals['probe']:
-            return None
+        # C-18.1: a cycle reads every usable lane, even when an operator requests
+        # another cycle immediately. The cycle's completion-based cadence owns
+        # scheduling; an attempt's reading or the preceding probe never skips it.
         until = previous.get('retry_after_until')
         if until and self.now() < instant(until):
             return None     # C-9.9: the usage endpoint asked us to wait
+        if self._usage_wait(lane):
+            return None
         holder = self._claim(lane, 'probe')
         if holder is BUSY:
-            # C-18.3: a Claude attempt measures its own lane as it ends (C-9.8);
-            # a Codex attempt never does, so only a Codex lane is read at work.
-            return self._busy_read(lane) if lane.provider == 'codex' else None
+            # C-18.3: both providers have usage sensors that spend no turn. Read
+            # beside the attempts, without holding a lease or healing a token.
+            # Defer all busy reads until the idle homes have healed, published
+            # and released their slots. Busy pacing/network calls must not
+            # extend any idle lane's unavailability (C-18.3).
+            return lane, None, BUSY
         if not holder:
             return None
         quarantined = False
@@ -538,16 +659,34 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            return lane, {**probe, 'probed_at': iso(self.now())}, None
+            return self._probe_result(lane, probe, None)
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
+            return self._probe_result(lane, {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}, None)
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
+            return self._probe_result(lane, {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}, None)
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
 
+    def _usage_wait(self, lane):
+        until = self._usage_backoff.get(lane.lane_id, {}).get('next_read_at')
+        return bool(until and self.now() < instant(until))
+
+    def _probe_result(self, lane, probe, opened):
+        if lane.provider == 'claude' and (probe.get('status') not in ('ok', 'limited') or not probe.get('readings')):
+            # Reuse the existing completion-based probe cadence. Retry-After
+            # may lengthen it; no invented provider reading or auth latch.
+            delay = max(self.intervals['probe'], int(probe.get('retry_after_s') or 0))
+            # Policy intervals may be fractional. Whole-second truncation
+            # would let a requested repeat beat both cadence and Retry-After.
+            until = (self.now() + timedelta(seconds=delay)).astimezone(timezone.utc)
+            data = {'next_read_at': until.isoformat().replace('+00:00', 'Z'),
+                    'status': probe.get('status', 'unknown')}
+            self.store.add_event('timer.usage-backoff', lane_id=lane.lane_id, data=data)
+            self._usage_backoff[lane.lane_id] = data
+        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+
     def _busy_read(self, lane):
-        """C-18.3: a busy Codex lane's usage read, taken beside its attempts.
+        """C-18.3: a busy Claude or Codex lane's usage read beside its attempts.
 
         The usage GET alone. It takes no lease and writes no reservation, so it
         never holds a slot a job could take, and it runs no heal turn: the lane's
@@ -557,18 +696,24 @@ class Timers:
         (`_mark`, `_publishable`). Whatever the mark's query, the adapter or the
         request raises is a read that failed, never a cycle that failed.
         """
+        if self.cancel.is_set() or self._never_read(lane.lane_id) or self._usage_wait(lane):
+            return None
         opened = 0
         try:
             opened = self._mark()
-            adapter = self.adapter_factory('codex')
+            adapter = self.adapter_factory(lane.provider)
             if hasattr(adapter, 'timeout'):
                 adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+            if lane.provider == 'claude':
+                self._pace_usage()
             probe = {**self._read_probe(adapter, lane, resolve_credential(lane.credential))}
+            if lane.provider == 'claude' and probe.get('retry_after_s'):
+                probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
         except (TimeoutError, OSError) as exc:
             probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
         except Exception as exc:
             probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
-        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+        return self._probe_result(lane, probe, opened)
 
     def _mark(self):
         """The newest event as a busy read starts: a mark no later limit report slips past.
@@ -585,7 +730,9 @@ class Timers:
     def _publishable(self, lane, probe, opened):
         """C-18.3: what a busy read may publish, judged as it is published.
 
-        None publishes nothing. A credential verdict (`auth-dead`, `revoked`,
+        None publishes nothing. A Claude 429 publishes its Retry-After cooldown
+        only; existing provider readings keep their original observation times.
+        A credential verdict (`auth-dead`, `revoked`,
         `expired-token`, `no-auth`) or a failed read is never published from a
         busy lane: its attempts are renewing its token as it is read, and they
         report a dead credential themselves (C-23.44). A credential naming
@@ -602,7 +749,9 @@ class Timers:
         """
         account = probe.get('account_key')
         mismatch = bool(account) and account != lane.account_key
-        if not mismatch and probe.get('status') not in ('ok', 'limited'):
+        cooldown = (lane.provider == 'claude' and probe.get('status') == 'rate-limited'
+                    and bool(probe.get('retry_after_until')))
+        if not mismatch and probe.get('status') not in ('ok', 'limited') and not cooldown:
             return None
         if self._never_read(lane.lane_id):
             return None
@@ -713,11 +862,12 @@ class Timers:
         self._set_verdict(lane.lane_id, meta)
 
     def snapshot(self):
+        at = self.now()
         # One committed state for the whole view. C-3.7: a read snapshot, not a
         # write transaction, and only for the reads: the view (every lane,
         # reading, closure, attempt and job) is built after it, holding nothing.
         with self.store.snapshot():
-            rows = capacity.store_rows(self.store)
+            rows = capacity.store_rows(self.store, now=at)
             extra = self.view_rows(rows['lanes'])
             # C-18.1: read with the rows; laid only for status.json, after the
             # reset-credit policy and the alerts judged the view (`publish_status`).
@@ -726,7 +876,7 @@ class Timers:
         # admission does (review of PR #72's plan: without the signal it read the
         # lane excluded while admission placed work there).
         in_use = self.desktop_in_use() if self.desktop_in_use is not None else None
-        view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
+        view = capacity.build_view(**rows, now=at, reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
                                    desktop_in_use=in_use)
         view = self.enrich_view(view, extra)
         view['probe_rows'] = probes
@@ -805,6 +955,15 @@ class Timers:
             return
         self._cycle_error = None
         self._identities()
+        # An immediately requested next cycle may inherit spacing from its
+        # predecessor's last busy Claude read. Pay that wait before taking
+        # ANY idle lease, including Codex's; it cannot extend an idle hold.
+        with self._usage_lock:
+            wait = max(0.0, self._usage_next - time.monotonic())
+        if wait > 0:
+            self.cancel.wait(wait)
+        if self.cancel.is_set():
+            return
         futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
@@ -813,12 +972,15 @@ class Timers:
         # is published. A busy lane's read is judged as it is published (C-18.3);
         # what it may not publish, and what a newer limit fenced, is named on the
         # cycle's event.
-        results, failure, deferred, fenced = [], None, {}, []
+        results, failure, deferred, fenced, busy = [], None, {}, [], []
         try:
             for future in as_completed(futures):
                 try:
                     if (value := future.result()):
-                        results.append(value)
+                        if value[2] is BUSY:
+                            busy.append(value[0])
+                        else:
+                            results.append(value)
                 except Exception as exc:           # re-raised once every holder is released
                     failure = failure or exc
             if self.cancel.is_set():
@@ -836,6 +998,18 @@ class Timers:
             self._probe_holders.clear()
         if failure is not None:
             raise failure
+        # The same four-worker/read fences apply, but no idle probe lease is
+        # held across busy reads, their Claude pacing, or their publication.
+        futures = [self._lanes.submit(self._busy_read, lane) for lane in busy]
+        busy_results = [value for future in as_completed(futures) if (value := future.result())]
+        results.extend(busy_results)
+        for lane, probe, opened in busy_results:
+            if (published := self._publish_busy(lane, probe, opened)) is None:
+                deferred[lane.lane_id] = probe.get('status', 'unknown')
+            elif not published:
+                fenced.append(lane.lane_id)
+        if self.cancel.is_set():
+            return
         # Every read counts here, published or not: a busy lane's network error
         # is as much evidence of being offline as an idle one's.
         self._cycle_error = next((p['error_type'] for _, p, _ in results if p.get('error_type')), None)
@@ -855,6 +1029,7 @@ class Timers:
             snapshot = self.snapshot()
             snapshot['reset_policy'] = result
         snapshot['offline'] = offline
+        snapshot['claude_cards'] = self.cards_view()       # C-9.10: alerts and status.json read it
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
         self.publish_status(snapshot)
