@@ -5952,7 +5952,9 @@ class Daemon:
         if a.get("guardian_pid") and a.get("boot_id") and a.get("proc_start"):
             guardian = {str(a["guardian_pid"]): {"pid": a["guardian_pid"], "boot_id": a["boot_id"],
                                               "proc_start": a["proc_start"]}}
-        provider_records = {str(value["pid"]): value for value in evidence.get("provider_identities", [])}
+        provider_records = {}
+        for value in evidence.get("provider_identities", []):
+            provider_records.setdefault(str(value["pid"]), []).append(value)
         recorded = _identity_union(provider_records, evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
@@ -6094,13 +6096,19 @@ class Daemon:
         if not guardian_live and not child_live:
             return
         roots = tuple(pid for pid, live in ((guardian, guardian_live), (child.get("pid"), child_live)) if live)
-        observed = [dataclasses.asdict(procs.CensusRoot(pid, ident.boot_id, ident.proc_start, table.rows[pid][1]))
-                    for pid in sorted(table.descendants(roots)) if (ident := table.identity(pid)) is not None]
+        observed = [dataclasses.asdict(table.census_root(pid)) for pid in sorted(table.descendants(roots))]
+        def verified_identity(pid):
+            try:
+                return table.identity(pid)
+            except procs.InspectionError:
+                # Its uncertain census root was retained above. Incomplete
+                # identity grants neither signal nor publication authority.
+                return None
         providers = [dataclasses.asdict(ident) for pid, row in table.rows.items()
-                     if guardian_live and row[0] == guardian and (ident := table.identity(pid)) is not None]
+                     if guardian_live and row[0] == guardian and (ident := verified_identity(pid)) is not None]
         # Signal ownership remains confined to members of the verified leader's
         # group. Detached descendants are saved only as census roots.
-        members = ({pid: table.identity(pid) for pid in table.group(a["pgid"])}
+        members = ({pid: verified_identity(pid) for pid in table.group(a["pgid"])}
                    if guardian_live and table.rows[guardian][1] == a["pgid"] else {})
         with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             actual = self.store.get_attempt(a["attempt_id"])

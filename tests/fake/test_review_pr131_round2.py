@@ -337,7 +337,7 @@ def test_marker_identity_race_retries_inspection_errors_without_requiring_reboot
     a = quarantine(daemon, harness)
     marker = f'SUBFLEET_ATTEMPT={a["attempt_id"]} SUBFLEET_ROOT={daemon.root}'
     script_table(monkeypatch, {}, markers=f'600 writer {marker}\n')
-    monkeypatch.setattr(procs, '_stat', lambda pid: 'S')
+    monkeypatch.setattr(procs, '_stat', lambda pid: None if capture == 'gone' else 'S')
     def identify(pid):
         if capture == 'uninspectable':
             raise procs.InspectionError('identity unavailable')

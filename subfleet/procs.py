@@ -267,10 +267,22 @@ class ProcessTable:
     def identity(self, pid: int) -> ProcessIdentity | None:
         """The live, non-zombie process at `pid`, or None when the table cannot say.
 
-        Raises `InspectionError` when the boot identity cannot be read."""
-        if not self.live(pid) or not self.rows[pid][3]:
+        Raises `InspectionError` when a listed live process has no start time
+        or the boot identity cannot be read. Neither failure proves absence."""
+        if not self.live(pid):
             return None
+        if not self.rows[pid][3]:
+            raise InspectionError("missing process start identity")
         return ProcessIdentity(pid, self.boot(), self.rows[pid][3])
+
+    def census_root(self, pid: int) -> CensusRoot:
+        """Retain a listed process, including unknown identity components."""
+        try:
+            boot = self.boot()
+        except InspectionError:
+            boot = ""
+        row = self.rows[pid]
+        return CensusRoot(pid, boot, row[3] or "", row[1])
 
     def is_process(self, pid: int | None, boot_id: str | None, proc_start: str | None, *,
                    legacy: bool = False) -> bool:
@@ -499,8 +511,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     in one source and absent from the other because it exited between two reads.
     The snapshot also gives every live pid a shape (parent, group, state) that
     the census records as evidence, and the start time that is its identity, so
-    a census is two `ps` reads and one bounded cwd `lsof` (C-5.12);
-    commands and environments are never retained.
+    a census uses two listing `ps` reads and one bounded cwd `lsof` (C-5.12),
+    plus fresh per-PID identities bracketing the group lookup for every later
+    marker or cwd match. Commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
@@ -552,6 +565,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     records = (observations,) if isinstance(observations, ProcessIdentity) else observations
                     uncertain = False
                     for known in records:
+                        if rebooted(known.boot_id):
+                            continue
                         if not known.proc_start:
                             uncertain = True
                             continue
@@ -590,9 +605,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             except InspectionError:
                 errors.append("guardian launch identity inspection unavailable")
         if guardian_verified:
-            providers = tuple(seen.identity(pid) for pid, row in table.items()
-                              if row[0] == guardian_pid and live(pid))
-            providers = tuple(value for value in providers if value is not None)
+            found_providers = []
+            for pid, row in table.items():
+                if row[0] == guardian_pid and live(pid):
+                    try:
+                        found_providers.append(seen.identity(pid))
+                    except InspectionError:
+                        errors.append(f"provider identity inspection unavailable for pid {pid}")
+            providers = tuple(value for value in found_providers if value is not None)
         if child_unrecorded and not providers and not roots_rebooted:
             # A legacy guardian may have executed a child without publishing
             # its PID. Its own disappearance cannot establish that child's death.
@@ -616,6 +636,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         for known in lineage_roots:
             if rebooted(known.boot_id):
                 continue
+            if known.pid == known.pgid and live(known.pgid) and known.proc_start and table[known.pgid][3]:
+                try:
+                    if not seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
+                        continue
+                except InspectionError:
+                    pass  # Unknown identity cannot discharge the observed group.
             if known.pgid in gone and live(known.pgid):
                 continue
             groups.update(seen.group(known.pgid))
@@ -625,6 +651,65 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                   if pid and pid > 0 and pid not in gone and not roots_rebooted}
                  | owned | groups | uncertain_roots)
         descendants = set(seen.descendants(tuple(roots)))
+    # PID sets describe sources only. Durable observations are keyed by the
+    # full identity, since multiple incarnations can appear in one census.
+    identities: dict[int, ProcessIdentity] = {}
+    observed_groups: dict[ProcessIdentity, set[int]] = {}
+    incomplete_roots: list[CensusRoot] = []
+    shapes: dict[int, dict[str, Any]] = {}
+
+    def retain(current: ProcessIdentity, group: int) -> None:
+        identities[current.pid] = current
+        observed_groups.setdefault(current, set()).add(group)
+
+    for pid in sorted(groups | descendants):
+        row = table[pid]
+        shapes[pid] = {"ppid": row[0], "pgid": row[1], "stat": row[2]}
+        try:
+            current = seen.identity(pid)
+            if current is not None:
+                retain(current, row[1])
+        except InspectionError:
+            errors.append(f"identity inspection unavailable for pid {pid}")
+            incomplete_roots.append(seen.census_root(pid))
+
+    def observe_later(pid: int, source: set[int]) -> None:
+        source.add(pid)
+        current = None
+        try:
+            # A later positive match never borrows the earlier incarnation's
+            # zombie verdict, start identity, or group. Bracket the group read
+            # with full identities so reuse during capture cannot mix them.
+            current = identity(pid)
+            if current is None:
+                state = _stat(pid)
+                if not state or state.startswith("Z"):
+                    source.discard(pid)
+                    return
+                raise InspectionError("missing process start identity")
+            group = process_group(pid)
+            confirmed = identity(pid)
+            if confirmed != current or group is None:
+                if confirmed is not None and confirmed != current:
+                    retain(confirmed, 0)
+                raise InspectionError("process changed during group inspection")
+            retain(current, group)
+            # Shapes from a different incarnation must not cause the durable
+            # merge to attach its group to this newly observed identity.
+            if (seen is not None and table.get(pid, (None, None, None, None))[3] == current.proc_start
+                    and seen.boot() == current.boot_id):
+                row = table[pid]
+                shapes[pid] = {"ppid": row[0], "pgid": group, "stat": "S"}
+            else:
+                shapes.pop(pid, None)
+        except InspectionError:
+            errors.append(f"identity inspection unavailable for pid {pid}")
+            shapes.pop(pid, None)
+            # The failed later read has no entitlement to the old table row.
+            # Even a known start with an unreadable group remains a root.
+            incomplete_roots.append(CensusRoot(pid, current.boot_id if current else "",
+                                                current.proc_start if current else "", 0))
+
     observed_writer = bool(groups | descendants)
     observed_boots = set(lineage_boot_ids)
     try:
@@ -642,22 +727,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
                 pid = int(pid_text)
-                markers.add(pid)
-                state = table[pid][2] if pid in table else _stat(pid)
-                if not state or state.startswith("Z"):
-                    markers.discard(pid)
+                observe_later(pid, markers)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
     if workdir is not None:
         try:
             for pid in cwd_pids(workdir):
-                cwds.add(pid)
-                try:
-                    state = table[pid][2] if pid in table else _stat(pid)
-                    if not state or state.startswith("Z"):
-                        cwds.discard(pid)
-                except InspectionError:
-                    errors.append(f"cwd process inspection unavailable for pid {pid}")
+                observe_later(pid, cwds)
         except InspectionError:
             errors.append("cwd enumeration unavailable")
     observed_writer = observed_writer or bool(cwds)
@@ -667,35 +743,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         except InspectionError:
             # Retain the failed observation for diagnostics only.
             observed_boots.add("")
-    identities: dict[int, ProcessIdentity] = {}
-    observed_groups: dict[int, int] = {}
-    incomplete_roots: list[CensusRoot] = []
-    for pid in groups | descendants | markers | cwds:
-        try:
-            # The snapshot's own start time when it has one; a pid it could not
-            # describe (a marker spawned after the read) is asked about singly.
-            current = (seen.identity(pid) if seen is not None else None) or identity(pid)
-            group = (table[pid][1] if pid in table else process_group(pid)) if current is not None else None
-            if current is not None and group is not None:
-                identities[pid] = current
-                observed_groups[pid] = group
-            else:
-                # A process can exit between census and identity capture.
-                groups.discard(pid)
-                descendants.discard(pid)
-                markers.discard(pid)
-                cwds.discard(pid)
-        except InspectionError:
-            errors.append(f"identity inspection unavailable for pid {pid}")
-            # The listing already observed this PID. Failure to capture its
-            # boot/start must not forget it when its parent subsequently exits.
-            # Empty identity components are uncertainty, never signal authority.
-            row = table.get(pid)
-            incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))
-    shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers | cwds if pid in table}
-    captured = tuple(CensusRoot(pid, ident.boot_id, ident.proc_start, observed_groups[pid])
-                     for pid, ident in sorted(identities.items()) if pid in observed_groups) + tuple(incomplete_roots)
+    captured = tuple(CensusRoot(ident.pid, ident.boot_id, ident.proc_start, group)
+                     for ident, groups_seen in observed_groups.items()
+                     for group in sorted(groups_seen)) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
                        frozenset(cwds), captured, providers)

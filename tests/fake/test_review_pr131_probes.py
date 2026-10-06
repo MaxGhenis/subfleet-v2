@@ -39,6 +39,7 @@ def script_table(monkeypatch, rows, *, markers="", boot=BOOT, table_fails=False,
 
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "process_group", lambda pid: rows[pid][1] if pid in rows else None)
+    monkeypatch.setattr(procs, "identity", lambda pid: snapshot().identity(pid))
     monkeypatch.setattr(procs, "_read", read)
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
 

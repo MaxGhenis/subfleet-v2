@@ -95,7 +95,7 @@ def test_zombie_is_not_the_same_live_process(monkeypatch):
 
 def test_containment_three_sources_find_setsid_escape(monkeypatch):
     """C-5.5 an escaped orphan remains visible through its inherited marker."""
-    census(monkeypatch, parents="42 1 42 S\n43 42 43 S\n44 42 42 Z\n99 1 99 S\n",
+    census(monkeypatch, parents=f"42 1 42 S {START}\n43 42 43 S {START}\n44 42 42 Z {START}\n99 1 99 S {START}\n",
            markers="99 python SUBFLEET_ATTEMPT=job/a1 PRIVATE_TOKEN=secret-sentinel\n"
                    "100 python SUBFLEET_ATTEMPT=job/a10\n")
     result = procs.containment(42, 42, None, "job/a1")
@@ -636,7 +636,7 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
         if "pid=,command=" in argv:
             return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
         if "stat=" in argv:
-            return "S"                                          # alive when the marker scan looked
+            return ""                                           # also absent at the fresh state read
         if "lstart=" in argv:
             return ""                                           # gone by the identity read
         raise AssertionError(argv)
@@ -848,7 +848,7 @@ def test_marked_writer_observation_keeps_its_boot_even_without_pid_identity(monk
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs:
                         '600 writer SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture\n')
     monkeypatch.setattr(procs, '_stat', lambda pid:
-                        None if capture == 'stat-gone' else 'Z' if capture == 'zombie' else 'S')
+                        None if capture in {'gone', 'stat-gone'} else 'Z' if capture == 'zombie' else 'S')
     def identify(pid):
         if capture == 'uninspectable':
             raise procs.InspectionError('identity unavailable')
@@ -873,6 +873,8 @@ def test_cwd_only_writer_participates_in_verified_empty(monkeypatch):
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({400: (1, 400, "S", "writer")}, BOOT_OLD))
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({400}))
+    monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT_OLD, "writer"))
+    monkeypatch.setattr(procs, "process_group", lambda pid: 400)
     result = procs.containment(None, None, None, "a1", workdir="/workdir")
     assert result.cwd_pids == {400}
     assert not result.verified_empty
