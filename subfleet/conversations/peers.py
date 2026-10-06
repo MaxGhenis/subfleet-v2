@@ -165,7 +165,7 @@ def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain
     try:
         procs = chain(pid)
     except ChainUnreadable as exc:
-        return Verdict(False, f"the caller's process chain could not be read: {exc}", pid, unreadable=True)
+        procs = []
     if not procs:
         return Verdict(False, "the caller's process could not be inspected", pid)
     root_marker = f"SUBFLEET_ROOT={root}" if root else None
