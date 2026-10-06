@@ -31,6 +31,25 @@ def world(tmp_path):
     w.close()
 
 
+@pytest.fixture
+def begun(monkeypatch):
+    """The jobs whose retirement began (`Retirement.begin`). The selecting
+    transaction keeps a job before its tree is quarantined; the commit's own
+    checks also keep it, but only by rolling back a tree that was moved from
+    under the live turn meanwhile. So a test of the selection layer asserts
+    this stays empty, not just that the tree survived (8a112986's commit check
+    otherwise hides the selection check's removal)."""
+    started = []
+    real = rarch.Retirement.begin
+
+    def begin(retirement, job, pool):
+        started.append(retirement.job_id)
+        return real(retirement, job, pool)
+
+    monkeypatch.setattr(rarch.Retirement, "begin", begin)
+    return started
+
+
 def nested_repository(wt: Path, branch: str = "main") -> str:
     """The folder a conversation opened in `<wt>/vendor/lib`, its own repository,
     keys its rows on: that repository's top level, canonical, inside `wt`. A
@@ -72,9 +91,10 @@ def test_live_turn_folder_protects_job_through_full_pass(world, writable):
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, writable, where):
+def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, begun, writable, where):
     """`nested`: the selecting transaction also reads rows on a folder inside
-    the tree (review of 599af189, P3-1); the census is blinded below."""
+    the tree (review of 599af189, P3-1); the census is blinded below. The
+    retirement never begins, so the tree is never moved from under the turn."""
     wt = world.job("job")
     folder = turn_folder(wt, where)
     before = snapshot(wt)
@@ -93,6 +113,7 @@ def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypa
     assert snapshot(wt) == before and world.admin("job").is_dir()
     assert world.store.get_job("job")
     assert {r["holder"] for r in world.store.list_leases()} == {"late"}
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
@@ -855,10 +876,12 @@ def test_turn_pin_recheck_does_no_filesystem_work_in_transaction(world, monkeypa
 
 
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, writable):
+def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, begun, writable):
     """The census compares recorded spellings, so only the selecting
     transaction's canonical turn_holds keeps a job whose jobs.worktree is spelt
-    in another case while a turn row (canonical, as admission keys it) is live."""
+    in another case while a turn row (canonical, as admission keys it) is live.
+    It keeps it before the retirement begins (the commit's check would keep it
+    too, but only after quarantining the tree)."""
     wt = world.job("Job")
     alias = wt.with_name(wt.name.swapcase())
     if not alias.exists() or not alias.samefile(wt):
@@ -869,6 +892,7 @@ def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, wri
     result = run(world)
     assert result["pruned"] == [] and "Job" in result["protected"], result
     assert snapshot(wt) == before and world.store.get_job("Job") and world.admin("Job").is_dir()
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 def test_a_restart_mid_retirement_keeps_the_canonical_fence(world):

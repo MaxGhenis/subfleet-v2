@@ -412,3 +412,130 @@ def why(decision: Any) -> str:
 
 render_status = status
 render_why = why
+
+
+# --- Claude limit-reset cards and promotional credits (C-9.10) ----------------
+
+#: What a status other than `ok` tells an operator to do, when there is something.
+_CARD_FIX = {
+    "login-dead": "sign in again: CLAUDE_CONFIG_DIR={home} claude auth login",
+    "no-login": "sign in to read it: CLAUDE_CONFIG_DIR={home} claude auth login",
+}
+
+
+def _money(value: Any) -> str:
+    return f"${value:,.2f}" if isinstance(value, (int, float)) and not isinstance(value, bool) else "$?"
+
+
+def _holds_something(account: Mapping[str, Any], warned: set[str]) -> bool:
+    """An unused card, money on a credit, a claimable credit, a forfeit, or a warning."""
+    return bool(account.get("unused_cards")
+                or any((credit.get("remaining_dollars") or 0) > 0 for credit in account.get("credits") or [])
+                or account.get("claimable") or account.get("recently_lost")
+                or account.get("login") in warned)
+
+
+def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list[str]:
+    """C-9.10: one line per login: its cards, credits and plan, or why they are unknown.
+
+    Cards and credits are shown from the last read that saw them, with that
+    read's time when the latest one failed or listed no cards; nothing here is
+    ever redeemed.
+    `compact` (what `status` prints) shows only the logins holding something
+    that can be lost and counts the rest by status; `subfleet cards` shows all.
+    """
+    view = view or {}
+    accounts = [row for row in view.get("accounts") or () if isinstance(row, Mapping)]
+    if view.get("disabled"):
+        return ["claude reset cards: not read (claude_cards.enabled is false in the policy)"]
+    if not view.get("read_at"):
+        return ["claude reset cards: not read yet (subfleet cards --refresh)"]
+    lines = [f"claude reset cards and credits (read {view['read_at']}; never redeemed by subfleet)"]
+    if not accounts:
+        lines.append("  no Claude Code logins to read under the logins folder (claude_cards.logins_dir)")
+    others: list[str] = []
+    if compact:
+        warned = {str(row.get("login")) for row in view.get("warnings") or ()}
+        rest = [row for row in accounts if not _holds_something(row, warned)]
+        accounts = [row for row in accounts if _holds_something(row, warned)]
+        if rest:
+            tally: dict[str, int] = {}
+            for row in rest:
+                grants = (row.get("cards") or {}).get("grants") or []
+                key = ("card used" if row.get("status") == "ok" and any(g.get("resets_left", 0) == 0 for g in grants)
+                       else "card ended unused" if row.get("status") == "ok" and grants
+                       else "nothing held" if row.get("status") == "ok" else str(row.get("status") or "unknown"))
+                tally[key] = tally.get(key, 0) + 1
+            others.append("  others: " + ", ".join(f"{count} {key}" for key, count in sorted(tally.items()))
+                          + " (subfleet cards)")
+    for account in accounts:
+        lanes = account.get("lanes") or []
+        by_name = " by name" if account.get("lanes_by") == "label" else ""
+        head = f"  {account.get('login')}" + (f" [{', '.join(lanes)}{by_name}]" if lanes else "")
+        status = account.get("status") or "unknown"
+        plan = account.get("plan") or {}
+        parts: list[str] = []
+        if status == "lapsed":
+            parts.append(f"lapsed ({plan.get('organization_type')}, subscription {plan.get('subscription_status')})")
+        elif status != "ok":
+            fix = _CARD_FIX.get(status, "").format(home=account.get("home") or "?")
+            parts.append(f"{status}: {account.get('detail') or ''}".rstrip(": ") + (f"; {fix}" if fix else ""))
+            if account.get("read_at"):
+                parts.append(f"as last read {account['read_at']}")
+        cards = account.get("cards") or {}
+        grants = cards.get("grants") or []
+        if status != "lapsed" and account.get("read_at"):
+            unused = [grant for grant in grants if grant.get("resets_left", 0) > 0 and not grant.get("ended")]
+            ended = [grant for grant in grants if grant.get("resets_left", 0) > 0 and grant.get("ended")]
+            for grant in ended:
+                parts.append(f"reset card ended unused ({grant['id']}, ended {grant.get('ends_at')})")
+            for grant in unused:
+                note = ("usable now" if grant.get("usable_now")
+                        else "paused" if grant.get("paused") else "not usable now")
+                parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
+                             f"{grant.get('ends_at') or 'unknown'}, {note}"
+                             + (", account at its limit" if cards.get("at_limit") else ""))
+            # "No reset card" only when none is listed: a card that ended unused is one.
+            if grants:
+                if not unused and not ended:
+                    parts.append("reset card used")
+            elif cards and not cards.get("eligible"):
+                parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
+            elif cards:
+                parts.append("no reset card")
+            unlisted = account.get("cards_unlisted") or {}
+            if unlisted:
+                why = ("no cards block" if unlisted.get("missing")
+                       else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}")
+                parts.append(f"cards as listed {unlisted.get('listed_at') or 'before'}; "
+                             f"the read at {unlisted.get('at')} listed none ({why})")
+            for credit in account.get("credits") or []:
+                parts.append(f"{credit.get('label')} {_money(credit.get('remaining_dollars'))} of "
+                             f"{_money(credit.get('limit_dollars'))} left, expires {credit.get('expires_at') or 'unknown'}")
+            if account.get("claimable"):
+                parts.append("cloud-session credit claimable, not claimed")
+        if account.get("plan_ends_at"):
+            parts.append(f"plan ends {account['plan_ends_at']} (declared)")
+        for item in account.get("recently_lost") or []:
+            if item.get("grant"):
+                why = "with the plan" if item.get("reason") == "lapse" else "unused at its end"
+                parts.append(f"reset card lost {why} ({item['grant']}, seen {item.get('at')})")
+            else:
+                why = "plan lapsed" if item.get("reason") == "lapse" else "unspent at its end"
+                parts.append(f"{item.get('label')}: {why} with {_money(item.get('remaining_dollars'))} left at "
+                             f"the last read (seen {item.get('at')})")
+        lines.append(head + ": " + ("; ".join(parts) or status))
+    lines.extend(others)
+    for warning in view.get("warnings") or ():
+        items = _warned_items(warning)
+        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} " + (f"{items} " if items else "")
+                     + (f"at {warning['at']}" if warning.get("at") else ""))
+    return lines
+
+
+def _warned_items(warning: Mapping[str, Any]) -> str:
+    """The card or credit a warning names: `grant` or `credit`, or a loss's `grants` and `credits`."""
+    credits = warning.get("credits") or ()
+    names = [warning.get("grant"), warning.get("credit"), *(warning.get("grants") or ()),
+             *(row.get("key") if isinstance(row, Mapping) else row for row in credits)]
+    return ", ".join(str(name) for name in names if name)
