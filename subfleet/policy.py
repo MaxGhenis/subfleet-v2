@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
+    CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     RETENTION_REMOTE_LESS_HISTORY_BYTES,
     Closure, Decision, Exit, Lane, Reading,
@@ -453,6 +453,24 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    # C-9.10: on as shipped; a policy without the section reads with the defaults.
+    supplied = value.get("claude_cards", {})
+    if not isinstance(supplied, dict):
+        fail("claude_cards", "must be an object")
+    cards = {**CLAUDE_CARDS_DEFAULTS, **supplied}
+    for key in ("enabled", "heal"):
+        if not isinstance(cards[key], bool):
+            fail(f"claude_cards.{key}", "must be a boolean")
+    for key, least in (("interval_min", 30), ("heal_interval_min", 20), ("warn_days", 0)):
+        item = cards[key]
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item <= 0 or item < least):
+            fail(f"claude_cards.{key}", f"must be a positive finite number, at least {least}" if least
+                 else "must be a positive finite number")
+    if not isinstance(cards["logins_dir"], str) or not cards["logins_dir"].strip():
+        fail("claude_cards.logins_dir", "must be a nonempty path, absolute or relative to the state root")
+    value["claude_cards"] = cards
 
     # `sessions` is validated on its own because zero is meaningful in it: every
     # cap, window and interval there switches OFF at zero — a mirror interval of

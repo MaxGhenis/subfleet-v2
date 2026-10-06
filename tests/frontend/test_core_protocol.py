@@ -199,6 +199,8 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     harness.store.set_state(steered["message_id"], "steered", reason=f"steered:{fixture['first']['message_id']}",
                             served={"steered_into": fixture["first"]["message_id"]})
     results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
+    results["conversation.wake"] = harness.call("conversation.wake", session_id="s-runs", request_id=str(uuid.uuid4()),
+                                                prs=["owner/repo#1"], note="Inspect the merge")
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)
