@@ -3799,7 +3799,11 @@ class Daemon:
         prefix = workspace.get("prefix")
         if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
             return root
-        if workspace.get("worktree") and os.path.realpath(workspace["worktree"]) != os.path.realpath(root):
+        # The source's worktree is recorded as the state root was given; the resume's own
+        # workdir as submit spells it (`folders.canonical`). `realpath` keeps case, Unicode
+        # form and firmlinks, so compare the one spellings: under a state root typed in
+        # another case a resume lost its source's place (review of c7595627, P3).
+        if workspace.get("worktree") and folders.canonical(workspace["worktree"]) != folders.canonical(root):
             return root
         target = Path(root) / prefix
         return str(target) if target.is_dir() else root
