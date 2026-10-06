@@ -380,6 +380,50 @@ def test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_
 
 
 @pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence(tmp_path, shape):
+    """C-6.9, C-6.11: the look before the workspace records retention's fences as keys
+    the job needs free but does not take (`blocked`), as the transaction does since the
+    writer fix's review (#140, P3), so a look on the job's clock never queues for them.
+    An older detached job in `<tree>/vendor/lib` rests on its clock, held on the fence on
+    `<tree>`; retention lets go mid-pass; a newer writer in place on `<tree>`, whose own
+    key the fence was, takes it on that pass instead of waiting `queued_behind` a job
+    that never takes it. Rows are written directly: submission refuses a writer on a
+    fenced tree, and the queue is what is under test.
+    Failed with `_fence_hold` passing no `blocked` (the merge of #139 and #140 alone)."""
+    from subfleet.daemon import after
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        Workspaces(daemon, patch, real=False)
+        tree = str(harness.root / "worktrees" / "retired")
+        nested, fence = tree + "/vendor/lib", folders.exclusive_key(tree)
+
+        def add(job_id, folder, **values):
+            daemon.store.add_job(job_id=job_id, request_id=job_id, payload_digest=job_id, kind="dispatch",
+                                 workdir=folder, prompt_path=str(harness.root / "prompt.md"), pinned_model="astra",
+                                 max_attempts=1, max_wall_s=3600, **values)
+            return job_id
+
+        older = add("older", nested, **SHAPES[shape])
+        assert daemon.store.acquire_lease(fence, "retention:retired")
+        daemon._admit()
+        assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]
+        assert daemon._capacity_waits[older]["blocked"] == (fence,)
+        daemon.store.update_job(older, next_check_at=after(3600))
+        newer = add("newer", tree, sandbox="workspace-write", in_place=True)
+        real = daemon._detached_folder
+
+        def finishes(job):          # retention lets go after the older's look, before the newer's
+            if job["job_id"] == newer:
+                daemon.store.release_leases("retention:retired")
+            return real(job)
+
+        patch.setattr(daemon, "_detached_folder", finishes)
+        daemon._admit()
+        assert lease(daemon, fence) == newer, daemon._holds.get(newer)
+        assert "queued_behind" not in (daemon._holds.get(newer) or {})
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_through_the_quarantine(tmp_path, shape):
     """A job queued by a daemon that recorded no `folder`, its workdir typed in another
     case than the volume stores (`…/rETIRED/vendor/lib`), is spelled at its first look,
@@ -407,6 +451,8 @@ def test_c8_4_a_job_queued_before_folders_were_recorded_keeps_its_spelling_throu
                                      (job_id,)).fetchone()
                     data = {k: v for k, v in json.loads(row[1] or "{}").items() if k != "folder"}
                     tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), row[0]))
+                    # It also kept the workdir as typed (`resolve`d only; #140 spells it now).
+                    tx.execute("UPDATE jobs SET workdir=? WHERE job_id=?", (typed, job_id))
                 assert daemon._job(job_id)["workdir"] == typed and "folder" not in recorded(daemon, job_id)
             hold = look(daemon, state["job"])
             assert not _live(daemon, state["job"]) and workspaces.calls == [], (at, hold)
