@@ -202,6 +202,9 @@ _PIN_QUERIES = (
     # A job not yet ended whose directory is this job's allocated worktree or
     # inside it (a job an agent submitted from its worktree, still queued):
     # the tree must still be there when it runs (design review, Opus 9).
+    # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
+    # which also keeps a tree whose job id a live turn's folder spells in
+    # another case; only after that job ends is the C-8.4 known limit reached.
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                         "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
