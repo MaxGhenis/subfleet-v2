@@ -22,6 +22,10 @@ from .credentials import resolve_credential
 from .sessions.transcripts import read_regular
 from .store import Store
 
+#: `Timers._claim`'s answer for a lane with work on it: an attempt in flight or a
+#: lane lease (C-18.3).
+BUSY = 'busy'
+
 
 def instant(value=None):
     if isinstance(value, str):
@@ -92,6 +96,11 @@ class Timers:
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
                                      'retention', 'mirror', 'mirror_hot')}
         self.metadata = self._latest('timer.verdict')
+        # Each lane's verdict is replaced whole, under this lock, so that putting
+        # one back after a failed publication can check it is still the one in
+        # place and replace it as one step (C-18.3). Only dictionary work is done
+        # under it; the store's lock, when both are held, is taken first.
+        self._verdicts = threading.RLock()
         self.balances = self._latest('reset-credit.balance')
         self._cycle_error = None
         for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
@@ -292,7 +301,15 @@ class Timers:
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
         self.store.add_event('timer.verdict', lane_id=lane_id, data=meta)
-        self.metadata[lane_id] = meta
+        self._set_verdict(lane_id, meta)
+
+    def _set_verdict(self, lane_id, verdict):
+        """Replace a lane's verdict whole; None removes it."""
+        with self._verdicts:
+            if verdict is None:
+                self.metadata.pop(lane_id, None)
+            else:
+                self.metadata[lane_id] = verdict
 
     def _epoch(self, lane):
         try:
@@ -312,7 +329,7 @@ class Timers:
                 row['enabled'] = False
                 data = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
                 self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
-                self.metadata[row['lane_id']] = data
+                self._set_verdict(row['lane_id'], data)
             if not row['enabled']:
                 continue
             first = seen.setdefault(row['account_key'], row)
@@ -322,7 +339,7 @@ class Timers:
                     data = {'identity_status': 'non-canonical', 'duplicate_of': first['home'] or first['lane_id'],
                             'verdict': 'duplicate', 'home': row['home']}
                     self.store.add_event('timer.verdict', lane_id=row['lane_id'], data=data)
-                self.metadata[row['lane_id']] = data
+                self._set_verdict(row['lane_id'], data)
         # Desktop Codex identity is observed read-only; it is never a lane.
         try:
             from .adapters.codex import _identity, _read_auth
@@ -331,24 +348,37 @@ class Timers:
         except (OSError, ValueError):
             self._app_account = None
 
-    def _reserve(self, lane, purpose):
+    def _never_read(self, lane_id):
+        """C-18.1: a lane no timer reads, busy or idle: disabled, not v2's, the desktop's, held or `auth-dead`."""
+        current = self.store.get_lane(lane_id)
+        if not current or not current.enabled or current.owner != 'v2' or current.desktop:
+            return True
+        return bool(self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane_id, iso(self.now()))))
+
+    def _claim(self, lane, purpose):
+        """C-18.1, C-18.3: `slot:0` for an idle lane, `BUSY` for one at work, None for one never read.
+
+        One transaction judges the lane, so idle and busy are decided against one
+        state. Whether the lane is read at all is asked before its occupancy.
+        """
         holder = 'probe:timer:' + str(uuid4())
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
-            current = self.store.get_lane(lane.lane_id)
-            if not current or not current.enabled or current.owner != 'v2' or current.desktop:
+            if self._never_read(lane.lane_id):
                 return None
-            if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,)):
-                return None
-            if self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',)):
-                return None
-            if self.store.one("SELECT 1 FROM closures WHERE lane_id=? AND reason IN ('auth-dead','operator-hold') AND released_at IS NULL AND until_at>?", (lane.lane_id, iso(self.now()))):
-                return None
+            if (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
+                    or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',))):
+                return BUSY
             self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
             self.store.add_event('timer.reservation', lane_id=lane.lane_id,
                                  data={'holder': holder, 'purpose': purpose})
         with self._lock:
             self.active_holders.add(holder)
         return holder
+
+    def _reserve(self, lane, purpose):
+        """A timer turn's hold (a keepalive): `slot:0` on an idle lane, else None."""
+        claim = self._claim(lane, purpose)
+        return None if claim is BUSY else claim
 
     def _release(self, holder, *, quarantined=False):
         if not quarantined:
@@ -406,7 +436,11 @@ class Timers:
         until = previous.get('retry_after_until')
         if until and self.now() < instant(until):
             return None     # C-9.9: the usage endpoint asked us to wait
-        holder = self._reserve(lane, 'probe')
+        holder = self._claim(lane, 'probe')
+        if holder is BUSY:
+            # C-18.3: a Claude attempt measures its own lane as it ends (C-9.8);
+            # a Codex attempt never does, so only a Codex lane is read at work.
+            return self._busy_read(lane) if lane.provider == 'codex' else None
         if not holder:
             return None
         quarantined = False
@@ -459,13 +493,76 @@ class Timers:
                             probe = self._read_probe(adapter, lane, env)
                 if probe.get('retry_after_s'):
                     probe['retry_after_until'] = iso(self.now() + timedelta(seconds=int(probe['retry_after_s'])))
-            return lane, {**probe, 'probed_at': iso(self.now())}
+            return lane, {**probe, 'probed_at': iso(self.now())}, None
         except (TimeoutError, OSError) as exc:
-            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'network-error', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
         except Exception as exc:
-            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}
+            return lane, {'status': 'unknown', 'readings': (), 'probed_at': iso(self.now()), 'error_type': type(exc).__name__}, None
         finally:
             self._probe_holders[lane.lane_id] = (holder, quarantined)
+
+    def _busy_read(self, lane):
+        """C-18.3: a busy Codex lane's usage read, taken beside its attempts.
+
+        The usage GET alone. It takes no lease and writes no reservation, so it
+        never holds a slot a job could take, and it runs no heal turn: the lane's
+        attempts renew its token. It goes through the per-lane read fence an idle
+        read does (`_read_probe`). The newest event as it starts travels with the
+        result, so that publishing it never releases a limit reported after it
+        (`_mark`, `_publishable`). Whatever the mark's query, the adapter or the
+        request raises is a read that failed, never a cycle that failed.
+        """
+        opened = 0
+        try:
+            opened = self._mark()
+            adapter = self.adapter_factory('codex')
+            if hasattr(adapter, 'timeout'):
+                adapter.timeout = min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
+            probe = {**self._read_probe(adapter, lane, resolve_credential(lane.credential))}
+        except (TimeoutError, OSError) as exc:
+            probe = {'status': 'network-error', 'readings': (), 'error_type': type(exc).__name__}
+        except Exception as exc:
+            probe = {'status': 'unknown', 'readings': (), 'error_type': type(exc).__name__}
+        return lane, {**probe, 'probed_at': iso(self.now())}, opened
+
+    def _mark(self):
+        """The newest event as a busy read starts: a mark no later limit report slips past.
+
+        `put_closure` keeps one open closure per lane and scope. It extends that
+        row in place, and a limit reported again that ends no later changes
+        nothing in it. Every report leaves a `closure.recorded` event all the
+        same (`Store.put_closure`), whoever made it: an attempt, a conversation
+        turn, an admission probe, an operator's hold. Retention prunes jobs and
+        their attempts, never events, so it cannot take the trace away.
+        """
+        return (self.store.one('SELECT MAX(event_id) AS mark FROM events') or {}).get('mark') or 0
+
+    def _publishable(self, lane, probe, opened):
+        """C-18.3: what a busy read may publish, judged as it is published.
+
+        None publishes nothing. A credential verdict (`auth-dead`, `revoked`,
+        `expired-token`, `no-auth`) or a failed read is never published from a
+        busy lane: its attempts are renewing its token as it is read, and they
+        report a dead credential themselves (C-23.44). A credential naming
+        another account is published as an idle read publishes it (no provider
+        readings, the lane disabled). Nothing is published for a lane that
+        `_claim` would no longer read: disabled, transferred, made the desktop's
+        or held since the read. (A lane's binding never changes; `Store.put_lane`.)
+
+        False publishes the readings and the verdict but releases no closure and
+        settles no reset credit: a limit was reported on the lane after the read
+        began (a closure recorded, extended, or reported again), and an older
+        answer must not undo a newer limit. The next cycle reads again. True
+        publishes everything an idle read would.
+        """
+        account = probe.get('account_key')
+        mismatch = bool(account) and account != lane.account_key
+        if not mismatch and probe.get('status') not in ('ok', 'limited'):
+            return None
+        if self._never_read(lane.lane_id):
+            return None
+        return not self.store.one("SELECT 1 FROM events WHERE kind='closure.recorded' AND event_id>? AND lane_id=? LIMIT 1",
+                                  (opened, lane.lane_id))
 
     def _pace_usage(self):
         """C-9.9: one usage read at a time, `reserve.usage_spacing_s` apart."""
@@ -477,7 +574,49 @@ class Timers:
         if wait > 0:
             self.cancel.wait(wait)
 
-    def _persist(self, lane, probe):
+    def _publish_busy(self, lane, probe, opened):
+        """C-18.3: judge a busy read and publish it in one transaction; what `_publishable` judged.
+
+        None was not published, False was published with nothing released (a
+        newer limit fenced it), True was published whole.
+
+        No slot keeps the lane's attempts away, so the store's write lock does:
+        nothing can report a limit, disable the lane or hold it between the
+        judgement and the commit. A publication that raises rolls back whole,
+        the settlement with it, and the verdict the lane had is put back while
+        the lock is still held. When it is the commit that fails, the lock is
+        already gone, and the verdict is put back only if nothing has replaced
+        this publication's since.
+        """
+        before = wrote = missing = object()
+        try:
+            with self.store.transaction('timer.busy-read', lane_id=lane.lane_id):
+                before = self.metadata.get(lane.lane_id)       # under the lock an attempt's verdict needs
+                try:
+                    releases = self._publishable(lane, probe, opened)
+                    if releases is not None:
+                        self._persist(lane, probe, releases=releases)
+                except BaseException:
+                    self._set_verdict(lane.lane_id, before)
+                    raise
+                wrote = self.metadata.get(lane.lane_id)
+        except BaseException:
+            # The commit itself failed, after the store lock was let go. Put the
+            # old verdict back only if this publication's is still the one in
+            # place, checked and replaced as one step: an attempt's verdict
+            # recorded since stays.
+            with self._verdicts:
+                if wrote is not missing and wrote is not before and self.metadata.get(lane.lane_id) is wrote:
+                    self._set_verdict(lane.lane_id, before)
+            raise
+        return releases
+
+    def _persist(self, lane, probe, *, releases=True):
+        """Publish one read: readings, closures, settlement, then the verdict.
+
+        `releases=False` (a busy read that a newer closure contradicts, C-18.3)
+        keeps every closure and reset credit as it stands.
+        """
         at = iso(self.now())
         status = probe.get('status', 'unknown')
         outcome = probe.get('outcome')
@@ -503,7 +642,7 @@ class Timers:
         meta['probe_status'] = status
         meta['verdict'] = {'ok': 'ok', 'auth-dead': 'auth-dead', 'revoked': 'auth-revoked',
                            'expired-token': 'auth-suspect'}.get(status, status)
-        if status != 'identity-mismatch':
+        if status != 'identity-mismatch' and releases:
             self.actions.settle_by_usage(lane.lane_id, probe, now=self.now())
         with self.store.transaction('timer.probe', lane_id=lane.lane_id):
             if status in ('auth-dead', 'identity-mismatch'):
@@ -520,13 +659,13 @@ class Timers:
                 reset = max((r.resets_at for r in readings if r.resets_at), default=None)
                 self.store.add_closure(Closure(lane.lane_id, 'account', reset or iso(self.now() + timedelta(hours=1)),
                     ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED if reset else ClockSource.GUESSED, 'wham'))
-            elif status == 'ok' and probe.get('limit_reached') is False:
+            elif status == 'ok' and probe.get('limit_reached') is False and releases:
                 # Release only after real server evidence of a reset, not absence of numbers.
                 if any(r.label == ReadingLabel.PROVIDER and r.utilization is not None and r.utilization < 1 for r in readings):
                     with self.store.transaction('closure.reset') as tx:
                         tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND scope='account' AND reason='provider-limit' AND released_at IS NULL", (at, lane.lane_id))
             self.store.add_event('timer.verdict', lane_id=lane.lane_id, data=meta)
-        self.metadata[lane.lane_id] = meta
+        self._set_verdict(lane.lane_id, meta)
 
     def snapshot(self):
         # One committed state for the whole view. C-3.7: a read snapshot, not a
@@ -621,8 +760,10 @@ class Timers:
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
         # (review of PR #72). All homes heal before any cycle reading or verdict
-        # is published.
-        results, failure = [], None
+        # is published. A busy lane's read is judged as it is published (C-18.3);
+        # what it may not publish, and what a newer limit fenced, is named on the
+        # cycle's event.
+        results, failure, deferred, fenced = [], None, {}, []
         try:
             for future in as_completed(futures):
                 try:
@@ -632,16 +773,23 @@ class Timers:
                     failure = failure or exc
             if self.cancel.is_set():
                 return
-            for lane, probe in results:
-                self._persist(lane, probe)
+            for lane, probe, opened in results:
+                if opened is None:
+                    self._persist(lane, probe)
+                elif (published := self._publish_busy(lane, probe, opened)) is None:
+                    deferred[lane.lane_id] = probe.get('status', 'unknown')
+                elif not published:
+                    fenced.append(lane.lane_id)
         finally:
             for holder, quarantined in self._probe_holders.values():
                 self._release(holder, quarantined=quarantined)
             self._probe_holders.clear()
         if failure is not None:
             raise failure
-        self._cycle_error = next((p['error_type'] for _, p in results if p.get('error_type')), None)
-        codex = [p for lane, p in results if lane.provider == 'codex']
+        # Every read counts here, published or not: a busy lane's network error
+        # is as much evidence of being offline as an idle one's.
+        self._cycle_error = next((p['error_type'] for _, p, _ in results if p.get('error_type')), None)
+        codex = [p for lane, p, _ in results if lane.provider == 'codex']
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
@@ -661,7 +809,9 @@ class Timers:
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
         self.publish_status(snapshot)
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),
-                             'lanes': [lane.lane_id for lane, _ in results]})
+                             'lanes': [lane.lane_id for lane, _, _ in results],
+                             'busy': [lane.lane_id for lane, _, opened in results if opened is not None],
+                             'deferred': deferred, 'fenced': fenced})
         return snapshot
 
     def latest_request(self, lane_id):

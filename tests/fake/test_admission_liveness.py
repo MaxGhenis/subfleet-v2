@@ -581,6 +581,9 @@ def test_c24_5_a_turn_waits_for_a_detached_writer_in_its_folder(tmp_path):
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        # Exercise folder exclusion without launching a guardian usage probe;
+        # the admission-probe protocol is covered by the probe-focused cases.
+        probing(service, patch, [])
         writer = _detached_in_place(service, harness)
         service._admit()
         assert _live(service, writer), service._holds.get(writer)
@@ -604,6 +607,7 @@ def test_c24_5_a_detached_writer_waits_while_a_turn_writes_in_its_folder(tmp_pat
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+        probing(service, patch, [])
         writer = _detached_in_place(service, harness)
         turn = _turn_in(service, harness, 0, workdir=harness.workdir)
         service._admit()
