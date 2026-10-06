@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -37,6 +37,10 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    # C-5.12's shared inspection and fresh liveness must describe the same
+    # empty fixture as containment; state-only tests never inspect the host.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
