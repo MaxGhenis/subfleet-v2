@@ -193,8 +193,10 @@ def test_an_unrelated_process_on_the_child_pid_does_not_hold_for_ever(state_daem
     a = daemon.store.get_attempt(a["attempt_id"])
     script_table(monkeypatch, {500: (1, 500, "Ss", "unrelated")})
     census = daemon._contain(a)
-    # A changed PID identity says nothing about unobserved descendants.
-    assert not census.live_pids and not census.verified_empty, census.to_dict()
+    assert census.verified_empty, census.to_dict()
+    assert confirm_dead(daemon, a) == "lost"
+    assert not [lease for lease in daemon.store.list_leases()
+                if lease["holder"] in {a["attempt_id"], a["job_id"]}]
 
 
 # --- 5. Salvage on automatic release: a worktree whose admin dir was pruned ---
