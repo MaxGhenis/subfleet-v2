@@ -1,0 +1,39 @@
+.R5 final restart before-complete: message=running, replayed=['job-1/a1'], requests=[{'kind': 'time', 'state': 'fired'}], wakes=['[Subfleet]\nScheduled check-back is due.\nResume this task']
+.R5 final restart after-complete: message=complete, replayed=[], requests=[{'kind': 'time', 'state': 'fired'}], wakes=['[Subfleet]\nScheduled check-back is due.\nResume this task']
+.R5 final restart no-crash: message=complete, replayed=[], requests=[{'kind': 'time', 'state': 'fired'}], wakes=['[Subfleet]\nScheduled check-back is due.\nResume this task']
+.......R5 blocked restart: wakes=['[Subfleet]\nPR watch refused: o/r#1 (PR is missing or inaccessible). Correct the reference and re-arm.']
+.R5 throttle restart: wakes=['[Subfleet]\nPR watch refused: o/r#1 (PR is missing or inaccessible). Correct the reference and re-arm.']
+.R5 legacy restart: wakes=['[Subfleet]\nPR watch refused: o/r#1 (PR is missing or inaccessible). Correct the reference and re-arm.']
+.R5 archived restart: wakes=['[Subfleet]\nPR watch refused: o/r#1 (PR is missing or inaccessible). Correct the reference and re-arm.']
+..R5 acceptance inside-claim: before={'state': 'pending', 'message_id': None}, after={'state': 'fired', 'message_id': 'ea6c9f0c-e55c-425e-b6cc-17356f2ffa5d'}, wakes=1
+.R5 acceptance after-commit: before={'state': 'fired', 'message_id': '8a2f7584-0d97-4734-88b8-71628d0d501e'}, after={'state': 'fired', 'message_id': '8a2f7584-0d97-4734-88b8-71628d0d501e'}, wakes=1
+.R6 boundary upgrade=False boundary='before-completion-commit': exactly one wake
+.R6 boundary upgrade=True boundary='before-completion-commit': exactly one wake
+.R6 boundary upgrade=False boundary='after-completion-commit': exactly one wake
+.R6 boundary upgrade=True boundary='after-completion-commit': exactly one wake
+.R6 boundary upgrade=False boundary='before-register': exactly one wake
+.R6 boundary upgrade=True boundary='before-register': exactly one wake
+.R6 boundary upgrade=False boundary='after-register': exactly one wake
+.R6 boundary upgrade=True boundary='after-register': exactly one wake
+.R6 boundary upgrade=False boundary='before-ack-commit': exactly one wake
+.R6 boundary upgrade=True boundary='before-ack-commit': exactly one wake
+.R6 boundary upgrade=False boundary='after-ack-commit': exactly one wake
+.R6 boundary upgrade=True boundary='after-ack-commit': exactly one wake
+.R6 boundary upgrade=False boundary='no-crash': exactly one wake
+.R6 boundary upgrade=True boundary='no-crash': exactly one wake
+.R6 real tick crash_after_first=False: first=['[Subfleet]\nScheduled check-back is due.\nReplacement timer']; final=['[Subfleet]\nScheduled check-back is due.\nReplacement timer']
+.R6 real tick crash_after_first=True: first=['[Subfleet]\nScheduled check-back is due.\nReplacement timer']; final=['[Subfleet]\nScheduled check-back is due.\nReplacement timer']
+...R6 newer complete crash_before_rearm=False: early=[]; final=['[Subfleet]\nScheduled check-back is due.\nNew instructions']
+.R6 newer complete crash_before_rearm=True: early=[]; final=['[Subfleet]\nScheduled check-back is due.\nNew instructions']
+.R6 migration before-table: preserved request fired exactly once
+.R6 migration after-table: preserved request fired exactly once
+.R6 interleaved completion/registration: wakes=[[]]
+.R6 refusal before-refusal-event: events=[{'phase': 'wake-refused', 'detail': 'Wake request refused: invalid WAKE-ME field'}]; wakes=['[Subfleet]\nScheduled check-back is due.\nValid later line']
+.R6 refusal after-refusal-event: events=[{'phase': 'wake-refused', 'detail': 'Wake request refused: invalid WAKE-ME field'}]; wakes=['[Subfleet]\nScheduled check-back is due.\nValid later line']
+.R6 hard exit before-completion-commit: state=running; wakes=['[Subfleet]\nScheduled check-back is due.\nHard-exit recovery']
+.R6 hard exit after-completion-commit: state=complete; wakes=['[Subfleet]\nScheduled check-back is due.\nHard-exit recovery']
+.R6 hard exit after-registration: state=complete; wakes=['[Subfleet]\nScheduled check-back is due.\nHard-exit recovery']
+.R6 hard exit before-ack-commit: state=complete; wakes=['[Subfleet]\nScheduled check-back is due.\nHard-exit recovery']
+.R6 hard exit after-ack-commit: state=complete; wakes=['[Subfleet]\nScheduled check-back is due.\nHard-exit recovery']
+......
+52 passed in 7.30s

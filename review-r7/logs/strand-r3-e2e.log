@@ -1,0 +1,4 @@
+R3 strand (automatic): wakes=1 waiter_rc=0 waiter_returned=['2026-10-06T07:42:24Z'] run_finished=2026-10-06T07:42:24Z turn_job_finished=['2026-10-06T07:42:25Z', None] notice=[{'state': 'surfaced', 'transport': 'conversation', 'acknowledged_at': None, 'offered_at': '2026-10-06T07:42:26.300Z'}] wake_created=['2026-10-06T07:42:26.298Z']
+.R3 strand (wake-me): wakes=1 waiter_rc=0 waiter_returned=['2026-10-06T07:42:31Z'] run_finished=2026-10-06T07:42:31Z turn_job_finished=['2026-10-06T07:42:32Z', None] notice=[{'state': 'surfaced', 'transport': 'conversation', 'acknowledged_at': None, 'offered_at': '2026-10-06T07:42:32.295Z'}] wake_created=['2026-10-06T07:42:32.292Z']
+.
+2 passed in 13.36s

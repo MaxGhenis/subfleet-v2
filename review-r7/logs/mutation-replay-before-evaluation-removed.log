@@ -1,0 +1,28 @@
+................................................F..FF                    [100%]
+=================================== FAILURES ===================================
+E   assert [] == [True]
+      
+      Right contains one more item: True
+      Use -v to get more diff
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step first_evaluation failed: AssertionError: assert [{'message_id...73487.626647}] == []
+  
+  Left contains one more item: {'message_id': '717c1c52-434c-4ce1-864c-057ec103d462', 'final_text': 'WAKE-ME: at=2026-10-06T08:08:07.626647Z note="Replacement"', 'settled_at': 1791273487.626647}
+  Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_restart.py:39: assert [] == [True]
+E   AssertionError: assert 0 == 1
+     +  where 0 = len([])
+     +    where [] = wake_rows(<subfleet.conversations.service.ConversationService object at 0x542f1f97310>, 'cv-1791273487731-8aa86892265e')
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: RuntimeError: registration temporarily unavailable
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_restart.py:136: AssertionError: assert 0 == 1
+E   assert [{'message_id...73487.764904}] == []
+      
+      Left contains one more item: {'message_id': 'a7190df1-d7e6-45d3-892a-7a9583212540', 'final_text': 'WAKE-ME: at=2026-10-06T08:08:07.764904Z note="Partial timer"\nWAKE-ME: at=2026-10-06T08:18:07.764904Z note="Replacement"', 'settled_at': 1791273487.764904}
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_restart.py:160: assert [{'message_id...73487.764904}] == []
+=========================== short test summary info ============================
+FAILED tests/unit/test_review_r6_restart.py::test_tick_replays_all_recorded_finals_before_first_wake_evaluation
+FAILED tests/unit/test_review_r6_restart.py::test_failed_replay_defers_only_the_conversation_with_an_intent
+FAILED tests/unit/test_review_r6_restart.py::test_direct_evaluation_recovers_partial_final_batch_after_replay_crash
+3 failed, 50 passed in 5.98s

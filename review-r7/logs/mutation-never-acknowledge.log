@@ -1,0 +1,134 @@
+FFFFFFFFFFFFFFFFFF                                                       [100%]
+=================================== FAILURES ===================================
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix before-replay: at-crash=[] early=[] final=[] rows=[{'request_id': 'f2599dd1-7b31-4407-93b8-212a5b59ba48', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:bc6bd9e8-a7b5-4d65-a65b-987e1dfaa99f:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a8d85c85-9366-43b1-b17e-28b01e463fa3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a8d85c85-9366-43b1-b17e-28b01e463fa3:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:189: AssertionError: []
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-older-register: at-crash=[] early=[] final=[] rows=[{'request_id': '32185c0e-87dd-4737-a84e-1884de8e8ab6', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:4a9f9eee-3be0-4b5e-a051-8f8109547898:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:459b1715-f32f-4432-bd28-13fc6c8970e6:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:459b1715-f32f-4432-bd28-13fc6c8970e6:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:189: AssertionError: []
+E   Failed: DID NOT RAISE SimulatedCrash
+
+During handling of the above exception, another exception occurred:
+E   AssertionError: assert [] == ['before-older-ack-commit']
+      
+      Right contains one more item: 'before-older-ack-commit'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:178: AssertionError: assert [] == ['before-older-ack-commit']
+E   Failed: DID NOT RAISE SimulatedCrash
+
+During handling of the above exception, another exception occurred:
+E   AssertionError: assert [] == ['after-older-ack-commit']
+      
+      Right contains one more item: 'after-older-ack-commit'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:178: AssertionError: assert [] == ['after-older-ack-commit']
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-newer-first-register: at-crash=[] early=[] final=[] rows=[{'request_id': 'ec9550f9-68fd-4547-aa98-09197d37f3b4', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:5d8107b0-a3eb-4388-abf9-08fe95f9b19c:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:ff9006d2-8306-4e35-b2dc-7d8cb43263ea:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:ff9006d2-8306-4e35-b2dc-7d8cb43263ea:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:189: AssertionError: []
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-newer-second-register: at-crash=[] early=[] final=[] rows=[{'request_id': '1577fa70-8a01-4f9e-8d91-bc7b34c5d489', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:72832a42-3d70-4f29-8131-7075dd02a06c:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:6b982a20-811a-4c22-958c-987b1ec3adad:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:6b982a20-811a-4c22-958c-987b1ec3adad:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:189: AssertionError: []
+E   Failed: DID NOT RAISE SimulatedCrash
+
+During handling of the above exception, another exception occurred:
+E   AssertionError: assert [] == ['before-newer-ack-commit']
+      
+      Right contains one more item: 'before-newer-ack-commit'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:178: AssertionError: assert [] == ['before-newer-ack-commit']
+E   Failed: DID NOT RAISE SimulatedCrash
+
+During handling of the above exception, another exception occurred:
+E   AssertionError: assert [] == ['after-newer-ack-commit']
+      
+      Right contains one more item: 'after-newer-ack-commit'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:178: AssertionError: assert [] == ['after-newer-ack-commit']
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix no-crash: at-crash=[] early=[] final=[] rows=[{'request_id': '66d64bda-cdb2-4792-b456-0836877fe329', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8cac1b49-849d-4359-aae1-faa246b7257e:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:1a5c31b2-e83a-4bb0-b6a2-3154bdc7c00a:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:1a5c31b2-e83a-4bb0-b6a2-3154bdc7c00a:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:189: AssertionError: []
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-replay: early=[] final=[] rows=[{'request_id': 'cf0d9c12-666c-46dc-9913-85288b98a4fc', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:533ba622-9190-4cb1-9001-0eb0293c9763:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:7deecf7b-a6db-4663-ad6e-b9608db4d15d:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:7deecf7b-a6db-4663-ad6e-b9608db4d15d:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:274: AssertionError: []
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-older-register: early=[] final=[] rows=[{'request_id': 'e7607410-ea09-4346-861e-381ec3598d88', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:da019cde-5a21-4db2-867f-5645dc467eac:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:5d5f740c-49fb-4aea-b2c0-d9762635afdf:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:5d5f740c-49fb-4aea-b2c0-d9762635afdf:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:274: AssertionError: []
+E   AssertionError: hard-exit boundary was not reached
+      
+    assert 1 == 77
+     +  where 1 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python', '-c', ...before-older-ack-commit', '1791274452.890955'], returncode=1, stdout='', stderr='hard-exit boundary was not reached\n').returncode
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:266: AssertionError: hard-exit boundary was not reached
+E   AssertionError: hard-exit boundary was not reached
+      
+    assert 1 == 77
+     +  where 1 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python', '-c', ...'after-older-ack-commit', '1791274453.334896'], returncode=1, stdout='', stderr='hard-exit boundary was not reached\n').returncode
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:266: AssertionError: hard-exit boundary was not reached
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-newer-first-register: early=[] final=[] rows=[{'request_id': '7b9844d8-7e39-4f66-97a0-0b35ef212a9d', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:66f17db5-2fa4-4313-9e0c-f70796aa23a3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:604fc120-1169-453a-982b-031e92dc064b:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:604fc120-1169-453a-982b-031e92dc064b:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:274: AssertionError: []
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-newer-second-register: early=[] final=[] rows=[{'request_id': '2ac77508-cbcb-44b9-b774-d7f066a8b6b4', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:10f6e3eb-843e-4430-b166-1531184b4bd0:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:3d4c7682-32a2-4177-bd21-4a9db7d51033:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:3d4c7682-32a2-4177-bd21-4a9db7d51033:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:274: AssertionError: []
+E   AssertionError: hard-exit boundary was not reached
+      
+    assert 1 == 77
+     +  where 1 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python', '-c', ...'before-newer-ack-commit', '1791274454.75619'], returncode=1, stdout='', stderr='hard-exit boundary was not reached\n').returncode
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:266: AssertionError: hard-exit boundary was not reached
+E   AssertionError: hard-exit boundary was not reached
+      
+    assert 1 == 77
+     +  where 1 = CompletedProcess(args=['/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python', '-c', ...after-newer-ack-commit', '1791274455.3048162'], returncode=1, stdout='', stderr='hard-exit boundary was not reached\n').returncode
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:266: AssertionError: hard-exit boundary was not reached
+E   AssertionError: []
+    assert (0 == 1)
+     +  where 0 = len([])
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-evaluation: early=[] final=[] rows=[{'request_id': '79e408b5-3c9f-4e9b-a96c-f6cc109544e7', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:5d587197-9ead-44fc-816e-415c8be84222:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:19931323-5f8f-4add-93bc-fcb5e41d47e3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:19931323-5f8f-4add-93bc-fcb5e41d47e3:1', 'kind': 'time', 'state': 'pending'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:274: AssertionError: []
+=========================== short test summary info ============================
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-replay]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-older-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-first-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-second-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[no-crash]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-replay]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-older-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-first-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-second-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-evaluation]
+18 failed in 4.91s

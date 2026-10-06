@@ -1,0 +1,36 @@
+R2 F1: 0 wakes, 80 gh calls over 2.7 h
+..R2 F2 rc=1: good=['[Subfleet]\nPR state changed: o/r#1'] bad=['[Subfleet]\nPR watch refused: o/r#999999 (Could not resolve to a PullRequest with the number of 999999.). Correct the reference and re-arm.']
+.R2 F2 rc=0: good=['[Subfleet]\nPR state changed: o/r#1'] bad=['[Subfleet]\nPR watch refused: o/r#999999 (Could not resolve to a PullRequest with the number of 999999.). Correct the reference and re-arm.']
+.R2 F3: person's message reached dispatch after 0.01 s (gh sleeps 3 s)
+.R2 F4: ['[Subfleet]\nrun-x finished: succeeded; deliverable /work/run-x.md']
+.......R2 F6: 1 wakes, streak 1
+.R2 F8: 1 writer checks in 100 ticks
+.......R2 F12: _surface_notices 0.00 ms CPU per tick with 5,000 delivered runs
+...R2 N2 at: wakes=2 requests=[{'kind': 'runs', 'state': 'satisfied'}, {'kind': 'time', 'state': 'fired'}]
+.R2 N2 prs: wakes=2 requests=[{'kind': 'pr', 'state': 'fired'}, {'kind': 'runs', 'state': 'satisfied'}]
+.R2 N3: wakes=2 last='[Subfleet]\nPR state changed: o/r#1'
+.R2 N4: 1 'PR watch refused' turns in 8 h for one conversation
+.R2 N5: per tick 2.3 ms CPU, 2.4 ms wall, 0 BEGIN IMMEDIATE commits + notify_all; at 20 ticks/s that is 0 write transactions per second with nothing ready
+.R2 N6: requests=[] wakes=0 (timer -10200 s from now)
+.R2 N5b: 40 conversations waiting on timers 6 h away: 819 ticks in 1 s; one idle long-poll reader re-ran its predicate 2 times (nothing changed)
+.R2 N7: wakes=1 after both runs finished and one was pruned
+.R3 A (polled): wakes=2 requests=[{'kind': 'pr', 'state': 'superseded', 'ready_json': '["o/r#1"]', 'created_at': '2026-10-04T03:00:00+00:00'}, {'kind': 'pr', 'state': 'fired', 'ready_json': '["o/r#1"]', 'created_at': '2026-10-04T03:01:52+00:00'}]
+.R3 A (unpolled): wakes=2 requests=[{'kind': 'pr', 'state': 'superseded', 'ready_json': None, 'created_at': '2026-10-04T03:00:00+00:00'}, {'kind': 'pr', 'state': 'fired', 'ready_json': '["o/r#1"]', 'created_at': '2026-10-04T03:01:52+00:00'}]
+.R3 A control: wakes=2
+.R3 B (CLI re-arm): wakes=2 requests=[{'kind': 'pr', 'state': 'superseded', 'ready_json': '["o/r#1"]', 'created_at': '2026-10-04T03:00:00+00:00'}, {'kind': 'pr', 'state': 'fired', 'ready_json': '["o/r#1"]', 'created_at': '2026-10-04T03:06:40+00:00'}]
+.R3 C (race): first=[] wakes=1
+.R3 D1: pending after re-arm=[{'kind': 'pr', 'state': 'pending'}, {'kind': 'time', 'state': 'pending'}] wakes=2 texts=['[Subfleet]\nPR watch refused: o/r#2 (Could not resolve to a PullRequest with the number of 2.). Correct the reference and re-arm.', '[Subfleet]\nPR state changed: o/r#1\ncheck both']
+.R3 D2: re-arm outcomes after the PR resolves: ['accepted', 'accepted', 'accepted']
+.R3 E: gh calls=5 in 300 s with 120 registrations; poller submissions=5; commits+notifies=326; surviving watches polled 40/40, first-poll latency max 0.0 s
+.R3 F: written +5s for 5 min, settled +40s: requests=['time']
+.R3 F: written +5s for 6 min, settled +125s: requests=['time']
+.R3 F: written +30s for 5 min, settled +70s: requests=['time']
+.R3 E2: watch registered at +1 s first polled at +60.00 s (2 gh calls)
+.R3 N5: forced median 3.19 ms CPU / 3.49 ms wall per evaluation, 0 commits in 100; paced control tick 0.174 ms CPU / 0.180 ms wall, 0 commits in 200 ticks
+.R3 N5b: forced 753 ticks in 1 s, reader re-ran 2 times; paced 15814 control ticks, reader re-ran 2 times
+.R3 G: _completions CPU per paced scan: 1000 delivered runs -> 6.7 ms (returns 0), 2000 delivered runs -> 15.3 ms (returns 0), 3000 delivered runs -> 23.2 ms (returns 0)
+.R3 H blocked timer: wakes while blocked=0, after unblock=1
+.R3 H restart: wakes=1 ['[Subfleet]\nPR state changed: o/r#1']
+.R3 H gap: woken 1.00 s after the run finished
+.
+49 passed in 37.07s

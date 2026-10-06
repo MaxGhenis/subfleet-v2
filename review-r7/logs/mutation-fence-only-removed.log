@@ -1,0 +1,35 @@
+........................................F........FFF.                    [100%]
+=================================== FAILURES ===================================
+E   AssertionError: the control worker fired the old timer before final rearm registered
+    assert [['[Subfleet]...nstructions']] == [[]]
+      
+      At index 0 diff: ['[Subfleet]\nScheduled check-back is due.\nOld instructions'] != []
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R6 interleaved completion/registration: wakes=[['[Subfleet]\nScheduled check-back is due.\nOld instructions']]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_probes.py:340: AssertionError: the control worker fired the old timer before final rearm registered
+E   ValueError
+
+During handling of the above exception, another exception occurred:
+E   subfleet.conversations.store.ConversationError: at needs an ISO timestamp with a timezone, at least 5 minutes away
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/subfleet/conversations/wakes.py:77: subfleet.conversations.store.ConversationError: at needs an ISO timestamp with a timezone, at least 5 minutes away
+E   AssertionError: assert [{'message_id...': None, ...}] == []
+      
+      Left contains one more item: {'message_id': 'b3815b77-0e09-4b64-8c0f-0177a5aabbe5', 'conversation_id': 'cv-1791273481226-8d6ccfa54c3d', 'seq': 2, 'after_message_id': None, ...}
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_restart.py:102: AssertionError: assert [{'message_id...': None, ...}] == []
+E   AssertionError: assert [{'message_id...': None, ...}] == []
+      
+      Left contains one more item: {'message_id': '73982bda-c27b-4407-b3e0-e4aa37b875cf', 'conversation_id': 'cv-1791273481314-ebf4aa903b20', 'seq': 2, 'after_message_id': None, ...}
+      Use -v to get more diff
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: RuntimeError: registration temporarily unavailable
+WARNING  test-conversations:wakes.py:468 final wake replay deferred: RuntimeError: registration temporarily unavailable
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: RuntimeError: registration temporarily unavailable
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r6_restart.py:130: AssertionError: assert [{'message_id...': None, ...}] == []
+=========================== short test summary info ============================
+FAILED tests/unit/test_review_r6_probes.py::test_control_evaluation_cannot_fire_old_timer_during_final_registration
+FAILED tests/unit/test_review_r6_restart.py::test_recorded_finals_replay_in_message_order_after_partial_registration
+FAILED tests/unit/test_review_r6_restart.py::test_claim_rechecks_intents_committed_after_candidate_read
+FAILED tests/unit/test_review_r6_restart.py::test_failed_replay_defers_only_the_conversation_with_an_intent
+4 failed, 49 passed in 6.52s

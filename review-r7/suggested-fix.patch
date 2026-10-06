@@ -1,0 +1,68 @@
+diff --git a/subfleet/conversations/service.py b/subfleet/conversations/service.py
+index 5d35aa591..e6b743729 100644
+--- a/subfleet/conversations/service.py
++++ b/subfleet/conversations/service.py
+@@ -715,7 +715,7 @@ class ConversationService:
+             spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
+                              now=validation_time)
+             # Older completion intents must register before this newer re-arm.
+-            self._replay_final_wakes()
++            self._replay_final_wakes(conversation["conversation_id"])
+             return self.wakes.register(conversation["conversation_id"], request_id, spec)
+ 
+     def op_message_status(self, args, peer) -> dict:
+@@ -2061,8 +2061,9 @@ class ConversationService:
+             if not self._adopt(attempt):
+                 return                      # close() overtook
+ 
+-    def _replay_final_wakes(self) -> None:
+-        """Apply recorded re-arms in message order before evaluating wakes."""
++    def _replay_final_wakes(self, conversation_id: str | None = None) -> None:
++        """Apply recorded re-arms in completion order before evaluating wakes; raise
++        only a failure of `conversation_id`'s own replay."""
+         with self._lock:
+             # A nested evaluation during registration must keep the intent fence,
+             # rather than recursively replaying the same unfinished final batch.
+@@ -2070,7 +2071,7 @@ class ConversationService:
+                 return
+             self._replaying_final_wakes = True
+             try:
+-                self.wakes.replay_final()
++                self.wakes.replay_final(conversation_id)
+             finally:
+                 self._replaying_final_wakes = False
+ 
+diff --git a/subfleet/conversations/wakes.py b/subfleet/conversations/wakes.py
+index 7039ee40e..fcd7c785f 100644
+--- a/subfleet/conversations/wakes.py
++++ b/subfleet/conversations/wakes.py
+@@ -329,12 +329,25 @@ class WakeEngine:
+             self._next_poll = min(self._next_poll, self.now())
+         return {"request_id": request_id, "kinds": list(spec)}
+ 
+-    def replay_final(self) -> None:
+-        """Finish registrations interrupted after the message completed."""
++    def replay_final(self, conversation_id: str | None = None) -> None:
++        """Finish registrations interrupted after the message completed, in completion
++        order: a person turn can overtake a yielded wake, so message order is not turn
++        order. A failure defers only its own conversation's later intents, and is
++        raised only to a caller replaying for that conversation."""
++        failed: dict[str, Exception] = {}
+         for intent in self.store.query(
+                 "SELECT i.*,m.conversation_id FROM final_wake_intents i JOIN messages m USING(message_id) "
+-                "ORDER BY m.conversation_id,m.seq"):
+-            self.from_final(intent["conversation_id"], intent["message_id"], intent["final_text"])
++                "ORDER BY i.settled_at,i.rowid"):
++            cid = intent["conversation_id"]
++            if cid in failed:
++                continue
++            try:
++                self.from_final(cid, intent["message_id"], intent["final_text"])
++            except Exception as exc:
++                failed[cid] = exc
++                self.service.log.warning("final wake replay for %s deferred: %s: %s", cid, type(exc).__name__, exc)
++        if conversation_id in failed:
++            raise failed[conversation_id]
+ 
+     def from_final(self, cid: str, mid: str, text: str) -> None:
+         intent = self.store.one("SELECT settled_at FROM final_wake_intents WHERE message_id=?", (mid,))

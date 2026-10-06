@@ -1,0 +1,4 @@
+R2 strand (automatic): wakes=1 notice=[{'state': 'surfaced', 'transport': 'conversation', 'acknowledged_at': None}] requests=[] waiter_stdout=''
+.R2 strand (wake-me): wakes=1 notice=[{'state': 'surfaced', 'transport': 'conversation', 'acknowledged_at': None}] requests=[('runs', 'fired')] waiter_stdout=''
+.
+2 passed in 15.19s

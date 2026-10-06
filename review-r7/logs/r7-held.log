@@ -1,0 +1,5 @@
+R7 held blocked: wakes-while-held=[0, 0] intents-while-held=0 final=['[Subfleet]\nScheduled check-back is due.\nReplacement']
+.R7 held throttled: wakes-while-held=[0, 0] intents-while-held=0 final=['[Subfleet]\nScheduled check-back is due.\nReplacement']
+.R7 held legacy-hold: wakes-while-held=[0, 0] intents-while-held=0 final=['[Subfleet]\nScheduled check-back is due.\nReplacement']
+.
+3 passed in 0.74s

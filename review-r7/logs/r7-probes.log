@@ -1,0 +1,186 @@
+R7 crash matrix before-replay: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'bfc2ad33-47fb-4dd8-8b5c-c63e3b68a1b5', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:3e46bcaa-f80a-407a-9576-4b1bc2a3b500:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:1b309c4b-201d-45a3-a5d2-6439298376e3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:1b309c4b-201d-45a3-a5d2-6439298376e3:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix after-older-register: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'd3121c11-de79-4df8-ab50-06554e3f8b2f', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:aa022820-061e-4b08-9e87-f4cbbb3ffebd:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:db422baf-485f-46cf-80c3-fd40d849a253:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:db422baf-485f-46cf-80c3-fd40d849a253:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix before-older-ack-commit: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'e216b0cf-bbf5-4e05-bddb-01154b7c4c66', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:4f3de21d-a2a4-4560-b5dd-7190df9614d5:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:88a4f12b-fea6-431f-8c3d-5d15de3253ca:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:88a4f12b-fea6-431f-8c3d-5d15de3253ca:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix after-older-ack-commit: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'd2e1c52b-50c0-4565-ac66-696cc6167ae6', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8b10b8b1-a11a-41de-b276-c5761bcab199:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:9c99bf74-c163-4a31-8da7-293fc5d28fa2:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:9c99bf74-c163-4a31-8da7-293fc5d28fa2:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix after-newer-first-register: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'd2b52658-19aa-47cd-9b76-e5e181b385ee', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:61ccf5bd-7aa9-43a0-bbb9-849f77c5c7f1:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d9b3276f-fccd-4761-9bb8-6b2f29f287ac:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d9b3276f-fccd-4761-9bb8-6b2f29f287ac:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix after-newer-second-register: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'fc29d59d-20bd-4052-8462-ec530e833a1a', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b9e2ebb6-f296-4f08-a9fe-3431a6731bd3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:19639504-fb7e-4ed8-80be-a306dadc2dac:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:19639504-fb7e-4ed8-80be-a306dadc2dac:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix before-newer-ack-commit: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '023eb7f9-a55c-4454-a390-1d9532565c8e', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:88504229-be83-412b-ae6b-a5314eba768e:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f453ccd1-1e9f-49e9-b2fa-002c98ac205a:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f453ccd1-1e9f-49e9-b2fa-002c98ac205a:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix after-newer-ack-commit: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'f5d2f7c5-902d-40c6-9742-d297ff630b8e', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:c5c69905-782b-4c0c-a8fc-f7f87f4d4960:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:2457f522-c7be-4cbe-91af-94c9a0ebc8f6:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:2457f522-c7be-4cbe-91af-94c9a0ebc8f6:1', 'kind': 'time', 'state': 'fired'}]
+.R7 crash matrix no-crash: at-crash=[] early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'f499db92-d217-453d-8d10-38b8bb01179c', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:502b04c6-0243-42ce-93bc-dc337d91d657:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:178b4f43-6cbd-4b4e-bfe0-48c61a779c90:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:178b4f43-6cbd-4b4e-bfe0-48c61a779c90:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit before-replay: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '601688d2-d0a7-4203-bfa5-fdf32246ec1b', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:478d62bd-6ffd-4d3c-983f-d3d116291ed4:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:9397132e-bb30-4548-a8b5-5c29dc065fc9:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:9397132e-bb30-4548-a8b5-5c29dc065fc9:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit after-older-register: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'e51ee18d-871c-4aca-a36d-f4b9e1399a69', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b8018986-b271-48ed-806e-ce77d1f42278:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:be14e91c-692b-4329-a321-be2c30cabc11:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:be14e91c-692b-4329-a321-be2c30cabc11:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit before-older-ack-commit: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '9f624b69-a973-43b9-93b1-d0f4e5f09280', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8ee220ab-a61d-4840-a9fc-2993aaf9a98a:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:57528442-d76d-4e9c-8f5e-4a6ef8f3a303:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:57528442-d76d-4e9c-8f5e-4a6ef8f3a303:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit after-older-ack-commit: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '6f82cb7c-5061-43da-8ff1-4cee5071a352', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d3402dc0-021e-4842-9063-56f860a43bcb:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f7b8d187-aa8c-4921-a575-70f8cdd58a9f:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f7b8d187-aa8c-4921-a575-70f8cdd58a9f:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit after-newer-first-register: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'a4236c55-9565-4bfc-8635-d25a6ed62ebf', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:ebebdde9-bc3c-4b17-93b1-0148e7c7d89e:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:e0d67a65-331a-4678-b5b7-f3a8114b55aa:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:e0d67a65-331a-4678-b5b7-f3a8114b55aa:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit after-newer-second-register: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '406e67e1-6c0e-43dc-bea4-34f5e728c2c8', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a1a60888-3080-4683-aeb5-2e753f38cb29:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f0dd6a23-e1d2-4f5e-8e95-05094e82b83e:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f0dd6a23-e1d2-4f5e-8e95-05094e82b83e:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit before-newer-ack-commit: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'b45c87c0-53bc-42b2-a74b-3295e749d08c', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:3529a8db-53ad-4971-b5c1-69f185056dba:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d0d37472-7edb-4e0f-bf33-1ab66a7aadef:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d0d37472-7edb-4e0f-bf33-1ab66a7aadef:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit after-newer-ack-commit: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': '12053db6-d99f-44f9-b94f-e881dab033d5', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:2e8fa763-2d36-46a7-a5a3-dee2ba8a9310:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:0172e9ed-6905-4b0a-a295-affb5413437e:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:0172e9ed-6905-4b0a-a295-affb5413437e:1', 'kind': 'time', 'state': 'fired'}]
+.R7 hard exit before-evaluation: early=[] final=['[Subfleet]\nScheduled check-back is due.\nNewest final'] rows=[{'request_id': 'aed81a78-30cd-43c6-b556-1230335dbccb', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:e8db2f88-641c-44a9-ab1c-5219e37aa555:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:c6050cd7-cb84-4406-87f6-ed8096c22370:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:c6050cd7-cb84-4406-87f6-ed8096c22370:1', 'kind': 'time', 'state': 'fired'}]
+.R7 completion order failing=False: raised=0 requests=[{'payload_json': '{"at": 1791273727.770615, "note": "First check"}', 'state': 'fired'}, {'payload_json': '{"at": 1791274327.770615, "note": "Person turn: older re-arm"}', 'state': 'superseded'}, {'payload_json': '{"at": 1791274627.770615, "note": "Wake turn: newest re-arm"}', 'state': 'pending'}] early=[] final=['[Subfleet]\nScheduled check-back is due.\nWake turn: newest re-arm']
+.R7 completion order failing=True: raised=4 requests=[{'payload_json': '{"at": 1791273727.831383, "note": "First check"}', 'state': 'fired'}, {'payload_json': '{"at": 1791274627.831383, "note": "Wake turn: newest re-arm"}', 'state': 'superseded'}, {'payload_json': '{"at": 1791274327.831383, "note": "Person turn: older re-arm"}', 'state': 'pending'}] early=['[Subfleet]\nScheduled check-back is due.\nPerson turn: older re-arm'] final=['[Subfleet]\nScheduled check-back is due.\nPerson turn: older re-arm']
+FR7 isolation failing=False: raised=0 second=['[Subfleet]\nScheduled check-back is due.\nReplacement cv-17912'] intents-left=0
+.R7 isolation failing=True: raised=7 second=[] intents-left=2
+FR7 blast radius failing=False: raised=0 adopted=[('job-2/a1', True)] stranded-state=running wake-op={'request_id': '11d1568a-a825-4560-ab28-39b755ca1bc9', 'kinds': ['time']}
+.R7 blast radius failing=True: raised=4 adopted=[] stranded-state=running wake-op=OperationalError: database is locked
+F
+=================================== FAILURES ===================================
+_ test_intents_replay_in_message_order_not_completion_order[replay-fails-during-overtaking-turn] _
+
+svc = <subfleet.conversations.service.ConversationService object at 0x5b1c3e85650>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5b1c28d4530>
+failing = True
+
+    @pytest.mark.parametrize("failing", [False, True], ids=["control", "replay-fails-during-overtaking-turn"])
+    def test_intents_replay_in_message_order_not_completion_order(svc, monkeypatch, failing):
+        """A yielded wake (lower seq) completes after the person turn that overtook it."""
+        cid = bound(svc)
+        now = time.time()
+        clock = [now]
+        svc.wakes.now = lambda: clock[0]
+        monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
+        svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 300), note="First check", now=now))
+        clock[0] = now + 301
+        svc.wakes.tick(poll=False)
+        [woken] = wake_rows(svc, cid)
+        assert woken["state"] == "queued"
+        person = submit(svc, cid, "Person instructions")         # arrives before the wake dispatches
+        svc._yield_wakes(cid)
+        svc._dispatch()
+        assert svc.store.message(person)["job_id"] and not svc.store.message(woken["message_id"])["job_id"]
+        assert svc.store.message(person)["seq"] > woken["seq"]
+        failure = TransientReplayFailure(svc, [cid])
+        if failing:
+            monkeypatch.setattr(svc.wakes, "register", failure)
+        first = finish_dispatched(svc, cid, person, f'WAKE-ME: at={iso(now + 900)} note="Person turn: older re-arm"')
+        clock[0] = now + 320
+        try:
+            svc._on_outcome(first)
+        except sqlite3.OperationalError:
+            assert failing
+        svc.tick()                                                # replay fails again; the wake still dispatches
+        assert svc.store.message(woken["message_id"])["job_id"]
+        second = finish_dispatched(svc, cid, woken["message_id"],
+                                   f'WAKE-ME: at={iso(now + 1200)} note="Wake turn: newest re-arm"')
+        failure.on = False                                        # the transient failure has cleared
+        clock[0] = now + 340
+        svc._on_outcome(second)
+        replayed = svc.store.query("SELECT payload_json,state FROM wake_requests WHERE conversation_id=? "
+                                   "AND kind='time' ORDER BY rowid", (cid,))
+        clock[0] = now + 901
+        for _ in range(2):
+            svc.tick()
+            complete_wakes(svc, cid)
+        early = wake_texts(svc, cid)[1:]
+        clock[0] = now + 1201
+        for _ in range(2):
+            svc.tick()
+            complete_wakes(svc, cid)
+        texts = wake_texts(svc, cid)[1:]
+        print(f"R7 completion order failing={failing}: raised={failure.raised} requests={replayed} "
+              f"early={early} final={texts}")
+        assert svc.store.query("SELECT * FROM final_wake_intents") == []
+>       assert early == [], "the older person turn's re-arm replayed last and fired"
+E       AssertionError: the older person turn's re-arm replayed last and fired
+E       assert ['[Subfleet]\...older re-arm'] == []
+E         
+E         Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nPerson turn: older re-arm'
+E         Use -v to get more diff
+
+tests/unit/test_review_r7_probes.py:346: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: OperationalError: database is locked
+WARNING  test-conversations:wakes.py:471 final wake replay deferred: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: OperationalError: database is locked
+_ test_one_failing_replay_does_not_fence_other_conversations[earlier-conversation-replay-fails] _
+
+svc = <subfleet.conversations.service.ConversationService object at 0x5b1c59e0510>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5b1c28d4680>
+failing = True
+
+    @pytest.mark.parametrize("failing", [False, True], ids=["control", "earlier-conversation-replay-fails"])
+    def test_one_failing_replay_does_not_fence_other_conversations(svc, monkeypatch, failing):
+        now = time.time()
+        clock = [now]
+        svc.wakes.now = lambda: clock[0]
+        monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
+        first, second = sorted([bound(svc), bound(svc)])          # replay_final orders by conversation id
+        for cid in (first, second):
+            svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 600), note="Old timer", now=now))
+            text = f'WAKE-ME: at={iso(now + 1200)} note="Replacement {cid[:8]}"'
+            record_final(svc, finished_turn(svc, cid, text), text, now + 10)
+        failure = TransientReplayFailure(svc, [first])
+        failure.on = failing
+        monkeypatch.setattr(svc.wakes, "register", failure)
+        clock[0] = now + 1201
+        for _ in range(3):
+            svc.tick()
+            complete_wakes(svc, first)
+            complete_wakes(svc, second)
+        unaffected = wake_texts(svc, second)
+        left = [r["message_id"] for r in svc.store.query("SELECT message_id FROM final_wake_intents")]
+        print(f"R7 isolation failing={failing}: raised={failure.raised} second={unaffected} intents-left={len(left)}")
+>       assert len(unaffected) == 1 and f"Replacement {second[:8]}" in unaffected[0], \
+            "a replay failure in another conversation fenced this conversation's due replacement"
+E       AssertionError: a replay failure in another conversation fenced this conversation's due replacement
+E       assert (0 == 1)
+E        +  where 0 = len([])
+
+tests/unit/test_review_r7_probes.py:372: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: OperationalError: database is locked
+WARNING  test-conversations:wakes.py:471 final wake replay deferred: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: OperationalError: database is locked
+_ test_failing_final_replay_blocks_unrelated_recovery_and_explicit_wakes[other-conversation-replay-fails] _
+
+svc = <subfleet.conversations.service.ConversationService object at 0x5b1c59e0dd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5b1c28d4990>
+failing = True
+
+    @pytest.mark.parametrize("failing", [False, True], ids=["control", "other-conversation-replay-fails"])
+    def test_failing_final_replay_blocks_unrelated_recovery_and_explicit_wakes(svc, monkeypatch, failing):
+        """`_replay_unsettled` and `conversation.wake` replay every conversation's intents first."""
+        now = time.time()
+        svc.wakes.now = lambda: now
+        monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
+        broken = bound(svc)
+        text = f'WAKE-ME: at={iso(now + 1200)} note="Broken replay"'
+        record_final(svc, finished_turn(svc, broken, text), text, now)
+        stranded = bound(svc)
+        runner = finished_turn(svc, stranded, "Turn ended; its runner stopped with the daemon")
+        idle = bound(svc)
+        failure = TransientReplayFailure(svc, [broken])
+        failure.on = failing
+        monkeypatch.setattr(svc.wakes, "register", failure)
+        adopted = []
+        monkeypatch.setattr(svc, "_adopt",
+                            lambda attempt, ended=False: adopted.append((attempt["attempt_id"], ended)) or True)
+        svc.tick()
+        try:
+            receipt, error = svc.op_conversation_wake({
+                "session_id": svc.store.conversation(idle)["native_session_id"], "request_id": str(uuid.uuid4()),
+                "at": iso(now + 900), "note": "Explicit re-arm"}, None), None
+        except Exception as exc:
+            receipt, error = None, f"{type(exc).__name__}: {exc}"
+        print(f"R7 blast radius failing={failing}: raised={failure.raised} adopted={adopted} "
+              f"stranded-state={svc.store.message(runner.message_id)['state']} wake-op={receipt or error}")
+>       assert adopted == [(runner.attempt_id, True)], "an ended turn in another conversation was not replayed"
+E       AssertionError: an ended turn in another conversation was not replayed
+E       assert [] == [('job-2/a1', True)]
+E         
+E         Right contains one more item: ('job-2/a1', True)
+E         Use -v to get more diff
+
+tests/unit/test_review_r7_probes.py:403: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_final_wakes failed: OperationalError: database is locked
+WARNING  test-conversations:wakes.py:471 final wake replay deferred: OperationalError: database is locked
+ERROR    test-conversations:service.py:1557 conversation tick step _replay_unsettled failed: OperationalError: database is locked
+=========================== short test summary info ============================
+FAILED tests/unit/test_review_r7_probes.py::test_intents_replay_in_message_order_not_completion_order[replay-fails-during-overtaking-turn]
+FAILED tests/unit/test_review_r7_probes.py::test_one_failing_replay_does_not_fence_other_conversations[earlier-conversation-replay-fails]
+FAILED tests/unit/test_review_r7_probes.py::test_failing_final_replay_blocks_unrelated_recovery_and_explicit_wakes[other-conversation-replay-fails]
+3 failed, 21 passed in 16.23s

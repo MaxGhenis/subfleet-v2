@@ -1,0 +1,157 @@
+FFFFFFFFFFFFFFFFFF                                                       [100%]
+=================================== FAILURES ===================================
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix before-replay: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '91c97092-16c7-4c7c-9c03-67e4a4b604ca', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:28f3b38b-ee3b-4241-80a9-13f76baa7e38:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:28f3b38b-ee3b-4241-80a9-13f76baa7e38:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:ca5b8aa4-3d52-44b8-a880-2ac72b193805:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-older-register: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'd9062c0b-f931-4aea-888a-e641cf89bc22', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:dd49d59f-a2a8-409e-8cf9-fd71ae389298:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:dd49d59f-a2a8-409e-8cf9-fd71ae389298:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:92129491-43b0-4c1e-94ad-2508abf388c0:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix before-older-ack-commit: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '09805516-c114-4a0e-9098-1dacce38fa49', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f9f4fde9-abe3-49d9-8f56-11f96afb8509:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f9f4fde9-abe3-49d9-8f56-11f96afb8509:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:868d3b41-676e-4f5a-978e-e08abb3672ef:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-older-ack-commit: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '03f5490a-cfd5-4609-ac72-384380d488d3', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:cd44be73-abf0-4dd4-a8ba-7c11a54444ac:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:cd44be73-abf0-4dd4-a8ba-7c11a54444ac:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8e8e1c3b-dc90-41b8-b827-5a66f235374e:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-newer-first-register: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '8b0ba78d-5e0a-4049-93a2-c3c41a19686d', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8431446e-cfc3-4c9d-9b2c-2cd73ff412ed:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:8431446e-cfc3-4c9d-9b2c-2cd73ff412ed:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:cf79c5a7-0a0a-4707-aa7f-91942c35dbfb:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-newer-second-register: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'c329471f-99f8-4a28-bb18-91918fdf9a67', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b48cb571-8944-433b-8b55-dddb43c46f10:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b48cb571-8944-433b-8b55-dddb43c46f10:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:5fc7d2f7-2be5-4682-8ae5-ca0320169803:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix before-newer-ack-commit: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'd4fe1139-c409-476d-a7f4-2f85756de68b', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b5bc1b0d-fbbe-4ac1-9ed2-677fe0ec5595:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b5bc1b0d-fbbe-4ac1-9ed2-677fe0ec5595:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:3d44b3ea-2c16-483b-96fe-7be30f2d49b0:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired after the restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix after-newer-ack-commit: at-crash=[] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '73c8dad0-875a-49be-8d80-2c6b38dec82c', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b87b7376-9591-43c3-815d-801ce2a7562b:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b87b7376-9591-43c3-815d-801ce2a7562b:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:2aaf46fc-3faa-4b86-b762-de561a11648b:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:188: AssertionError: a stale timer fired after the restart
+E   AssertionError: a stale timer fired during the crashed restart
+    assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 crash matrix no-crash: at-crash=['[Subfleet]\nScheduled check-back is due.\nOlder final'] early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '2a97a3ab-44cb-45ce-8e50-cd7e663dd79d', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a167ff81-e6fb-471a-9dac-80d517f24df0:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a167ff81-e6fb-471a-9dac-80d517f24df0:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:a7547ee1-0147-42ac-a5b5-f31e6d177332:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:187: AssertionError: a stale timer fired during the crashed restart
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-replay: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '70c9333b-0e68-418a-b126-a76babc10f3d', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f186016c-255c-4fb0-872e-5afa8bbcd010:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:f186016c-255c-4fb0-872e-5afa8bbcd010:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:eefc6cc9-6035-44d4-bcd6-e834c06f9ee6:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-older-register: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'cb987c50-ef09-4260-81c1-87aac38ebae5', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:0cd8e412-5fcf-444c-b8a6-2b2ce34d029c:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:0cd8e412-5fcf-444c-b8a6-2b2ce34d029c:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:e0ba7382-17b4-44d6-80a4-ae947f65ff5c:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-older-ack-commit: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'ee329066-01d5-4e85-a2b1-e4240eff0911', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:4afc8cb0-bf65-47f6-b58d-dfe20b5a756a:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:4afc8cb0-bf65-47f6-b58d-dfe20b5a756a:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:b1f9074b-d71f-4ed3-bb38-956708ba5f3a:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-older-ack-commit: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '29c23c14-2fcb-4434-b9f3-bbb842efa971', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d915f8dd-e8c1-4e7a-b1a3-883b6b3c2016:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d915f8dd-e8c1-4e7a-b1a3-883b6b3c2016:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d21cb046-2014-426c-b7d3-32b7ed834937:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-newer-first-register: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'd86141cc-d8e8-4549-a1e4-0e825a17d393', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:52ef97db-991b-4f7e-aab9-64d3127743f1:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:52ef97db-991b-4f7e-aab9-64d3127743f1:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:debb78de-a98c-4b2d-9db3-d61edeb2eab7:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-newer-second-register: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '3a51dfe2-6614-4ccc-9f2c-3e3af0be5beb', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:29bb41aa-0947-40fd-8cb2-e27bf8b96014:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:29bb41aa-0947-40fd-8cb2-e27bf8b96014:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:01548b4e-d7f9-411f-a6be-9ac4c7c9a868:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-newer-ack-commit: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': 'deda8959-6a40-424f-8af6-e4f9bb8e37c0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:71ed6ab9-8bb8-4dc8-bcbf-4534c86875fd:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:71ed6ab9-8bb8-4dc8-bcbf-4534c86875fd:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:d4c539c0-cc4c-4266-bb29-08914a82f51c:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit after-newer-ack-commit: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '94116f75-f3fe-48a1-aa76-3849e3412e81', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:648a7280-11ca-429d-b727-5b3956b76d00:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:648a7280-11ca-429d-b727-5b3956b76d00:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:bd0ea53d-c7f3-4344-84fa-29add7fd7ad2:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+E   AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+      
+      Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nOlder final'
+      Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+R7 hard exit before-evaluation: early=['[Subfleet]\nScheduled check-back is due.\nOlder final'] final=['[Subfleet]\nScheduled check-back is due.\nOlder final'] rows=[{'request_id': '0fc45e54-2842-4614-ad1b-27b63a9e2ea6', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:509fdd9f-d135-4db1-a06e-be2b2f0d07c3:0', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:509fdd9f-d135-4db1-a06e-be2b2f0d07c3:1', 'kind': 'time', 'state': 'superseded'}, {'request_id': 'final:62dbf701-84cf-4f14-9bf4-80f7faba4e75:0', 'kind': 'time', 'state': 'fired'}]
+/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/tests/unit/test_review_r7_probes.py:273: AssertionError: assert ['[Subfleet]\...nOlder final'] == []
+=========================== short test summary info ============================
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-replay]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-older-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-first-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-second-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[before-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[after-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_crash_matrix_with_two_pending_intents[no-crash]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-replay]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-older-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-older-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-first-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-second-register]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-ack-commit]
+FAILED tests/unit/test_review_r7_probes.py::test_restart_hard_exit_matrix_with_two_pending_intents[before-evaluation]
+18 failed in 4.42s

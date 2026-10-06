@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="22" time="7.739" timestamp="2026-10-06T03:52:00.507261-04:00" hostname="MacBook-Pro-1111.local"><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[before-replay]" time="0.119" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[after-older-register]" time="0.051" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[before-older-ack-commit]" time="0.102" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[after-older-ack-commit]" time="0.087" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[after-newer-first-register]" time="0.047" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[after-newer-second-register]" time="0.067" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[before-newer-ack-commit]" time="0.131" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[after-newer-ack-commit]" time="0.108" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_crash_matrix_with_two_pending_intents[no-crash]" time="0.097" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[before-replay]" time="0.482" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[after-older-register]" time="0.384" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[before-older-ack-commit]" time="0.364" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[after-older-ack-commit]" time="0.379" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-first-register]" time="0.317" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-second-register]" time="0.388" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[before-newer-ack-commit]" time="0.490" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[after-newer-ack-commit]" time="0.478" /><testcase classname="tests.unit.test_review_r7_probes" name="test_restart_hard_exit_matrix_with_two_pending_intents[before-evaluation]" time="0.545" /><testcase classname="tests.unit.test_review_r7_probes" name="test_intents_replay_in_message_order_not_completion_order[control]" time="0.146" /><testcase classname="tests.unit.test_review_r7_probes" name="test_intents_replay_in_message_order_not_completion_order[replay-fails-during-overtaking-turn]" time="0.066"><failure message="AssertionError: the older person turn's re-arm replayed last and fired&#10;assert ['[Subfleet]\...older re-arm'] == []&#10;  &#10;  Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nPerson turn: older re-arm'&#10;  Use -v to get more diff">svc = &lt;subfleet.conversations.service.ConversationService object at 0x3c85374e750&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x3c8508d4610&gt;
+failing = True
+
+    @pytest.mark.parametrize("failing", [False, True], ids=["control", "replay-fails-during-overtaking-turn"])
+    def test_intents_replay_in_message_order_not_completion_order(svc, monkeypatch, failing):
+        """A yielded wake (lower seq) completes after the person turn that overtook it."""
+        cid = bound(svc)
+        now = time.time()
+        clock = [now]
+        svc.wakes.now = lambda: clock[0]
+        monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
+        svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 300), note="First check", now=now))
+        clock[0] = now + 301
+        svc.wakes.tick(poll=False)
+        [woken] = wake_rows(svc, cid)
+        assert woken["state"] == "queued"
+        person = submit(svc, cid, "Person instructions")         # arrives before the wake dispatches
+        svc._yield_wakes(cid)
+        svc._dispatch()
+        assert svc.store.message(person)["job_id"] and not svc.store.message(woken["message_id"])["job_id"]
+        assert svc.store.message(person)["seq"] &gt; woken["seq"]
+        failure = TransientReplayFailure(svc, [cid])
+        if failing:
+            monkeypatch.setattr(svc.wakes, "register", failure)
+        first = finish_dispatched(svc, cid, person, f'WAKE-ME: at={iso(now + 900)} note="Person turn: older re-arm"')
+        clock[0] = now + 320
+        try:
+            svc._on_outcome(first)
+        except sqlite3.OperationalError:
+            assert failing
+        svc.tick()                                                # replay fails again; the wake still dispatches
+        assert svc.store.message(woken["message_id"])["job_id"]
+        second = finish_dispatched(svc, cid, woken["message_id"],
+                                   f'WAKE-ME: at={iso(now + 1200)} note="Wake turn: newest re-arm"')
+        failure.on = False                                        # the transient failure has cleared
+        clock[0] = now + 340
+        svc._on_outcome(second)
+        replayed = svc.store.query("SELECT payload_json,state FROM wake_requests WHERE conversation_id=? "
+                                   "AND kind='time' ORDER BY rowid", (cid,))
+        clock[0] = now + 901
+        for _ in range(2):
+            svc.tick()
+            complete_wakes(svc, cid)
+        early = wake_texts(svc, cid)[1:]
+        clock[0] = now + 1201
+        for _ in range(2):
+            svc.tick()
+            complete_wakes(svc, cid)
+        texts = wake_texts(svc, cid)[1:]
+        print(f"R7 completion order failing={failing}: raised={failure.raised} requests={replayed} "
+              f"early={early} final={texts}")
+        assert svc.store.query("SELECT * FROM final_wake_intents") == []
+&gt;       assert early == [], "the older person turn's re-arm replayed last and fired"
+E       AssertionError: the older person turn's re-arm replayed last and fired
+E       assert ['[Subfleet]\...older re-arm'] == []
+E         
+E         Left contains one more item: '[Subfleet]\nScheduled check-back is due.\nPerson turn: older re-arm'
+E         Use -v to get more diff
+
+tests/unit/test_review_r7_probes.py:346: AssertionError</failure></testcase><testcase classname="tests.unit.test_review_r7_probes" name="test_one_failing_replay_does_not_fence_other_conversations[control]" time="0.213" /><testcase classname="tests.unit.test_review_r7_probes" name="test_one_failing_replay_does_not_fence_other_conversations[earlier-conversation-replay-fails]" time="0.083"><failure message="AssertionError: a replay failure in another conversation fenced this conversation's due replacement&#10;assert (0 == 1)&#10; +  where 0 = len([])">svc = &lt;subfleet.conversations.service.ConversationService object at 0x3c853a003d0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x3c8508d4370&gt;
+failing = True
+
+    @pytest.mark.parametrize("failing", [False, True], ids=["control", "earlier-conversation-replay-fails"])
+    def test_one_failing_replay_does_not_fence_other_conversations(svc, monkeypatch, failing):
+        now = time.time()
+        clock = [now]
+        svc.wakes.now = lambda: clock[0]
+        monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
+        first, second = sorted([bound(svc), bound(svc)])          # replay_final orders by conversation id
+        for cid in (first, second):
+            svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 600), note="Old timer", now=now))
+            text = f'WAKE-ME: at={iso(now + 1200)} note="Replacement {cid[:8]}"'
+            record_final(svc, finished_turn(svc, cid, text), text, now + 10)
+        failure = TransientReplayFailure(svc, [first])
+        failure.on = failing
+        monkeypatch.setattr(svc.wakes, "register", failure)
+        clock[0] = now + 1201
+        for _ in range(3):
+            svc.tick()
+            complete_wakes(svc, first)
+            complete_wakes(svc, second)
+        unaffected = wake_texts(svc, second)
+        left = [r["message_id"] for r in svc.store.query("SELECT message_id FROM final_wake_intents")]
+        print(f"R7 isolation failing={failing}: raised={failure.raised} second={unaffected} intents-left={len(left)}")
+&gt;       assert len(unaffected) == 1 and f"Replacement {second[:8]}" in unaffected[0], \
+            "a replay failure in another conversation fenced this conversation's due replacement"
+E       AssertionError: a replay failure in another conversation fenced this conversation's due replacement
+E       assert (0 == 1)
+E        +  where 0 = len([])
+
+tests/unit/test_review_r7_probes.py:372: AssertionError</failure></testcase></testsuite></testsuites>
