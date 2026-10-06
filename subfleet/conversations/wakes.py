@@ -324,7 +324,16 @@ class WakeEngine:
             self._next_poll = min(self._next_poll, self.now())
         return {"request_id": request_id, "kinds": list(spec)}
 
+    def replay_final(self) -> None:
+        """Finish registrations interrupted after the message completed."""
+        for intent in self.store.query(
+                "SELECT i.*,m.conversation_id FROM final_wake_intents i JOIN messages m USING(message_id) "
+                "ORDER BY m.conversation_id,m.seq"):
+            self.from_final(intent["conversation_id"], intent["message_id"], intent["final_text"])
+
     def from_final(self, cid: str, mid: str, text: str) -> None:
+        intent = self.store.one("SELECT settled_at FROM final_wake_intents WHERE message_id=?", (mid,))
+        settled_at = intent["settled_at"] if intent else self.now()
         message = self.store.one("SELECT created_at,job_id FROM messages WHERE message_id=?", (mid,))
         started = self.service.daemon.store.one("SELECT created_at FROM jobs WHERE job_id=?", (message["job_id"],)) if message and message["job_id"] else None
         validation_time = datetime.fromisoformat((started or message)["created_at"].replace("Z", "+00:00")).timestamp() if message else self.now()
@@ -351,8 +360,8 @@ class WakeEngine:
                 # The floor is measured from the turn's start: the agent wrote the
                 # time during the turn, and settlement can follow by minutes (D-15).
                 # A time already past at settlement is still refused.
-                spec = normalize(**args, now=min(self.now(), validation_time))
-                if "time" in spec and spec["time"]["at"] <= self.now():
+                spec = normalize(**args, now=min(settled_at, validation_time))
+                if "time" in spec and spec["time"]["at"] <= settled_at:
                     raise ConversationError("bad-wake", "at is already past at settlement")
                 self.register(cid, request_id, spec, event_since=validation_time)
             except (ConversationError, ValueError) as exc:
@@ -362,6 +371,10 @@ class WakeEngine:
                         events=[("command", f"wake-refused:{request_id}", 0, "status",
                                  {"phase": "wake-refused", "detail": f"Wake request refused: {exc}"})],
                         stdout_offset=0, stdin_seq=0)
+        # Stable request ids make replay safe if only some lines committed, or a
+        # crash happened after registration but before this acknowledgement.
+        with self.store.transaction() as tx:
+            tx.execute("DELETE FROM final_wake_intents WHERE message_id=?", (mid,))
 
     def _completions(self) -> dict[str, list[dict]]:
         since = self.store.one("SELECT value FROM wake_meta WHERE key='automatic-since'")["value"]
@@ -378,7 +391,8 @@ class WakeEngine:
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
                 "AND julianday(COALESCE(j.finished_at,j.created_at))>=julianday(?) AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
-                                                  "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
+                                                  "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation') "
+                "ORDER BY j.created_at,j.job_id", (cutoff,)):
             if self.store.one("SELECT 1 FROM wake_historical_runs WHERE job_id=?", (job["job_id"],)):
                 continue
             c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
