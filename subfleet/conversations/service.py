@@ -129,6 +129,7 @@ class ConversationService:
         self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._replaying_final_wakes = False
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
         # the service lock: a merge waits for the store's write guard, which another
         # file write can hold across two fsyncs, and every poll, dispatch claim and
@@ -714,7 +715,7 @@ class ConversationService:
             spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
                              now=validation_time)
             # Older completion intents must register before this newer re-arm.
-            self.wakes.replay_final()
+            self._replay_final_wakes()
             return self.wakes.register(conversation["conversation_id"], request_id, spec)
 
     def op_message_status(self, args, peer) -> dict:
@@ -2063,7 +2064,15 @@ class ConversationService:
     def _replay_final_wakes(self) -> None:
         """Apply recorded re-arms in message order before evaluating wakes."""
         with self._lock:
-            self.wakes.replay_final()
+            # A nested evaluation during registration must keep the intent fence,
+            # rather than recursively replaying the same unfinished final batch.
+            if self._replaying_final_wakes:
+                return
+            self._replaying_final_wakes = True
+            try:
+                self.wakes.replay_final()
+            finally:
+                self._replaying_final_wakes = False
 
     def _replay_unsettled(self) -> None:
         """Settle a live message whose turn attempt has ended with no runner left to
@@ -2354,7 +2363,7 @@ class ConversationService:
         if settlement.state == COMPLETE and turn.get("final_text"):
             # Drain in message order: a pending older final cannot later replace
             # the requests from this turn. The service lock serializes re-arms.
-            self.wakes.replay_final()
+            self._replay_final_wakes()
         self.daemon._notify()
 
     def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:

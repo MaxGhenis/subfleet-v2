@@ -22,6 +22,9 @@ MUTATIONS = [
     ("replay-newest-first", "wakes.py",
      "ORDER BY m.conversation_id,m.seq", "ORDER BY m.conversation_id,m.seq DESC",
      "test_recorded_finals_replay_in_message_order_after_partial_registration"),
+    ("skip-direct-evaluation-recovery", "wakes.py",
+     "self.service._replay_final_wakes()", "pass",
+     "test_direct_evaluation_recovers_partial_final_batch_after_replay_crash"),
 ]
 
 

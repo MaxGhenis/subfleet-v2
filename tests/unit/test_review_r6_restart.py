@@ -2,10 +2,13 @@
 import time
 import uuid
 
+import pytest
+
 from subfleet.conversations import wakes
 from tests.unit.test_conversation_service import svc  # noqa: F401
 from tests.unit.test_review_r2_repro import bound, iso, wake_rows, wake_texts
 from tests.unit.test_review_r6_probes import finished_turn
+from tests.unit.test_review_r5_repro import SimulatedCrash
 
 
 def record_final(svc, runner, text, now):
@@ -130,5 +133,33 @@ def test_failed_replay_defers_only_the_conversation_with_an_intent(svc, monkeypa
     assert svc.store.one("SELECT 1 FROM final_wake_intents WHERE message_id=?", (runner.message_id,))
     svc.wakes.now = lambda: now + 1201
     svc.tick()
+    assert len(wake_rows(svc, cid)) == 1
+    assert "Replacement" in wake_texts(svc, cid)[0]
+
+
+def test_direct_evaluation_recovers_partial_final_batch_after_replay_crash(svc, monkeypatch):
+    cid = bound(svc)
+    now = time.time()
+    clock = [now]
+    svc.wakes.now = lambda: clock[0]
+    text = (f'WAKE-ME: at={iso(now + 600)} note="Partial timer"\n'
+            f'WAKE-ME: at={iso(now + 1200)} note="Replacement"')
+    runner = finished_turn(svc, cid, text)
+    register = svc.wakes.register
+
+    with monkeypatch.context() as crash:
+        def interrupt(*args, **kwargs):
+            register(*args, **kwargs)
+            raise SimulatedCrash()
+
+        crash.setattr(svc.wakes, "register", interrupt)
+        with pytest.raises(SimulatedCrash):
+            svc._on_outcome(runner)
+    clock[0] = now + 601
+    svc.wakes.tick(poll=False)
+    assert svc.store.query("SELECT * FROM final_wake_intents") == []
+    assert wake_rows(svc, cid) == []
+    clock[0] = now + 1201
+    svc.wakes.tick(poll=False)
     assert len(wake_rows(svc, cid)) == 1
     assert "Replacement" in wake_texts(svc, cid)[0]

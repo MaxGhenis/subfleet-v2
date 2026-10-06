@@ -463,6 +463,12 @@ class WakeEngine:
         self._surface_notices()
         if not scan_requests and not scan_completions:
             return
+        # Direct evaluations also recover interrupted registration/acknowledgement.
+        # A failed replay leaves that conversation fenced by eligible()/claim().
+        try:
+            self.service._replay_final_wakes()
+        except Exception as exc:
+            self.service.log.warning("final wake replay deferred: %s: %s", type(exc).__name__, exc)
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)
