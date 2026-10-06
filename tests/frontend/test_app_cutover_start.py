@@ -29,7 +29,7 @@ def input_for(tmp_path, world, **extra):
         "root": str(root), "list": {"conversations": []},
         "models": {p: world.call("models.list", provider=p) for p in ("claude", "codex")},
         "checks": {}, "fallback_check": world.call("workspace.check", workspace=str(world.workspace)),
-        "steps": [], **extra,
+        "steps": [], "availability": world.call("capabilities"), **extra,
     }
 
 
@@ -145,7 +145,8 @@ def test_migration_exposes_both_failed_creates_and_footer_selects_the_saved_mess
     assert initial["footer"] and selected["selected"] == "app-second"
     assert restored["draft"]["text"] == MESSAGE
     assert restored["draft"]["workspace"] == "/refused/home"
-    assert restored["draft"]["settings"] == original["entries"][1]["create"]["settings"]
+    assert restored["draft"]["settings"]["model"] == "gpt-6.1-sol"
+    assert restored["draft"]["settings"]["permission"] == "read-only"
     migrated = json.loads((tmp_path / "app/support/outbox.json").read_text())
     assert migrated["draftRecoveryVersion"] == 1 and migrated["entries"] == original["entries"]
     assert out["visible_windows"] == 0

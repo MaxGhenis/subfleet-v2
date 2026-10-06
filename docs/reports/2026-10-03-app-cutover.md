@@ -66,3 +66,78 @@ Verification wrapper recipe: create executable `build/app-cutover-evidence/bin/s
 Commits are on workspace-local branch **`fix/app-cutover-cont`** in `.git-local`, because the shared git metadata is read-only. `.git-local` is ignored and is not part of the deliverable. Coherent completion commits include `bb75c9e` (daemon/protocol verification), `bd8435a` (recovery flows and isolated frontend evidence), and `c9d18b6` (oversized activity timestamp), followed by the final evidence/report commit. All include the required coauthor.
 
 Bundle: **`docs/reports/2026-10-03-app-cutover.bundle`**, head **`refs/heads/fix/app-cutover-cont`**, prerequisite **`7bfda766`**. Bundle verification and an independent prerequisite-plus-bundle restoration passed; the restored head matched this local branch exactly. The report is committed; the binary bundle is a separate workspace artifact. Nothing was pushed.
+
+
+## PR #124 review fixes — 2026-10-04
+
+This section replies to the complete REQUEST CHANGES review of `75972d4a9506132ac066c2e7474d5a1b9ac20f10`. It supersedes the earlier first-use routing/recovery claims above. There was no P1. Both P2 findings and all runtime correctness findings are fixed; the disclosure and coverage findings are also addressed. Work stayed in the assigned checkout, with task-owned temporary test storage. No live `~/.subfleet`, running daemon, installed app, or live Application Support files were accessed. No sub-agents, detached jobs, pushes, or history rewrites were used.
+
+The shipped routing policy now defines `sol = gpt-6.1-sol` and uses it for its hard-tier Codex routes. The former `astra` and `gpt-6-astra` pins resolve through retired aliases to Sol. The daemon derives the Codex conversation default from the policy's hard tier; the app consumes that published default and rejects retired Astra preferences/catalog choices.
+
+### Replies to every finding
+
+All file:line references are relative to this checkout. UI tests below are in `tests/frontend/test_pr124_fixes_ui.py` (UI); daemon tests are in `tests/unit/test_pr124_fixes.py` (daemon). Baseline means the actual unmodified production sources at `75972d4a`, with the regression tests overlaid. Failures below are assertion failures, not missing-API compilation errors.
+
+| Finding | Fix and location | Regression and result on 75972d4a | Mutation result |
+| --- | --- | --- | --- |
+| P2-1: retry destroys another draft and can duplicate its message | `app/Sources/UIModel.swift:813`, `:849`, `:584`: keep the ordinary composer intact, persist each retry under its own hashed key, restore the composer on navigation/discard/completion, and label the sheet “Retry saved conversation” (`app/Sources/UINewConversation.swift:19`). Existing atomic retry at `app/Sources/Outbox.swift:252` keeps the original create/message IDs. Stable ordinary-composer IDs at `app/Sources/NewConversationDraft.swift:22` and `UIModel.swift:115` prevent a crash from offering already-journaled words again; `ConversationStore.swift:957` resumes a create already acknowledged before its first message was journaled. | UI `test_retry_preserves_composer_and_original_message_identity`:39 and `test_switching_retries_and_relaunch_preserve_the_composer`:57 **fail**; crash-window tests at :160 and :175 **fail**. `tests/frontend/test_pr124_recovery_properties.py:43` **fails** on the lost “my unsent idea”. | Independently restoring composer-file overwrite, omitting composer restoration, disabling crash reconciliation, and returning the obsolete draft key each cause the corresponding assertion to fail. The Hypothesis property also catches the composer-file overwrite. |
+| P2-2: empty-fleet Auto chooses Codex/Astra | `app/Sources/StatusModel.swift:135`: Codex requires Codex > 0 and Claude == 0; all other cases use Claude. `subfleet/conversations/service.py:298` reads hard-tier policy models and excludes Astra defaults; `subfleet/default_policy.json` retires Astra routing. `NewConversationDraft.swift:74` rejects remembered/offered Astra and resolves the published model ID to its offered provider value. | UI Auto cases :69: **0/0 fails, 0/3 fails, 1/3 passes**. Remembered-Astra case :84 **fails**. Daemon shipped-policy :29, custom-hard-tier :39 and legacy-policy default :50 tests all **fail**. | Empty-fleet Codex, Astra policy routing, hard-coded Sol alias selection, retired-model default fallback, and remembered-Astra selection are each caught by assertions. |
+| P3-1: optional workspace capability never checked | `UIModel.swift:528`, `:610`: preview and Start recheck run only with `workspace.check.v1`; an older daemon's create decides admission. | UI `test_older_daemon_skips_optional_check_at_open_and_start`:94 **fails**: Start is disabled on the head, whereas the fix makes zero check calls and journals create/message. | Forcing checks despite a missing capability disables Start and fails the assertion. |
+| P3-2: unanswered check never retried and drops the folder | `NewConversationDraft.swift:20`, `UIModel.swift:499`, `:579`, `:587`: distinguish transport failure from refusal, retain the folder, and recheck on reconciliation/availability. `UINewConversation.swift:134`, `:146` recheck availability and an explicit folder pick, including the same folder. | UI `test_unanswered_check_keeps_folder_and_rechecks_on_reconcile`:107 **fails**; the same-folder control :116 already **passes** when the model validation method is explicitly called. | Classifying the transport error as a permanent refusal drops the saved folder and fails the assertion. The primary regression also requires exactly two checks and enabled Start after reconciliation. |
+| P3-3: create/handoff restrictions undisclosed | `docs/desktop/design.md:785` and this reply explicitly disclose that Ask, Accept edits and Bypass on in-place `main`/`master` require `allow_main`, and Claude Bypass is writable for protected-folder checks, including handoff. The correct protections remain in place. | This is a disclosure finding, not a failing runtime behavior on 75972d4a. Existing real check/create protected-branch and protected-home cases in `tests/unit/test_app_cutover_daemon.py:69` and :46 cover the restrictions and pass. | No production restriction was weakened. Runtime mutations are unnecessary for a documentation-only finding. |
+| P3-4: empty folder and missing provider disagree | `service.py:465`, `:501`, `:511`: both operations default a missing provider to Claude; check previews No folder scratch admission without creating a directory, including the shared branch/protection checks. Worktree + No folder remains refused. | Daemon `test_no_folder_check_and_create_agree_without_check_writes`:13 (**empty and null**) and `test_missing_provider_check_and_create_use_claude`:22 all **fail**. | Disabling scratch preview fails both empty/null assertions; removing create's provider default fails the provider agreement assertion. |
+| P3-5: resolved refusal leaves stale footer | `UIModel.swift:770`: clear only the refusal notice when no refused drafts remain, including after successful retry. Other problems survive. | UI `test_last_successful_retry_clears_only_its_notice`:124 **fails**; unrelated-problem control :197 **passes**. | Removing notice cleanup leaves the old footer and fails the assertion. |
+| P3-6: git folder checks block message journaling | `UIModel.swift:545`, `:566`, `:615`: all folder checks, including the Start recheck, use the concurrent read queue; only journal/sender work uses the serial outbox queue. | UI `test_a_send_does_not_wait_for_folder_git_checks`:141 **fails** with an injected two-second check. | Routing reads back to the outbox queue makes journaling take **2007 ms**, violating the <1000 ms assertion. |
+| P3-7: Start-time refusal guard untested | UI `test_start_rechecks_a_folder_and_journals_nothing_if_it_changed`:150 passes a sheet check, then refuses at Start and requires no outbox file plus retained text. The guard remains at `UIModel.swift:620`. | **Passes** on 75972d4a: the existing guard is correct; the finding was missing coverage. A passing baseline is expected for this coverage-only finding. | The original surviving `guard check.ok || true` mutation is now caught because it creates an outbox file. Removing `!failure.retryable` is equivalent under the current state machine (only non-retryable failures enter `.failed`), so it was not reported as a meaningful killed mutant. |
+| Minor correctness: future transcript timestamp pins a row | `subfleet/conversations/catalog.py:542`, `:550`: ignore mtimes beyond the current clock while retaining the existing finite/type/range checks and cached-only reads. | Daemon `test_future_activity_cannot_pin_an_older_conversation`:56 **fails**: a future catalog mtime sorts the older row first. | Restoring the year-9999 ceiling without the current-time bound fails the ordering assertion. |
+
+Baseline regression totals: **7 daemon failures; 11 UI failures and 4 passing controls; 1 Hypothesis property failure**. Thus **19 failing behavioral cases and 4 controls**, with no compile/fixture errors in the accepted baseline evidence. UI baseline wall time was 273.65 seconds; final property baseline was 117.48 seconds (the earlier run took 51.92 seconds). The daemon baseline was run before any production edit, in 8.93 seconds.
+
+Mutation totals: **18 individually activated checks caught by assertion failures** (six daemon, eleven UI, and the recovery property). No compilation/fixture failure counts as a caught mutant. UI faults are independently selected in an isolated generated source copy with `PR124_MUTATION`; that instrumentation does not exist in production. This permits one content-checked compilation while testing each fault separately. Final mutation slices took 11.69–133.01 seconds, including the refreshed final-property check; the separately completed compilation took 254 seconds. Full logs and commands are in ignored `build/pr124-evidence/`.
+
+### Final required-suite results
+
+The accepted changed-tree runs contain **537 passed, four pre-existing sandbox failures, and one sandbox skip** across 542 collected cases. App-protocol is included in the frontend count. All tests ran in awaited foreground slices with a 580-second deadline; the longest accepted required-suite slice took 455.18 seconds.
+
+| Suite | Result | Foreground wall time |
+| --- | --- | --- |
+| Conversation service | 91 passed, 1 sandbox failure | 350.13 s |
+| Catalog | 13 passed | 98.08 s |
+| Catalog lifecycle | 20 passed, 1 sandbox failure | 328.91 s |
+| Status JSON | 54 passed, 2 sandbox failures | 149.31 s |
+| App-cutover daemon + new daemon regressions | 20 passed | 421.40 s |
+| Frontend | 339 passed, 1 sandbox skip; 340 collected | 28 slices, 9.88–455.18 s; 3526.38 s total |
+| App protocol, included above | 9 passed | 28.28 s |
+| Policy and policy-support, additional | 162 passed (182 with the 20 cutover cases repeated) | 18.06 s combined |
+
+The four failing nodes also fail unchanged at `75972d4a` in the isolated baseline (**4 failed**, 176.48 seconds). They were neither edited nor bypassed:
+
+- `test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing`: macOS boot identity unavailable.
+- `test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone`: sandbox denies `/bin/ps`.
+- `test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records`: macOS boot identity unavailable.
+- `test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published`: macOS boot identity unavailable.
+
+The native peer/process frontend case skips for the same unavailable process inspection. Temporary test roots use the lane's own normal macOS temporary directory; recovery-service histories use explicit isolated `/private/tmp` roots. Earlier setup attempts involving shared pytest retention, short roots unsuitable for catalog continuation, undecoded SQLite rows, or an oversized history batch were corrected and rerun; none is counted as accepted regression or mutation proof.
+
+`app/build.sh` **passed in 264.83 seconds** (900-second allowance), producing `build/pr124-evidence/product/Subfleet.app`, bundle ID `org.maxghenis.subfleet`. `codesign --verify --deep --strict` passed; `otool -L` reports only system frameworks and system/Swift libraries. The app was not installed or launched. Existing Swift concurrency diagnostics and the verification-wrapper library-search-path warning remain.
+
+The recovery Hypothesis property passed with seeds **124, 125, 126 and 127**: **40 generated passing histories plus 12 explicit histories**, each up to eight generated actions. The explicit histories cover crashes after the real isolated service accepted create and submit. After every segment a fresh UI process reopens the same durable journal, drains recoverable work, and checks original IDs, unique accepted text, visible failed-row messages, explicit withdrawals, and the preserved ordinary composer. The seed slices took **99.40, 42.39, 54.03 and 44.66 seconds**. The final test also fails on the untouched PR head (**117.48 seconds**) and catches the composer-overwrite mutation (**133.01 seconds**).
+
+Reproduction uses `uv sync --group dev`, the verification-only xcrun wrapper recipe above with its directory changed to `build/pr124-evidence/bin`, and the workspace's `.venv`. The wrapper preserves the outer filesystem sandbox while avoiding the compiler macro plugin's nested sandbox failure. `tools/pr124_verify.py` owns deadlines, per-slice logs and exact-child cleanup; `tools/app_cutover_pytest.py` records child starts/completions and caches probes by source content and flags.
+
+```sh
+.venv/bin/python -m tools.pr124_suites daemon
+.venv/bin/python -m tools.pr124_suites frontend
+.venv/bin/python -m tools.pr124_review_evidence baseline
+.venv/bin/python -m tools.pr124_review_evidence daemon-mutations
+.venv/bin/python -m tools.pr124_review_evidence ui-mutations
+SF_CUTOVER_FRONTEND_SECONDS=850 .venv/bin/python tools/pr124_verify.py app-build 900 app/build.sh "$PWD/build/pr124-evidence/product"
+```
+
+Machine-readable accepted results are committed in `docs/reports/2026-10-04-app-cutover-fixes-evidence.json`; full logs and source copies remain in ignored `build/pr124-evidence/`. Only assertion failures count toward baseline/mutation proof. Each returned command session was awaited. The final audit recorded **604 compiler starts and 604 completions**, with no unfinished compiler or test-child records and no task-owned process left running.
+
+### Review-fix delivery
+
+Shared git metadata is read-only in this sandbox, so coherent commits use `.git-local` branch **`fix/pr124-first-use-review`**, descending directly from `75972d4a9506132ac066c2e7474d5a1b9ac20f10`: **`59b166e`** (daemon policy/admission/activity fixes), **`bb26a90`** (UI retry/routing/check fixes and regressions), **`fae703a`** (final property visibility and foreground verification tooling), followed by this report/evidence commit. Every new commit has `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+The separate binary artifact is **`docs/reports/2026-10-04-app-cutover-fixes.bundle`**, head **`refs/heads/fix/pr124-first-use-review`**, sole prerequisite **`75972d4a9506132ac066c2e7474d5a1b9ac20f10`**. Its head includes this report. The final response names the exact head SHA. Bundle verification and an independent prerequisite-plus-bundle restore passed and matched that head; the bundle is ignored to avoid embedding itself in its own commit. Nothing was pushed, and the caller's checkout was not written.

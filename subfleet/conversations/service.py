@@ -295,9 +295,13 @@ class ConversationService:
                                     "billing": "usage credits" if entry["provider"] == "claude" else "plan limits"},
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
         defaults = {}
-        for name, preferred in (("claude", "opus"), ("codex", "sol")):
-            offered = [m for m in models if m["provider"] == name]
-            default = next((m for m in offered if m["short"] == preferred), None)
+        hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
+        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard]
+        for name in ("claude", "codex"):
+            offered = [m for m in models if m["provider"] == name and m["id"] != "gpt-6-astra"]
+            preferred = ["opus"] if name == "claude" else hard_models
+            default = next((m for short in preferred for m in offered if m["short"] == short), None)
             if default is None and offered:
                 default = next((m for m in offered if not policy["models"][m["short"]].get("scope")), offered[0])
             if default:
@@ -459,7 +463,7 @@ class ConversationService:
         return conversation
 
     def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider")
+        provider = args.get("provider") or "claude"
         request_id = args.get("request_id")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
@@ -503,21 +507,27 @@ class ConversationService:
                 raise ConversationError("bad-provider", "provider is claude or codex")
             settings = validate_settings(provider, {"model": "workspace-check", "permission": args.get("permission") or "ask"})
             self._check_codex_policy(provider, settings)
+            kind = args.get("workspace_kind") or "in-place"
+            planned = not workspace
+            if planned:
+                if kind != "in-place":
+                    raise ConversationError("bad-workspace", "No folder sessions cannot use a worktree")
+                # Preview the private scratch location without making a folder.
+                workspace = str(self.root / "conversations/workspaces/workspace-check")
             workspace = self._validate_workspace(provider, workspace, settings,
-                                                 kind=args.get("workspace_kind") or "in-place",
-                                                 allow_main=bool(args.get("allow_main")))
+                                                 kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
             return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
         except ConversationError as exc:
             return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
 
     def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
-                            kind: str, allow_main: bool) -> str:
+                            kind: str, allow_main: bool, planned: bool = False) -> str:
         """C-26.10 and C-13.2: check and create take precisely this path."""
         if not isinstance(workspace, str) or not workspace:
             raise ConversationError("bad-workspace", "workspace must be an existing directory",
                                     fix="choose a folder or use a new scratch folder")
         workspace = os.path.realpath(os.path.expanduser(workspace))
-        if not os.path.isdir(workspace):
+        if not planned and not os.path.isdir(workspace):
             raise ConversationError("bad-workspace", "workspace must be an existing directory",
                                     fix="choose a folder or use a new scratch folder")
         if kind not in ("in-place", "worktree"):
@@ -528,7 +538,10 @@ class ConversationService:
         if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
             from ..salvage import validate_writable_workdir
             try:
-                validate_writable_workdir(workspace, timeout_s=self._git_timeout_s())
+                existing = Path(workspace)
+                while planned and not existing.exists() and existing != existing.parent:
+                    existing = existing.parent
+                validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
             except AdapterError as exc:
                 raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
             except SalvageError as exc:

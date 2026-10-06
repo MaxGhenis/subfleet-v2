@@ -92,9 +92,9 @@ def test_provider_and_model_changes_reconcile_effort_and_permissions(draft_probe
     snapshots = draft(draft_probe, tmp_path, [
         {"settings": settings(effort="high"), "models": [model(efforts=["low", "high"])]},
         {"models": [model(value="haiku", efforts=[])]},
-        {"provider": "codex", "models": [model(provider="codex", value="gpt-6-astra", efforts=["ultra"])]},
+        {"provider": "codex", "models": [model(provider="codex", value="gpt-6.1-sol", efforts=["ultra"])]},
     ])
     assert snapshots[0]["settings"]["effort"] == "high"
     assert snapshots[1]["settings"]["model"] == "haiku" and snapshots[1]["settings"]["effort"] is None
-    assert snapshots[2]["settings"]["model"] == "gpt-6-astra"
+    assert snapshots[2]["settings"]["model"] == "gpt-6.1-sol"
     assert snapshots[2]["settings"]["permission"] == "read-only"

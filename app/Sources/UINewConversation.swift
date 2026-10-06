@@ -16,7 +16,7 @@ struct NewConversationDraftView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Spacer(minLength: 20)
-            Text("New conversation").font(.title2.bold())
+            Text(model.failedDraftKey == nil ? "New conversation" : "Retry saved conversation").font(.title2.bold())
             Text("What would you like to work on?").foregroundStyle(.secondary)
             HStack {
                 Menu {
@@ -129,7 +129,10 @@ struct NewConversationDraftView: View {
             model.validateNewDraftWorkspace()
         }
         .onChange(of: model.state.models) { _, _ in model.reconcileNewDraft() }
-        .onChange(of: model.state.availability) { _, _ in model.reconcileNewDraft() }
+        .onChange(of: model.state.availability) { _, _ in
+            model.reconcileNewDraft()
+            model.validateNewDraftWorkspace()
+        }
     }
 
     private func chooseFolder() {
@@ -138,7 +141,10 @@ struct NewConversationDraftView: View {
         panel.canChooseFiles = false
         if let folder = model.newDraft.workspace { panel.directoryURL = URL(fileURLWithPath: folder) }
         panel.begin { response in
-            if response == .OK, let folder = panel.url { model.newDraft.workspace = folder.path }
+            if response == .OK, let folder = panel.url {
+                model.newDraft.workspace = folder.path
+                model.validateNewDraftWorkspace()
+            }
         }
     }
 
