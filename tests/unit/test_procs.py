@@ -762,21 +762,31 @@ def test_proven_reboot_discards_unqualified_old_roots(monkeypatch, root_kind):
 @pytest.mark.parametrize('known,current', [(BOOT_OLD, BOOT_OLD), ('1700000000', BOOT_NEW),
                                            ('invalid', BOOT_NEW), ('', BOOT_NEW),
                                            (BOOT_OLD, '1700000000')])
-def test_empty_snapshot_cannot_close_a_writer_lineage_without_proven_reboot(monkeypatch, known, current):
+def test_empty_census_releases_without_reboot_proof(monkeypatch, known, current):
     monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=current))
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
     result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=known,
                                lineage_boot_ids=(known,))
-    assert not result.live_pids and not result.verified_empty
-    assert any('writer lineage' in error for error in result.errors)
+    assert result.verified_empty, result.to_dict()
 
 
-def test_reboot_must_prove_every_observed_writer_boot_gone(monkeypatch):
+def test_historical_boot_observations_do_not_pin_an_empty_census(monkeypatch):
     monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=BOOT_NEW))
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
     result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=BOOT_OLD,
                                lineage_boot_ids=(BOOT_OLD, BOOT_NEW))
-    assert not result.verified_empty
+    assert result.verified_empty, result.to_dict()
+
+
+@pytest.mark.parametrize('boot,empty', [(BOOT_OLD, False), (BOOT_NEW, True), ('invalid', False)])
+def test_unrecorded_guardian_child_requires_exit_evidence_or_proven_reboot(monkeypatch, boot, empty):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=boot))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=BOOT_OLD,
+                               child_unrecorded=True)
+    assert result.verified_empty is empty
+    if not empty:
+        assert 'guardian child publication unavailable' in result.errors
 
 
 @pytest.mark.parametrize('capture', ['gone', 'uninspectable', 'stat-gone', 'zombie'])
@@ -793,5 +803,5 @@ def test_marked_writer_observation_keeps_its_boot_even_without_pid_identity(monk
     monkeypatch.setattr(procs, 'identity', identify)
     result = procs.containment(100, 100, None, 'job/a1', root='/fixture',
                               launch_boot_id=BOOT_OLD, lineage_boot_ids=(BOOT_OLD,))
-    assert not result.verified_empty
+    assert result.verified_empty is (capture != 'uninspectable')
     assert BOOT_NEW in result.to_dict()['lineage_boot_ids']

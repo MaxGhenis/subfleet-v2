@@ -558,8 +558,17 @@ taken at finalization, before the turn's leases are released, so no other
 writer's work lands between the turn and it (`daemon._turn_trees`, receipt
 `<attempt>/trees.json`, also copied into the attempt's evidence as
 `turn_trees` with HEAD before and after). A quarantined turn gets its end
-snapshot when it is confirmed dead; a forced release with writers still live
-records that it has none. While git fails transiently, the end is tried at
+snapshot when the full C-5.5 census verifies its writers gone. Automatic
+resolution and `kill --confirm-dead` use exactly the same census; an empty
+same-boot quarantine releases within one pace without waiting for a reboot
+(C-5.7). Both share the census residual: an orphan that leaves the process
+group, starts a new session, scrubs `SUBFLEET_ATTEMPT` and `SUBFLEET_ROOT`
+from its environment and outlives its recorded parent is invisible. Ordinary
+detached children keep those markers and hold the quarantine. The separate
+retention `lsof` worktree-holder check still protects a job worktree while
+such a process holds files there. A legacy guardian whose launch receipt
+records no child and has no exit receipt stays held conservatively. A forced
+release with writers still live records that it has no end snapshot. While git fails transiently, the end is tried at
 most three times in one daemon run (the first try and two by the finalization
 worker, whose count a restart starts again), and once when a quarantine is
 released, since nothing offers an operator's request again; then the failure

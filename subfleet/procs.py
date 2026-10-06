@@ -330,8 +330,8 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
-    # A matching marker can disappear before identity capture, after forking.
-    # Its observed boot still owns that possible lineage, even with no PID.
+    # Diagnostic boot observations, including a marker gone before PID capture.
+    # They never require a reboot before a verified-empty census can release.
     lineage_boot_ids: tuple[str, ...] = ()
 
     @property
@@ -389,7 +389,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 attempt_id: str, root: str | None = None, *,
                 recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None,
                 launch_boot_id: str | None = None,
-                lineage_boot_ids: Sequence[str] = ()) -> Containment:
+                lineage_boot_ids: Sequence[str] = (),
+                child_unrecorded: bool = False) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -432,11 +433,6 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 return False
             return current is not None and previous != current
 
-        if any(not rebooted(known) for known in lineage_boot_ids):
-            # A writer can fork, setsid and scrub its markers between reads,
-            # then exit before the next census. No number of empty snapshots
-            # closes that lineage gap. Keep this uncertainty across restarts.
-            errors.append("writer lineage requires a proven reboot or operator force release")
         # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
@@ -471,6 +467,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             except InspectionError:
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
         roots_rebooted = rebooted(launch_boot_id)
+        if child_unrecorded and not roots_rebooted:
+            # A legacy guardian may have executed a child without publishing
+            # its PID. Its own disappearance cannot establish that child's death.
+            errors.append("guardian child publication unavailable")
         groups = set() if roots_rebooted else set(seen.group(pgid))
         # A live reused group leader heads an unrelated group; an absent leader
         # can still leave its original group members behind.
@@ -516,13 +516,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         try:
             observed_boots.add(seen.boot() if seen is not None else boot_id())
         except InspectionError:
-            # Missing boot evidence can never be discharged by a later reboot.
+            # Retain the failed observation for diagnostics only.
             observed_boots.add("")
-    if (lineage_boot_ids and observed_boots != set(lineage_boot_ids)
-            and (seen is None or any(not rebooted(known) for known in observed_boots))):
-        error = "writer lineage requires a proven reboot or operator force release"
-        if error not in errors:
-            errors.append(error)
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers:
         try:

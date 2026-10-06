@@ -106,7 +106,7 @@ def test_legacy_child_without_identity_still_holds_conservatively(state_daemon, 
     assert daemon.store.list_leases()
 
 
-@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'quarantined')])
+@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'lost')])
 def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
         state_daemon, monkeypatch, start, expected):
     daemon, harness = state_daemon
@@ -120,8 +120,7 @@ def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
     assert confirm_dead(daemon, a) == expected
     if expected == 'quarantined':
         census = daemon._contain(a)
-        assert ({500, 501} <= census.live_pids) if start == 'provider-start' else not census.live_pids
-        # PID reuse cannot prove an unobserved descendant dead on this boot.
+        assert {500, 501} <= census.live_pids
         assert not census.verified_empty
         assert daemon.store.list_leases()
     else:

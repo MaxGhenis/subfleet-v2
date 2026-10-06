@@ -5880,7 +5880,8 @@ class Daemon:
     def _contain(self, a: dict):
         evidence = json.loads(a.get("evidence_json") or "{}")
         held = _json_object(a.get("quarantine_reason"))
-        start = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "start.json") or {}
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        start = self._read_json(adir / "start.json") or {}
         child_pid = a.get("child_pid") or start.get("child_pid")
         child = start.get("child_identity")
         guardian = {}
@@ -5891,23 +5892,17 @@ class Daemon:
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
         launch_boot = a.get("boot_id") or start.get("boot_id")
-        # Once quarantined, neither an exit receipt nor absent recorded PIDs
-        # prove an unobserved descendant dead. Include every observed boot so
-        # a current-boot marked writer cannot be forgotten after an old reboot.
-        lineage_boots = ()
-        if a["state"] == "quarantined":
-            boots = {known.boot_id for records in recorded.values() for known in records}
-            boots.update(_lineage_boot_union(evidence, held))
-            if launch_boot:
-                boots.add(launch_boot)
-            elif a.get("guardian_pid") or a.get("pgid") or child_pid:
-                boots.add("")
-            if start.get("boot_id"):
-                boots.add(start["boot_id"])
-            lineage_boots = tuple(sorted(boots or {""}))
+        # Saved boot observations describe prior censuses; they do not gate
+        # release. Automatic and --confirm-dead use the same full C-5.5 census.
+        lineage_boots = tuple(sorted(_lineage_boot_union(evidence, held)))
+        # Preserve the legacy publication hold without pinning every quarantine.
+        # An exit receipt establishes that the guardian waited for its child.
+        child_unrecorded = bool(start.get("guardian_pid") and not child_pid
+                                and self._read_json(adir / "exit.json") is None)
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
                                  a["attempt_id"], root=str(self.root), recorded=recorded,
-                                 launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots)
+                                 launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
+                                 child_unrecorded=child_unrecorded)
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
