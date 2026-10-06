@@ -11,6 +11,31 @@ from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
+from .quota_projection import instant, weekly_projections
+
+
+def projection_text(projection: Mapping[str, Any]) -> str:
+    reset = instant(projection["resets_at"]).strftime("%a %H:%MZ")
+    basis = "; rate unknown" if projection["basis"] == "rate unknown" else ""
+    return (f"~{projection['projected_unused'] * 100:.0f}% unused at reset {reset} "
+            f"(projection{basis})")
+
+
+def projection_totals(lanes: Any) -> list[str]:
+    """Sum account windows once per lane; model scopes do not add lane-weeks."""
+    providers: dict[str, list[Mapping[str, Any]]] = {}
+    for lane in lanes:
+        projection = lane.get("weekly_projections", {}).get("account")
+        if projection is not None:
+            providers.setdefault(lane["provider"], []).append(projection)
+    lines = []
+    for provider, projections in sorted(providers.items()):
+        total = math.fsum(row["projected_unused"] for row in projections)
+        through = max(instant(row["resets_at"]) for row in projections).strftime("%a %H:%MZ")
+        unknown = sum(row["basis"] == "rate unknown" for row in projections)
+        suffix = f" ({unknown} rate unknown)" if unknown else ""
+        lines.append(f"{provider}: ~{total:.1f} of {len(projections)} lane-weeks projected unused by {through}{suffix}")
+    return lines
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -114,7 +139,8 @@ def status(view: Mapping[str, Any]) -> str:
     readings = view.get("readings", [row for lane in lanes for row in lane.get("readings", ())])
     closures = view.get("closures", [row for lane in lanes for row in lane.get("closures", ())])
     snapshot = build_view(lanes, readings, closures, view.get("attempts", ()), view.get("jobs", ()),
-                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S))
+                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
+                          weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     rows = []
     for lane in snapshot["lanes"]:
@@ -134,10 +160,14 @@ def status(view: Mapping[str, Any]) -> str:
         rows.append([lane["lane_id"], lane["provider"], lane.get("account_key", "unknown"),
                      _label(lane.get("owner", "unknown")), ", ".join(flags) or "-",
                      str(lane["in_flight"]), min(weekly, default="unknown"),
-                     "; ".join(reading_text(row) for row in lane["readings"]) or "unknown",
+                     "; ".join(reading_text(row) + (
+                         " · " + projection_text(lane["weekly_projections"][row["scope"]])
+                         if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
+                         for row in lane["readings"]) or "unknown",
                      "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
+    lines.extend(projection_totals(snapshot["lanes"]))
     jobs = {row["job_id"]: row for row in snapshot["jobs"]}
     # C-26.12: turn jobs hold lane slots like any job, so they are shown, but
     # under their own heading: they are conversations' turns, not detached work.
@@ -393,3 +423,130 @@ def why(decision: Any) -> str:
 
 render_status = status
 render_why = why
+
+
+# --- Claude limit-reset cards and promotional credits (C-9.10) ----------------
+
+#: What a status other than `ok` tells an operator to do, when there is something.
+_CARD_FIX = {
+    "login-dead": "sign in again: CLAUDE_CONFIG_DIR={home} claude auth login",
+    "no-login": "sign in to read it: CLAUDE_CONFIG_DIR={home} claude auth login",
+}
+
+
+def _money(value: Any) -> str:
+    return f"${value:,.2f}" if isinstance(value, (int, float)) and not isinstance(value, bool) else "$?"
+
+
+def _holds_something(account: Mapping[str, Any], warned: set[str]) -> bool:
+    """An unused card, money on a credit, a claimable credit, a forfeit, or a warning."""
+    return bool(account.get("unused_cards")
+                or any((credit.get("remaining_dollars") or 0) > 0 for credit in account.get("credits") or [])
+                or account.get("claimable") or account.get("recently_lost")
+                or account.get("login") in warned)
+
+
+def card_lines(view: Mapping[str, Any] | None, *, compact: bool = False) -> list[str]:
+    """C-9.10: one line per login: its cards, credits and plan, or why they are unknown.
+
+    Cards and credits are shown from the last read that saw them, with that
+    read's time when the latest one failed or listed no cards; nothing here is
+    ever redeemed.
+    `compact` (what `status` prints) shows only the logins holding something
+    that can be lost and counts the rest by status; `subfleet cards` shows all.
+    """
+    view = view or {}
+    accounts = [row for row in view.get("accounts") or () if isinstance(row, Mapping)]
+    if view.get("disabled"):
+        return ["claude reset cards: not read (claude_cards.enabled is false in the policy)"]
+    if not view.get("read_at"):
+        return ["claude reset cards: not read yet (subfleet cards --refresh)"]
+    lines = [f"claude reset cards and credits (read {view['read_at']}; never redeemed by subfleet)"]
+    if not accounts:
+        lines.append("  no Claude Code logins to read under the logins folder (claude_cards.logins_dir)")
+    others: list[str] = []
+    if compact:
+        warned = {str(row.get("login")) for row in view.get("warnings") or ()}
+        rest = [row for row in accounts if not _holds_something(row, warned)]
+        accounts = [row for row in accounts if _holds_something(row, warned)]
+        if rest:
+            tally: dict[str, int] = {}
+            for row in rest:
+                grants = (row.get("cards") or {}).get("grants") or []
+                key = ("card used" if row.get("status") == "ok" and any(g.get("resets_left", 0) == 0 for g in grants)
+                       else "card ended unused" if row.get("status") == "ok" and grants
+                       else "nothing held" if row.get("status") == "ok" else str(row.get("status") or "unknown"))
+                tally[key] = tally.get(key, 0) + 1
+            others.append("  others: " + ", ".join(f"{count} {key}" for key, count in sorted(tally.items()))
+                          + " (subfleet cards)")
+    for account in accounts:
+        lanes = account.get("lanes") or []
+        by_name = " by name" if account.get("lanes_by") == "label" else ""
+        head = f"  {account.get('login')}" + (f" [{', '.join(lanes)}{by_name}]" if lanes else "")
+        status = account.get("status") or "unknown"
+        plan = account.get("plan") or {}
+        parts: list[str] = []
+        if status == "lapsed":
+            parts.append(f"lapsed ({plan.get('organization_type')}, subscription {plan.get('subscription_status')})")
+        elif status != "ok":
+            fix = _CARD_FIX.get(status, "").format(home=account.get("home") or "?")
+            parts.append(f"{status}: {account.get('detail') or ''}".rstrip(": ") + (f"; {fix}" if fix else ""))
+            if account.get("read_at"):
+                parts.append(f"as last read {account['read_at']}")
+        cards = account.get("cards") or {}
+        grants = cards.get("grants") or []
+        if status != "lapsed" and account.get("read_at"):
+            unused = [grant for grant in grants if grant.get("resets_left", 0) > 0 and not grant.get("ended")]
+            ended = [grant for grant in grants if grant.get("resets_left", 0) > 0 and grant.get("ended")]
+            for grant in ended:
+                parts.append(f"reset card ended unused ({grant['id']}, ended {grant.get('ends_at')})")
+            for grant in unused:
+                note = ("usable now" if grant.get("usable_now")
+                        else "paused" if grant.get("paused") else "not usable now")
+                parts.append(f"{grant['resets_left']} unused reset card ({grant['id']}), expires "
+                             f"{grant.get('ends_at') or 'unknown'}, {note}"
+                             + (", account at its limit" if cards.get("at_limit") else ""))
+            # "No reset card" only when none is listed: a card that ended unused is one.
+            if grants:
+                if not unused and not ended:
+                    parts.append("reset card used")
+            elif cards and not cards.get("eligible"):
+                parts.append(f"no reset card (ineligible: {cards.get('ineligible_reason') or 'unknown'})")
+            elif cards:
+                parts.append("no reset card")
+            unlisted = account.get("cards_unlisted") or {}
+            if unlisted:
+                why = ("no cards block" if unlisted.get("missing")
+                       else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}")
+                parts.append(f"cards as listed {unlisted.get('listed_at') or 'before'}; "
+                             f"the read at {unlisted.get('at')} listed none ({why})")
+            for credit in account.get("credits") or []:
+                parts.append(f"{credit.get('label')} {_money(credit.get('remaining_dollars'))} of "
+                             f"{_money(credit.get('limit_dollars'))} left, expires {credit.get('expires_at') or 'unknown'}")
+            if account.get("claimable"):
+                parts.append("cloud-session credit claimable, not claimed")
+        if account.get("plan_ends_at"):
+            parts.append(f"plan ends {account['plan_ends_at']} (declared)")
+        for item in account.get("recently_lost") or []:
+            if item.get("grant"):
+                why = "with the plan" if item.get("reason") == "lapse" else "unused at its end"
+                parts.append(f"reset card lost {why} ({item['grant']}, seen {item.get('at')})")
+            else:
+                why = "plan lapsed" if item.get("reason") == "lapse" else "unspent at its end"
+                parts.append(f"{item.get('label')}: {why} with {_money(item.get('remaining_dollars'))} left at "
+                             f"the last read (seen {item.get('at')})")
+        lines.append(head + ": " + ("; ".join(parts) or status))
+    lines.extend(others)
+    for warning in view.get("warnings") or ():
+        items = _warned_items(warning)
+        lines.append(f"  ! {warning.get('kind')}: {warning.get('login')} " + (f"{items} " if items else "")
+                     + (f"at {warning['at']}" if warning.get("at") else ""))
+    return lines
+
+
+def _warned_items(warning: Mapping[str, Any]) -> str:
+    """The card or credit a warning names: `grant` or `credit`, or a loss's `grants` and `credits`."""
+    credits = warning.get("credits") or ()
+    names = [warning.get("grant"), warning.get("credit"), *(warning.get("grants") or ()),
+             *(row.get("key") if isinstance(row, Mapping) else row for row in credits)]
+    return ", ".join(str(name) for name in names if name)

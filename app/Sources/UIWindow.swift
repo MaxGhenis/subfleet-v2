@@ -356,6 +356,10 @@ struct ConversationView: View {
                 }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
+                .onChange(of: conversation.conversation_id) { _, _ in
+                    atBottom = true
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
                     followApprovals(proxy)

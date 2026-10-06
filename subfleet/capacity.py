@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import READING_TTL_S, IdentityStatus
+from .quota_projection import weekly_projections
 from .sessions.transcripts import read_regular
 
 ACTIVE_ATTEMPT_STATES = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -395,7 +396,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
                now: str | datetime | None = None, reading_ttl_s: int = READING_TTL_S,
                desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None,
-               desktop_in_use: bool | None = None) -> dict[str, Any]:
+               desktop_in_use: bool | None = None,
+               weekly_samples: Iterable[Any] | None = None) -> dict[str, Any]:
     """C-6.4, C-9.1, C-9.6, C-10.3–4: assemble an immutable-input snapshot.
 
     V1-owned and desktop lanes remain visible for status and rejection evidence.
@@ -409,7 +411,25 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     """
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
     timestamp = _iso(instant)
-    evidence = latest_readings(readings, now=instant, reading_ttl_s=reading_ttl_s)
+    reading_rows = [_row(item) for item in readings]
+    evidence = latest_readings(reading_rows, now=instant, reading_ttl_s=reading_ttl_s)
+    history = []
+    cutoff = instant - timedelta(hours=24)
+    for item in weekly_samples if weekly_samples is not None else reading_rows:
+        row = _row(item)
+        if row.get("window") != "seven_day" or row.get("label") not in {"provider", "stale-provider"}:
+            continue
+        try:
+            observed = _time(row["observed_at"])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        if cutoff <= observed <= instant:
+            history.append(row)
+    history.sort(key=lambda row: (row["lane_id"], row["scope"], _time(row["observed_at"]),
+                                 int(row.get("reading_id") or 0)))
+    by_lane: dict[str, list[dict[str, Any]]] = {}
+    for row in history:
+        by_lane.setdefault(row["lane_id"], []).append(row)
     active_closures = [row for item in closures
                        if not (row := _row(item)).get("released_at") and _time(row["until_at"]) > instant]
     attempt_rows, job_rows = [_row(item) for item in attempts], [_row(item) for item in jobs]
@@ -425,6 +445,7 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
                             desktop_in_use=desktop_in_use)
         identity = lane["lane_id"]
         lane["readings"] = [row for row in evidence if row["lane_id"] == identity]
+        lane["weekly_projections"] = weekly_projections(lane, now=instant, samples=by_lane.get(identity, ()))
         lane["closures"] = [row for row in active_closures if row["lane_id"] == identity]
         lane["in_flight"] = counts[identity]
         lane["in_flight_turns"] = turn_counts[identity]
@@ -432,7 +453,7 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
                                for row in lane["readings"])
         roster.append(lane)
     roster.sort(key=lambda lane: _display_order(lane, now=instant, reading_ttl_s=reading_ttl_s))
-    return {"lanes": roster, "readings": evidence, "closures": active_closures,
+    return {"lanes": roster, "readings": evidence, "weekly_samples": history, "closures": active_closures,
             "attempts": attempt_rows, "jobs": job_rows,
             "in_flight": {lane["lane_id"]: counts[lane["lane_id"]] for lane in roster},
             "in_flight_turns": {lane["lane_id"]: turn_counts[lane["lane_id"]] for lane in roster},
@@ -604,14 +625,16 @@ def owned_lanes(view: Mapping[str, Any], owner: str = "v2") -> list[dict[str, An
     return [lane for lane in view["lanes"] if lane.get("owner") == owner]
 
 
-def store_rows(store: Any) -> dict[str, list]:
+def store_rows(store: Any, *, now: str | datetime | None = None) -> dict[str, list]:
     """The store rows `build_view` is made from, as its keyword arguments.
 
     C-3.7: read them in one `Store.snapshot()` and build the view after it, so
     a view build holds no read connection (review of 5841d8b, finding 2)."""
     # Every reading that can be a key's newest, not every reading.
     readings = getattr(store, "latest_reading_candidates", store.list_readings)()
-    return {"lanes": store.lane_rows(), "readings": readings, "closures": store.list_closures(),
+    history = store.weekly_projection_samples(now=now) if hasattr(store, "weekly_projection_samples") else readings
+    return {"lanes": store.lane_rows(), "readings": readings, "weekly_samples": history,
+            "closures": store.list_closures(),
             "attempts": store.list_attempts(), "jobs": store.list_jobs()}
 
 
@@ -619,5 +642,5 @@ def from_store(store: Any, *, now: str | datetime | None = None,
                reading_ttl_s: int = READING_TTL_S, desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """Read store rows; supply desktop identity read before any transaction."""
-    return build_view(**store_rows(store), now=now, reading_ttl_s=reading_ttl_s,
+    return build_view(**store_rows(store, now=now), now=now, reading_ttl_s=reading_ttl_s,
                       desktop_account=desktop_account, desktop=desktop, desktop_in_use=desktop_in_use)

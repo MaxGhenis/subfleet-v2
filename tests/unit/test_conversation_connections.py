@@ -128,13 +128,14 @@ def test_c16_7_a_departed_clients_queued_conversation_read_is_dropped_its_write_
 
     def handle(op, args, peer, **kwargs):
         ran.append(op)
-        if op == "conversation.history":
+        if op == "turn.diff":
             release.wait(10)
         return {"op": op}
     service.conversations.handle = handle
     blocker = connect(service)
-    send(blocker, "conversation.history", conversation_id="c")
-    until(lambda: ran == ["conversation.history"])
+    # The stall is a file op: `conversation.history` has its own pool since #127 (C-25.3).
+    send(blocker, "turn.diff", message_id="m")
+    until(lambda: ran == ["turn.diff"])
     departed_read, departed_write = connect(service), connect(service)
     send(departed_read, "conversation.diff", conversation_id="c")
     send(departed_write, "attachment.add", path="/nonexistent")
@@ -143,12 +144,41 @@ def test_c16_7_a_departed_clients_queued_conversation_read_is_dropped_its_write_
     departed_write.close()
     until(lambda: counts(service)["abandoned"] == 1)            # the read, cancelled while queued
     release.set()
-    assert reply(blocker)["result"] == {"op": "conversation.history"}
+    assert reply(blocker)["result"] == {"op": "turn.diff"}
     until(lambda: len(ran) == 2)
-    assert ran == ["conversation.history", "attachment.add"]
+    assert ran == ["turn.diff", "attachment.add"]
     until(lambda: counts(service)["connections"] == 1)
     blocker.close()
 
+
+
+def test_c16_7_a_departed_clients_queued_history_read_is_dropped(serve):
+    """C-16.7 holds on #127's history pool too: behind two stalled
+    `conversation.history` reads, a third whose client left is cancelled."""
+    service = serve()
+    release, ran = threading.Event(), []
+
+    def handle(op, args, peer, **kwargs):
+        ran.append((op, args.get("conversation_id")))
+        if args.get("conversation_id") in ("a", "b"):
+            release.wait(10)
+        return {"op": op}
+    service.conversations.handle = handle
+    blockers = [connect(service), connect(service)]
+    for sock, cid in zip(blockers, ("a", "b")):
+        send(sock, "conversation.history", conversation_id=cid)
+    until(lambda: len(ran) == 2)
+    departed = connect(service)
+    send(departed, "conversation.history", conversation_id="c")
+    until(lambda: service.conversations.history_reads._work_queue.qsize() == 1)
+    departed.close()
+    until(lambda: counts(service)["abandoned"] == 1)
+    release.set()
+    for sock in blockers:
+        assert reply(sock)["result"] == {"op": "conversation.history"}
+        sock.close()
+    until(lambda: counts(service)["connections"] == 0)
+    assert sorted(cid for _, cid in ran) == ["a", "b"]
 
 def test_c16_7_a_stopping_daemon_ends_its_conversation_polls(serve):
     """A stop does not wait out a 50 s poll: the store's wait sees `stopping`."""

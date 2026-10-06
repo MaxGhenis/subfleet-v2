@@ -638,7 +638,6 @@ def test_an_unmeasurable_job_is_decided_and_backs_off(world):
     pass reported more work and the daemon ran one every 5 seconds. Its size is
     now unknown, which decides it; it is measured again only after a backoff
     that doubles."""
-    import time as _time
     w = world
     w.job("ok-job", worktree=False)
     w.job("odd-job", worktree=False)
@@ -651,7 +650,7 @@ def test_an_unmeasurable_job_is_decided_and_backs_off(world):
 
         def one_pass():
             return run(w, max_jobs=100, max_bytes=1 << 30, state=state, clock=clock,
-                       deadline=_time.monotonic() + 180)
+                       deadline=clock() + 180)       # on the pass's clock, not the machine's uptime
 
         first = one_pass()
         assert first["more"] is False, first["pools"]
