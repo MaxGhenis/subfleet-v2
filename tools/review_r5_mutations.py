@@ -16,25 +16,24 @@ MUTATIONS = [
      "if False and changed and final_wake is not None:",
      "test_final_timer_is_recovered_after_settlement_restart[no-crash]"),
     ("skip-intent-recovery", "service.py",
-     "with self._lock:\n            self.wakes.replay_final()\n        live =",
-     "with self._lock:\n            pass\n        live =",
+     "self.wakes.replay_final()", "pass",
      "test_final_timer_is_recovered_after_settlement_restart[after-complete]"),
     ("expire-timer-during-downtime", "wakes.py",
      'settled_at = intent["settled_at"] if intent else self.now()',
      "settled_at = self.now()",
      "test_final_wake_intent_survives_each_registration_boundary[overdue-restart]"),
     ("rearm-final-before-backlog", "service.py",
-     "self.wakes.replay_final()\n        self.daemon._notify()",
+     "self._replay_final_wakes()\n        self.daemon._notify()",
      'self.wakes.from_final(runner.conversation_id, runner.message_id, turn["final_text"])\n        self.daemon._notify()',
      "test_pending_final_cannot_supersede_a_newer_rearm[final-turn]"),
     ("rearm-explicit-before-backlog", "service.py",
-     'self.wakes.replay_final()\n            return self.wakes.register(conversation["conversation_id"], request_id, spec)',
+     'self._replay_final_wakes()\n            return self.wakes.register(conversation["conversation_id"], request_id, spec)',
      'pass\n            return self.wakes.register(conversation["conversation_id"], request_id, spec)',
      "test_pending_final_cannot_supersede_a_newer_rearm[explicit-wake]"),
 ]
 
 
-def run_case(case):
+def run_case(case, *, tests=TESTS):
     name, filename, before, after, test = case
     source = ROOT / "subfleet/conversations" / filename
     original = source.read_text()
@@ -52,7 +51,7 @@ def run_case(case):
             cached.unlink()
         child = subprocess.Popen(
             [sys.executable, "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider",
-             f"--junitxml={artifacts / ('mutation-' + name + '.xml')}", TESTS + test],
+             f"--junitxml={artifacts / ('mutation-' + name + '.xml')}", tests + test],
             cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, start_new_session=True)
         try:
@@ -68,7 +67,7 @@ def run_case(case):
         (artifacts / ("mutation-" + name + ".log")).write_text(output)
         summary = output.strip().splitlines()[-1]
         killed = child.returncode == 1 and bool(re.search(r"\b[1-9]\d* failed\b", summary)) and "error" not in summary
-        print(json.dumps({"mutation": name, "test": TESTS + test,
+        print(json.dumps({"mutation": name, "test": tests + test,
                           "killed": killed, "summary": summary}), flush=True)
         return killed
     finally:

@@ -144,6 +144,11 @@ def eligible(tx, cid: str, now: float) -> bool:
         return False
     if c["wake_streak"] >= MAX_STREAK and now - (c["last_wake_at"] or 0) < COOLDOWN_S:
         return False
+    # Completion commits its intent before registration. Fence both the initial
+    # candidate read and the acceptance transaction until the whole final replays.
+    if tx.execute("SELECT 1 FROM final_wake_intents i JOIN messages m USING(message_id) "
+                  "WHERE m.conversation_id=? LIMIT 1", (cid,)).fetchone():
+        return False
     terminal = ",".join("?" for _ in TERMINAL_STATES)
     return not tx.execute(f"SELECT 1 FROM messages WHERE conversation_id=? AND state NOT IN ({terminal}) LIMIT 1",
                           (cid, *TERMINAL_STATES)).fetchone()
@@ -458,6 +463,12 @@ class WakeEngine:
         self._surface_notices()
         if not scan_requests and not scan_completions:
             return
+        # Direct evaluations also recover interrupted registration/acknowledgement.
+        # A failed replay leaves that conversation fenced by eligible()/claim().
+        try:
+            self.service._replay_final_wakes()
+        except Exception as exc:
+            self.service.log.warning("final wake replay deferred: %s: %s", type(exc).__name__, exc)
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)
