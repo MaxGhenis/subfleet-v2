@@ -13,12 +13,13 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from . import boot_identity
+from . import boot_identity, folders
 
 #: C-5.12: how long one boot-identity read is reused. Only a boot session UUID
 #: is: `kern.bootsessionuuid` is fixed for a boot, while the `kern.boottime`
@@ -302,6 +303,91 @@ class ProcessTable:
         return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
 
 
+    def descendants(self, roots: Sequence[int]) -> frozenset[int]:
+        """Walk parent links once, including children of retained group members."""
+        found = set(roots)
+        frontier = found
+        while frontier:
+            frontier = {pid for pid, row in self.rows.items() if row[0] in frontier and pid not in found}
+            found.update(frontier)
+        return frozenset(pid for pid in found if self.live(pid))
+
+
+@dataclass(frozen=True)
+class CensusRoot:
+    """An observed identity and group, used only to hold containment."""
+    pid: int
+    boot_id: str
+    proc_start: str
+    pgid: int
+
+    @property
+    def identity(self) -> ProcessIdentity:
+        return ProcessIdentity(self.pid, self.boot_id, self.proc_start)
+
+
+def process_group(pid: int) -> int | None:
+    """The group of a late census observation; no signal authority."""
+    try:
+        return os.getpgid(pid)
+    except ProcessLookupError:
+        return None
+    except OSError as exc:
+        raise InspectionError("process group inspection unavailable") from exc
+
+
+CWD_ARGV = ["/usr/sbin/lsof", "-nP", "-d", "cwd", "-F0pn"]
+
+
+def cwd_pids(workdir: str) -> frozenset[int]:
+    """One 10-second-bounded cwd scan; canonical paths and component boundaries.
+
+    NUL fields preserve spaces and newlines in paths. A failed or malformed
+    listing proves nothing. Only PIDs are returned; cwd paths are discarded.
+    """
+    def canonical(path: str) -> str:
+        if sys.platform != "darwin":
+            return os.path.realpath(path)
+        spelled, problem = folders.spelling(path)
+        if problem is not None:
+            raise InspectionError("cwd canonical spelling unavailable")
+        return spelled
+
+    target = canonical(workdir)
+    found: set[int] = set()
+    pid = None
+    named = False
+    output = _read(CWD_ARGV)
+    if not output.strip():
+        raise InspectionError("cwd enumeration empty")
+    for field in output.split("\0"):
+        field = field.lstrip("\n")
+        if not field:
+            continue
+        if field.startswith("p"):
+            if pid is not None and not named:
+                raise InspectionError("cwd enumeration incomplete")
+            named = False
+            try:
+                pid = int(field[1:])
+                if pid <= 0:
+                    raise ValueError("invalid pid")
+            except ValueError as exc:
+                raise InspectionError("cwd enumeration malformed") from exc
+        elif field.startswith("n"):
+            if pid is None or not os.path.isabs(field[1:]):
+                raise InspectionError("cwd enumeration malformed")
+            named = True
+            directory = canonical(field[1:])
+            if os.path.commonpath((target, directory)) == target:
+                found.add(pid)
+        elif field != "fcwd":
+            raise InspectionError("cwd enumeration malformed")
+    if pid is None or not named:
+        raise InspectionError("cwd enumeration incomplete")
+    return frozenset(found)
+
+
 def snapshot() -> ProcessTable:
     """Read the process table once (C-5.5); raises `InspectionError` when it cannot.
 
@@ -334,9 +420,13 @@ class Containment:
     # They never require a reboot before a verified-empty census can release.
     lineage_boot_ids: tuple[str, ...] = ()
 
+    cwd_pids: frozenset[int] = frozenset()
+    lineage_roots: tuple[CensusRoot, ...] = ()
+    provider_identities: tuple[ProcessIdentity, ...] = ()
+
     @property
     def live_pids(self) -> frozenset[int]:
-        return self.group_pids | self.descendant_pids | self.marker_pids
+        return self.group_pids | self.descendant_pids | self.marker_pids | self.cwd_pids
 
     @property
     def verified_empty(self) -> bool:
@@ -344,6 +434,9 @@ class Containment:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "cwd_pids": sorted(self.cwd_pids),
+            "lineage_roots": [asdict(value) for value in self.lineage_roots],
+            "provider_identities": [asdict(value) for value in self.provider_identities],
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
@@ -390,8 +483,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None,
                 launch_boot_id: str | None = None,
                 lineage_boot_ids: Sequence[str] = (),
-                child_unrecorded: bool = False) -> Containment:
-    """Collect all three C-5.5 sources; any failed inspection prevents release.
+                child_unrecorded: bool = False,
+                workdir: str | None = None,
+                lineage_roots: Sequence[CensusRoot] = (),
+                lineage_overflow_boot: str | None = None,
+                guardian_identity: ProcessIdentity | None = None) -> Containment:
+    """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
     Identities describe the census, not authority to signal. In particular a
     newly discovered escaped process must remain quarantined unless the caller
@@ -402,12 +499,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     in one source and absent from the other because it exited between two reads.
     The snapshot also gives every live pid a shape (parent, group, state) that
     the census records as evidence, and the start time that is its identity, so
-    a census is two `ps` reads however many processes it finds (C-5.12);
+    a census is two `ps` reads and one bounded cwd `lsof` (C-5.12);
     commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
+    cwds: set[int] = set()
+    providers: tuple[ProcessIdentity, ...] = ()
     errors: list[str] = []
     try:
         seen: ProcessTable | None = snapshot()
@@ -436,8 +535,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
-        gone, owned = set(), set()
-        for pid, observations in (recorded or {}).items():
+        gone, owned, uncertain_roots = set(), set(), set()
+        records_by_pid = {pid: ([values] if isinstance(values, ProcessIdentity) else list(values))
+                          for pid, values in (recorded or {}).items()}
+        for known in lineage_roots:
+            records_by_pid.setdefault(known.pid, []).append(known.identity)
+        for pid, observations in records_by_pid.items():
             try:
                 if not live(pid):
                     gone.add(pid)
@@ -449,7 +552,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     records = (observations,) if isinstance(observations, ProcessIdentity) else observations
                     uncertain = False
                     for known in records:
+                        if not known.proc_start:
+                            uncertain = True
+                            continue
                         if table[pid][3] != known.proc_start:
+                            continue
+                        if not known.boot_id:
+                            uncertain = True
                             continue
                         try:
                             match = boot_identity.matches(known.boot_id, seen.boot(), seen.legacy_seconds)
@@ -466,8 +575,25 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         gone.add(pid)
             except InspectionError:
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
+                if live(pid):
+                    uncertain_roots.add(pid)
         roots_rebooted = rebooted(launch_boot_id)
-        if child_unrecorded and not roots_rebooted:
+        if lineage_overflow_boot is not None and not rebooted(lineage_overflow_boot):
+            errors.append("lineage root limit exceeded")
+        # A verified guardian's direct children establish the legacy provider
+        # identities before signals or finalization can erase the parent link.
+        guardian_verified = False
+        if guardian_identity is not None:
+            try:
+                guardian_verified = seen.is_process(guardian_pid, guardian_identity.boot_id,
+                                                     guardian_identity.proc_start, legacy=True)
+            except InspectionError:
+                errors.append("guardian launch identity inspection unavailable")
+        if guardian_verified:
+            providers = tuple(seen.identity(pid) for pid, row in table.items()
+                              if row[0] == guardian_pid and live(pid))
+            providers = tuple(value for value in providers if value is not None)
+        if child_unrecorded and not providers and not roots_rebooted:
             # A legacy guardian may have executed a child without publishing
             # its PID. Its own disappearance cannot establish that child's death.
             errors.append("guardian child publication unavailable")
@@ -479,39 +605,62 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # whatever pid it was given (a recycled one included).
         if pgid in gone and live(pgid):
             groups.clear()
+        # A matching identity also observes its current group immediately.
+        # This keeps the census stable after that observation is persisted and
+        # follows a writer that changed groups since the earlier inspection.
+        for pid in owned | uncertain_roots:
+            groups.update(seen.group(table[pid][1]))
+        # A recorded group survives its observed member and leader. XNU cannot
+        # reuse its number while members remain. A proven new leader or reboot
+        # discharges the old group; unknown identity never grants a release.
+        for known in lineage_roots:
+            if rebooted(known.boot_id):
+                continue
+            if known.pgid in gone and live(known.pgid):
+                continue
+            groups.update(seen.group(known.pgid))
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
         roots = ({pid for pid in (guardian_pid, child_pid)
                   if pid and pid > 0 and pid not in gone and not roots_rebooted}
-                 | owned | groups)
-        found = set(roots)
-        frontier = roots
-        while frontier:
-            frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
-            found.update(frontier)
-        descendants = {pid for pid in found if live(pid)}
+                 | owned | groups | uncertain_roots)
+        descendants = set(seen.descendants(tuple(roots)))
     observed_writer = bool(groups | descendants)
     observed_boots = set(lineage_boot_ids)
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
         marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
-        # C-5.5: attempt ids are a timestamp and a slug, so two daemons (or two
-        # test state roots) can mint the same id in the same second. The state
-        # root is the second half of the marker whenever the caller has one.
+        # Either exact marker holds. Attempt-id collisions between state roots
+        # and unrelated attempts under this root can conservatively delay
+        # release; a partial match must never silently discharge a writer.
         root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
                        if root else None)
         # Never retain or report these command/environment strings.
         for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
-            if marker.search(command) and (root_marker is None or root_marker.search(command)):
+            if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
                 pid = int(pid_text)
+                markers.add(pid)
                 state = table[pid][2] if pid in table else _stat(pid)
-                if state and not state.startswith("Z"):
-                    markers.add(pid)
+                if not state or state.startswith("Z"):
+                    markers.discard(pid)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
+    if workdir is not None:
+        try:
+            for pid in cwd_pids(workdir):
+                cwds.add(pid)
+                try:
+                    state = table[pid][2] if pid in table else _stat(pid)
+                    if not state or state.startswith("Z"):
+                        cwds.discard(pid)
+                except InspectionError:
+                    errors.append(f"cwd process inspection unavailable for pid {pid}")
+        except InspectionError:
+            errors.append("cwd enumeration unavailable")
+    observed_writer = observed_writer or bool(cwds)
     if observed_writer:
         try:
             observed_boots.add(seen.boot() if seen is not None else boot_id())
@@ -519,24 +668,37 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             # Retain the failed observation for diagnostics only.
             observed_boots.add("")
     identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers:
+    observed_groups: dict[int, int] = {}
+    incomplete_roots: list[CensusRoot] = []
+    for pid in groups | descendants | markers | cwds:
         try:
             # The snapshot's own start time when it has one; a pid it could not
             # describe (a marker spawned after the read) is asked about singly.
             current = (seen.identity(pid) if seen is not None else None) or identity(pid)
-            if current is not None:
+            group = (table[pid][1] if pid in table else process_group(pid)) if current is not None else None
+            if current is not None and group is not None:
                 identities[pid] = current
+                observed_groups[pid] = group
             else:
                 # A process can exit between census and identity capture.
                 groups.discard(pid)
                 descendants.discard(pid)
                 markers.discard(pid)
+                cwds.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
+            # The listing already observed this PID. Failure to capture its
+            # boot/start must not forget it when its parent subsequently exits.
+            # Empty identity components are uncertainty, never signal authority.
+            row = table.get(pid)
+            incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers if pid in table}
+              for pid in groups | descendants | markers | cwds if pid in table}
+    captured = tuple(CensusRoot(pid, ident.boot_id, ident.proc_start, observed_groups[pid])
+                     for pid, ident in sorted(identities.items()) if pid in observed_groups) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)))
+                       bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
+                       frozenset(cwds), captured, providers)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

@@ -69,6 +69,10 @@ from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_
 # C-5.7/C-5.11: one worker pass per second, at most eight full censuses.
 QUARANTINE_RECHECK_BATCH = 8
 QUARANTINE_PASS_S = 1.0
+# About four full process tables on the reviewed 1,100-process Mac, <= 1 MiB
+# of JSON per attempt. Refresh observations to the newest end. Overflow holds
+# on this boot: evicting a still-relevant group must never silently release.
+LINEAGE_ROOT_LIMIT = 4096
 
 
 def _json_object(raw: str | None) -> dict:
@@ -100,6 +104,22 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
             for pid, records in _identity_union(*sources).items()}
 
 
+def _recent_census_identities(*sources: dict) -> tuple[dict[str, list[dict]], str | None]:
+    """Bound the quarantine's duplicated identity history as well as its roots."""
+    recent = []
+    for source in sources:
+        for records in _identity_union(source).values():
+            for ident in records:
+                if ident in recent:
+                    recent.remove(ident)
+                recent.append(ident)
+    overflow = recent[-1].boot_id if len(recent) > LINEAGE_ROOT_LIMIT else None
+    history: dict[str, list[dict]] = {}
+    for ident in recent[-LINEAGE_ROOT_LIMIT:]:
+        history.setdefault(str(ident.pid), []).append(dataclasses.asdict(ident))
+    return history, overflow
+
+
 def _lineage_boot_union(*sources: dict) -> set[str]:
     """Diagnostic boot observations survive changes to the display text."""
     boots: set[str] = set()
@@ -116,7 +136,34 @@ def _retain_lineage(evidence: dict, census: dict) -> dict:
     boots = _lineage_boot_union(evidence, census)
     boots.update(ident.boot_id for records in _identity_union(census["identities"]).values()
                  for ident in records)
-    return {**evidence, "lineage_boot_ids": sorted(boots)} if boots else evidence
+    result = {**evidence, "lineage_boot_ids": sorted(boots)} if boots else dict(evidence)
+    roots = list(result.get("lineage_roots", []))
+    captured = list(census.get("lineage_roots", []))
+    # Receipts from older censuses already carried identity and group shapes.
+    for pid, value in census.get("identities", {}).items():
+        shape = census.get("shapes", {}).get(str(pid), {})
+        if shape.get("pgid"):
+            root = {**value, "pgid": shape["pgid"]}
+            if root not in captured:
+                captured.append(root)
+    for root in captured:
+        if root in roots:
+            roots.remove(root)
+        roots.append(root)
+    if len(roots) > LINEAGE_ROOT_LIMIT:
+        # A discarded observation's groups/descendants cannot be disproved
+        # later. Keep a conservative overflow hold until a proven reboot.
+        result["lineage_overflow_boot"] = roots[-1]["boot_id"]
+        roots = roots[-LINEAGE_ROOT_LIMIT:]
+    if roots:
+        result["lineage_roots"] = roots
+    providers = list(result.get("provider_identities", []))
+    for ident in census.get("provider_identities", []):
+        if ident not in providers:
+            providers.append(ident)
+    if providers:
+        result["provider_identities"] = providers[-LINEAGE_ROOT_LIMIT:]
+    return result
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -3892,8 +3939,21 @@ class Daemon:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
     def _probe_census(self, record: dict):
-        return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+        guardian = (procs.ProcessIdentity(record["guardian_pid"], record["boot_id"], record["proc_start"])
+                    if all(record.get(key) for key in ("guardian_pid", "boot_id", "proc_start")) else None)
+        census = procs.containment(record.get("pgid"), record.get("guardian_pid"),
+                                   record.get("child_pid"), record["holder"], root=str(self.root),
+                                   recorded=_identity_union(record.get("owned_identities", {})),
+                                   launch_boot_id=record.get("boot_id"), guardian_identity=guardian,
+                                   workdir=record["directory"],
+                                   lineage_roots=tuple(procs.CensusRoot(**value)
+                                                       for value in record.get("lineage_roots", [])),
+                                   lineage_overflow_boot=record.get("lineage_overflow_boot"))
+        retained = _retain_lineage(record, census.to_dict())
+        if retained != record:
+            record.update(retained)
+            self._save_probe(record)
+        return census
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -3903,7 +3963,9 @@ class Daemon:
         pid = record.get("guardian_pid")
         leader_live = pid and procs.same_process(pid, record.get("boot_id"), record.get("proc_start"))
         if leader_live:
-            owned.update({p: ident for p, ident in census.identities.items() if p in census.group_pids})
+            owned.update({p: ident for p, ident in census.identities.items()
+                          if p in census.group_pids
+                          and census.shapes.get(p, {}).get("pgid", record.get("pgid")) == record.get("pgid")})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
         if not census.verified_empty and record.get("state") != "quarantined":
@@ -5879,6 +5941,7 @@ class Daemon:
         return True
 
     def _contain(self, a: dict):
+        a = self.store.get_attempt(a["attempt_id"])
         evidence = json.loads(a.get("evidence_json") or "{}")
         held = _json_object(a.get("quarantine_reason"))
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
@@ -5889,21 +5952,48 @@ class Daemon:
         if a.get("guardian_pid") and a.get("boot_id") and a.get("proc_start"):
             guardian = {str(a["guardian_pid"]): {"pid": a["guardian_pid"], "boot_id": a["boot_id"],
                                               "proc_start": a["proc_start"]}}
-        recorded = _identity_union(evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
+        provider_records = {str(value["pid"]): value for value in evidence.get("provider_identities", [])}
+        recorded = _identity_union(provider_records, evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
+        legacy_lineage = _retain_lineage({}, {"identities": held.get("identities", {}),
+                                               "shapes": held.get("shapes", {})})
+        roots = list(evidence.get("lineage_roots", []))
+        roots.extend(value for value in legacy_lineage.get("lineage_roots", []) if value not in roots)
         launch_boot = a.get("boot_id") or start.get("boot_id")
         # Saved boot observations describe prior censuses; they do not gate
         # release. Automatic and --confirm-dead use the same full C-5.5 census.
         lineage_boots = tuple(sorted(_lineage_boot_union(evidence, held)))
-        # Preserve the legacy publication hold without pinning every quarantine.
-        # An exit receipt establishes that the guardian waited for its child.
+        # Legacy kills already captured provider identities as owned members.
+        # Their identities are checked by the census, even without publication.
+        owned_provider = bool(a.get("killed_by") and any(
+            int(pid) != a.get("guardian_pid") for pid in evidence.get("owned_identities", {})))
         child_unrecorded = bool(start.get("guardian_pid") and not child_pid
+                                and not evidence.get("provider_identities") and not owned_provider
                                 and self._read_json(adir / "exit.json") is None)
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
-                                 a["attempt_id"], root=str(self.root), recorded=recorded,
-                                 launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
-                                 child_unrecorded=child_unrecorded)
+        job = self._job(a["job_id"])
+        census = procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
+                                   a["attempt_id"], root=str(self.root), recorded=recorded,
+                                   launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
+                                   child_unrecorded=child_unrecorded,
+                                   guardian_identity=procs.ProcessIdentity(**next(iter(guardian.values()))) if guardian else None,
+                                   workdir=job.get("worktree") or job["workdir"],
+                                   lineage_roots=tuple(procs.CensusRoot(**value)
+                                                       for value in roots),
+                                   lineage_overflow_boot=evidence.get("lineage_overflow_boot", legacy_lineage.get("lineage_overflow_boot")))
+        # Every full census (kill and finalization included) retains observations
+        # before parent death can erase them. These never become signal targets.
+        # A quarantine recheck records the same census in still_live/release;
+        # avoid a second audit event for one changed observation.
+        with self.store.transaction("attempt.lineage_recorded", job_id=a["job_id"],
+                                    attempt_id=a["attempt_id"], audit=a["state"] != "quarantined") as tx:
+            actual = self.store.get_attempt(a["attempt_id"])
+            previous = json.loads(actual["evidence_json"] or "{}")
+            retained = _retain_lineage(previous, census.to_dict())
+            if retained != previous:
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                           (json.dumps(retained), a["attempt_id"]))
+        return census
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
@@ -5988,25 +6078,42 @@ class Daemon:
         """C-5.6: remember the group's members while the recorded guardian leads it.
 
         Both facts come from the one table, so the leader is known to be ours at
-        the instant its members were listed. Only group members are recorded,
-        which is why the marker scan of a full census is not run here. The
+        the instant its members were listed. Group members become signal
+        ownership; all descendants also become census roots with their groups.
+        This paced table inspection needs neither markers nor a cwd scan. The
         leader is ours by C-5.3's rule, the one `same_process` applies before
         the kill protocol records members, so a legacy boot timestamp that
         matches counts.
         """
         guardian = a["guardian_pid"]
-        if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
-                or table.rows[guardian][1] != a["pgid"]):
+        guardian_live = table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        start = self._read_json(adir / "start.json") or {}
+        child = start.get("child_identity") or {}
+        child_live = table.is_process(child.get("pid"), child.get("boot_id"), child.get("proc_start"), legacy=True)
+        if not guardian_live and not child_live:
             return
-        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
-        evidence = json.loads(a["evidence_json"] or "{}")
-        before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
-        if owned != before:
-            evidence["owned_identities"] = owned
-            evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}), before, owned)
-            with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+        roots = tuple(pid for pid, live in ((guardian, guardian_live), (child.get("pid"), child_live)) if live)
+        observed = [dataclasses.asdict(procs.CensusRoot(pid, ident.boot_id, ident.proc_start, table.rows[pid][1]))
+                    for pid in sorted(table.descendants(roots)) if (ident := table.identity(pid)) is not None]
+        providers = [dataclasses.asdict(ident) for pid, row in table.rows.items()
+                     if guardian_live and row[0] == guardian and (ident := table.identity(pid)) is not None]
+        # Signal ownership remains confined to members of the verified leader's
+        # group. Detached descendants are saved only as census roots.
+        members = ({pid: table.identity(pid) for pid in table.group(a["pgid"])}
+                   if guardian_live and table.rows[guardian][1] == a["pgid"] else {})
+        with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            actual = self.store.get_attempt(a["attempt_id"])
+            previous = json.loads(actual["evidence_json"] or "{}")
+            evidence = dict(previous)
+            before = dict(evidence.get("owned_identities", {}))
+            owned = {**before, **{str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident}}
+            if owned != before:
+                evidence["owned_identities"] = owned
+                evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}), before, owned)
+            evidence = _retain_lineage(evidence, {"identities": {}, "lineage_roots": observed,
+                                                  "provider_identities": providers})
+            if evidence != previous:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
     def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None) -> None:
@@ -6070,7 +6177,7 @@ class Daemon:
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
         census = self._contain(a)
-        evidence = json.loads(a["evidence_json"] or "{}")
+        evidence = json.loads(self.store.get_attempt(a["attempt_id"])["evidence_json"] or "{}")
         # Only group members observed while the recorded leader is still ours
         # may become additional signal targets. Escaped/new marker pids remain
         # evidence for quarantine, never authority inferred from a PID alone.
@@ -6078,7 +6185,9 @@ class Daemon:
         before = evidence.get("owned_identities", {})
         leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if leader_live:
-            owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
+            owned.update({pid: ident for pid, ident in census.identities.items()
+                          if pid in census.group_pids
+                          and census.shapes.get(pid, {}).get("pgid", a.get("pgid")) == a.get("pgid")})
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}),
                                                                before, evidence["owned_identities"])
@@ -6199,15 +6308,18 @@ class Daemon:
             # read supplies no identities. They are checked on the next pass.
             previous = _json_object(a["quarantine_reason"])
             current = census.to_dict()
+            history, overflow_boot = _recent_census_identities(previous.get("identity_history", {}),
+                                                               previous.get("identities", {}), current["identities"])
             detail = {**previous, **current,
-                      "identities": {**previous.get("identities", {}), **current["identities"]},
-                      "identity_history": _identity_history(previous.get("identity_history", {}),
-                                                            previous.get("identities", {}), current["identities"])}
+                      "identities": {pid: records[-1] for pid, records in history.items()},
+                      "identity_history": history}
             evidence = json.loads(a["evidence_json"] or "{}")
-            if detail != previous or _retain_lineage(evidence, current) != evidence:
+            if detail != previous or _retain_lineage(evidence, current) != evidence or overflow_boot is not None:
                 with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=current) as tx:
                     actual = self.store.get_attempt(a["attempt_id"])
                     evidence = _retain_lineage(json.loads(actual["evidence_json"] or "{}"), current)
+                    if overflow_boot is not None:
+                        evidence["lineage_overflow_boot"] = overflow_boot
                     tx.execute("UPDATE attempts SET quarantine_reason=?,evidence_json=? WHERE attempt_id=?",
                                (json.dumps(detail), json.dumps(evidence), a["attempt_id"]))
             return
