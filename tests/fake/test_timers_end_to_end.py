@@ -190,13 +190,9 @@ def test_socket_timer_status(daemon):
 
 def test_keepalive_uses_real_guardian_when_process_inspection_allowed(monkeypatch):
     """C-5.1 C-8.4 C-23.19 C-23.29: guardian fake turn publishes activity without a job."""
-    from subfleet import procs
     from tests.fake_adapter import FakeAdapter
-    try:
-        procs.boot_id()
-        procs.proc_start(__import__('os').getpid())
-    except (OSError, procs.InspectionError):
-        pytest.skip('sandbox denies process inspection; bounded turn unit tests cover this seam')
+    from tests.platform_gates import require_process_identity
+    require_process_identity()
     monkeypatch.setattr('subfleet.daemon.get_adapter', lambda provider: FakeAdapter())
     with tempfile.TemporaryDirectory(prefix='sfg-', dir='/tmp') as temporary:
         value = Daemon(temporary, term_grace_s=.05)

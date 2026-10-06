@@ -31,8 +31,12 @@ bin/sf2 --help
 ```
 
 The default suite uses temporary stores and fake providers. Real-provider tests
-require explicit opt-in. GitHub Actions runs the suite on macOS with Python 3.12
-and 3.14; process containment is tested on the same operating system as deployment.
+require explicit opt-in. GitHub Actions runs the suite on Linux with Python 3.12
+and 3.14, and once on macOS with Python 3.14, the deployed configuration. The
+macOS job also compiles the menu bar app. Process containment is tested on the
+same operating system as deployment: tests that need macOS call a gate in
+`tests/platform_gates.py`, skip on Linux with the reason, and fail rather than
+skip in the macOS job (`SUBFLEET_REQUIRE_MACOS_TESTS=1`).
 `bin/sf2` uses this checkout's environment and ignores inherited Python paths from
 v1. Keep it separate from the installed `subfleet` command during validation.
 

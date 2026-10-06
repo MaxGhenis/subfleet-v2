@@ -17,6 +17,7 @@ import uuid
 
 import pytest
 
+from tests.platform_gates import require_process_identity
 
 REPO = Path(__file__).resolve().parents[2]
 TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -176,13 +177,7 @@ class Harness:
 
 @pytest.fixture(scope="session")
 def process_inspection_available():
-    from subfleet.procs import InspectionError, boot_id, proc_start
-    try:
-        boot_id()
-        if not proc_start(os.getpid()):
-            pytest.skip("C-5.3 requires process identity; ps returned no current process")
-    except InspectionError as exc:
-        pytest.skip(f"C-5.3 real daemon tests require permitted sysctl/ps inspection: {exc}")
+    require_process_identity()
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)

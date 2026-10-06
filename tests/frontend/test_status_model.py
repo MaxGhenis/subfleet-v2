@@ -3,9 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
-import shutil
 import subprocess
-import sys
 
 import pytest
 
@@ -14,8 +12,6 @@ from subfleet.status_json import build_status
 
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 9, 19, 12, tzinfo=timezone.utc)
-pytestmark = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun") is None,
-                                reason="native Swift frontend validation requires macOS developer tools")
 
 
 @pytest.fixture(scope="session")

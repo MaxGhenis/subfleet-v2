@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from tests.frontend.test_status_model import NOW, ROOT, _job, lane, pytestmark
+from tests.frontend.test_status_model import NOW, ROOT, _job, lane
 from subfleet.status_json import build_status
 
 

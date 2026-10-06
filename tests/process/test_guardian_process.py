@@ -1,4 +1,4 @@
-"""Real macOS ownership checks, explicitly skipped when OS inspection is denied."""
+"""Real macOS ownership checks, explicitly skipped off macOS or when OS inspection is denied."""
 
 import json
 import os
@@ -11,17 +11,12 @@ from pathlib import Path
 import pytest
 
 from subfleet import procs
+from tests.platform_gates import require_process_identity
 
 
 @pytest.fixture(scope="module", autouse=True)
 def macos_inspection():
-    if sys.platform != "darwin":
-        pytest.skip("C-5.3 requires macOS sysctl kern.boottime and BSD ps")
-    try:
-        if procs.identity(os.getpid()) is None:
-            pytest.skip("C-5.3 process identity unavailable")
-    except procs.InspectionError:
-        pytest.skip("C-5.3 host sandbox denies ps/sysctl; no ownership bypass")
+    require_process_identity()
 
 
 def wait_file(path, timeout=3):

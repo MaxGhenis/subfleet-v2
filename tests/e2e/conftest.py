@@ -19,6 +19,7 @@ from typing import NamedTuple
 import pytest
 
 from tests.fake.profile import derived_identity as claude_identity
+from tests.platform_gates import require_process_identity
 
 REPO = Path(__file__).resolve().parents[2]
 TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
@@ -292,13 +293,7 @@ class E2E:
 
 @pytest.fixture(scope="session")
 def e2e_process_inspection():
-    from subfleet.procs import InspectionError, boot_id, proc_start
-    try:
-        boot_id()
-        if not proc_start(os.getpid()):
-            pytest.skip("C-5.3 e2e requires a visible current process from ps")
-    except InspectionError as exc:
-        pytest.skip(f"C-5.3 e2e requires permitted ps/sysctl inspection: {exc}")
+    require_process_identity()
 
 
 @pytest.fixture
