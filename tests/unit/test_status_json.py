@@ -403,7 +403,8 @@ def test_c18_1_probe_fields_are_additions_only():
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
     assert set(result) == {"generated_at", "offline", "jobs", "conversations", "alerts", "codex", "claude"}
     assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
-    assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes"}
+    assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes", "cards"}   # C-9.10
+    assert result["claude"]["cards"] == {"read_at": None, "disabled": False, "accounts": [], "warnings": []}
     assert set(codex) == V1_CODEX_ROW | PROBE_ROW
     assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
     assert set(result["codex"]["fleet"]) == V1_FLEET | {"probe_held"}
