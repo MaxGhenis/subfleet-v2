@@ -47,6 +47,7 @@ import ctypes.util
 import errno
 import os
 import sys
+import unicodedata
 from typing import Any, Callable, Iterable
 
 EXCLUSIVE = "worktree:"
@@ -193,6 +194,18 @@ def above(folder: str) -> list[str]:
         found.append(parent)
         folder = parent
     return found
+
+
+def fold(path: str) -> str:
+    """`path` as a case-insensitive volume compares names: Unicode's canonical
+    caseless form, NFD(casefold(NFD(path))) (The Unicode Standard §3.13, D145), so
+    `Job`, `jOB` and `JOB`, or a name in NFC and in NFD, fold alike. On APFS
+    (checked 2026-10-05, nine pairs) a lookup found a folder by another name
+    exactly when the two fold alike: `jOB` for `Job`, `STRASSE` for `straße`, `FI`
+    for `ﬁ`, `ς` for `Σ`, NFD for NFC, and not `i` for `İ`, which do not. `/`
+    folds to itself, so `within` holds between folded spellings as between
+    spellings."""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
 
 
 def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:

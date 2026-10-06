@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import folders
+from . import dependencies, folders
 from . import retention_fs as rfs
 from . import retention_git as rgit
 from . import retention_qos as rqos
@@ -130,6 +130,9 @@ class Context:
     repositories: list[Path] | None = None
     #: repository -> its salvage refs, read once a pass for the same jobs.
     salvage_listings: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: job id -> the places a job queued before submit recorded them needs
+    #: (`dependencies.legacy`), read once a pass before any transaction.
+    legacy: dict[str, list[str]] = field(default_factory=dict)
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -766,6 +769,13 @@ class Retirement:
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
+                    # And a job that has not ended that needs a place in the tree (its
+                    # folder, review root, `-o` path or git storage), or an export
+                    # pending to a path there (`dependencies`), on the same spelling.
+                    if not reason and j["worktree"] and dependencies.dependents(
+                            lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"],
+                            exclude=self.job_id, legacy_places=self.ctx.legacy):
+                        reason = "worktree-in-use"
                     held = {row["lease_key"]: row["holder"] for row in conn.execute(
                         "SELECT lease_key,holder FROM leases WHERE lease_key IN (?,?)",
                         (f"retire:{self.job_id}", f"worktree:{j['worktree']}")).fetchall()}

@@ -286,17 +286,23 @@ def _blocked(hold: Mapping[str, Any]) -> str:
     return "; ".join(part for part in parts if part) or "blocked"
 
 
+#: C-8.4: what a held job needs in a tree retention is retiring, besides its folder (`dependencies`).
+_NEEDS = {"review-root": "review root (-D)", "output": "output path (-o)", "git-storage": "git storage"}
+
+
 def _retiring(hold: Mapping[str, Any]) -> dict[str, str]:
     """C-8.4: the fields of `lease-held:retiring`. Retention's fence is no job's lease
-    but a finished job's worktree being removed, which the held job's folder is or
-    is in (`retiring`, `folder`); any other key the job waits for is named after it."""
+    but a finished job's worktree being removed, which the held job's folder, or
+    another place it needs (`needs`: its review root, `-o` path or git storage), is
+    or is in (`retiring`, `folder`); any other key the job waits for is named after it."""
     fences = list(hold.get("retiring") or ())
     trees = ", ".join(str(key).split(":", 1)[1] for key in fences)
     folder = hold.get("folder")
+    what = _NEEDS.get(str(hold.get("needs")), "folder")
     others = [key for key in hold.get("leases") or () if key not in fences]
     return {"trees": trees,
-            "where": (", its folder" if folder and trees == folder else
-                      f" that its folder {folder} is in" if folder else " it works in"),
+            "where": (f", its {what}" if folder and trees == folder else
+                      f" that its {what} {folder} is in" if folder else " it works in"),
             "others": "; a lease it needs is also held by another job: " + ", ".join(others) if others else ""}
 
 

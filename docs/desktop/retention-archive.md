@@ -594,9 +594,10 @@ job; it or an attempt holds a lease; another holder has its worktree lease; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
-inside the commit transaction); a job not yet ended works in its allocated
-tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or, while that
-is NULL, the `worktrees/<job id>` admission allocated, revision 5); a turn job within `turn_keep_days`; an
+inside the commit transaction); a job not yet ended needs a place in its
+allocated tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or,
+while that is NULL, the `worktrees/<job id>` admission allocated, revision 5),
+or an export to a path there is pending (below); a turn job within `turn_keep_days`; an
 explicit reference; another job's worktree is registered in a repository
 inside its tree and that job still has rows (`nested-host: <those jobs>`: which job each
 owned worktree's gitfile names is read once per pass, and a job whose tree is
@@ -604,6 +605,34 @@ gone counts as hosted by the tree its source directory is in; asked again
 inside the commit transaction, so a host already in flight is put back). The
 hosted job then retires first, while its registration is readable, with its
 own anchor and bundle, and the host in a later pass.
+
+`worktree-in-use` (C-8.4, `subfleet/dependencies.py`, 2026-10-06). The places
+a job that has not ended needs are its workdir, worktree, review root (`-I -D`)
+and `-o` path as its row holds them; its folder or write target as submit
+recorded it (or, for a job queued before that, as admission spelled it,
+`job.folder_spelled`); and what submit records as `depends`, spelled once: the
+review root, the `-o` path, and the git storage its folder's checkout uses
+(for each `.git` at or above the folder, the directory it is or names, that
+directory's common directory and the alternates of its objects, read from the
+files without running git). A checkout outside the tree can keep its
+repository in it (`git -C <tree>/vendor/lib worktree add <outside>`); every git
+command in the checkout then works in the tree, and a worktree writer submitted
+from there registers its worktree there. A job holding `out:<path>` has an
+export pending (it is written after the job ends, C-8.3), and that path is a
+place too, whatever the job's state. A tree is kept while any such place is the
+tree or inside it, comparing places folded (`folders.fold`), so a row's
+workdir typed in another case names the tree. The pass reads this once, and
+the selecting and commit transactions read it again for their job, also on
+the fence's spelling, with database reads alone: each job's first
+`job.submitted` by job id (`events_job`) and the `out:` leases by a range of
+their key. The self-join it replaces compared every finished job's tree with
+every job not yet ended by `LIKE`; measured in
+`docs/reports/2026-10-06-retention-dependency-pins.md`. A job queued before
+`depends` was recorded has those places read once a pass, before any
+transaction (`dependencies.legacy`). Admission reads retention's fence on each
+place in `depends` as on a job's folder (C-6.5, C-6.11). A written export keeps
+nothing: retention may archive a tree a finished export wrote into, the file
+with it.
 
 ## 11. Accounting
 
@@ -788,6 +817,13 @@ Each is tested (section 16).
   allocated for a job is retired with that job, recorded in `jobs.worktree` or
   not. A writable git job keeps the expected daemon path while it is absent,
   so its lease and journal still protect a moved or returning allocation.
+- **I16, a needed tree stays** (2026-10-06, C-8.4). A finished job's tree is
+  kept, at the pass, the selection and the commit, exactly while a job that has
+  not ended needs a place in it (its folder, workdir, worktree, review root,
+  `-o` path or git storage, compared folded) or an export to a path in it is
+  pending; spelling a place in another case or Unicode form changes nothing,
+  and a job that has not ended never releases a pin. Admission starts no job
+  while retention holds the fence above any such place.
 
 ## 15. Residual risks
 
@@ -944,6 +980,19 @@ missing, corrupt or verified archive copies, and paths absent before retirement.
 A vouched salvage is present in every case. The oracle checks kept trees and
 registrations or imports the verified bundle into an independent repository and
 compares restored entries byte for byte.
+
+I16 tests (2026-10-06): `tests/unit/test_retention_dependencies.py` states D1 to
+D6. Generated layouts of repositories and linked checkouts check that the git
+directory and common directory git itself uses are among the recorded git
+storage; generated stores check `worktree-in-use` (pass and `only`) and the
+transactions' `dependents` against a direct oracle, under re-spelling and
+under adding or ending a job; `fences` agrees with `folders.retiring`; the
+reads' plans use `events_job` and a lease range. `tests/fake/test_retention_dependencies.py`
+runs the four gaps through the daemon's own submit and admission against the
+archive driver's own retirement: a queued job keeps the tree; a job submitted
+under the fence waits, unprepared, named by `why`; the commit keeps the tree for
+a job submitted after selection; a pending export keeps the tree and a written
+one goes into the archive; jobs queued before `depends`, and turns, are covered.
 
 
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
