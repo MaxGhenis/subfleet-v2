@@ -31,7 +31,7 @@ def test_default_policy_exact_models_and_caps():
     no count cap (2026-09-27, 2026-09-28: "remove *all* caps"), no machine guard,
     and keeps the bounds that are not counts."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    assert policy["models"]["sol"] == {"provider": "codex", "id": "gpt-6.1-sol", "effort": "ultra"}
+    assert policy["models"]["astra"] == {"provider": "codex", "id": "gpt-6-astra", "effort": "ultra"}
     assert policy["models"]["fable"]["scope"] == "fable"
     for key in ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured",
                 "max_active_attempts_per_parent", "max_writable_per_session", "max_child_jobs"):
@@ -57,12 +57,12 @@ def test_minimal_pick_filters_and_pins():
     policy = load_policy(DEFAULT_POLICY_PATH)
     lanes = [lane("codex-1", enabled=False), lane("codex-2", owner=LaneOwner.V1),
              lane("codex-3", desktop=True), lane("codex-4"), lane("codex-5"), lane("codex-6")]
-    closures = [{"lane_id": "codex-5", "scope": "gpt-6.1-sol", "until_at": "2026-09-05T13:00:00Z"}]
-    decision = pick(policy, lanes, pinned_model="sol", exclusions=["codex-4"], closures=closures, now=NOW)
+    closures = [{"lane_id": "codex-5", "scope": "gpt-6-astra", "until_at": "2026-09-05T13:00:00Z"}]
+    decision = pick(policy, lanes, pinned_model="astra", exclusions=["codex-4"], closures=closures, now=NOW)
     assert decision.chosen_lane == "codex-6"
-    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner-v1", "desktop", "excluded", "closed:gpt-6.1-sol:2026-09-05T13:00:00Z"]
-    assert pick(policy, lanes, pinned_model="sol", pinned_lane="codex-3", now=NOW).chosen_lane is None
-    assert pick(policy, lanes, pinned_model="sol", pinned_lane="codex-3", allow_desktop=True, now=NOW).chosen_lane == "codex-3"
+    assert [row["reason"] for row in decision.evaluations[0]["rejections"]] == ["disabled", "owner-v1", "desktop", "excluded", "closed:gpt-6-astra:2026-09-05T13:00:00Z"]
+    assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", now=NOW).chosen_lane is None
+    assert pick(policy, lanes, pinned_model="astra", pinned_lane="codex-3", allow_desktop=True, now=NOW).chosen_lane == "codex-3"
     with pytest.raises(ValueError, match="different providers"):
         pick(policy, lanes, pinned_model="opus", pinned_lane="codex-6", now=NOW)
 
@@ -79,9 +79,9 @@ def test_unmeasured_stale_lane_and_fleet_caps():
     assert lane_capacity(policy, "codex-1", [{**reading, "observed_at": "2026-09-05T11:57:00Z"}], now=NOW) == 1
     assert lane_capacity(policy, "codex-1", [{**reading, "label": "admission-observed"}], now=NOW) == 1
     assert lane_capacity(policy, "codex-1", [{**reading, "utilization": None}], now=NOW) == 1
-    assert pick(policy, [lane()], pinned_model="sol", in_flight={"codex-1": 1}, now=NOW).chosen_lane is None
-    assert pick(policy, [lane()], pinned_model="sol", in_flight={"codex-1": 1}, readings=[reading], now=NOW).chosen_lane == "codex-1"
-    assert pick(policy, [lane()], pinned_model="sol", in_flight={"codex-9": 4}, now=NOW).chosen_lane is None
+    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-1": 1}, now=NOW).chosen_lane is None
+    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-1": 1}, readings=[reading], now=NOW).chosen_lane == "codex-1"
+    assert pick(policy, [lane()], pinned_model="astra", in_flight={"codex-9": 4}, now=NOW).chosen_lane is None
 
 
 def test_keychain_secret_only_enters_environment(monkeypatch, tmp_path):
@@ -161,7 +161,7 @@ def test_retention_preserves_active_unread_quarantine_salvage_gate(tmp_path, mon
             add_terminal(store, tmp_path, identity, state="running" if identity == "active" else "succeeded")
         store.add_notice("notice", "unread", "session")
         for identity, state in [("quarantine", "quarantined"), ("salvage", "failed")]:
-            store.add_attempt(attempt_id=identity + "/a1", job_id=identity, seq=1, lane_id="codex-1", model_requested="gpt-6.1-sol", state=state)
+            store.add_attempt(attempt_id=identity + "/a1", job_id=identity, seq=1, lane_id="codex-1", model_requested="gpt-6-astra", state=state)
         store.add_artifact("salvage/a1", "salvage", "refs/subfleet-salvage/work-a1", "digest", 0)
         store.add_action(action_id="gate-action", kind="gate-merge", op_key="one", subject="gate", request_json=json.dumps({"evidence": "gate"}))
         import subfleet.retention as retention

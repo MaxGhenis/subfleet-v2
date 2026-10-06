@@ -7,7 +7,7 @@ import pytest
 from subfleet.status_json import build_status
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.swift import ROOT, compile_probe
-from tests.frontend.test_app_cutover_start import MESSAGE, input_for, refused_journal, world  # noqa: F401
+from tests.frontend.test_app_cutover_start import MESSAGE, input_for, refused_journal, route_codex_hard, world  # noqa: F401
 from tests.frontend.test_status_model import lane
 
 pytestmark = needs_swift
@@ -67,6 +67,7 @@ def test_switching_retries_and_relaunch_preserve_the_composer(review_probe, tmp_
 
 @pytest.mark.parametrize("claude,codex,expected", [(0, 0, "claude"), (0, 3, "codex"), (1, 3, "claude")])
 def test_auto_requires_a_ready_codex_lane(review_probe, tmp_path, world, claude, codex, expected):
+    route_codex_hard(world)
     state = tmp_path / "state"
     state.mkdir()
     payload = build_status({"lanes": [lane("codex"), lane("claude")], "offline": False}, now=datetime.now(timezone.utc))
@@ -82,13 +83,22 @@ def test_auto_requires_a_ready_codex_lane(review_probe, tmp_path, world, claude,
 
 
 def test_remembered_astra_cannot_override_the_daemon_hard_default(review_probe, tmp_path, world):
+    route_codex_hard(world)
     data = input_for(tmp_path, world, availability=world.call("capabilities"),
                      defaults={"providerChoice": "codex", "lastModel.codex": "gpt-6-astra"}, steps=[{"action": "open"}])
-    codex = data["models"]["codex"]
-    old = dict(codex["models"][0], short="astra", id="gpt-6-astra", value="gpt-6-astra", values=["gpt-6-astra"])
-    codex["models"].insert(0, old)
-    codex["default_models"] = {"codex": "gpt-6.1-sol"}
+    assert data["models"]["codex"]["models"][0]["id"] == "gpt-6-astra"
     assert run(review_probe, tmp_path, data)[-1]["model"] == "gpt-6.1-sol"
+
+
+@pytest.mark.parametrize("default", [None, "unpublished-model"])
+def test_codex_default_falls_back_to_first_non_retired_model(review_probe, tmp_path, world, default):
+    data = input_for(tmp_path, world, defaults={"providerChoice": "codex"}, steps=[{"action": "open"}])
+    codex = data["models"]["codex"]
+    template = codex["models"][0]
+    codex["models"] = [dict(template, short=short, id=short, value=short, values=[short], retired=retired)
+                       for short, retired in [("retired-model", True), ("first-active", False), ("second-active", False)]]
+    codex["default_models"] = {"codex": default} if default else {}
+    assert run(review_probe, tmp_path, data)[-1]["model"] == "first-active"
 
 
 def test_older_daemon_skips_optional_check_at_open_and_start(review_probe, tmp_path, world):

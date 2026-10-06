@@ -67,11 +67,9 @@ def replace(folder, file, before, after):
 
 def daemon_mutations(folder):
     specs = [
-        ("policy", "subfleet/default_policy.json", '"id": "gpt-6.1-sol"', '"id": "gpt-6-astra"',
-         "test_default_codex_policy_routes_hard_to_sol_and_retires_astra"),
         ("hard-tier", "subfleet/conversations/service.py", 'else hard_models', 'else ["sol"]',
-         "test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias"),
-        ("retired-default", "subfleet/conversations/service.py", ' and m["id"] != "gpt-6-astra"', '',
+         "test_codex_default_follows_loaded_hard_tier_policy"),
+        ("retired-default", "subfleet/conversations/service.py", ' and not m["retired"]', '',
          "test_retired_astra_is_never_a_default_even_in_an_old_custom_policy"),
         ("empty-folder", "subfleet/conversations/service.py", 'planned = not workspace', 'planned = False',
          "test_no_folder_check_and_create_agree_without_check_writes"),
@@ -119,7 +117,7 @@ def ui_mutations(folder):
         ("retry-storage", "test_retry_preserves_composer_and_original_message_identity"),
         ("retry-restore", "test_retry_preserves_composer_and_original_message_identity"),
         ("auto", "test_auto_requires_a_ready_codex_lane[0-0-claude]"),
-        ("retired-memory", "test_remembered_astra_cannot_override_the_daemon_hard_default"),
+        ("retired-memory", "test_codex_default_falls_back_to_first_non_retired_model"),
         ("capability", "test_older_daemon_skips_optional_check_at_open_and_start"),
         ("transient", "test_unanswered_check_keeps_folder_and_rechecks_on_reconcile"),
         ("footer", "test_last_successful_retry_clears_only_its_notice"),
