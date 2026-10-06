@@ -528,6 +528,9 @@ def test_c24_5_turns_of_conversations_sharing_a_checkout_run_at_once(tmp_path):
     from subfleet import folders
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         _checkout(harness)
+        # TMPDIR inside the checkout must not make the plain sibling inherit
+        # the enclosing repository; the two real checkouts remain discoverable.
+        patch.setenv("GIT_CEILING_DIRECTORIES", str(harness.root))
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         sub = harness.workdir / "pkg"
         sub.mkdir()

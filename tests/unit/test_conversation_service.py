@@ -1149,10 +1149,15 @@ def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, r
     str(err.value).encode("utf-8")                                     # a reply can carry it
 
 
-def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
+def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path, monkeypatch):
     """D-16: outside git the create is refused and no conversation is left behind."""
     plain = tmp_path / "plain"
     plain.mkdir()
+    # Preserve the outside-git premise when TMPDIR is inside this checkout.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    # Fail on a bad fixture before worktree creation could reach enclosing Git
+    # metadata; this read does not mutate the repository it discovers.
+    assert svc._git_toplevel(str(plain)) is None
     with pytest.raises(ConversationError) as err:
         create_worktree(svc, plain)
     assert err.value.reason == "not-a-repository"
