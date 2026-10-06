@@ -4264,14 +4264,18 @@ class Daemon:
         (`_workspace`): on 9e159ec9 each look at a writable turn so held ran nine git
         processes in the tree being retired, and a read-only one two. Git moved the
         times of a nested repository's `.git`, which retention signs, and a git still
-        running when the tree went to quarantine was a holder there (I7). A plain
-        read comes first, so a look with no fence costs one indexed query and no
-        write lock. A fence found is read again inside the transaction that records
-        the wait, and the hold is the one the admitting transaction records for a
-        fence: a waiter on those keys (never queued for: a job only needs them
-        free), the capacity wait under the same signature, the job's `waiting` row
-        and clock, and the job's folder, which its reason names (C-6.11). A job that
-        ended or was cancelled meanwhile is not held, and not prepared either."""
+        running when the tree went to quarantine would be a holder there (I7,
+        `retention_holders`). A plain read comes first, so a look with no fence costs
+        one indexed query here and no write lock. A look whose read came just before
+        retention took the fence still prepares the workspace, in that tree, and the
+        transaction then holds the job. A fence found is read again inside the
+        transaction that records the wait, and the hold is the one the admitting
+        transaction records for a fence: a waiter on those keys (never queued for: a
+        turn only needs them free; a job that would take one of them as its own lease
+        is queued for it by the transaction, `queue_for`, and is not here), the
+        capacity wait under the same signature, the job's `waiting` row and clock, and
+        the job's folder, which its reason names (C-6.11). A job that ended or was
+        cancelled meanwhile is not held, and not prepared either."""
         if not folders.retiring(self.store.query, folder):
             return False
         with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:

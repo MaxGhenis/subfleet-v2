@@ -393,7 +393,7 @@ def admitted(daemon, turn, mid, prepared) -> dict:
             "reason": reason(daemon, mid), "prepared": prepared.count(turn)}
 
 
-@pytest.mark.parametrize("where", ["nested", "tree"])
+@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(tmp_path, writable, where):
     """Differential (C-8.4, C-6.10, C-6.11): a turn whose folder is in a tree retention
@@ -401,7 +401,8 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
     the admitting transaction holds it when that look is left out: the same hold but
     its clock, the same capacity wait (its signature, so its backoff, and what `why`
     reads), the same `waiting` row and the same message reason. Only the start
-    snapshot is spared."""
+    snapshot is spared. `subdirectory`: a turn submitted in a folder inside the tree
+    keys its row, and so its hold, on the tree, not on the folder it was opened in."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout
     from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
@@ -412,6 +413,8 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
             measure(daemon, lane)
         tree, nested = retiring_tree(daemon, harness)
         folder = nested if where == "nested" else tree
+        workspace = Path(tree) / "pkg" if where == "subdirectory" else folder
+        Path(workspace).mkdir(exist_ok=True)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
         prepare, fence_hold, prepared = daemon._workspace, daemon._fence_hold, []
@@ -419,7 +422,7 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
         seen = {}
         for path in ("transaction", "look"):
             patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
-            _, mid, turn = message_in(daemon, harness, path, workspace=folder, settings=options)
+            _, mid, turn = message_in(daemon, harness, path, workspace=workspace, settings=options)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
         fence = [folders.exclusive_key(tree)]
@@ -570,6 +573,7 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
                 holds, waiters = {}, {}
                 backed_off = after(scheduler.capacity_recheck_delay(look - 1))     # read before: a lower bound
                 answer = daemon._fence_hold(job, folder, holds, waiters, "standard", None, None)
+                at_most = after(scheduler.capacity_recheck_delay(look - 1))        # read after: an upper bound
                 now = (daemon._job(turn), daemon.store.one("SELECT max(event_id) AS n FROM events")["n"])
                 assert answer == bool(expected), (rows, job_state)
                 if not expected or gone:
@@ -579,7 +583,7 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
                 # A bound read before the look, not the time after it: both clocks are
                 # whole seconds, so a delay of 1 s can read as now.
                 assert (row["state"], row["wait_reason"]) == ("waiting", "capacity")
-                assert row["next_check_at"] >= backed_off, (look, row["next_check_at"], backed_off)
+                assert backed_off <= row["next_check_at"] <= at_most, (look, row["next_check_at"], backed_off, at_most)
                 assert holds == {turn: {"reason": "lease-held", "leases": expected, "folder": folder,
                                         "next_check_at": row["next_check_at"]}}, rows
                 assert waiters == {"standard": [(turn, None, None, frozenset(expected))]}
@@ -619,6 +623,90 @@ def test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass(tmp_
         assert reads[:2] == [[folders.exclusive_key(tree)], []], reads
         assert _live(daemon, turn), daemon._holds.get(turn)
         assert turn not in daemon._capacity_waits
+
+
+def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_path):
+    """C-8.4: the other order. Retention takes the fence just after the look's plain
+    read found none: the look prepares the turn's workspace, git and all, in the tree
+    now being retired, and the admitting transaction's own read holds the turn with
+    the fence's hold. The look narrows the window; the transaction closes it."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import message_in
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        tree, nested = retiring_tree(daemon, harness)
+        _, _, turn = message_in(daemon, harness, "Taken", workspace=nested)
+        prepare, prepared = daemon._workspace, []
+        patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
+        real, reads = folders.retiring, []
+
+        def taken(read, folder):
+            found = real(read, folder)
+            if not reads:
+                assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
+            reads.append(found)
+            return found
+
+        patch.setattr(folders, "retiring", taken)
+        spawned = git_spawns(patch)
+        daemon._admit_turns()
+        assert reads[:2] == [[], [folders.exclusive_key(tree)]], reads
+        assert not _live(daemon, turn)
+        hold = dict(daemon._holds[turn])
+        hold.pop("next_check_at")
+        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)], "folder": nested}, hold
+        assert prepared == [turn] and any(ran_in(spawn, tree) for spawn in spawned), (prepared, spawned)
+
+
+def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_turn_cap(tmp_path):
+    """C-6.9, C-26.9, differential with 9e159ec9: with a turn cap set
+    (`conversations.max_active_turns`), an older turn held on the fence is a waiter of
+    its turns' class (`<tier>#turn`) with its demand, so a later turn on the same lane
+    and model is held `behind-older-job`, and one on another lane is placed, as when
+    the transaction held the older turn. Pins what the call site hands `_fence_hold`
+    (`tier`, `models`, `lanes`), which its own property test cannot."""
+    import tests.fake.test_turn_wait_reasons as reasons
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
+    from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        patch.setitem(daemon.policy, "conversations", {**(daemon.policy.get("conversations") or {}),
+                                                       "max_active_turns": 5})
+        tree, nested = retiring_tree(daemon, harness)
+        assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
+        elsewhere = tmp_path / "Elsewhere"
+        elsewhere.mkdir()
+        seen = {}
+        fence_hold = daemon._fence_hold
+        for path in ("transaction", "look"):
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            _, _, older = message_in(daemon, harness, f"older-{path}", workspace=nested)
+            reader = {**SETTINGS, "permission": "read-only"}
+            _, _, later = message_in(daemon, harness, f"later-{path}", workspace=elsewhere, settings=reader)
+            patch.setattr(reasons, "CODEX", (CODEX[1],))             # a conversation on codex-2
+            _, _, beside = message_in(daemon, harness, f"beside-{path}", workspace=elsewhere, settings=reader)
+            patch.setattr(reasons, "CODEX", CODEX)
+            daemon._admit_turns()
+            assert not _live(daemon, later) and daemon._holds[older]["reason"] == "lease-held", \
+                (path, {job: daemon._holds.get(job) for job in (older, later)})
+            held = dict(daemon._holds[later])
+            held["behind"] = held["behind"] == older
+            seen[path] = {"later": held, "beside": _live(daemon, beside)}
+            _end(daemon, beside)
+            with daemon.store.transaction("test.settle") as tx:      # out of the next path's way
+                tx.execute("UPDATE jobs SET state='cancelled',cancel_requested_at=? WHERE job_id IN (?,?)",
+                           ("2026-10-05T00:00:00Z", older, later))
+        assert seen["transaction"] == {"later": {"reason": "behind-older-job", "behind": True, "tier": "standard#turn"},
+                                       "beside": True}, seen
+        assert seen["look"] == seen["transaction"], seen
 
 
 phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete"])
