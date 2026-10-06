@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -48,6 +48,13 @@ def state_daemon(tmp_path, monkeypatch):
     finally:
         daemon.close()
     harness.check_notices()                 # C-15.1, after every in-process test too
+
+
+@pytest.fixture
+def dead_guardian(monkeypatch):
+    """C-5.12: model an absent guardian for the explicit loss scenarios."""
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
 
 
 def test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts(state_daemon):
@@ -186,19 +193,15 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 
 def admitted_reader(daemon, conn):
-    """A reader thread for `conn`, registered as `_admit_connection` registers one.
-
-    Since F1 (C-16.1) `_connection` serves only a connection admission counted,
-    so a test that hands it a socket pair registers the pair first.
-    """
+    """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
+    `_connection` lets it go when its last reply is out."""
     with daemon._connection_lock:
-        daemon._reading.add(conn)
         daemon._connections.add(conn)
     return threading.Thread(target=daemon._connection, args=(conn,))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
-    """C-16.1 malformed input returns code 2 while the same socket handler accepts another line."""
+    """C-16.1, C-16.7 malformed input returns code 2 while the same socket handler accepts another line."""
     daemon, _ = state_daemon
     server, client = socket.socketpair()
     server.settimeout(2)
@@ -316,7 +319,7 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, dead_guardian):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)

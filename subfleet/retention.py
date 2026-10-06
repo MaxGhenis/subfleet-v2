@@ -47,6 +47,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
+from . import folders
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
 
@@ -259,6 +260,13 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than
+    # `worktree:` leases. Compare recorded spellings only: this function also
+    # runs inside the archive commit transaction, where filesystem work is forbidden.
+    in_use = folders.turn_folders(store.query)
+    for row in jobs:
+        if row["worktree"] in in_use:
+            add(row["job_id"], "turn-folder")
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
@@ -743,16 +751,24 @@ class _Pass:
         job_id = job["job_id"]
         try:
             worktree = _owned_worktree(job, self.root)
+            # Match admission's spelling before taking the store lock (C-6.5).
+            folder = folders.canonical(worktree) if worktree is not None else None
         except ValueError as exc:
             self.errors.append({"job_id": job_id, "error": str(exc)})
             protected.add(job_id)
             return None
         holder = f"retention:{job_id}"
-        keys = [f"retire:{job_id}"] + ([f"worktree:{worktree}"] if worktree is not None else [])
+        keys = [f"retire:{job_id}"] + ([folders.exclusive_key(folder)] if folder is not None else [])
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   only=job_id, hosted=self.hosted, root=self.root).get(job_id)
+            # A turn may register after selection. Read its rows and acquire
+            # the fence atomically; daemon reservation checks this same fence
+            # before inserting either a TURN or READER row (I5).
+            if reason is None and folder is not None and folders.turn_holds(
+                    lambda sql, params: conn.execute(sql, params).fetchall(), folder):
+                reason = "turn-folder"
             if reason is None:
                 for key in keys:
                     current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
@@ -773,7 +789,10 @@ class _Pass:
         self.acted += 1
         retirement = rarch.Retirement(self.ctx, job_id)
         try:
-            retirement.begin(job, _pool(job))
+            # The journal's worktree and its commit-time lease check must use
+            # the fence's spelling too, even for an older, differently spelled
+            # recorded path. The archived database rows keep the original value.
+            retirement.begin({**job, "worktree": folder} if folder is not None else job, _pool(job))
             retirement.lock()
             retirement.quarantine()
         except rarch.Defer as exc:

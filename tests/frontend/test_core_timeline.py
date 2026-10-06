@@ -540,3 +540,78 @@ def test_c29_8_load_earlier_follows_up_to_its_cap_and_opening_follows_none(core_
     assert follow([empty(5000), "error", empty(4000)], 16, True)["fetched"] == 1
     ended = follow([empty(5000), {"items": [row], "next_before": None}], 16, True)
     assert ended["fetched"] == 2 and ended["complete"] is True
+
+
+def test_c24_4_c29_11_a_waiting_message_reads_its_reason_and_capacity_only_when_it_is(core_probe, tmp_path):
+    """I3 in the app: each kind the daemon writes (`subfleet/conversations/waits.py`) has
+    its own words; only `capacity:` reads as waiting for capacity, and an empty reason
+    (a daemon from before 2026-09-29) never claims it. On 2026-09-28 four messages read
+    "Waiting for capacity" for hours while another conversation's turn held the folder."""
+    from subfleet.conversations import waits
+    lease = "lease: conversation “Scratch” is writing in this folder"
+    closed = "closed: every Claude lane that could take it is closed until 2026-09-29 14:05 UTC at the earliest (3 closed)"
+    busy = "capacity: no Claude lane has room for it yet (2 busy)"
+    reasons = [lease, closed, busy, "usage-unknown: no Codex lane can take it until its usage is read again (1 without "
+               "a fresh usage reading)", "no-lane: no Claude lane can take it (1 disabled)", waits.SUBMITTED,
+               waits.PLACED, "deferred: git timed out", "readmit:provider-init-failed", "dispatching",
+               "external-writer: pid 73376", "blocked: the conversation is blocked (unfinished-turn)", "", None]
+    words = run_probe(core_probe, "waiting-words", write_json(tmp_path / "reasons.json", reasons))
+    assert words == [
+        "Waiting: conversation “Scratch” is writing in this folder",
+        "Waiting: every Claude lane that could take it is closed until 2026-09-29 14:05 UTC at the earliest (3 closed)",
+        "Waiting for capacity: no Claude lane has room for it yet (2 busy)",
+        "Waiting: no Codex lane can take it until its usage is read again (1 without a fresh usage reading)",
+        "Waiting: no Claude lane can take it (1 disabled)",
+        "Waiting: sent to the daemon, which has not placed it yet",
+        "Starting the provider",
+        "Waiting to be sent again: git timed out",
+        "Waiting to be sent again (provider-init-failed)",
+        "Sending to the daemon",
+        "Waiting: open in the Claude app or a terminal; close it there to continue here",
+        "Waiting: the conversation is blocked (unfinished-turn)",
+        "Waiting; the daemon has not said why",
+        "Waiting; the daemon has not said why",
+    ]
+    assert [w.startswith("Waiting for capacity") for w in words] == [r == busy for r in reasons]
+    cid, mid = "cv-1", str(uuid.uuid4())
+    result = fold(core_probe, tmp_path, cid, [{"receipts": [
+        {"message_id": mid, "conversation_id": cid, "seq": 1, "origin": "person", "state": "waiting",
+         "state_reason": lease}]}])
+    assert result["turns"][mid]["status_text"] == words[0]
+
+
+def test_c24_4_a_title_that_names_a_reason_s_kind_is_read_as_a_title(core_probe, tmp_path, harness):
+    """Review of 5e9f2fbd (P2-1): a lease reason quotes the title of the conversation
+    whose turn holds the folder, so the app reads a reason's kind from its start and
+    never from anywhere in its text. A conversation titled "fix the external-writer
+    wait" is a conversation writing there, not a Claude process holding the session;
+    the external-writer words stay for the two reasons that are one. Each lease
+    reason is made by the service's own code (`waits.hold_reason` with
+    `_describe_lease`), as the daemon writes it."""
+    from subfleet import folders
+    from subfleet.conversations import waits
+    titles = ["fix the external-writer wait", "external-writer", "readmit:external-writer",
+              "external-writer: pid 73376", "capacity: no Claude lane has room for it yet"]
+    rows: dict[str, dict] = {}
+    harness.daemon.store.one = lambda sql, params=(): (           # the job store's two rows a lease names
+        rows.get(params[0]) if "FROM leases" in sql else rows.get(("job", params[0])))
+    leases = []
+    for n, title in enumerate(titles):
+        holder = harness.create(title=title)["conversation_id"]
+        job = f"20260929-12000{n}-turn"
+        key = folders.turn_key(str(harness.workspace), job, writable=True)
+        rows[key] = {"holder": job}
+        rows[("job", job)] = {"job_id": job, "kind": "turn", "name": f"turn-{holder}"}
+        leases.append(waits.hold_reason({"reason": "lease-held", "leases": [key]},
+                                        describe=harness.service._describe_lease, who=harness.service._who))
+    assert leases == [f"lease: conversation “{title}” is writing in this folder" for title in titles]
+    reasons = [*leases, "external-writer: pid 73376", "readmit:external-writer", "readmit:provider-init-failed"]
+    words = run_probe(core_probe, "waiting-words", write_json(tmp_path / "reasons.json", reasons))
+    external = "Waiting: open in the Claude app or a terminal; close it there to continue here"
+    assert words == [
+        *(f"Waiting: conversation “{title}” is writing in this folder" for title in titles),
+        external,
+        external,
+        "Waiting to be sent again (provider-init-failed)",
+    ]
+    assert not any(w.startswith("Waiting for capacity") for w in words)

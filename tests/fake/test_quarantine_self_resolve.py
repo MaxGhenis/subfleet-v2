@@ -13,7 +13,7 @@ import uuid
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
-from subfleet import daemon as dm, procs, protocol, render
+from subfleet import daemon as dm, folders, procs, protocol, render
 from subfleet.daemon import Daemon, QUARANTINE_RECHECK_BATCH
 from tests.fake.test_state_contract import state_daemon, reserve  # noqa: F401
 from tests.fake.test_workspace_contract import repository
@@ -120,7 +120,8 @@ def test_writer_exit_frees_every_lease_saves_salvage_and_admits_waiting_turn(sta
     assert evidence["containment"]["live_pids"] == [] and not evidence["containment"]["unverifiable"]
     daemon._admit_turns()
     assert len(daemon.store.list_attempts(turn_job)) == 1
-    assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"worktree:{harness.workdir}",))["holder"].startswith(turn_job)
+    key = folders.turn_key(folders.canonical(harness.workdir), turn_job, writable=True)
+    assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"] == turn_job
 
 
 @pytest.mark.parametrize("unverifiable", [False, True])
