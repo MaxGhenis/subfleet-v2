@@ -7,7 +7,7 @@ import pytest
 
 from subfleet.capacity import build_view
 from subfleet.contracts import Decision
-from subfleet.render import reading_text, status, why
+from subfleet.render import attempt_usage, reading_text, status, why
 
 NOW = "2026-09-05T10:33:00Z"
 
@@ -178,3 +178,40 @@ def test_c26_12_status_lists_conversation_turns_under_their_own_heading():
     assert "turn-live/a1" in turns and "turn-waiting" in turns and "waiting (capacity)" in turns
     assert "turn-done" not in result
     assert "Conversation turns" not in status(build_view([lane()], jobs=jobs[:1], now=NOW))
+
+
+def test_c12_10_c17_8_attempt_usage_shows_provider_counters_and_requests():
+    """C-12.10, C-17.8: each attempt shows normalized totals, raw fields, first and last request."""
+    raw = {"usage": {"input_tokens": 10, "cache_read_input_tokens": 60,
+                     "cache_creation_input_tokens": 30, "output_tokens": 12,
+                     "cache_creation": {"ephemeral_1h_input_tokens": 30, "ephemeral_5m_input_tokens": 0}},
+           "modelUsage": {"fixture-model": {"inputTokens": 10, "outputTokens": 12}}}
+    usage = {"provider": "claude", "raw": raw,
+             "normalized": {"prompt": 100, "cache_read": 60, "cache_write": 30,
+                            "output": 12, "cache_ttl": "1h", "cache_hit_share": .6},
+             "first_request": {"input": 4, "cache_read": 20, "cache_write": 10},
+             "last_request": {"input": 6, "cache_read": 40, "cache_write": 20}}
+    lines = attempt_usage(usage)
+    assert lines[0] == ('usage: prompt=100; cache_read=60; cache_write=30; output=12; '
+                        'cache_ttl="1h"; cache_hit_share=60%')
+    assert json.loads(lines[1].removeprefix("first_request: ")) == usage["first_request"]
+    assert json.loads(lines[2].removeprefix("last_request: ")) == usage["last_request"]
+    assert json.loads(lines[3].removeprefix("usage raw: ")) == raw
+
+
+def test_c12_10_c17_8_absent_usage_and_absent_fields_never_show_zero():
+    """C-12.10, C-17.8: no stream report adds no record; an unreported field remains null."""
+    assert attempt_usage(None) == []
+    lines = attempt_usage({"provider": "codex", "raw": {"usage": {"output_tokens": 12}},
+                           "normalized": {"output": 12}})
+    assert lines[0] == ('usage: prompt=null; cache_read=null; cache_write=null; output=12; '
+                        'cache_ttl=null; cache_hit_share=null')
+    assert "=0" not in "\n".join(lines)
+
+
+def test_c12_10_c17_8_cumulative_thread_usage_cannot_look_like_attempt_totals():
+    """C-12.10, C-17.8: resumed exec totals are explicitly cumulative, with no inferred delta."""
+    usage = {"provider": "codex", "cumulative_thread": True, "raw": {"usage": {"input_tokens": 100}},
+             "normalized": {"prompt": 100, "cache_read": 80, "cache_write": None,
+                            "output": 20, "cache_ttl": None, "cache_hit_share": .8}}
+    assert attempt_usage(usage)[0].startswith("usage (cumulative thread totals): prompt=100;")

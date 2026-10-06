@@ -109,6 +109,7 @@ class Outcome:
     # Shared with the driver until stdout drains: lifecycle/steer responses may
     # follow the provider's terminal frame, before settlement runs.
     steers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    usage: dict[str, Any] | None = None   # C-12.10: stream-reported counters for this attempt
 
 
 @dataclass

@@ -2317,6 +2317,12 @@ class Daemon:
         if op == "readings":
             view = self._capacity_view(self._desktop_identity())
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
+        if op == "usage":
+            # C-17.8: historical measurements, optionally read from retained
+            # artifacts, never a store write or a provider request.
+            from .usage_report import build_report
+            a = protocol.coerce_args(protocol.UsageArgs, args)
+            return build_report(self.store, self.root, **dataclasses.asdict(a))
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
@@ -5797,6 +5803,25 @@ class Daemon:
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
+        if outcome.usage is None:
+            # C-12.10: a lost guardian or an older finalization receipt can
+            # still leave measured usage. Read after containment, outside SQL;
+            # use the same parser as classification and read-only backfill.
+            from .usage import parse_usage
+            turn = self._read_json(adir / "turn.json") if job["kind"] == "turn" else None
+            for path in dict.fromkeys((launch.raw_stream_path, launch.stdout_path)):
+                if not path:
+                    continue
+                try:
+                    with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
+                        usage = parse_usage(stream, lane.provider,
+                                            resumed="resume" in launch.argv or "--resume" in launch.argv,
+                                            turn_id=(turn or {}).get("turn_id"))
+                except (OSError, NotRegularFile):
+                    continue
+                if usage is not None:
+                    outcome = dataclasses.replace(outcome, usage=usage)
+                    break
         deliverable_path = adir / "deliverable.md"
         if not deliverable_path.exists() and not lost:
             contents = adapter.deliverable(adir, launch, outcome)
@@ -5868,6 +5893,11 @@ class Daemon:
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             evidence = json.loads(a["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
+            # C-12.10: keep provider measurements beside classification. An
+            # unreported measurement has no key, so older attempts and streams
+            # with no usage cannot be mistaken for zero-token attempts.
+            if outcome.usage is not None:
+                evidence["usage"] = outcome.usage
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
                                                                      "end_tree", "skipped", "error")}

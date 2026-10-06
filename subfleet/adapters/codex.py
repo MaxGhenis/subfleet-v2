@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .base import Adapter, AdapterError
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
+from ..usage import parse_usage
 from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, GUESSED_CLOSURE_S, JobSpec, Lane, LaneInfo, Launch, Outcome,
@@ -518,11 +519,15 @@ class CodexAdapter(Adapter):
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
         session_id = launch.native_session_id
         failures = []
+        usage_rows = []
         for event in _events(_stream_path(attempt_dir, launch)):
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
                 failures.append(event)
+            if event.get("type") == "turn.completed":
+                usage_rows.append(json.dumps(event))
+        usage = parse_usage(usage_rows, "codex", resumed="resume" in launch.argv)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
         signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
@@ -531,7 +536,7 @@ class CodexAdapter(Adapter):
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
-            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id, usage=usage)
         for event, text in signals:
             if AUTH_RE.search(text):
                 evidence["authentication"] = event or text

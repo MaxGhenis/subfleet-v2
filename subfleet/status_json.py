@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
 from .guardian import atomic_publish
+from .usage_report import aggregate_usage
 
 
 def instant(value: str | datetime | None = None) -> datetime:
@@ -272,6 +273,35 @@ def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
             for row in snapshot.get("alerts") or () if isinstance(row, Mapping) and row.get("key")]
 
 
+def lane_usage(snapshot: Mapping[str, Any], now: datetime) -> dict[str, dict[str, Any]]:
+    """C-18.5, C-29.6: per-lane recorded attempt usage over the last 24 hours.
+
+    The clock is `finished_at`, then `started_at`, then `reserved_at`, just as
+    C-17.8's report selects it. The window uses the emitted `generated_at`
+    clock's second precision. Both endpoints are included; future or unreadable
+    clocks are left out. The snapshot already carries the attempts,
+    so no artifact read or additional store query is needed. The shared report
+    aggregator preserves absent counters as null, labels cumulative thread
+    records and excludes those counters from per-attempt totals and shares.
+    """
+    now = instant(timestamp(now))
+    since = now - timedelta(hours=24)
+    rows: dict[str, list[Mapping[str, Any]]] = {}
+    for attempt in snapshot.get("attempts", ()):
+        clock = attempt.get("finished_at") or attempt.get("started_at") or attempt.get("reserved_at")
+        if not clock or not attempt.get("lane_id"):
+            continue
+        try:
+            at = instant(clock)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if since <= at <= now:
+            rows.setdefault(attempt["lane_id"], []).append(attempt)
+    return {lane["lane_id"]: {"since": timestamp(since), "until": timestamp(now),
+                             **aggregate_usage(rows.get(lane["lane_id"], ()))}
+            for lane in snapshot.get("lanes", ())}
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels.
 
@@ -280,10 +310,12 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     `claude.earliest_reset`, `kind` on every job row, and `conversations`.
     `snapshot["model_names"]` (policy model id to short name) labels the
     model-scoped windows; without it they carry only their scope. C-18.4 adds
-    `alerts`, the alerts in force; the section is always present.
+    `alerts`, the alerts in force; the section is always present. C-18.5 adds
+    `usage_24h` to each lane, the recorded attempt counters and cache share.
     """
     at = instant(now or snapshot.get("now"))
     model_names = snapshot.get("model_names") or {}
+    usage = lane_usage(snapshot, at)
     codex, claude = [], []
     for lane in snapshot.get("lanes", ()):
         if lane.get("superseded_by"):
@@ -292,6 +324,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
         common = {"lane_id": lane["lane_id"], "verdict": verdict,
                   "enabled": bool(lane.get("enabled", True)), "owner": lane.get("owner", "v2"),
                   "dispatchable": dispatchable(lane),
+                  "usage_24h": usage[lane["lane_id"]],
                   # C-18.1: the probe holding this lane's slot, if one does.
                   "probe_state": lane.get("probe_state"), "probe_holder": lane.get("probe_holder")}
         if lane.get("identity_status") is not None:
