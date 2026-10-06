@@ -1850,18 +1850,16 @@ class Daemon:
                 # spelled one way (`folders.canonical`, as a conversation's workspace
                 # is): a folder outside git kept the case it was typed in, so
                 # `~/Scratch` and `~/scratch` were two keys for one folder.
-                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
-                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
-                # target is, so retention can tell it is in use (`folders.READER`). Admission
-                # spells either again before it takes a row (`folders.present`).
-                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                               if turn is not None and write_target is None else None)
-                # C-6.5, C-8.4: a folder that was not there to spell in full (its tree moved
-                # away between the check above and git's) is the path as given, which may be
-                # a folder below its checkout's top: admission finds it again (`unspelled`).
-                unspelled = bool((write_target or read_folder)
-                                 and folders.present(write_target or read_folder)[1] is not None)
+                # C-8.4, C-13.4: a read-only turn's folder is the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`). Both are
+                # spelled in one look (`_row_folder`), which also says whether admission must
+                # find the folder again (`unspelled`), and admission spells it again before it
+                # takes a row (`folders.present`).
+                named, unspelled = (self._row_folder(workdir)
+                                    if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
+                                    else (None, False))
+                write_target = named if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None
+                read_folder = named if turn is not None and write_target is None else None
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -2357,6 +2355,19 @@ class Daemon:
         except (procs.InspectionError, KeyError, TypeError, ValueError):
             return None
         return True if state == "alive" else False if state == "dead" else None
+
+    def _row_folder(self, workdir: str | Path) -> tuple[str, bool]:
+        """C-6.5, C-8.4: the folder a row for a job in `workdir` names (its checkout's
+        top level, or `workdir` outside git), spelled (`folders.present`), and whether
+        that may not be it. It may not when a name of it was not there to spell, or when
+        git found no checkout while a `.git` is at or above the folder: the tree was away
+        for git's look and back for the spelling, so `workdir` may be a folder below its
+        checkout's top. Submit records such a folder `unspelled`, and admission looks
+        again (review of fb674463, Q1 and Q1b). One spelling gives both answers, so the
+        folder recorded is the one judged."""
+        top = git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        folder, missing = folders.present(top or workdir)
+        return folder, missing is not None or (top is None and folders.under_git(folder))
 
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
@@ -4577,8 +4588,7 @@ class Daemon:
                 # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
                 # so what it recorded may be below its checkout's top: found again as submit
                 # finds it, then spelled below like any other.
-                derived = (folders.canonical(git_toplevel(workspace, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
-                                             or workspace)
+                derived = (self._row_folder(workspace)[0]
                            if (job["kind"] == "turn" or job["in_place"]) and self._submitted(job["job_id"]).get("unspelled")
                            else None)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None

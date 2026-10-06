@@ -57,7 +57,12 @@ applied only to the comparisons that read a name not looked up.
   away. Admission finds the folder again as submit finds it, from its checkout's
   top level (`git rev-parse --show-toplevel`). So a writable turn in `jOB/src`
   holds the checkout `Job`, and C-6.5 refuses a detached writer there, rather
-  than keying the row on `Job/src` beside it (review of 3410b4f0, P1).
+  than keying the row on `Job/src` beside it (review of 3410b4f0, P1). Submit
+  also marks a folder when git found no checkout for it but a `.git` is at or
+  above it (`folders.under_git`): the tree was away for git's look and back for
+  the spelling. Both answers come from the one spelling submit records
+  (`Daemon._row_folder`), not from a second look (review of fb674463, Q1 and
+  Q1b).
 - A folder with a name that is not there now reserves no row. It is held, in
   the order below:
   - **Retention's fence on a tree it is in.** The folder is compared with every

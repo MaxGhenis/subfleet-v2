@@ -338,6 +338,63 @@ def test_a_folder_recorded_below_its_checkout_top_while_away_is_found_again(tmp_
             assert _live(daemon, writer), daemon._holds.get(writer)       # a reader excludes no writer
 
 
+@pytest.mark.parametrize("window", ["git", "git-and-spelling"])
+@pytest.mark.parametrize("typed", ["Job", "jOB"])
+def test_a_tree_away_only_while_git_looks_is_found_again_from_its_checkout_top(tmp_path, window, typed):
+    """C-6.5: the narrower windows of the same race (review of fb674463, Q1 and Q1b).
+    With the tree away only for git's look (`git`), git finds no checkout and the
+    subdirectory is spelled in full; with it away for git's look and back only for
+    the spelling submit records (`git-and-spelling`). Either way submit marks the
+    folder `unspelled`: git found no checkout while a `.git` is above the folder
+    (`folders.under_git`), and the mark comes from the same spelling it records.
+    Admission finds the checkout's top, so a detached writer in place there is
+    refused. Before, the row was on `Job/src` and the writer ran beside the turn."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, _, _, _ = tree_and_alias(daemon, harness, "tree")
+        (wt / "src").mkdir()
+        (wt / "src" / "a.txt").write_text("a\n")
+        folder = wt.with_name(typed) / "src"
+        aside, target, top = wt.with_name(".Job.aside"), os.path.realpath(folder), folders.canonical(wt)
+        real_top, real_present, seen = daemon_module.git_toplevel, folders.present, []
+
+        def top_while_away(workdir, *args, **kwargs):
+            if seen or str(workdir) != target:
+                return real_top(workdir, *args, **kwargs)
+            wt.rename(aside)                         # retention's quarantine...
+            try:
+                seen.append(real_top(workdir, *args, **kwargs))
+            finally:
+                if window == "git":
+                    aside.rename(wt)                 # ...and its rollback, around git's look only
+            return seen[-1]
+
+        def present_after_return(path):
+            if window == "git-and-spelling" and aside.exists():
+                aside.rename(wt)                     # back only for the spelling submit records
+            return real_present(path)
+
+        with pytest.MonkeyPatch.context() as inner:
+            inner.setattr(daemon_module, "git_toplevel", top_while_away)
+            inner.setattr(folders, "present", present_after_return)
+            _, _, turn = message_in(daemon, harness, "Overtaken", workspace=folder,
+                                    settings={**SETTINGS, "permission": "accept-edits"})
+        assert seen == [None] and wt.is_dir()
+        recorded = daemon._submitted(turn)
+        assert recorded.get("unspelled") is True and recorded["write_target"].endswith("/src"), recorded
+        daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=True)]
+        with pytest.raises(AdapterError, match="is being written by a conversation turn"):
+            submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+
+
 def test_an_absent_in_place_writer_names_retentions_fence_once(tmp_path):
     """A detached writer in place on the tree itself, its tree in quarantine: the
     fence is its own key, contested, and is not counted again as one found folded

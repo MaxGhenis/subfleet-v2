@@ -464,3 +464,22 @@ def test_folded_retiring_reads_no_file_system(monkeypatch):
                   (folders.turn_key("/s/Job/x", "t", writable=True), "t")])
     assert folders.retiring(read, "/s/jOB/x/y", folded=True) == ["worktree:/s/Job", "worktree:/"]
     assert folders.retiring(read, "/s/jOB/x/y") == ["worktree:/"]
+
+
+def test_under_git_finds_a_git_entry_at_or_above_a_folder(tmp_path):
+    """`under_git`: a `.git` directory or file (a linked worktree's) on the folder or
+    on any folder above it; none beside it or below it."""
+    (tmp_path / "repo" / "sub" / "deeper").mkdir(parents=True)
+    (tmp_path / "repo" / ".git").mkdir()
+    (tmp_path / "linked" / "x").mkdir(parents=True)
+    (tmp_path / "linked" / ".git").write_text("gitdir: /elsewhere\n")
+    (tmp_path / "plain" / "y").mkdir(parents=True)
+    (tmp_path / "plain" / "y" / "z" / ".git").mkdir(parents=True)
+    base = os.path.realpath(tmp_path)
+    if folders.under_git(base):
+        pytest.skip("the test directory is itself inside a git checkout")
+    assert folders.under_git(os.path.join(base, "repo", "sub", "deeper"))
+    assert folders.under_git(os.path.join(base, "repo"))
+    assert folders.under_git(os.path.join(base, "linked", "x"))
+    assert not folders.under_git(os.path.join(base, "plain", "y"))
+    assert not folders.under_git(os.path.join(base, "repo-beside"))

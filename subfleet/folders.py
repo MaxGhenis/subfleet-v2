@@ -242,6 +242,14 @@ def fold(path: str) -> str:
     return unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
 
 
+def under_git(folder: str) -> bool:
+    """Whether `folder` or a folder above it (`above`) holds a `.git`, a directory or
+    a linked worktree's file, where git looks for one. Filesystem work, outside any
+    store transaction. When git finds no checkout for a folder this says there is
+    one, git did not see the folder where it is now (`Daemon._row_folder`)."""
+    return any(os.path.lexists(os.path.join(each, ".git")) for each in (folder, *above(folder)))
+
+
 def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str, *, folded: bool = False) -> list[str]:
     """The `worktree:` keys retention holds (`RETENTION`) on `folder` or on a
     folder it is inside (`above`), nearest first. While one is held a retirement
