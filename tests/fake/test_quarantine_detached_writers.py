@@ -89,6 +89,37 @@ def test_legacy_kill_owned_provider_discharges_without_force(state_daemon, monke
     assert actual["state"] == "lost" and not leases
 
 
+@pytest.mark.parametrize("operator", [False, True])
+def test_a_listed_descendant_survives_failed_identity_capture(state_daemon, monkeypatch, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = running(daemon, harness)
+    adir = daemon.root / "jobs" / a["job_id"] / "a1"
+    receipt = json.loads((adir / "start.json").read_text())
+    receipt.update(child_pid=200, child_identity=ident(200, "provider"))
+    (adir / "start.json").write_text(json.dumps(receipt))
+    rows = {100: (1, 100, "Ss", "guardian"), 200: (100, 100, "S", "provider"),
+            300: (200, 400, "S", "shell")}
+    script_table(monkeypatch, rows)
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(dict(rows)))
+    def unavailable():
+        raise procs.InspectionError("boot identity unavailable")
+    monkeypatch.setattr(procs, "boot_id", unavailable)
+    census = daemon._contain(a)
+    assert census.unverifiable and 300 in census.live_pids
+    daemon._quarantine(a, census, "identity capture failed")
+    # Inspection works again, but the hidden-marker shell's parent has exited
+    # and it has regrouped. Its incomplete earlier identity must still hold.
+    script_table(monkeypatch, {300: (1, 301, "S", "shell")})
+    clock.advance()
+    actual, leases = resolve(daemon, a, operator)
+    assert actual["state"] == "quarantined" and leases
+    script_table(monkeypatch, {})
+    clock.advance()
+    actual, leases = resolve(daemon, actual, operator)
+    assert actual["state"] == "lost" and not leases
+
+
 def test_lineage_limit_keeps_newest_and_overflow_holds_until_proven_reboot(monkeypatch):
     monkeypatch.setattr(dm, "LINEAGE_ROOT_LIMIT", 2)
     roots = [dataclasses.asdict(procs.CensusRoot(pid, BOOT, str(pid), pid)) for pid in (100, 200, 300)]

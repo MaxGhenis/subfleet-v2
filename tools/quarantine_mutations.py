@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("failed identity observations forgotten", "subfleet/procs.py",
+     '            incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))',
+     '            pass  # mutation: forget listed writers when identity capture fails',
+     "tests/fake/test_quarantine_detached_writers.py::test_a_listed_descendant_survives_failed_identity_capture"),
     ("saved lineage identities ignored", "subfleet/procs.py",
      "        for known in lineage_roots:\n            records_by_pid.setdefault(known.pid, []).append(known.identity)",
      "        for known in ():\n            records_by_pid.setdefault(known.pid, []).append(known.identity)",
@@ -56,7 +60,7 @@ MUTATIONS = (
      "if child_unrecorded and not providers and not roots_rebooted:", "if False and child_unrecorded and not providers and not roots_rebooted:",
      ROUND2 + "test_real_legacy_start_format_holds_unobserved_child_after_guardian_dies[False-False]"),
     ("retained group descendant roots omitted", "subfleet/procs.py",
-     "| owned | groups)", "| owned)",
+     "| owned | groups | uncertain_roots)", "| owned | uncertain_roots)",
      ROUND2 + "test_census_walks_descendants_of_a_recycled_orphan_group_member"),
     ("pre-reboot group roots retained", "subfleet/procs.py",
      "groups = set() if roots_rebooted else set(seen.group(pgid))", "groups = set(seen.group(pgid))",

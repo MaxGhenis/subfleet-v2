@@ -515,7 +515,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
-        gone, owned = set(), set()
+        gone, owned, uncertain_roots = set(), set(), set()
         records_by_pid = {pid: ([values] if isinstance(values, ProcessIdentity) else list(values))
                           for pid, values in (recorded or {}).items()}
         for known in lineage_roots:
@@ -532,7 +532,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     records = (observations,) if isinstance(observations, ProcessIdentity) else observations
                     uncertain = False
                     for known in records:
+                        if not known.proc_start:
+                            uncertain = True
+                            continue
                         if table[pid][3] != known.proc_start:
+                            continue
+                        if not known.boot_id:
+                            uncertain = True
                             continue
                         try:
                             match = boot_identity.matches(known.boot_id, seen.boot(), seen.legacy_seconds)
@@ -549,6 +555,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         gone.add(pid)
             except InspectionError:
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
+                if live(pid):
+                    uncertain_roots.add(pid)
         roots_rebooted = rebooted(launch_boot_id)
         if lineage_overflow_boot is not None and not rebooted(lineage_overflow_boot):
             errors.append("lineage root limit exceeded")
@@ -573,7 +581,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # A matching identity also observes its current group immediately.
         # This keeps the census stable after that observation is persisted and
         # follows a writer that changed groups since the earlier inspection.
-        for pid in owned:
+        for pid in owned | uncertain_roots:
             groups.update(seen.group(table[pid][1]))
         # A recorded group survives its observed member and leader. XNU cannot
         # reuse its number while members remain. A proven new leader or reboot
@@ -588,7 +596,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # still enumerate the guardian and any inherited marker.
         roots = ({pid for pid in (guardian_pid, child_pid)
                   if pid and pid > 0 and pid not in gone and not roots_rebooted}
-                 | owned | groups)
+                 | owned | groups | uncertain_roots)
         descendants = set(seen.descendants(tuple(roots)))
     observed_writer = bool(groups | descendants)
     observed_boots = set(lineage_boot_ids)
@@ -607,16 +615,22 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
                 pid = int(pid_text)
+                markers.add(pid)
                 state = table[pid][2] if pid in table else _stat(pid)
-                if state and not state.startswith("Z"):
-                    markers.add(pid)
+                if not state or state.startswith("Z"):
+                    markers.discard(pid)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
     if workdir is not None:
         try:
-            cwds = {pid for pid in cwd_pids(workdir)
-                    if (live(pid) if pid in table else
-                        bool(state := _stat(pid)) and not state.startswith("Z"))}
+            for pid in cwd_pids(workdir):
+                cwds.add(pid)
+                try:
+                    state = table[pid][2] if pid in table else _stat(pid)
+                    if not state or state.startswith("Z"):
+                        cwds.discard(pid)
+                except InspectionError:
+                    errors.append(f"cwd process inspection unavailable for pid {pid}")
         except InspectionError:
             errors.append("cwd enumeration unavailable")
     observed_writer = observed_writer or bool(cwds)
@@ -627,6 +641,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             # Retain the failed observation for diagnostics only.
             observed_boots.add("")
     identities: dict[int, ProcessIdentity] = {}
+    incomplete_roots: list[CensusRoot] = []
     for pid in groups | descendants | markers | cwds:
         try:
             # The snapshot's own start time when it has one; a pid it could not
@@ -642,10 +657,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 cwds.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
+            # The listing already observed this PID. Failure to capture its
+            # boot/start must not forget it when its parent subsequently exits.
+            # Empty identity components are uncertainty, never signal authority.
+            row = table.get(pid)
+            incomplete_roots.append(CensusRoot(pid, "", row[3] if row else "", row[1] if row else 0))
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers | cwds if pid in table}
     captured = tuple(CensusRoot(pid, ident.boot_id, ident.proc_start, table[pid][1])
-                     for pid, ident in sorted(identities.items()) if pid in table)
+                     for pid, ident in sorted(identities.items()) if pid in table) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
                        frozenset(cwds), captured, providers)
