@@ -129,8 +129,12 @@ rows that cannot be reserved.
 **Why `worktree-in-use` changes.** Its LIKE (a folder inside the tree) already
 ignored ASCII case, but its `=` (the tree itself) did not. A queued turn whose
 folder was the tree in another case kept nothing, so the folded wait would end
-with the tree gone. A job id is `[0-9]{8}-[0-9]{6}-[a-z0-9-]+` (C-1.1), so a
-tree's own name differs from an alias only in ASCII case, which NOCASE covers.
+with the tree gone. A job id is `[0-9]{8}-[0-9]{6}-[a-z0-9-]+` (C-1.1). NOCASE and
+LIKE match an alias of a tree's own name in other ASCII capitals. They do not
+match one spelled with letters outside ASCII that APFS folds to its letters
+(`ﬁ` for `fi`, `ſ` for `s`, the Kelvin sign for `k`), since SQLite folds only
+ASCII. The folded fence still holds such a turn, and it takes no row; see the
+known limits.
 
 ## Invariants
 
