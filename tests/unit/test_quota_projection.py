@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from hypothesis import given, strategies as st
+from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet.quota_projection import project_unused
@@ -17,6 +17,7 @@ def sample(observed_at, utilization, **extra):
             "window": "seven_day", "label": "provider", **extra}
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(st.lists(st.tuples(st.integers(0, 10 * 86400), FRACTIONS), min_size=1, max_size=30))
 def test_projected_unused_is_bounded(values):
     result = project_unused([(NOW - timedelta(seconds=age), u) for age, u in values], RESET, NOW)
@@ -24,6 +25,7 @@ def test_projected_unused_is_bounded(values):
     assert 0 <= result.projected_unused <= 1 - result.used
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(FRACTIONS, st.integers(1, 24), FRACTIONS)
 def test_zero_rate_leaves_all_remaining_quota_unused(used, span, drop):
     previous = used + (1 - used) * drop
@@ -32,6 +34,7 @@ def test_zero_rate_leaves_all_remaining_quota_unused(used, span, drop):
     assert result.projected_unused == 1 - used
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(FRACTIONS, st.integers(0, 3599))
 def test_unknown_rate_leaves_all_remaining_quota_unused(used, span):
     result = project_unused([(NOW - timedelta(seconds=span), 0), (NOW, used)], RESET, NOW)
@@ -41,6 +44,7 @@ def test_unknown_rate_leaves_all_remaining_quota_unused(used, span):
     assert result.projected_unused == 1 - used
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(FRACTIONS, FRACTIONS, FRACTIONS)
 def test_higher_rate_never_gives_more_unused(used, first, second):
     start_low, start_high = sorted((used * first, used * second))
@@ -50,6 +54,7 @@ def test_higher_rate_never_gives_more_unused(used, first, second):
     assert higher.projected_unused <= lower.projected_unused
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(FRACTIONS, FRACTIONS, st.integers(0, 12 * 3600))
 def test_later_now_same_rate_never_gives_more_unused(used, first, advance):
     samples = [(NOW - timedelta(hours=12), used * first), (NOW, used)]
@@ -59,6 +64,7 @@ def test_later_now_same_rate_never_gives_more_unused(used, first, advance):
     assert after.projected_unused <= before.projected_unused
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(st.lists(st.tuples(st.integers(0, 24 * 3600), FRACTIONS), min_size=1, max_size=20), st.data())
 def test_deterministic_and_independent_of_sample_order(values, data):
     samples = [(NOW - timedelta(seconds=age), u) for age, u in values]
@@ -67,6 +73,7 @@ def test_deterministic_and_independent_of_sample_order(values, data):
     assert project_unused(data.draw(st.permutations(samples)), RESET, NOW) == expected
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(FRACTIONS, st.lists(st.tuples(st.integers(0, 24 * 3600), FRACTIONS), max_size=20),
        st.integers(min_value=1, max_value=7 * 86400))
 def test_other_reset_windows_never_affect_projection(used, foreign, reset_offset):

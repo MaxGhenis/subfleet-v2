@@ -44,7 +44,7 @@ SCHEMA_VERSION = 6
 Row = dict[str, Any]
 
 # Canonical observations use the partial time index; offset/fractional clocks
-# are compared by SQLite's parsed instant, not their string ordering.
+# use the parsed-time expression index. Both UNION branches search time bounds.
 WEEKLY_HISTORY_SQL = (
     "SELECT * FROM readings WHERE window='seven_day' AND label IN ('provider','stale-provider') "
     "AND observed_at BETWEEN ? AND ? AND observed_at GLOB ? "
