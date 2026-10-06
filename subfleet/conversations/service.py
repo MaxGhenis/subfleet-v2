@@ -601,6 +601,9 @@ class ConversationService:
         self.store.conversation(cid)
         after = int(args.get("after") or 0)
         wait_s = max(0.0, min(float(args.get("wait_s") or 0), MAX_WAIT_S))
+        # LOCAL DEMO ONLY (never committed): a waiting poll that takes its slot late.
+        if wait_s >= 20 and os.environ.get("SFDEMO_SLOT_DELAY_S"):
+            time.sleep(float(os.environ["SFDEMO_SLOT_DELAY_S"]))
         superseded = self._slot(peer, "events")
         page = self.store.events_after(cid, after, limit=int(args.get("limit") or 500))
         if not page["events"] and not page["reset"] and wait_s:
