@@ -118,9 +118,11 @@ def test_archive_commit_rechecks_turn_rows_and_rolls_back(world, monkeypatch, wr
 def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
     """Admission and retirement agree on APFS case aliases of a recorded folder.
 
-    Start admission after retention has acquired its fence but before it moves
-    the worktree. No live turn row exists at selection, so only the canonical
-    fence, not a turn pin, can prevent this reservation.
+    Submit and admit the turn after retention has acquired its fence but before it
+    moves the worktree. No live turn row exists at selection, so only the canonical
+    fence, not a turn pin, can prevent this reservation. (Submitted before
+    selection, its queued job kept the tree there, `worktree-in-use`, now also for
+    a tree recorded in another case: review of 8a112986, finding 1.)
     """
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
@@ -142,11 +144,11 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         directory.mkdir(parents=True)
         (directory / "stdout").write_text("retired output")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
-        _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
         observed = []
 
         def begin(retirement, job, pool):
+            _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
             daemon._admit_turns()
             observed.append(turn)
             assert not _live(daemon, turn), "turn reserved while retirement held its folder"
@@ -159,7 +161,8 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         patch.setattr(rarch.Retirement, "begin", begin)
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                        holders=lambda watches, **_: {})
-        assert observed == [turn], result
+        assert len(observed) == 1, result
+        turn = observed[0]
         daemon.store.update_job(turn, next_check_at=None)
         daemon._admit_turns()
         assert _live(daemon, turn), daemon._holds

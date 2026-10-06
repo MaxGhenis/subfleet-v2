@@ -596,7 +596,9 @@ cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
 inside the commit transaction); a job not yet ended works in its allocated
 tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or, while that
-is NULL, the `worktrees/<job id>` admission allocated, revision 5); a turn job within `turn_keep_days`; an
+is NULL, the `worktrees/<job id>` admission allocated, revision 5; the tree
+and a folder inside it each compared without ASCII case, so a job naming the
+tree `jOB` keeps `Job`, decision 2026-10-05-turn-folder-case-alias); a turn job within `turn_keep_days`; an
 explicit reference; another job's worktree is registered in a repository
 inside its tree and that job still has rows (`nested-host: <those jobs>`: which job each
 owned worktree's gitfile names is read once per pass, and a job whose tree is

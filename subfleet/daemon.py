@@ -1856,7 +1856,8 @@ class Daemon:
                 write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
                 # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
-                # target is, so retention can tell it is in use (`folders.READER`).
+                # target is, so retention can tell it is in use (`folders.READER`). Admission
+                # spells either again before it takes a row (`folders.present`).
                 read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                if turn is not None and write_target is None else None)
                 model = args.pinned_model
@@ -4570,12 +4571,28 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
                                         "error": str(exc)[:200]}
                 continue
-            self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
             # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
-            if job["wait_reason"] == "workspace":
+            # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
+            # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
+            # it, but a name it could not look up kept the case it was given: a native
+            # session's cwd typed `…/jOB/vendor/lib`, spelled while retention had the tree
+            # `Job` in quarantine, keyed the row on `jOB`, which no check on the tree
+            # matched once the turn's job had ended (review of 8a112986, finding 1). A
+            # folder spelled in full here is the one spelling of a folder that is there;
+            # one that is not reserves no row (`absent`, below).
+            named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
+            if named:
+                spelled, absent = folders.present(named)
+                if absent is None and read_folder:
+                    read_folder = spelled
+                elif absent is None:
+                    write_target = spelled
+            if absent is None:
+                self._workspace_deferrals.pop(job["job_id"], None)
+            if job["wait_reason"] == "workspace" and absent is None:
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -4833,7 +4850,14 @@ class Daemon:
                             # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
                             blockers.extend(folders.retiring(read, read_folder))
-                        revive_key = (revive_lease_key(job["caller_session"])
+                        if absent is not None:
+                            # C-8.4: its folder is not there now, so the names that could not
+                            # be looked up may not be the ones its volume stores: retention may
+                            # have its tree in quarantine under a fence spelled `Job`. Any
+                            # fence of retention's that folds alike above it holds it, as the
+                            # fence on its spelling would; with none it reserves nothing.
+                            blockers.extend(folders.retiring(read, named, folded=True))
+                        revive_key =(revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
                             # C-23.55: the census the sweep skips on is the lease rows,
@@ -4880,6 +4904,9 @@ class Daemon:
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
+                            break
+                        if absent is not None:
+                            status = "absent"           # no row on a folder that is not there now
                             break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
@@ -4945,6 +4972,9 @@ class Daemon:
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
+                continue
+            if status == "absent":
+                self._folder_absent(job, named, absent, holds)
                 continue
             if status != "placed":
                 continue
@@ -5451,6 +5481,20 @@ class Daemon:
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
+
+    def _folder_absent(self, job: dict, folder: str, missing: OSError, holds: dict) -> None:
+        """C-8.4, C-6.8: `folder`, the one `job`'s row would name, is not there now
+        (`folders.present`), and no retirement is moving a tree it is in. It takes no
+        row on a spelling that may not be the folder's once it is back; like any
+        workspace that could not be prepared it waits with backoff, and fails after
+        `caps.workspace_retry_max` tries (a tree another tool held aside comes back,
+        one that was removed does not)."""
+        error = SalvageError(f"its folder {folder} is not there now "
+                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True)
+        error.__cause__ = missing
+        self._workspace_failed(job, error)
+        self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
+        holds[job["job_id"]] = {"reason": "workspace", **self._workspace_error(error)[1]}
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:

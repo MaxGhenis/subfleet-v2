@@ -1992,7 +1992,9 @@ class ConversationService:
         if key.startswith(folders.EXCLUSIVE):
             if holder.startswith(folders.RETENTION):
                 tree = key[len(folders.EXCLUSIVE):]
-                if folder and tree != folder:
+                # Folded: a turn whose folder was not there to spell may name the tree
+                # itself in another case (`folders.retiring(..., folded=True)`).
+                if folder and folders.fold(tree) != folders.fold(folder):
                     return f"retention is removing a finished job's worktree that this folder is in ({tree})"
                 return "retention is removing a finished job's worktree in this folder"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))

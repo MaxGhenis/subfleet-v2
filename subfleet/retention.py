@@ -201,10 +201,14 @@ _PIN_QUERIES = (
                      "AND holder != 'retention:' || substr(lease_key, 8)"),
     # A job not yet ended whose directory is this job's allocated worktree or
     # inside it (a job an agent submitted from its worktree, still queued):
-    # the tree must still be there when it runs (design review, Opus 9).
+    # the tree must still be there when it runs (design review, Opus 9). A
+    # directory is compared without ASCII case, the tree itself as one inside it
+    # (LIKE): a native session's cwd may spell the tree `jOB` for `Job`, and its
+    # queued turn, which waits on retention's fence (`folders.retiring`, folded),
+    # keeps the tree (review of 8a112986, finding 1).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                        "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
+                        "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
                         "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
                         "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
@@ -212,7 +216,7 @@ _PIN_QUERIES = (
 #: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.
 _UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                       "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                      "AND (b.worktree = ?1 || a.job_id OR b.workdir = ?1 || a.job_id "
+                      "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
                       "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
                       "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
 
