@@ -123,6 +123,16 @@ def _note_results(raw: str, results: dict[str, dict]) -> None:
         _note_blocks([b for b in content if isinstance(b, dict)], results)
 
 
+def _claude_prompt(row: dict, blocks: list[dict]) -> bool:
+    if row.get("type") != "user" or row.get("isMeta") or row.get("isCompactSummary"):
+        return False
+    if any(b.get("type") == "tool_result" for b in blocks):
+        return False
+    text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").lstrip()
+    return bool(text) and not text.startswith(("[Request interrupted by user", "<task-notification>",
+                                              "This session is being continued from a previous conversation"))
+
+
 def _claude_items(path: Path, before: int | None, limit: int, owned: set[str] | None = None) -> tuple[list[dict], int | None]:
     """A page of rows older than `before`, newest first. The cursor is a row's
     byte offset from the start of the file, which later turns never move, so
@@ -176,7 +186,7 @@ def _claude_items(path: Path, before: int | None, limit: int, owned: set[str] | 
                 tool_id = str(block.get("id")) if block.get("id") else None
                 items.append(_tool_item(str(block.get("name")), block.get("input"), tool_id,
                                         results.get(tool_id or ""), ts=row.get("timestamp"), cursor=index))
-        if owned is not None and kind == "user" and any(b.get("type") == "text" for b in blocks):
+        if owned is not None and kind == "user" and (row.get("uuid") in owned or _claude_prompt(row, blocks)):
             source = "subfleet" if row.get("uuid") in owned else "other-app"
             for item in items[group_start:]:
                 item["source"] = source
@@ -187,7 +197,8 @@ def _claude_items(path: Path, before: int | None, limit: int, owned: set[str] | 
 
 
 def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes: list[dict],
-         resolved_only: bool = False, owned: set[str] | None = None, owned_turns: set[str] | None = None) -> dict:
+         resolved_only: bool = False, owned: set[str] | None = None, owned_turns: set[str] | None = None,
+         known_path: str | None = None) -> dict:
     limit = max(1, min(int(limit), 200))
     before = int(before) if before is not None else None
     sid = conversation.get("native_session_id")
@@ -196,6 +207,15 @@ def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes:
     from .catalog import transcript_record
     record = transcript_record(root, conversation["provider"], sid)
     path = Path(record["path"]) if record and record.get("path") else None
+    if path is None and known_path:
+        path = Path(known_path)
+    if path is None and conversation["provider"] == "claude" and conversation.get("workspace"):
+        # A just-created session may precede the first catalog pass. Its exact
+        # workspace path is known, so no native-tree discovery is necessary.
+        from ..adapters.claude import encode_project_dir
+        candidate = transcripts.projects_dir() / encode_project_dir(conversation["workspace"]) / f"{sid}.jsonl"
+        if candidate.is_file():
+            path = candidate
     if resolved_only and path is None:
         return {"items": [], "next_before": None, "missing": True}
     if conversation["provider"] == "claude":

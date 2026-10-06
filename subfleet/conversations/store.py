@@ -977,7 +977,7 @@ class ConversationStore:
                 return _decode_message(dict(again)), False
             if wake_claim is not None:
                 from .wakes import claim
-                claim(tx, conversation_id, message_id, wake_claim)
+                claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
             last = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation_id,)).fetchone()
             if origin == "person" and (last["message_id"] if last else None) != after_message_id:

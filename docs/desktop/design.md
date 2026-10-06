@@ -1326,18 +1326,18 @@ WAKE-ME: runs=JOB1,JOB2 prs=owner/repo#12,owner/repo#13 at=2026-10-04T12:00:00Z 
 ```
 
 Fields are optional and unique, separated by whitespace with shell quoting;
-one trigger is required. Each line registers independently and replay uses its
+one trigger is required. Empty run/PR placeholders are ignored when another trigger exists. Bullets, bold markup and a standard DONE, WAITING ON MAX or HANDED TO close-out are accepted; fences, quotes and indented code are excluded. Invalid lines produce a visible refusal without discarding valid lines. Each line registers independently and replay uses its
 message id, so it does not register twice. Each conversation has at most one
 pending wake per kind; replacement consumes the older kind. A trigger kind
 lists at most 16 targets and a note has at most 4,000 characters. Times must
-have a timezone and be at least five minutes away on first acceptance.
+have a timezone and be at least five minutes away on first acceptance; final-text timers use turn creation rather than settlement for this floor.
 
 PR state is read by one batched `gh api graphql --input -` invocation across
 conversations per cycle, at least 60 seconds apart (persisted even across
 restart), with a 20-second timeout. Head checks, PR state and submitted review
 ids form a durable baseline. Merge/close, completed check transitions and new
 submitted reviews latch readiness even when a conversation cannot wake yet.
-Failed queries and incomplete check sets prove no event.
+First observations establish baselines; dated events strictly after registration cover the gap before that observation. Partial alias errors preserve other watches and refuse the inaccessible watch once, with an explicit message. Transport failures and incomplete check sets prove no event. The bounded PR worker never holds dispatch and is joined on shutdown. A pending all-of run request gathers its targets into one wake; a request for already-delivered results is satisfied silently. A durable activation timestamp and one-time snapshot exclude historical completions on upgrade while retaining new completions within that same stored second. Notice repair uses a durable queue with batches of at most 500, and completed repairs cause no writes; job lookups are indexed and automatic discovery is paced to once per second.
 
 Wakes wait behind blocks, legacy holds, archives, personal input, turns and
 leases. The same transaction rechecks these guards when it accepts a wake and
@@ -1351,7 +1351,7 @@ input. Person predecessors and person FIFO are unchanged.
 **D-29. A block protects an execution boundary, not an obsolete timestamp.**
 The store keeps `blocked_at` separately from `updated_at`, so sending into a
 blocked conversation does not move the boundary. A catalog transcript mtime
-strictly after it proves the session continued elsewhere. Clear only after
+strictly after it is the continuation criterion; it is not a count of new turns. Catalog and live-writer checks are paced at five seconds per unchanged block. Clear only after
 the fresh C-26.3 live-writer check passes and Subfleet has no live/queued turn
 or lease. Record `conversation.unblocked: continued-elsewhere` atomically with
 clearing the observed block. Preserve handoff and import holds. Historical
@@ -1360,9 +1360,12 @@ automatic resend. Pre-upgrade blocks use the last settled blocked-turn time.
 
 **D-30. Binding does not freeze native history.** The catalog keeps exact paths
 and file metadata for bound sessions too, including sessions hidden as known
-attempts. `conversation.open` returns one bounded history page on the file pool;
-history reads use these paths, never a native-tree scan. Prompt UUIDs (Claude)
-and turn-context ids (Codex) classify ownership. Subfleet-owned native rows are
+attempts. `conversation.open` returns one bounded history page on a dedicated read pool;
+history reads prefer catalog paths and can use recorded attempt paths or the
+exact Claude workspace/session path before catalog discovery. They never scan
+native trees. Prompt UUIDs (Claude)
+and turn-context ids (Codex) classify ownership. Synthetic user rows such as
+interrupts, compaction summaries and task notifications do not divide a turn. Subfleet-owned native rows are
 deduplicated against its event stream. Outside rows survive the first-event
 boundary, read "Made in another app", and merge in timestamp order. If a group
 is larger than the read cap and ownership is unavailable, the older conservative

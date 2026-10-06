@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS notices (
   acknowledged_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
+CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 
 -- C-11.5
 CREATE TABLE IF NOT EXISTS decisions (
