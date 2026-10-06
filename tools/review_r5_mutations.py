@@ -10,6 +10,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = "tests/unit/test_review_r5_repro.py::"
 MUTATIONS = [
+    ("omit-completion-order", "wakes.py", "ORDER BY j.created_at,j.job_id", "",
+     "test_automatic_completion_batch_is_ordered_by_job_creation"),
     ("omit-completion-intent", "store.py", "if changed and final_wake is not None:",
      "if False and changed and final_wake is not None:",
      "test_final_timer_is_recovered_after_settlement_restart[after-complete]"),

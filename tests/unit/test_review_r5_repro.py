@@ -21,6 +21,23 @@ class SimulatedCrash(BaseException):
     pass
 
 
+def test_automatic_completion_batch_is_ordered_by_job_creation(svc):
+    """Different seconds expose the job store's reverse chronological index scan."""
+    cid = bound(svc)
+    parent = turn_job(svc, cid, 1)
+    run_under(svc, cid, parent, "z-first")
+    run_under(svc, cid, parent, "a-second")
+    now = time.time()
+    svc.daemon.store.update_job("z-first", created_at=iso(now + 1))
+    svc.daemon.store.update_job("a-second", created_at=iso(now + 2))
+    svc.wakes.now = lambda: now + 3
+    svc.wakes.tick(poll=False)
+    assert wake_texts(svc, cid) == [
+        "[Subfleet]\nz-first finished: succeeded; deliverable /work/z-first.md\n"
+        "a-second finished: succeeded; deliverable /work/a-second.md"
+    ]
+
+
 @pytest.mark.parametrize("boundary", ["before-complete", "after-complete", "no-crash"])
 def test_final_timer_is_recovered_after_settlement_restart(svc, monkeypatch, boundary):
     cid = bound(svc)

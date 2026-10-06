@@ -391,7 +391,8 @@ class WakeEngine:
                 "FROM jobs j LEFT JOIN jobs p ON j.parent_job_id=p.job_id AND p.kind='turn' WHERE j.kind<>'turn' "
                 "AND julianday(COALESCE(j.finished_at,j.created_at))>=julianday(?) AND j.state IN ('succeeded','failed','cancelled','lost','quarantined') "
                 "AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.job_id=j.job_id "
-                                                  "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation')", (cutoff,)):
+                                                  "AND n.state IN ('surfaced','acknowledged') AND COALESCE(n.transport,'')<>'conversation') "
+                "ORDER BY j.created_at,j.job_id", (cutoff,)):
             if self.store.one("SELECT 1 FROM wake_historical_runs WHERE job_id=?", (job["job_id"],)):
                 continue
             c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
