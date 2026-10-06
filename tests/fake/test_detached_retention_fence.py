@@ -150,9 +150,10 @@ def test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes
     retirement (begin, lock, quarantine, archive, the final check), its tree moved away
     from the quarantine on, and is never reserved and never prepared. Its queued job
     keeps the tree at the commit (`worktree-in-use`, #76), so the retirement is rolled
-    back, the tree comes back exactly as it was (no git ran in it: no time moved, and
-    a writer's worktree was not registered there), the fence goes, and the next
-    detached pass runs the job.
+    back, the tree comes back exactly as it was (no byte or time in it moved, and a
+    writer's worktree was not registered there; that the workspace was never prepared
+    is `Workspaces.calls`, since a git that only reads moves nothing), the fence goes,
+    and the next detached pass runs the job.
     Failed on 5253faa2: reserved at the first look, live while its tree was in quarantine."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
