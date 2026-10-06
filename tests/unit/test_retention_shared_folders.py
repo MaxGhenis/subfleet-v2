@@ -250,6 +250,39 @@ def test_archive_journal_and_fence_use_the_same_folder_spelling(world):
     assert not wt.exists() and not world.admin("MixedCase").exists()
 
 
+@pytest.mark.parametrize("recorded", ["alias", "unrecorded"])
+@pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
+def test_the_commit_recheck_reads_rows_on_the_journals_spelling(world, monkeypatch, writable, recorded):
+    """A row inside the tree after verification (admission fences only a turn's own
+    folder) stops the commit also when `jobs.worktree` is spelled in another case or
+    was never recorded. The pins compare the recorded spelling, so the commit also
+    reads the rows on the journal's canonical one (review of 31048e67, F1: both
+    were pruned, the tree deleted under the live row)."""
+    wt = world.job("Job")
+    folder = nested_repository(wt)
+    if recorded == "alias":
+        alias = wt.with_name(wt.name.swapcase())
+        if not alias.exists() or not alias.samefile(wt):
+            pytest.skip("case-insensitive filesystem required")
+        world.store.update_job("Job", worktree=str(alias))
+    else:
+        world.store.update_job("Job", worktree=None)       # allocated, never recorded (C-6.12)
+    before = snapshot(wt)
+    check = rarch.Retirement.final_check
+
+    def late(retirement):
+        check(retirement)
+        world.store.acquire_lease(folders.turn_key(folder, "late", writable=writable), "late")
+
+    monkeypatch.setattr(rarch.Retirement, "final_check", late)
+    result = run(world)
+    assert result["pruned"] == [] and "Job" in result["protected"], result
+    assert world.store.get_job("Job") and snapshot(wt) == before and world.admin("Job").is_dir()
+    world.store.release_leases("late")
+    monkeypatch.setattr(rarch.Retirement, "final_check", check)
+    assert "Job" in run(world)["pruned"] and not wt.exists()
+
+
 @pytest.mark.parametrize("where", ["tree", "nested"])
 def test_turn_pin_recheck_does_no_filesystem_work_in_transaction(world, monkeypatch, where):
     wt = world.job("job")
