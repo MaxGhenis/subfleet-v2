@@ -662,13 +662,17 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         assert prepared == [turn] and any(ran_in(spawn, tree) for spawn in spawned), (prepared, spawned)
 
 
-def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_turn_cap(tmp_path):
+def test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did(tmp_path):
     """C-6.9, C-26.9, differential with 9e159ec9: with a turn cap set
-    (`conversations.max_active_turns`), an older turn held on the fence is a waiter of
-    its turns' class (`<tier>#turn`) with its demand, so a later turn on the same lane
-    and model is held `behind-older-job`, and one on another lane is placed, as when
-    the transaction held the older turn. Pins what the call site hands `_fence_hold`
-    (`tier`, `models`, `lanes`), which its own property test cannot."""
+    (`conversations.max_active_turns` 2), an older turn held on the fence is a waiter of
+    its turns' class (`<tier>#turn`) on the fence's key, as when the transaction held it.
+    A waiter on a lease waits for no slot, so it holds no later turn back: a later turn
+    on its lane and model is placed (on 0812d5c5 it was held `behind-older-job` for the
+    whole retirement, fenced-turn-precheck review P3-4). And the last turn slot is kept
+    for it, so a turn on another lane after that one is held `slot-kept` for it. Pins the
+    class the call site hands `_fence_hold` (`tier`): in another class the waiter would
+    keep no turn slot. Its demand (`models`, `lanes`) decides nothing, now that a lease
+    waiter holds no job back."""
     import tests.fake.test_turn_wait_reasons as reasons
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
@@ -679,7 +683,7 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
         for lane in CODEX:
             measure(daemon, lane)
         patch.setitem(daemon.policy, "conversations", {**(daemon.policy.get("conversations") or {}),
-                                                       "max_active_turns": 5})
+                                                       "max_active_turns": 2})
         tree, nested = retiring_tree(daemon, harness)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         elsewhere = tmp_path / "Elsewhere"
@@ -695,17 +699,15 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
             _, _, beside = message_in(daemon, harness, f"beside-{path}", workspace=elsewhere, settings=reader)
             patch.setattr(reasons, "CODEX", CODEX)
             daemon._admit_turns()
-            assert not _live(daemon, later) and daemon._holds[older]["reason"] == "lease-held", \
-                (path, {job: daemon._holds.get(job) for job in (older, later)})
-            held = dict(daemon._holds[later])
-            held["behind"] = held["behind"] == older
-            seen[path] = {"later": held, "beside": _live(daemon, beside)}
-            _end(daemon, beside)
+            assert daemon._holds[older]["reason"] == "lease-held", \
+                (path, {job: daemon._holds.get(job) for job in (older, later, beside)})
+            held = dict(daemon._holds.get(beside) or {})
+            seen[path] = {"later": _live(daemon, later), "beside": (held.get("reason"), held.get("kept_for") == older)}
+            _end(daemon, later)
             with daemon.store.transaction("test.settle") as tx:      # out of the next path's way
                 tx.execute("UPDATE jobs SET state='cancelled',cancel_requested_at=? WHERE job_id IN (?,?)",
-                           ("2026-10-05T00:00:00Z", older, later))
-        assert seen["transaction"] == {"later": {"reason": "behind-older-job", "behind": True, "tier": "standard#turn"},
-                                       "beside": True}, seen
+                           ("2026-10-05T00:00:00Z", older, beside))
+        assert seen["transaction"] == {"later": True, "beside": ("slot-kept", True)}, seen
         assert seen["look"] == seen["transaction"], seen
 
 
