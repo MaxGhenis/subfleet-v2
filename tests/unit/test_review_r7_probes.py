@@ -88,7 +88,7 @@ BOUNDARIES = [
 
 def arm_crash(service, monkeypatch, boundary, older, newer, reached):
     """Raise SimulatedCrash (a BaseException: tick() cannot log it away) at one boundary."""
-    def crash():
+    def crash(*_args):
         reached.append(boundary)
         raise SimulatedCrash()
 
@@ -207,7 +207,7 @@ root, older, newer, boundary, at = sys.argv[2:]
 service = ConversationService(FakeDaemon(Path(root)))
 service.wakes.now = lambda: float(at)
 service._catalog_tick = lambda: None
-def die():
+def die(*_args):
     os._exit(77)
 if boundary == "before-replay":
     service.wakes.replay_final = die
@@ -302,8 +302,9 @@ def test_intents_replay_in_message_order_not_completion_order(svc, monkeypatch, 
     clock = [now]
     svc.wakes.now = lambda: clock[0]
     monkeypatch.setattr(svc, "_catalog_tick", lambda: None)
-    svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 300), note="First check", now=now))
-    clock[0] = now + 301
+    # Not exactly +300 s: iso() rounds to microseconds and can land under the floor.
+    svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 310), note="First check", now=now))
+    clock[0] = now + 311
     svc.wakes.tick(poll=False)
     [woken] = wake_rows(svc, cid)
     assert woken["state"] == "queued"
@@ -402,3 +403,51 @@ def test_failing_final_replay_blocks_unrelated_recovery_and_explicit_wakes(svc, 
           f"stranded-state={svc.store.message(runner.message_id)['state']} wake-op={receipt or error}")
     assert adopted == [(runner.attempt_id, True)], "an ended turn in another conversation was not replayed"
     assert error is None and receipt["kinds"] == ["time"], error
+
+
+@pytest.mark.parametrize("hold", ["blocked", "throttled", "legacy-hold"])
+def test_pending_intent_replays_while_held_and_fires_once_after(svc, monkeypatch, hold):
+    """A replacement recorded before a crash replays while the conversation is held,
+    then fires exactly once, and the superseded old timer never does."""
+    now = time.time()
+    clock = [now]
+    svc.wakes.now = lambda: clock[0]
+    cid = bound(svc)
+    svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(at=iso(now + 600), note="Old timer", now=now))
+    text = f'WAKE-ME: at={iso(now + 1200)} note="Replacement"'
+    record_final(svc, finished_turn(svc, cid, text), text, now + 10)     # crash before replay
+    if hold == "blocked":
+        svc.store.update_conversation(cid, blocked_by="delivery-unknown")
+    elif hold == "legacy-hold":
+        svc.store.set_legacy_hold(cid, "legacy-writer")
+    else:
+        with svc.store.transaction() as tx:
+            tx.execute("UPDATE conversations SET wake_streak=?,last_wake_at=? WHERE conversation_id=?",
+                       (wakes.MAX_STREAK, now + 1500 - wakes.COOLDOWN_S, cid))
+    svc.close()
+    restarted = ConversationService(svc.daemon)
+    restarted.wakes.now = lambda: clock[0]
+    monkeypatch.setattr(restarted, "_catalog_tick", lambda: None)
+    try:
+        seen = []
+        for at in (601, 1201):
+            clock[0] = now + at
+            for _ in range(2):
+                restarted.tick()
+                complete_wakes(restarted, cid)
+            seen.append(len(wake_rows(restarted, cid)))
+        intents = len(restarted.store.query("SELECT * FROM final_wake_intents"))
+        if hold == "blocked":
+            restarted.store.update_conversation(cid, blocked_by=None)
+        elif hold == "legacy-hold":
+            restarted.store.set_legacy_hold(cid, None)
+        clock[0] = now + 1501
+        for _ in range(3):
+            restarted.tick()
+            complete_wakes(restarted, cid)
+        texts = wake_texts(restarted, cid)
+        print(f"R7 held {hold}: wakes-while-held={seen} intents-while-held={intents} final={texts}")
+        assert seen == [0, 0] and intents == 0
+        assert len(texts) == 1 and "Replacement" in texts[0] and "Old timer" not in texts[0], texts
+    finally:
+        restarted.close()
