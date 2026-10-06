@@ -13,13 +13,6 @@ pytestmark = needs_swift
 COMMANDS = json.loads((ROOT / "tests/fixtures/visual/codex-commands.json").read_text())
 
 
-@pytest.fixture(scope="session")
-def r2_models(tmp_path_factory):
-    probe = compile_probe(tmp_path_factory.mktemp("r2-models") / "probe",
-                          ROOT / "tests/frontend/R2PresentationProbe.swift", "SUBFLEET_MODEL_TEST")
-    return run_probe(probe, ROOT / "tests/fixtures/visual/codex-commands.json")
-
-
 @pytest.mark.parametrize("index,record", list(enumerate(COMMANDS)), ids=lambda x: str(x)[:80])
 def test_labels_strip_recorded_shell_wrappers(r2_models, index, record):
     row = r2_models["commands"][index]
@@ -45,7 +38,7 @@ def test_all_supported_shells_and_flags_preserve_the_recorded_script(r2_models):
 @pytest.mark.parametrize("path", [
     ".agent_id", ".classifier_approvable", ".subtype", ".tool_use_id", ".tool_name", ".display_name", ".title",
     ".description", ".decision_reason", ".decision_reason_type", ".suppress_always_allow_rule", ".requires_user_interaction", ".method",
-    "params.threadId", "params.turnId", "params.itemId", "params.startedAtMs", "params.kind", "params.reason", "input.description",
+    "params.threadId", "params.turnId", "params.itemId", "params.startedAtMs", "params.reason", "params.approvalId", "params.commandActions", "input.description",
 ])
 def test_named_protocol_plumbing_is_hidden_and_unknown_keys_survive(r2_models, path):
     fields = r2_models["hidden"][path]
@@ -53,7 +46,7 @@ def test_named_protocol_plumbing_is_hidden_and_unknown_keys_survive(r2_models, p
     assert path.lstrip(".") not in fields
 
 
-@pytest.mark.parametrize("key", ["tool", "title", "description", "reason", "input_kind"])
+@pytest.mark.parametrize("key", ["tool", "title", "description", "reason"])
 def test_summary_copy_is_not_repeated_as_a_grant(r2_models, key):
     assert r2_models["display_hidden"][key] == {"newGrant": "/future/root"}
 
@@ -92,7 +85,7 @@ def test_question_summaries_preserve_unknown_object_input_grants(r2_models):
 
 def test_file_change_fixture_matches_the_request_schema():
     fixture = next(f for f in json.loads((ROOT / "tests/fixtures/visual/approvals.json").read_text()) if f["id"] == "codex-file-change")
-    assert set(fixture["request"]["params"]) == {"threadId", "turnId", "itemId", "reason", "grantRoot"}
+    assert set(fixture["request"]["params"]) == {"threadId", "turnId", "itemId", "startedAtMs", "reason", "grantRoot"}
     assert fixture["request"]["params"]["grantRoot"] == "/"
     assert fixture["visible"] == ["grantRoot: /"]
 
@@ -158,3 +151,32 @@ def test_masked_confirmation_is_reachable_and_enables_allow(r2_views, mode):
     assert confirmed["height"] <= 400
     assert "Allow" in confirmed["ocr"] and "Cancel" in confirmed["ocr"] and "Deny" in confirmed["ocr"]
     assert "have reviewed the masked values" in confirmed["ocr"]
+
+
+# Round-three review regressions adapted from the reviewer's proposed patch.
+
+def test_codex_input_to_a_running_terminal_is_shown(r2_models):
+    # Codex 0.159: kind "Distinguishes a command approval from input sent to an existing terminal" (C-27.1).
+    review = r2_models["review_r3"]
+    assert "writeStdin" in review["write_stdin_fields"].values()
+    assert "writeStdin" in review["write_stdin_summary"].values()
+
+
+def test_the_command_precedes_parsed_actions_and_arrays_keep_their_order(r2_models):
+    keys = r2_models["review_r3"]["chain_order"]
+    actions = [i for i, k in enumerate(keys) if k.startswith("params.commandActions")]
+    assert keys.index("params.command") < min(actions, default=len(keys))
+    writes = [k for k in r2_models["review_r3"]["roots_order"] if "write[" in k]
+    assert writes == sorted(writes, key=lambda k: int(k.rsplit("[", 1)[1].rstrip("]")))
+
+
+def test_a_cd_prelude_ends_at_its_own_separator(r2_models):
+    assert r2_models["review_r3"]["label_cd_semicolon"] not in ("make", "make ")
+
+
+def test_file_change_fixture_validates_against_the_vendored_codex_schema():
+    schema = json.loads((ROOT / "tests/fixtures/codex/app-server-0.153.3/ServerRequest.json").read_text())
+    params_schema = schema["definitions"]["FileChangeRequestApprovalParams"]
+    fixture = next(f for f in json.loads((ROOT / "tests/fixtures/visual/approvals.json").read_text()) if f["id"] == "codex-file-change")
+    params = fixture["request"]["params"]
+    assert set(params_schema["required"]) <= set(params) <= set(params_schema["properties"])

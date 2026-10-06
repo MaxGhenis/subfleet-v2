@@ -95,7 +95,10 @@ struct ApprovalCardView: View {
 
     private func load() async {
         loadFailed = false
-        guard let id = await model.approvalID(for: card, conversationID: conversationID),
+        // History is read by immutable approval id. The pending-only resolver is
+        // for decisions; using it for Details creates an unrelated error banner.
+        let id = card.isPending ? await model.approvalID(for: card, conversationID: conversationID) : card.approvalID
+        guard let id,
               let fresh = await model.approvalDetail(id, reveal: false) else {
             loadFailed = true
             return
@@ -127,7 +130,7 @@ struct ApprovalCardView: View {
             .modifier(RequestScrollFocus())
             .accessibilityLabel("Raw request")
         }.readingFont(.secondary)
-            .onChange(of: detailsExpanded) { _, expanded in
+            .onChange(of: detailsExpanded, initial: true) { _, expanded in
                 if expanded && detail == nil && card.approvalID != nil { Task { await load() } }
             }
     }
@@ -345,6 +348,7 @@ struct ApprovalSheet: View {
     @State private var confirmMasked = false
     @State private var note = ""
     @State private var sending = false
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -360,7 +364,7 @@ struct ApprovalSheet: View {
                         }
                     }
                 }
-                .frame(minHeight: 40, maxHeight: 240)
+                .frame(minHeight: max(40, 3 * ReadingStyle.code.pointSize(scale: scale)), maxHeight: 240)
                 .scrollIndicators(.visible)
                 .modifier(RequestScrollFocus())
                 .accessibilityLabel("Requested scope and content; Details contains the raw request")
@@ -369,22 +373,22 @@ struct ApprovalSheet: View {
                         Label("\(detail.masked.count) value(s) that look like secrets are masked",
                               systemImage: "eye.slash").readingFont(.secondary)
                         Spacer()
-                        Button("Reveal") { Task { await load(reveal: true) } }
+                        actionControl("Reveal") { Task { await load(reveal: true) } }
                     }.fixedSize(horizontal: false, vertical: true)
                     Toggle("I have reviewed the masked values", isOn: $confirmMasked).readingFont(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("approval.confirmMasked")
                 }
                 TextField("Note to the agent (optional)", text: $note)
-                HStack {
-                    Button("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
-                    Spacer()
-                    ForEach(detail.approval.options.reversed(), id: \.self) { option in
-                        Button(label(option)) { Task { await answer(option, detail: detail) } }
-                            .accessibilityIdentifier("approval.option.\(option)")
-                            .disabled(sending || !canChoose(option, detail: detail))
-                            .buttonStyle(.bordered)
-                            .tint(option == primaryOption(detail) ? Theme.accent : nil)
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        actionControl("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
+                        Spacer()
+                        decisionControls(detail)
+                    }.fixedSize(horizontal: true, vertical: true)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        actionControl("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
+                        decisionControls(detail)
                     }
                 }.fixedSize(horizontal: false, vertical: true)
             } else {
@@ -393,9 +397,34 @@ struct ApprovalSheet: View {
         }
         .readingFont(.body)
         .padding(18)
-        .frame(width: 560)
-        .frame(maxHeight: 400)
+        .frame(width: min(900, 560 * max(1, scale)))
+        // Keep three lines of grant text and room for confirmation/actions at
+        // enlarged text sizes, while bounding the sheet to a laptop-sized height.
+        .frame(maxHeight: min(720, 400 * max(1, scale)))
         .task { await load(reveal: false) }
+    }
+
+    /// Native bordered controls retain a small control height at enlarged fonts.
+    /// A SwiftUI label keeps its intrinsic height, hover, focus and disabled state.
+    private func actionControl(_ title: String, primary: Bool = false, role: ButtonRole? = nil,
+                               action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            Text(title).fontWeight(primary ? .semibold : .regular).fixedSize(horizontal: true, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .foregroundStyle(Theme.text.primary.color)
+                .overlay(RoundedRectangle(cornerRadius: Theme.radius.control)
+                    .stroke(Theme.line.hairline, lineWidth: 1))
+        }.buttonStyle(QuietButtonStyle())
+    }
+
+    private func decisionControls(_ detail: ApprovalDetail) -> some View {
+        ForEach(detail.approval.options.reversed(), id: \.self) { option in
+            actionControl(label(option), primary: option == primaryOption(detail)) {
+                Task { await answer(option, detail: detail) }
+            }
+            .accessibilityIdentifier("approval.option.\(option)")
+            .disabled(sending || !canChoose(option, detail: detail))
+        }
     }
 
     private func load(reveal: Bool) async {
@@ -447,6 +476,14 @@ extension ApprovalSheet {
     func confirmingMaskedValuesForSnapshot() -> Self {
         var view = self
         view._confirmMasked = State(initialValue: true)
+        return view
+    }
+}
+extension ApprovalCardView {
+    /// Exercise the same Details load as a disclosure click, in an unshown host.
+    func showingDetailsForSnapshot() -> Self {
+        var view = self
+        view._detailsExpanded = State(initialValue: true)
         return view
     }
 }
