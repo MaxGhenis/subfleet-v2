@@ -60,15 +60,19 @@ class SalvageError(RuntimeError):
 
     ``transient`` is true when the failure says nothing about the repository (a
     timeout, an `OSError` in `TRANSIENT_ERRNOS`, or git naming a held lock file
-    or a full disk, `_TRANSIENT_GIT`), so the caller may retry.
+    or a full disk, `_TRANSIENT_GIT`), so the caller may retry. ``timed_out``
+    is true for a git call stopped at its cap, which is transient too: it did
+    not finish, and a snapshot's seeding step that did not is no reason to
+    read the baseline the slow way (`snapshot_tree`).
 
     The message is valid UTF-8 (`utf8_text`) whatever git quoted in it: it
     reaches receipts, the evidence, notices and replies.
     """
 
-    def __init__(self, message: str, *, transient: bool = False):
+    def __init__(self, message: str, *, transient: bool = False, timed_out: bool = False):
         super().__init__(utf8_text(message))
-        self.transient = transient
+        self.transient = transient or timed_out
+        self.timed_out = timed_out
 
 
 def utf8_text(text: str) -> str:
@@ -170,7 +174,7 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
         # Never `optional`: a call that did not finish has not said "no HEAD" or
         # "no branch", and reading it that way admits a writable job with no
         # baseline or lets one past the main/master refusal.
-        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc
+        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
             raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
@@ -196,7 +200,7 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
         result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
                                 capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
-        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", transient=True) from exc
+        raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
             raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
@@ -273,8 +277,12 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     signal is (`_failure`), failed every try of the snapshot the same way,
     salvage's and admission's alike, the copy's `index.lock` left beside it
     for the fallback to trip on (review of ceacf18b, P3-1). A seeding step
-    that timed out under load costs its cap once more, before the fallback's
-    own cap.
+    that reached its cap is the exception: it did not finish, and raises as
+    before (transient). Under the load that stops the fast seeded read, the
+    unseeded one, which hashes every tracked file, is slower still (C-6.8's
+    incident: 0.5 s seeded, 39 to 51 s and then past the cap unseeded), so
+    reading it would only spend a second cap on each try before the same
+    failure (review of the P3-1 fix).
 
     Trusting stat data is git's own model (``git status`` does the same): a
     file rewritten with the same size, mtime and inode is read as unchanged,
@@ -301,13 +309,15 @@ def _seeded(workdir: str | Path, index: Path, env: dict[str, str], baseline_comm
             timeout_s: float | None = None) -> bool:
     """Whether `index` now holds `baseline_commit` seeded from the real index, its
     skip bits cleared (`snapshot_tree`); False when any step did not, failures
-    and git killed by a signal included."""
+    and git killed by a signal included. A step stopped at its cap raises."""
     try:
         return bool(_seed_index(workdir, index, timeout_s=timeout_s)
                     and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
                              optional=True, timeout_s=timeout_s) is not None
                     and _clear_skip_bits(workdir, env, timeout_s=timeout_s))
-    except SalvageError:
+    except SalvageError as exc:
+        if exc.timed_out:
+            raise
         return False
 
 
@@ -368,7 +378,7 @@ def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
         result = subprocess.run(["git", "-C", str(workdir), "add", "-A", *limit], env=_git_env(env),
                                 input=pathspec, capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
-        raise SalvageError(f"git add timed out after {cap:g} s", transient=True) from exc
+        raise SalvageError(f"git add timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
     failure = _failure("add", result)
@@ -422,7 +432,7 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
         result = subprocess.run(["git", b"--git-dir=" + gitdir, "rev-parse", "-q", "--verify", "HEAD"],
                                 env=_git_env(env), capture_output=True, timeout=cap)
     except subprocess.TimeoutExpired as exc:
-        raise SalvageError(f"git rev-parse timed out after {cap:g} s", transient=True) from exc
+        raise SalvageError(f"git rev-parse timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
     failure = _failure("rev-parse", result)
