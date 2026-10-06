@@ -1,0 +1,149 @@
+{
+  "case": "automatic",
+  "run": {
+    "job_id": "20261006-034222-strand-run",
+    "state": "succeeded",
+    "created_at": "2026-10-06T07:42:22Z",
+    "finished_at": "2026-10-06T07:42:24Z"
+  },
+  "turn_jobs": [
+    {
+      "job_id": "20261006-034221-turn-cv-1791272541108-5b8d5f2d0c75",
+      "state": "succeeded",
+      "created_at": "2026-10-06T07:42:21Z",
+      "finished_at": "2026-10-06T07:42:25Z"
+    },
+    {
+      "job_id": "20261006-034226-turn-cv-1791272541108-5b8d5f2d0c75",
+      "state": "queued",
+      "created_at": "2026-10-06T07:42:26Z",
+      "finished_at": null
+    }
+  ],
+  "notices": [
+    {
+      "state": "surfaced",
+      "transport": "conversation",
+      "acknowledged_at": null,
+      "offered_at": "2026-10-06T07:42:26.300Z"
+    }
+  ],
+  "messages": [
+    {
+      "message_id": "680c73c8-313f-4157-84f3-fbed68d17641",
+      "origin": "person",
+      "state": "complete",
+      "created_at": "2026-10-06T07:42:21.112Z"
+    },
+    {
+      "message_id": "eba90f8b-680c-4a86-beef-75e40a2e1695",
+      "origin": "wake",
+      "state": "waiting",
+      "created_at": "2026-10-06T07:42:26.298Z"
+    }
+  ],
+  "requests": [],
+  "waiter": {
+    "background": "f() { /Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli wait \"$1\" 2>&1; rc=$?; date -u +WAITER_RETURNED_AT=%Y-%m-%dT%H:%M:%SZ; return $rc; }; f",
+    "rc": 0,
+    "stdout": "subfleet wait: waiting for 1 job(s): 20261006-034222-strand-run\nsubfleet wait: 20261006-034222-strand-run SUCCEEDED \u00b7 gpt-6-astra \u00b7 lane=codex-1 \u00b7 - \u00b7 out=-\nWAITER_RETURNED_AT=2026-10-06T07:42:24Z\n",
+    "stderr": "",
+    "pid": 91730
+  },
+  "waiter_returned_at": [
+    "2026-10-06T07:42:24Z"
+  ],
+  "turn_log": [
+    {
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--replay-user-messages",
+        "--thinking-display",
+        "summarized",
+        "--model",
+        "opus[1m]",
+        "--session-id",
+        "e191535d-abca-58ea-9343-9283b60fe4d2",
+        "--permission-mode",
+        "default",
+        "--permission-prompt-tool",
+        "stdio",
+        "--disallowedTools",
+        "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
+        "--settings",
+        "{\"disableAllHooks\":false}"
+      ],
+      "pid": 91730,
+      "cwd": "/private/tmp/sf-e2e-xiw28utc/work"
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-init\",\"request\":{\"subtype\":\"initialize\"}}",
+      "pid": 91730
+    },
+    {
+      "stdin": "{\"type\":\"user\",\"uuid\":\"680c73c8-313f-4157-84f3-fbed68d17641\",\"parent_tool_use_id\":null,\"session_id\":\"e191535d-abca-58ea-9343-9283b60fe4d2\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"dispatch, arm a background wait, end the turn [fake:bash]\"}]}}",
+      "pid": 91730
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-settings\",\"request\":{\"subtype\":\"get_settings\"}}",
+      "pid": 91730
+    },
+    {
+      "bash": "/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli run -m astra -C /private/tmp/sf-e2e-xiw28utc/work -p /private/tmp/sf-e2e-xiw28utc/prompt.md --allow-tmp --name strand-run",
+      "rc": 0,
+      "stdout": "20261006-034222-strand-run\n",
+      "stderr": "subfleet run: dispatched job=20261006-034222-strand-run request=e1355924-9f3f-4311-9c12-9925ce31fdef (detached \u2014 inside a Claude session \u2014 the job must outlive it)\n  out: /private/tmp/sf-e2e-xiw28utc/jobs/20261006-034222-strand-run/a1/deliverable.md\n  log: /private/tmp/sf-e2e-xiw28utc/jobs/20261006-034222-strand-run/a1/lane.log\n  sandbox: read-only\n  done \u2192 subfleet wait 20261006-034222-strand-run   (blocks; ok under run_in_background)\n  status: subfleet runs --mine \u00b7 details: subfleet runs show 20261006-034222-strand-run \u00b7 cancel: subfleet kill 20261006-034222-strand-run\n",
+      "session_id": "e191535d-abca-58ea-9343-9283b60fe4d2",
+      "pid": 91730
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-session-title\",\"request\":{\"subtype\":\"generate_session_title\",\"description\":\"dispatch, arm a background wait, end the turn [fake:bash]\",\"persist\":false}}",
+      "pid": 91730
+    },
+    {
+      "title_response": {
+        "subtype": "success",
+        "request_id": "subfleet-session-title",
+        "response": {
+          "title": "Fixture session title"
+        }
+      },
+      "pid": 91730
+    },
+    {
+      "argv": [
+        "app-server",
+        "-c",
+        "features.plugins=false",
+        "-c",
+        "hooks={PreToolUse=[{matcher=\"Bash|apply_patch\",hooks=[{type=\"command\",command=\"/private/tmp/sf-e2e-xiw28utc/guard/never-rules-hook.sh\",timeout=60,statusMessage=\"never-rules guard\"}]}],state={\"/<session-flags>/config.toml:pre_tool_use:0:0\"={trusted_hash=\"sha256:f91f4eb22e7292a1663a32235e3a1c9a4e1bf6da85634dec5288a5e0b7a11b98\",enabled=true}}}"
+      ],
+      "pid": 91804
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"clientInfo\": {\"name\": \"subfleet-guard-preflight\", \"title\": \"subfleet guard\", \"version\": \"2.0.0\"}}}",
+      "pid": 91804
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"method\": \"initialized\", \"params\": {}}",
+      "pid": 91804
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"hooks/list\", \"params\": {\"cwds\": [\"/private/tmp/sf-e2e-xiw28utc/work\"]}}",
+      "pid": 91804
+    },
+    {
+      "background": "f() { /Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli wait \"$1\" 2>&1; rc=$?; date -u +WAITER_RETURNED_AT=%Y-%m-%dT%H:%M:%SZ; return $rc; }; f",
+      "rc": 0,
+      "stdout": "subfleet wait: waiting for 1 job(s): 20261006-034222-strand-run\nsubfleet wait: 20261006-034222-strand-run SUCCEEDED \u00b7 gpt-6-astra \u00b7 lane=codex-1 \u00b7 - \u00b7 out=-\nWAITER_RETURNED_AT=2026-10-06T07:42:24Z\n",
+      "stderr": "",
+      "pid": 91730
+    }
+  ]
+}

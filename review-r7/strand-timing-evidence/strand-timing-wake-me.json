@@ -1,0 +1,185 @@
+{
+  "case": "wake-me",
+  "run": {
+    "job_id": "20261006-034228-strand-run",
+    "state": "succeeded",
+    "created_at": "2026-10-06T07:42:28Z",
+    "finished_at": "2026-10-06T07:42:31Z"
+  },
+  "turn_jobs": [
+    {
+      "job_id": "20261006-034227-turn-cv-1791272547696-fc390381b1e6",
+      "state": "succeeded",
+      "created_at": "2026-10-06T07:42:27Z",
+      "finished_at": "2026-10-06T07:42:32Z"
+    },
+    {
+      "job_id": "20261006-034232-turn-cv-1791272547696-fc390381b1e6",
+      "state": "running",
+      "created_at": "2026-10-06T07:42:32Z",
+      "finished_at": null
+    }
+  ],
+  "notices": [
+    {
+      "state": "surfaced",
+      "transport": "conversation",
+      "acknowledged_at": null,
+      "offered_at": "2026-10-06T07:42:32.295Z"
+    }
+  ],
+  "messages": [
+    {
+      "message_id": "57855456-f660-46de-91cf-3cb157fddeee",
+      "origin": "person",
+      "state": "complete",
+      "created_at": "2026-10-06T07:42:27.696Z"
+    },
+    {
+      "message_id": "913e7fd6-bb5c-4c26-afa5-b61fb5f581ab",
+      "origin": "wake",
+      "state": "waiting",
+      "created_at": "2026-10-06T07:42:32.292Z"
+    }
+  ],
+  "requests": [
+    {
+      "kind": "runs",
+      "state": "fired",
+      "created_at": "2026-10-06T07:42:27+00:00"
+    }
+  ],
+  "waiter": {
+    "background": "f() { /Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli wait \"$1\" 2>&1; rc=$?; date -u +WAITER_RETURNED_AT=%Y-%m-%dT%H:%M:%SZ; return $rc; }; f",
+    "rc": 0,
+    "stdout": "subfleet wait: waiting for 1 job(s): 20261006-034228-strand-run\nsubfleet wait: 20261006-034228-strand-run SUCCEEDED \u00b7 gpt-6-astra \u00b7 lane=codex-1 \u00b7 - \u00b7 out=-\nWAITER_RETURNED_AT=2026-10-06T07:42:31Z\n",
+    "stderr": "",
+    "pid": 92102
+  },
+  "waiter_returned_at": [
+    "2026-10-06T07:42:31Z"
+  ],
+  "turn_log": [
+    {
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--replay-user-messages",
+        "--thinking-display",
+        "summarized",
+        "--model",
+        "opus[1m]",
+        "--session-id",
+        "f9c3a376-becf-5611-b48b-ac2775270c43",
+        "--permission-mode",
+        "default",
+        "--permission-prompt-tool",
+        "stdio",
+        "--disallowedTools",
+        "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
+        "--settings",
+        "{\"disableAllHooks\":false}"
+      ],
+      "pid": 92102,
+      "cwd": "/private/tmp/sf-e2e-rn4ymm4d/work"
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-init\",\"request\":{\"subtype\":\"initialize\"}}",
+      "pid": 92102
+    },
+    {
+      "stdin": "{\"type\":\"user\",\"uuid\":\"57855456-f660-46de-91cf-3cb157fddeee\",\"parent_tool_use_id\":null,\"session_id\":\"f9c3a376-becf-5611-b48b-ac2775270c43\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"dispatch, arm a background wait, end the turn [fake:bash]\"}]}}",
+      "pid": 92102
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-settings\",\"request\":{\"subtype\":\"get_settings\"}}",
+      "pid": 92102
+    },
+    {
+      "bash": "/Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli run -m astra -C /private/tmp/sf-e2e-rn4ymm4d/work -p /private/tmp/sf-e2e-rn4ymm4d/prompt.md --allow-tmp --name strand-run",
+      "rc": 0,
+      "stdout": "20261006-034228-strand-run\n",
+      "stderr": "subfleet run: dispatched job=20261006-034228-strand-run request=55229b79-faf6-46b7-adc6-47b6af92dc62 (detached \u2014 inside a Claude session \u2014 the job must outlive it)\n  out: /private/tmp/sf-e2e-rn4ymm4d/jobs/20261006-034228-strand-run/a1/deliverable.md\n  log: /private/tmp/sf-e2e-rn4ymm4d/jobs/20261006-034228-strand-run/a1/lane.log\n  sandbox: read-only\n  done \u2192 subfleet wait 20261006-034228-strand-run   (blocks; ok under run_in_background)\n  status: subfleet runs --mine \u00b7 details: subfleet runs show 20261006-034228-strand-run \u00b7 cancel: subfleet kill 20261006-034228-strand-run\n",
+      "session_id": "f9c3a376-becf-5611-b48b-ac2775270c43",
+      "pid": 92102
+    },
+    {
+      "stdin": "{\"type\":\"control_request\",\"request_id\":\"subfleet-session-title\",\"request\":{\"subtype\":\"generate_session_title\",\"description\":\"dispatch, arm a background wait, end the turn [fake:bash]\",\"persist\":false}}",
+      "pid": 92102
+    },
+    {
+      "title_response": {
+        "subtype": "success",
+        "request_id": "subfleet-session-title",
+        "response": {
+          "title": "Fixture session title"
+        }
+      },
+      "pid": 92102
+    },
+    {
+      "argv": [
+        "app-server",
+        "-c",
+        "features.plugins=false",
+        "-c",
+        "hooks={PreToolUse=[{matcher=\"Bash|apply_patch\",hooks=[{type=\"command\",command=\"/private/tmp/sf-e2e-rn4ymm4d/guard/never-rules-hook.sh\",timeout=60,statusMessage=\"never-rules guard\"}]}],state={\"/<session-flags>/config.toml:pre_tool_use:0:0\"={trusted_hash=\"sha256:fa9ce030ce41ffe4b3f1337a6f9ba7948b5e1ee68f6cf793fc43a1e152a0fcec\",enabled=true}}}"
+      ],
+      "pid": 92144
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"clientInfo\": {\"name\": \"subfleet-guard-preflight\", \"title\": \"subfleet guard\", \"version\": \"2.0.0\"}}}",
+      "pid": 92144
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"method\": \"initialized\", \"params\": {}}",
+      "pid": 92144
+    },
+    {
+      "stdin": "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"hooks/list\", \"params\": {\"cwds\": [\"/private/tmp/sf-e2e-rn4ymm4d/work\"]}}",
+      "pid": 92144
+    },
+    {
+      "background": "f() { /Users/maxghenis/.subfleet/worktrees/20261006-033054-pr127-review-r7/.venv/bin/python -m subfleet.cli wait \"$1\" 2>&1; rc=$?; date -u +WAITER_RETURNED_AT=%Y-%m-%dT%H:%M:%SZ; return $rc; }; f",
+      "rc": 0,
+      "stdout": "subfleet wait: waiting for 1 job(s): 20261006-034228-strand-run\nsubfleet wait: 20261006-034228-strand-run SUCCEEDED \u00b7 gpt-6-astra \u00b7 lane=codex-1 \u00b7 - \u00b7 out=-\nWAITER_RETURNED_AT=2026-10-06T07:42:31Z\n",
+      "stderr": "",
+      "pid": 92102
+    },
+    {
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--replay-user-messages",
+        "--thinking-display",
+        "summarized",
+        "--model",
+        "opus[1m]",
+        "--effort",
+        "xhigh",
+        "--resume",
+        "f9c3a376-becf-5611-b48b-ac2775270c43",
+        "--permission-mode",
+        "default",
+        "--permission-prompt-tool",
+        "stdio",
+        "--disallowedTools",
+        "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
+        "--settings",
+        "{\"disableAllHooks\":false,\"ultracode\":true}"
+      ],
+      "pid": 92411,
+      "cwd": "/private/tmp/sf-e2e-rn4ymm4d/work"
+    }
+  ]
+}

@@ -262,8 +262,8 @@ After those runs I restored `subfleet/` and confirmed it is identical to
   each with a deadline, with source restored in `finally`.
 - [logs/](logs) and [junit/](junit): every slice.
 
-The real-process r3 strand test also wrote its own evidence to
-`review-r3/evidence/`.
+- [strand-timing-evidence/](strand-timing-evidence): the r3 strand timing e2e's own
+  daemon logs and timings.
 
 Review commits are on the workspace-local branch `review/pr127-r7`, rooted at
 `8494bc8e`. Nothing was pushed, and nothing was committed to the PR branch.
