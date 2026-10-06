@@ -757,7 +757,8 @@ Each is tested (section 16).
   just before the unlink, ctime included, or, for a file that had other links
   when archived and whose ctime alone moved, with bytes that still hash to the
   archived sha256; directories only with `rmdir`. Anything created or changed
-  after archiving stays, in conflicts (revision 5: a property over writes,
+  after archiving stays, in conflicts, except a write through a shared mapping
+  first made after the second holder scan (section 15) (revision 5: a property over writes,
   links, chmods and interrupted deletions checks the bytes of every entry
   unlinked).
 - **I3, commits kept.** Every commit and staged blob the worktree reached
@@ -835,20 +836,34 @@ descriptors, and deliberately adversarial same-user tricks):
   corruption that leaves device, inode, size, mtime and ctime unchanged can
   evade it at any time. One ordinary way to do that is an in-place write
   through a shared memory mapping of a stored copy, which on APFS leaves all
-  five unchanged until the mapping is unmapped (review of fcb16008). The
-  stored copies are Subfleet's private files (mode 0600 under
-  `<state>/retention/`); no Subfleet path and no tool Max runs writes them, and
-  they are clones, so writing to a source file never changes its copy. Any
-  process that does write them, by any method, is outside damage to the
-  archive: the same class as damage after commit, which no archive-then-delete
-  design without a second copy can survive. Neither case is protection against
+  five unchanged, even after `msync`, until the mapping is unmapped (review of
+  fcb16008; adjudication 2026-10-06). Both holder scans watch
+  `<state>/retention/<job>/`, where the archive is built, and count a mapping
+  or a descriptor open for writing as a hold. So a mapping that exists at the
+  second scan keeps the job (busy), and one released before it has moved the
+  copy's identity, so the copy is read again. What remains is a writable shared
+  mapping first made after the second holder scan, by a process that opens one
+  of the stored copies (`<state>/retention/<job>/archive/files/`, or
+  `<state>/archive/<job>/files/` once published), and held until that file's
+  source is unlinked. That window is the final check, commit, publish and
+  reclamation of one pass, or the gap when an interruption after commit leaves
+  reclamation to a later pass, which runs no holder scan. The same mapping of a
+  quarantined source file changes its bytes but not its signature, so verified
+  deletion unlinks it and that write is lost, while the archived version
+  survives (I2 rests on the same assumption). No Subfleet path writes a stored
+  copy after creating it, and Subfleet maps no file. The copies are clones or
+  byte copies, never links, so writing to a source never changes its copy. File
+  modes do not keep out processes of the same user. Neither case is protection against
   later storage failure or deliberately forged metadata.
 - Outside interference that makes a kept cache unusable in ways eviction does
   not repair (the `files/` directory made mode 000, a mode-000 directory at a
   stored copy's name, a corrupted copy marked `UF_IMMUTABLE`) keeps that job's
   tree on disk at every retry (review of fcb16008, P2). This fails safe: no
-  byte is lost and the tree is kept, and removing the cache by hand lets the
-  next pass rebuild it from the intact source.
+  byte is lost and the tree is kept, and removing the cache by hand (`chmod -R u+rwX <state>/retention/<job>/archive;
+  chflags -R nouchg <state>/retention/<job>/archive; rm -rf
+  <state>/retention/<job>/archive`; plain `rm -rf` fails on all three) lets the
+  next pass rebuild it from the intact source. Each retry is reported in
+  `deferred` and as `retention.rolled_back`.
 - A writable descriptor passed over a Unix socket and held by no process at the
   moment of a listing.
 - Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
