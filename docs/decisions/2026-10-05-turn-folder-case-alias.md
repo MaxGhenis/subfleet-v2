@@ -51,6 +51,13 @@ applied only to the comparisons that read a name not looked up.
   `worktree-turn:` or `worktree-read:` row and an in-place writer's `worktree:`
   lease. A folder whose every name the kernel looked up is keyed on that
   spelling, whatever submit recorded.
+- When submit could not spell the folder in full, it marks the job
+  (`unspelled` in `job.submitted`). What it recorded is then the path as given,
+  which may be a subdirectory, because git found no checkout while the tree was
+  away. Admission finds the folder again as submit finds it, from its checkout's
+  top level (`git rev-parse --show-toplevel`). So a writable turn in `jOB/src`
+  holds the checkout `Job`, and C-6.5 refuses a detached writer there, rather
+  than keying the row on `Job/src` beside it (review of 3410b4f0, P1).
 - A folder with a name that is not there now reserves no row. It is held, in
   the order below:
   - **Retention's fence on a tree it is in.** The folder is compared with every
@@ -133,6 +140,9 @@ These are tested in `tests/unit/test_retention_case_alias.py` and
 - **One spelling per row.** Every row admission reserves names a folder that
   `present` spelled in full just before the reserving transaction. A turn
   submitted under any case alias is keyed on `canonical` of its folder.
+- **Checkout top.** A turn submitted while its folder was away is keyed, once
+  the folder is back, on the folder submit would have recorded with the tree
+  there: its checkout's top level.
 - **No row on a missing folder.** If a name of the folder is not there now, the
   job takes no row and holds `lease-held` or `workspace`.
 - **I5 under aliases.** No retirement commits while a live TURN or READER row
@@ -163,5 +173,14 @@ These are tested in `tests/unit/test_retention_case_alias.py` and
   names the removed tree.
 - **Renamed trees.** A tree renamed to another case while a row names it
   (`mv Job JOB`) gives the tree a new one spelling that the row does not have.
+- **Firmlinked workdirs.** A queued turn whose workdir is typed through a
+  firmlink (`/System/Volumes/Data/Users/…`) is held by the folded fence, since
+  its folder is spelled through the kernel. `worktree-in-use` compares the job's
+  `workdir` string, so on this branch it does not keep the tree. The turn takes
+  no row, and fails after C-6.8's retries if the retirement commits (review of
+  3410b4f0, P3). MaxGhenis/subfleet-v2#140 records `jobs.workdir` canonically at
+  submit, for writers and turns alike, which keeps the tree for a workdir that
+  exists at submit. What is left is a non-ASCII name in a tail submit could not
+  look up (above).
 - **Earlier builds.** Rows reserved before this change by a build of
   integrate/2111-features are compared as before.

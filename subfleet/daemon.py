@@ -1860,6 +1860,11 @@ class Daemon:
                 # spells either again before it takes a row (`folders.present`).
                 read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                if turn is not None and write_target is None else None)
+                # C-6.5, C-8.4: a folder that was not there to spell in full (its tree moved
+                # away between the check above and git's) is the path as given, which may be
+                # a folder below its checkout's top: admission finds it again (`unspelled`).
+                unspelled = bool((write_target or read_folder)
+                                 and folders.present(write_target or read_folder)[1] is not None)
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -2053,6 +2058,7 @@ class Daemon:
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"folder": read_folder} if read_folder else {}),
+                         **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
@@ -4549,6 +4555,13 @@ class Daemon:
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
+                # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
+                # so what it recorded may be below its checkout's top: found again as submit
+                # finds it, then spelled below like any other.
+                derived = (folders.canonical(git_toplevel(workspace, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                                             or workspace)
+                           if (job["kind"] == "turn" or job["in_place"]) and self._submitted(job["job_id"]).get("unspelled")
+                           else None)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -4575,6 +4588,10 @@ class Daemon:
             # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
+            if derived is not None and read_folder:
+                read_folder = derived
+            elif derived is not None and write_target:
+                write_target = derived
             # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
             # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
             # it, but a name it could not look up kept the case it was given: a native
@@ -4856,7 +4873,9 @@ class Daemon:
                             # have its tree in quarantine under a fence spelled `Job`. Any
                             # fence of retention's that folds alike above it holds it, as the
                             # fence on its spelling would; with none it reserves nothing.
-                            blockers.extend(folders.retiring(read, named, folded=True))
+                            taken = {key for key, _ in leases}       # contested already when held
+                            blockers.extend(key for key in folders.retiring(read, named, folded=True)
+                                            if key not in taken)
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:

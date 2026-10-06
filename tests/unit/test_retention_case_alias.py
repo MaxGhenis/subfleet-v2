@@ -33,6 +33,7 @@ from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module, folders, procs, retention
 from subfleet import retention_archive as rarch
+from subfleet.adapters.base import AdapterError
 from tests.unit.retention_world import World, git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, run
 
@@ -294,6 +295,72 @@ def test_an_in_place_writer_keys_its_lease_on_its_folders_one_spelling(tmp_path,
             job = daemon.store.get_job(writer)
             assert not _live(daemon, writer) and held == [], held
             assert (job["state"], job["wait_reason"]) == ("waiting", "workspace"), job
+
+
+@pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
+def test_a_folder_recorded_below_its_checkout_top_while_away_is_found_again(tmp_path, writable):
+    """C-6.5, C-24.5: a turn's row is on its checkout's top level. A conversation in
+    a plain subdirectory of the tree (`jOB/src`) submitted while the tree was away
+    had git find no checkout, so submit recorded the subdirectory, marked
+    `unspelled`. Admission finds the folder again as submit would, once the tree is
+    back: the row is on `Job`, and a detached writer in place in that checkout is
+    refused while the writable turn writes there (C-6.5). Spelling the recorded
+    subdirectory again gave `Job/src`, and the writer ran beside the turn (review
+    of 3410b4f0, probe P1)."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import SETTINGS
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, _, _, _ = tree_and_alias(daemon, harness, "tree")
+        (wt / "src").mkdir()
+        (wt / "src" / "a.txt").write_text("a\n")
+        aside, top = wt.with_name(".Job.aside"), folders.canonical(wt)
+        options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
+        _, turn = submit_while_moved(daemon, harness, wt.with_name("jOB") / "src", lambda: wt.rename(aside), options)
+        recorded = daemon._submitted(turn)
+        assert recorded.get("unspelled") is True and (recorded.get("write_target") or recorded.get("folder")).endswith(
+            "/jOB/src"), recorded
+        aside.rename(wt)
+        daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=writable)]
+        if writable:
+            # C-6.5: refused, as a second writer in a checkout a turn writes in is.
+            with pytest.raises(AdapterError, match="is being written by a conversation turn"):
+                submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+        else:
+            writer = submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+            daemon._admit()
+            assert _live(daemon, writer), daemon._holds.get(writer)       # a reader excludes no writer
+
+
+def test_an_absent_in_place_writer_names_retentions_fence_once(tmp_path):
+    """A detached writer in place on the tree itself, its tree in quarantine: the
+    fence is its own key, contested, and is not counted again as one found folded
+    (review of 3410b4f0, probe P2: listed twice)."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, _, _, _ = tree_and_alias(daemon, harness, "tree")
+        tree = folders.canonical(wt)
+        writer = submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
+        assert daemon._submitted(writer)["write_target"] == tree
+        with daemon.store.transaction() as tx:      # retention's fence, then its quarantine
+            tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                       (folders.exclusive_key(tree), "retention:Job", "2026-10-05T00:00:00Z"))
+        wt.rename(wt.with_name(".Job.quarantined"))
+        daemon._admit()
+        hold = daemon._holds.get(writer) or {}
+        assert not _live(daemon, writer) and hold.get("reason") == "lease-held", hold
+        assert hold["leases"] == [folders.exclusive_key(tree)], hold
 
 
 # Both sides of C-8.4 for a folder that could not be spelled: the turn waits on a
