@@ -62,6 +62,52 @@ def notice_fingerprint(row: Mapping[str, Any]) -> str:
 #: C-15.8: the columns `notices` lists, common to job and service notices.
 NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
 
+#: C-15.1, C-15.8: a notice addressed to a session, the only kind anyone can read.
+#: A job notice with no session (NULL, or blank from an import) is the job's
+#: record and nobody's inbox: no hook reads it, `notices` lists it in no inbox,
+#: and it pins nothing (C-8.4).
+ADDRESSED = "session_id IS NOT NULL AND session_id <> ''"
+
+#: C-23.31: the job kinds whose attempts record a session Subfleet did not create
+#: this attempt. A revive continues the operator's own session, so its native
+#: session is not a lane run. A resume continues its source's session: one an
+#: earlier lane attempt minted, which that attempt already marks, or, resuming a
+#: revive, the operator's own. Every other kind launches under a `--session-id`
+#: the daemon minted.
+NOT_LANE_KINDS = ("revive", "resume")
+
+#: C-23.31: whether a session id is a headless lane run the daemon launched, by
+#: its recorded marker: an attempt of a job of a lane kind ran under it.
+LANE_RUN_SQL = ("SELECT 1 FROM attempts a JOIN jobs j USING(job_id) WHERE a.native_session_id=? "
+                f"AND j.kind NOT IN ({','.join('?' * len(NOT_LANE_KINDS))}) LIMIT 1")
+
+#: The attempt states in which a lane run's process may still be running.
+LANE_LIVE_SQL = ("SELECT 1 FROM attempts WHERE native_session_id=? AND state IN "
+                 "('reserved','starting','running','finalizing','quarantined') LIMIT 1")
+
+
+def is_lane_run(execute: Callable[..., Any], session_id: Any) -> bool:
+    """C-23.31 by the recorded marker; `execute` is a connection's or a store's."""
+    if not isinstance(session_id, str) or not session_id.strip():
+        return False
+    rows = execute(LANE_RUN_SQL, (session_id, *NOT_LANE_KINDS))
+    rows = rows.fetchall() if hasattr(rows, "fetchall") else rows
+    return bool(rows)
+
+
+def reader(execute: Callable[..., Any], session_id: Any, *, lane_run: bool = False) -> str | None:
+    """C-15.1, C-15.8: the session a job's notice is addressed to, or None.
+
+    A notice is owed only to a session that can read it: its caller session,
+    unless the job had none or its caller is a headless lane run (C-23.31),
+    which is never a notice target and never comes back as a session.
+    `lane_run` is what `submit` recorded while the caller was running, which
+    outlives the marker if retention prunes the lane's own job first.
+    """
+    if not isinstance(session_id, str) or not session_id.strip():
+        return None
+    return None if lane_run or is_lane_run(execute, session_id) else session_id
+
 
 def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
                 *, resolved: bool = False) -> list[dict[str, Any]]:
@@ -70,10 +116,11 @@ def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id
     Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
     `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
     service notice carries its id negated and no job, as `notice.pending`
-    returns it, so one id names one row across both tables. Ordered by session
-    (a job notice with no caller session sorts first, as ""), then creation.
+    returns it, so one id names one row across both tables. Ordered by session,
+    then creation. A notice with no session is in no inbox and is never listed
+    (C-15.1): `runs show` prints it as its job's record.
     """
-    where, params = [], []
+    where, params = [ADDRESSED], []
     if session_id is not None:
         where.append("session_id=?")
         params.append(session_id)

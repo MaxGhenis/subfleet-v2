@@ -408,7 +408,8 @@ def test_c15_8_notice_list_agrees_with_notice_pending_and_with_the_offline_reade
             assert offline.notices(session_id, resolved=resolved) == core.dispatch(
                 "notice.list", {"session_id": session_id, "resolved": resolved})["notices"]
     everyone = core.dispatch("notice.list", {"resolved": True})["notices"]
-    assert len(everyone) == len(rows)
+    # C-15.1: a job notice with no session is its job's record, in no inbox.
+    assert len(everyone) == sum(1 for table, owner, _, _ in rows if table == "service" or owner)
 
 
 def reuse_the_listed_id(core, listed, *, text, created_at):

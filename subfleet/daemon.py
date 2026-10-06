@@ -53,7 +53,8 @@ from .salvage import (
     SalvageError, git_head, git_toplevel, git_tree, salvage, transient_os_error,
     validate_writable_workdir, working_tree,
 )
-from .store import Store, _json, notice_fingerprint, notice_rows
+from .store import (ADDRESSED, LANE_LIVE_SQL, LANE_RUN_SQL, NOT_LANE_KINDS, Store, _json, is_lane_run,
+                    notice_fingerprint, notice_rows, reader)
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -138,6 +139,18 @@ NUDGE_EVENT = "session.nudged"
 REVIVE_EVENT = "session.revived"
 RETIRE_EVENT = "session.retired"
 UNRETIRE_EVENT = "session.unretired"
+
+def _note_withdrawn(record: dict, rows, *, key: str = "service_notice_ids") -> None:
+    """C-15.8: add withdrawn notices `(id, text, created_at)` to a `notice.withdrawn`
+    record: each id under `key`, how many of each subject, and the creation span."""
+    for notice_id, text, created_at in rows:
+        record[key].append(notice_id)
+        subject = str(text).split("\n", 1)[0]
+        record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
+        record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
+        record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
+    record["count"] = sum(len(record.get(name) or ()) for name in ("service_notice_ids", "message_notice_ids"))
+
 
 #: `store.transaction` writes its own audit event under the kind it is given,
 #: and `_session_events` reads the NEWEST row of each kind. Naming the audit
@@ -1134,6 +1147,11 @@ class Daemon:
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"batch": batch} if batch else {})}
+            # C-15.1, C-23.31: whether the caller is a headless lane run, decided
+            # while it runs and its marker certainly exists; retention may prune
+            # the lane's own job before this one ends.
+            if is_lane_run(self.store.query, values.get("caller_session")):
+                submitted["caller_lane_run"] = True
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -1665,12 +1683,18 @@ class Daemon:
             named = named.strip() if isinstance(named, str) and named.strip() else None
             session = named or operator_session(self.policy)
             notice_id = None
-            if text.strip():
+            # C-16.7: the one test of "has text" the read-only classing uses too.
+            if protocol.ping_writes(args):
                 if not session:
                     raise protocol.ProtocolError(
                         "ping: no session named, and alerts.operator_session is not set; "
                         "a notice addressed to no session is never read (C-15.8)",
                         fix="name the session: subfleet ping --session <id> TEXT")
+                if self.store.query(LANE_RUN_SQL, (session, *NOT_LANE_KINDS)):
+                    raise protocol.ProtocolError(
+                        f"ping: {session} is a headless lane run, which is never a notice target "
+                        "(C-23.31): nothing would ever read it", Exit.REFUSED,
+                        fix="a lane run's answer is its job's deliverable: subfleet runs show <job>")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -1783,7 +1807,8 @@ class Daemon:
         return sorted({row["native_session_id"] for row in self.store.query(
             "SELECT DISTINCT a.native_session_id FROM attempts a "
             "JOIN jobs j USING(job_id) "
-            "WHERE a.native_session_id IS NOT NULL AND j.kind<>'revive'")
+            f"WHERE a.native_session_id IS NOT NULL AND j.kind NOT IN ({','.join('?' * len(NOT_LANE_KINDS))})",
+            NOT_LANE_KINDS)
             if row["native_session_id"]})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
@@ -1948,8 +1973,19 @@ class Daemon:
         if tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
         text = render.notice_header(dict(row), self.root) + "\n" + summary
+        # C-15.1, C-15.8: the row is the job's record either way, but it is owed
+        # only to a session that can read it. A job with no caller session, or
+        # one a headless lane run submitted (C-23.31), has no reader: its notice
+        # is in no inbox, and `runs show` still prints it.
+        submitted = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='job.submitted' "
+                               "ORDER BY event_id LIMIT 1", (row["job_id"],)).fetchone()
+        try:
+            lane_run = bool(json.loads(submitted[0] or "{}").get("caller_lane_run")) if submitted else False
+        except (TypeError, ValueError, AttributeError):
+            lane_run = False
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
-                   (row["job_id"], row["caller_session"], text, utcnow()))
+                   (row["job_id"], reader(tx.execute, row["caller_session"], lane_run=lane_run),
+                    text, utcnow()))
 
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
         """Run `fn` on the worker pool unless `key` is already running.
@@ -2113,18 +2149,104 @@ class Daemon:
                 if rows:                            # at most one chunk's worth
                     tx.execute(f"DELETE FROM service_notices WHERE notice_id IN ({','.join('?' * len(rows))})",
                                [row[0] for row in rows])
-                for notice_id, text, created_at in rows:
-                    record["service_notice_ids"].append(notice_id)
-                    subject = str(text).split("\n", 1)[0]
-                    record["subjects"][subject] = record["subjects"].get(subject, 0) + 1
-                    record["first_created_at"] = min(filter(None, (record["first_created_at"], created_at)))
-                    record["last_created_at"] = max(filter(None, (record["last_created_at"], created_at)))
-            record["count"] = len(record["service_notice_ids"])
+                _note_withdrawn(record, rows)
         withdrawn = set(record["service_notice_ids"])
         return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
                 "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
+    def _release_unreadable_notices(self) -> dict:
+        """C-15.8, C-23.26, C-23.31: the inbox of a lane run is released, with a record.
+
+        A headless lane run is never a notice target and never comes back as a
+        session (C-23.31), so once none of its attempts is live nothing can read
+        a notice addressed to it. C-15.1 already writes such a job's notice to no
+        session; this finds the rows written before it did, imported v1 rows, and
+        a ping that predates C-23.31's refusal. Each session is settled in its
+        own transactions, which re-check, inside them, that it is a lane run and
+        that none of its attempts is live:
+
+        - its unresolved job notices are re-addressed to no session, not deleted:
+          each is its job's terminal record, which `runs show` prints. One
+          `notice.released` event names the session and each row (id, job,
+          fingerprint, creation time, state).
+        - its unresolved service notices are withdrawn as C-15.8 withdraws them,
+          and so are the messages the v1 importer carried into `notices` naming
+          no job, which are no job's record; the `notice.withdrawn` event also
+          carries each row's text, since no operator listed them first.
+
+        Every other session keeps its notices. A session that has ended can
+        still be resumed (a revive, a wake, a person opening it), and how long
+        an unread notice for one pins its job is retention's bound (C-8.4).
+        """
+        marks = ",".join("?" * len(NOT_LANE_KINDS))
+        sessions = [row["session_id"] for row in self.store.query(
+            "SELECT DISTINCT a.native_session_id AS session_id FROM attempts a JOIN jobs j USING(job_id) "
+            f"WHERE j.kind NOT IN ({marks}) AND a.native_session_id IN ("
+            f"SELECT session_id FROM notices WHERE state IN ('pending','offered') AND {ADDRESSED} "
+            "UNION SELECT session_id FROM service_notices WHERE state IN ('pending','offered')) "
+            "ORDER BY 1", NOT_LANE_KINDS)]
+        reason = "a headless lane run, none of whose attempts is live: nothing can read it (C-23.31)"
+        settled = {"sessions": [], "released": 0, "withdrawn": 0}
+
+        def unreadable(tx, session: str) -> bool:
+            return bool(tx.execute(LANE_RUN_SQL, (session, *NOT_LANE_KINDS)).fetchone()) and \
+                not tx.execute(LANE_LIVE_SQL, (session,)).fetchone()
+
+        for session in sessions:
+            released: dict = {"session_id": session, "reason": reason, "notices": []}
+            with self.store.transaction("notice.released", data=released) as tx:
+                if unreadable(tx, session):
+                    rows = tx.execute("SELECT notice_id, job_id, text, created_at, state FROM notices "
+                                      "WHERE session_id=? AND state IN ('pending','offered') "
+                                      "AND job_id IS NOT NULL ORDER BY notice_id", (session,)).fetchall()
+                    for notice_id, job_id, text, created_at, state in rows:
+                        tx.execute("UPDATE notices SET session_id=NULL WHERE notice_id=?", (notice_id,))
+                        released["notices"].append({
+                            "notice_id": notice_id, "job_id": job_id, "created_at": created_at, "state": state,
+                            "fingerprint": notice_fingerprint({"text": text, "created_at": created_at})})
+            withdrawn: dict = {"session_id": session, "reason": reason, "by": "retention",
+                               "service_notice_ids": [], "count": 0, "first_created_at": None,
+                               "last_created_at": None, "subjects": {}, "message_notice_ids": [],
+                               "rows": []}
+            with self.store.transaction("notice.withdrawn", data=withdrawn) as tx:
+                if unreadable(tx, session):
+                    rows = tx.execute("SELECT notice_id, text, created_at, state FROM service_notices "
+                                      "WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id",
+                                      (session,)).fetchall()
+                    for notice_id, text, created_at, state in rows:
+                        tx.execute("DELETE FROM service_notices WHERE notice_id=?", (notice_id,))
+                        withdrawn["rows"].append({"notice_id": -notice_id, "created_at": created_at,
+                                                  "state": state, "text": text})
+                    _note_withdrawn(withdrawn, [(row[0], row[1], row[2]) for row in rows])
+                    # A message the v1 importer carried into `notices` names no job:
+                    # it is no job's record, so it goes as a service notice does.
+                    messages = tx.execute("SELECT notice_id, text, created_at, state FROM notices "
+                                          "WHERE session_id=? AND state IN ('pending','offered') "
+                                          "AND job_id IS NULL ORDER BY notice_id", (session,)).fetchall()
+                    for notice_id, text, created_at, state in messages:
+                        tx.execute("DELETE FROM notices WHERE notice_id=?", (notice_id,))
+                        withdrawn["rows"].append({"notice_id": notice_id, "created_at": created_at,
+                                                  "state": state, "text": text})
+                    _note_withdrawn(withdrawn, [(row[0], row[1], row[2]) for row in messages],
+                                    key="message_notice_ids")
+            if released["notices"] or withdrawn["count"]:
+                settled["sessions"].append(session)
+                settled["released"] += len(released["notices"])
+                settled["withdrawn"] += withdrawn["count"]
+        if settled["sessions"]:
+            self.log.info("notices: released %d job notice(s) and withdrew %d service notice(s) of %d headless "
+                          "lane run(s), which nothing can read (C-23.31)", settled["released"],
+                          settled["withdrawn"], len(settled["sessions"]))
+        return settled
+
     def _retention(self):
+        # First, so that a pass that runs out of time sizing jobs still settles
+        # the inboxes nothing can read (C-23.26), and their rows pin nothing;
+        # and guarded, so that a failure here never stops pruning (C-8.4).
+        try:
+            self._release_unreadable_notices()
+        except Exception as exc:           # noqa: BLE001 - logged; retried next hour
+            self.log.warning("notices: releasing lane runs' inboxes failed: %s: %s", type(exc).__name__, exc)
         result = maintenance(self.store, self.root, cancel=self.timers.cancel, deadline=time.monotonic() + 60)
         if result.get("interrupted"):
             if result["interrupted"] == "cancelled":
@@ -2141,7 +2263,8 @@ class Daemon:
         """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
 
         Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
-        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        is never pruned by age. A job notice is pruned with its job (C-8.4), and
+        so is one with no session, which is its job's record and no one's inbox.
         """
         with self.store.transaction("service-notice.retention") as tx:
             return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",

@@ -1532,8 +1532,10 @@ def import_notices(writer: _Writer, report: StoreReport, *, v1_state: Path,
                 continue
             created_at = _utc(entry.get("ts")) or _utc(entry.get("surfaced_at")) or utc_now()
             notice_state = "surfaced" if entry.get("surfaced") else "pending"
-            if writer.exists("SELECT 1 FROM notices WHERE job_id=? AND session_id=? AND created_at=?",
-                             (job_id, session_id, created_at)):
+            # Not by session: C-23.31's release re-addresses a lane run's unread
+            # notice to no session (C-15.8), and a re-read must still find it.
+            if writer.exists("SELECT 1 FROM notices WHERE job_id=? AND created_at=? AND text=?",
+                             (job_id, created_at, text)):
                 report.skip("already-imported")
                 continue
             writer.insert("notices", {
@@ -1626,8 +1628,9 @@ def import_outbox(writer: _Writer, report: StoreReport, *, v1_state: Path,
                 continue
             session_id = str(row["session_id"] or "") or None
             text = payload.get("prompt") if isinstance(payload, dict) else None
-            if writer.exists("SELECT 1 FROM notices WHERE session_id=? AND text=? AND created_at=?",
-                             (session_id, str(text or row["message_id"]),
+            # Not by session, for the same reason as above.
+            if writer.exists("SELECT 1 FROM notices WHERE job_id IS ? AND text=? AND created_at=?",
+                             (job_id, str(text or row["message_id"]),
                               _utc(row["created_at"]) or utc_now())):
                 report.skip("already-imported")
                 continue

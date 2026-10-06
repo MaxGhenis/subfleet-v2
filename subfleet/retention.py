@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import RETENTION_MAX_BYTES, RETENTION_MAX_JOBS
-from .store import Store, utc_now
+from .store import ADDRESSED, Store, utc_now
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
@@ -73,7 +73,10 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int]) -> set[str
             protected.add(row["job_id"])
     queries = (
         "SELECT DISTINCT job_id FROM attempts WHERE state='quarantined' OR state IN ('reserved','starting','running','finalizing')",
-        "SELECT DISTINCT job_id FROM notices WHERE state IN ('pending','offered')",
+        # C-8.4: an unread notice pins its job only when some session can still
+        # read it; a notice with no session is its job's record and nobody's
+        # inbox (C-15.1), so it would pin its job for ever.
+        f"SELECT DISTINCT job_id FROM notices WHERE state IN ('pending','offered') AND {ADDRESSED}",
         "SELECT DISTINCT parent_job_id AS job_id FROM jobs WHERE parent_job_id IS NOT NULL",
         "SELECT j.job_id FROM jobs j JOIN leases l ON l.holder=j.job_id",
         "SELECT a.job_id FROM attempts a JOIN leases l ON l.holder=a.attempt_id",
