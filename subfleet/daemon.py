@@ -123,6 +123,9 @@ READ_CONNECTIONS = 6
 RETENTION_PASS_S = 180
 #: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
 RETENTION_INTERVAL_S = 3600
+#: Set to "1" in the daemon's environment, retention selects, archives and deletes
+#: nothing (2.1.11 ships it dormant; see `_retention`).
+RETENTION_DORMANT_ENV = "SUBFLEET_RETENTION_DORMANT"
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
@@ -573,6 +576,7 @@ class Daemon:
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
         self._last_maintenance = time.monotonic()
+        self._retention_dormant_logged = False
         # d635: deferrals and measured sizes carried between retention passes.
         self._retention_state = RetentionState()
         # C-16.7: every client connection held, from `accept` until its last
@@ -3476,6 +3480,19 @@ class Daemon:
             self._prune_service_notices()
         except Exception as exc:
             self.log.warning("retention: service notices were not pruned: %s", type(exc).__name__)
+        if os.environ.get(RETENTION_DORMANT_ENV) == "1":
+            # 2.1.11 ships retention by archive dormant (hub, 2026-10-06): its
+            # fences match a job's own tree exactly, so a turn or a lease on a
+            # folder inside a finished job's tree is not seen (retention-archive.md
+            # §15, fixed by the stack on #134). The installer sets this in the
+            # launchd plist, never in policy.json (d574); unset, nothing changes.
+            if not self._retention_dormant_logged:
+                self.log.warning("retention: dormant (%s=1): no job is selected, archived or deleted",
+                                 RETENTION_DORMANT_ENV)
+                self._retention_dormant_logged = True
+            self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),

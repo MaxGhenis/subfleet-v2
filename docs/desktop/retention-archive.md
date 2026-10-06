@@ -908,6 +908,22 @@ descriptors, and deliberately adversarial same-user tricks):
   but one that had other links and still holds its archived bytes is deleted
   (revision 5), with the attributes the clone took.
 
+- *Fences on folders inside a job's tree; why 2.1.11 ships retention dormant*
+  (hub, 2026-10-06). Retention's fences compare a job's own tree exactly:
+  - the `turn-folder` pin and the selecting transaction compare a turn row's
+    folder with the tree;
+  - the `worktree-lease` pin joins `worktree:<tree>`.
+
+  So a turn row or a `worktree:` lease on a folder *inside* a finished job's
+  tree, such as a repository nested in it, does not keep the tree.
+  `worktree-in-use` covers such a folder only while the job working there has
+  not ended. Reviews of #113 and #134 reported this and related gaps: a turn
+  admitted while the fence sits on a folder above its own, and a tree whose
+  name is spelled in another case. Their fixes are the stack on #134 (#137 and
+  the PRs above it). Until it lands, the 2.1.11 installer sets
+  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's launchd plist. A pass then
+  selects, archives and deletes nothing (C-8.4).
+
 **Costs, not risks:**
 
 - A source repository that cannot be discovered causes explicit deferral,
