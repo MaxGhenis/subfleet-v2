@@ -407,10 +407,12 @@ def test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way():
 
 # --- C-6.9 and C-6.12: a pin that names several lanes, or none, holds nothing back --------------
 
-def test_c6_12_a_later_pin_that_names_several_lanes_is_refused_not_held(incident):
-    """C-6.9, C-6.12 such a job can never run; admission refuses it while an older job still waits."""
+@pytest.mark.parametrize("older_pin", ["claude-a", None])
+def test_c6_12_a_later_pin_that_names_several_lanes_is_refused_not_held(incident, older_pin):
+    """C-6.9, C-6.12 such a job can never run; admission refuses it while an older job still waits,
+    pinned to a lane or free to use any."""
     service, harness = incident
-    older = submit(service, harness, pinned_model="fable", pinned_lane="claude-a")
+    older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
     service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(3600))
     later = legacy(service, harness, "max@example.invalid", pinned_model=None)     # no model, no task
     service._admit()
@@ -454,6 +456,122 @@ def test_c6_9_an_older_job_in_a_route_wait_keeps_no_lane(fleet, monkeypatch):
     service._admit()
     assert service.store.get_job(older)["wait_reason"] == "route"
     assert [row["lane_id"] for row in service.store.list_attempts(later)] == ["codex-1"]
+
+
+# --- C-4.5 and C-6.9: a retry's pair is the daemon's choice, so a kept pair lane never stops the look ---
+
+def _close(service, lane_id, days=3.):
+    service.store.add_closure(Closure(lane_id, "account", after(days * 86400), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+
+
+def test_c4_5_a_retry_whose_closed_lane_an_older_job_is_pinned_to_lets_the_pin_go(fleet):
+    """C-4.5, C-6.9 the pair's lane is closed, which no slot ends, so the look lets the pin go and the job
+    runs as submitted on the open lane. Before, the pair's lane being kept held it unlooked-at forever."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    _close(service, "claude-a")
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    service._admit()
+    assert service.store.get_job(older)["state"] == "waiting"
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service.store.update_job(older, next_check_at=utcnow())
+    service._admit()
+    assert [(row["lane_id"], row["state"]) for row in service.store.list_attempts(retry)] == [
+        ("claude-a", "failed"), ("claude-b", "reserved")]
+    assert not service.store.list_attempts(older)
+
+
+def test_c4_5_a_let_go_retry_that_comes_due_is_looked_at_though_its_pair_lane_is_kept(fleet):
+    """C-4.5, C-6.9 once due, the job's demand is its pair again; an older job pinned to the pair's lane
+    does not stop the look, which lets the pin go again and places the job where it can run."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    for lane_id in ("claude-a", "codex-1"):
+        _close(service, lane_id)
+    _close(service, "claude-b", days=.0001)                               # nothing takes it as submitted yet
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    service.store.update_job(older, state="waiting", wait_reason="approval")   # not a capacity waiter yet
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service._admit()
+    assert service._retry_verdicts[retry][1] is False                    # the look let the pin go
+    with service.store.transaction("fixture.reopen") as tx:
+        tx.execute("DELETE FROM closures WHERE lane_id='claude-b'")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=utcnow())
+    service.store.update_job(retry, next_check_at=utcnow())             # due
+    service._admit()
+    assert service.store.list_attempts(retry)[-1]["lane_id"] == "claude-b", service._holds.get(retry)
+
+
+def test_c6_9_a_let_go_retry_is_evaluated_with_the_lane_an_older_pinned_job_keeps(fleet):
+    """C-6.9 as submitted the job could use claude-b, which an older waiter is pinned to: it is kept, the
+    hold names it, and the job takes it on the pass the older job leaves, whatever its clock."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    for lane_id in ("claude-a", "codex-1"):
+        _close(service, lane_id)
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service._admit()
+    hold = service._holds[retry]
+    assert (hold["reason"], hold["behind"], hold["kept"]) == ("behind-older-job", older, {"claude-b": older})
+    assert json.loads(service.store.get_job(retry)["exclusions"]) == []
+    service.store.update_job(older, state="cancelled")
+    service._admit()
+    assert service.store.list_attempts(retry)[-1]["lane_id"] == "claude-b"
+
+
+def test_c6_9_a_retry_whose_pair_lane_only_lacks_a_slot_waits_behind_the_older_job_pinned_there(fleet):
+    """C-4.5, C-6.9 a slot will end the refusal, so the retry keeps its pair, and the older job pinned to
+    that lane keeps it first: the retry is held behind it on a clock (`job.retry_held`)."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    _close(service, "codex-1")
+    _close(service, "claude-b")
+    service.store.update_lane("claude-a", desktop=1)                     # the pair's lane refuses: desktop
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    service.store.update_job(older, state="waiting", wait_reason="approval")
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    _transient_on(service, retry, "claude-a", service.policy["models"]["opus"]["id"])
+    service._admit()
+    assert service._retry_verdicts[retry][1] is False
+    service.store.update_lane("claude-a", desktop=0)                     # a normal lane again, but full
+    service.policy["caps"]["max_in_flight_per_lane"] = 1
+    busy = submit(service, harness, pinned_model="opus", pinned_lane="claude-a", tier="hard")
+    service._admit()
+    assert [row["lane_id"] for row in service.store.list_attempts(busy)] == ["claude-a"]
+    service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
+    service.store.update_job(retry, next_check_at=utcnow())
+    service._admit()
+    hold = service._holds[retry]
+    assert (hold["reason"], hold["behind"]) == ("behind-older-job", older)
+    assert service._retry_verdicts[retry][1] is True
+    assert service.store.get_job(retry)["next_check_at"] > utcnow()
+    assert service.store.query("SELECT 1 FROM events WHERE kind='job.retry_held' AND job_id=?", (retry,))
+    assert len(service.store.list_attempts(retry)) == 1
+
+
+def test_c6_9_a_pin_that_names_no_lane_keeps_no_slot(fleet):
+    """C-6.9, C-11.2 a job that can use no lane is not waited for: later jobs get the full fleet cap."""
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
+    measured(service, "claude-b")
+    service.policy["caps"]["max_active_attempts"] = 2
+    ghost = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    service.store.update_job(ghost, pinned_lane="nobody@example.invalid")
+    first = submit(service, harness, pinned_model="opus")
+    second = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._holds[ghost]["reason"] == "no-lanes"
+    assert all(service.store.list_attempts(job_id) for job_id in (first, second)), service._holds.get(second)
 
 
 # --- C-11.2: the queue a restart finds --------------------------------------------------------

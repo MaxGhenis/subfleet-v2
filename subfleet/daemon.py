@@ -2439,6 +2439,12 @@ class Daemon:
             lanes = scheduler.demand_lanes(roster, demand, self.policy)
             behind, kept_lanes = scheduler.tier_hold(models, lanes, waiters.get(tier, ()),
                                                      pinned=bool(demand.get("pinned_lane")))
+            if behind and retry and not let_go and lanes is not None and lanes <= kept_lanes.keys():
+                # C-4.5, C-6.9: the retry's pair is the daemon's choice, not the
+                # job's, so its lane being kept is no reason to skip the look that
+                # may let the pin go. If that lane only lacks a slot, the look holds
+                # the retry behind the older job, on a clock.
+                behind = None
             if saturated or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": cap} if saturated else
@@ -2577,7 +2583,10 @@ class Daemon:
                 # A job that passes an older waiting job of its tier leaves one
                 # active slot free, so the older job can start the moment its
                 # capacity appears instead of waiting out the jobs that passed it.
-                limit = cap - 1 if waiters.get(tier) else cap
+                # C-6.9: one whose pin names no lane can use none, so none is kept for it.
+                keeper = next((older for older, _, their_lanes in waiters.get(tier, ())
+                               if their_lanes != frozenset()), None)
+                limit = cap - 1 if keeper else cap
                 if not decision.chosen_lane or live >= limit:
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     # C-6.10: a wait that reaches the verdict it reached last time
@@ -2593,7 +2602,7 @@ class Daemon:
                         label = "fleet-full" if live >= cap else "slot-kept"
                     hold = {"reason": label,
                             **({"max_active_attempts": cap} if label == "fleet-full" else {}),
-                            **({"kept_for": waiters[tier][0][0], "tier": tier, "live": live,
+                            **({"kept_for": keeper, "tier": tier, "live": live,
                                 "max_active_attempts": cap} if label == "slot-kept" else {})}
                     if label.startswith("kept:"):
                         # C-6.9: a lane would take it, but an older waiting job is
