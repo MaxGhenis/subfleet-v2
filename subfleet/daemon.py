@@ -2382,12 +2382,29 @@ class Daemon:
         (`folders.canonical`), without preparing its workspace: an in-place writer's
         write target, else the folder submit recorded from its workdir (`folder`),
         where a read-only job runs or from whose repository a writer's worktree is
-        cut. A job a daemon queued before it recorded that folder is spelled here,
-        outside any transaction."""
+        cut.
+
+        A job a daemon queued before it recorded that folder is spelled here,
+        outside any transaction, and the spelling is kept (`job.folder_spelled`)
+        the first time the folder is there to spell. A folder that is not there
+        keeps the case its missing names were typed in, so a workdir typed
+        `…/rETIRED/…` spelled again while retention has that tree in quarantine
+        would miss the fence on `…/retired` (review of 23a7f1b1, P2)."""
         submitted = self._submitted(job["job_id"])
         recorded = (submitted.get("write_target") if job["sandbox"] == "workspace-write" and job["in_place"]
                     else submitted.get("folder"))
-        return recorded or folders.canonical(job["workdir"])
+        if recorded:
+            return recorded
+        # `store.add_event` writes its transaction's own event too, with no data.
+        kept = next((folder for row in self.store.query(
+            "SELECT data_json FROM events WHERE job_id=? AND +kind='job.folder_spelled' ORDER BY event_id",
+            (job["job_id"],)) if (folder := json.loads(row["data_json"] or "{}").get("folder"))), None)
+        if kept:
+            return kept
+        spelled, unsure = folders.spelling(job["workdir"])
+        if unsure is None and os.path.isdir(spelled):
+            self.store.add_event("job.folder_spelled", job_id=job["job_id"], data={"folder": spelled})
+        return spelled
 
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
@@ -4311,9 +4328,23 @@ class Daemon:
             next_check = after(scheduler.capacity_recheck_delay(rechecks))
             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
                        (next_check, job["job_id"]))
+            held = frozenset((row[0], row[1]) for row in tx.execute(
+                f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(fence))})",
+                tuple(fence)).fetchall())
         waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(fence)))
         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+        self._seen_held("turn" if job["kind"] == "turn" else "detached", held)
         return True
+
+    def _seen_held(self, kind: str, held: frozenset[tuple[str, str]]) -> None:
+        """C-6.10: leases a pass found held that its census, read when the pass
+        began, may not have: retention's fence, taken after that read, that a job
+        now waits for. Counted as seen, its release is capacity that came free, so
+        the next pass of `kind` looks at the job at once rather than on its
+        backed-off clock, as for an admission probe's lease."""
+        if held:
+            with self._admission_lock:
+                self._leases_seen = {**self._leases_seen, kind: self._leases_seen.get(kind, frozenset()) | held}
 
     def _note_admission(self, tally: dict, holds: dict[str, dict]) -> None:
         """C-6.11: say so in `daemon.log` when jobs are pending and nothing is placed.
@@ -4980,6 +5011,7 @@ class Daemon:
                                 # in, else (a writer that is not in place) the worktree cut for it.
                                 named = (job_folder if any(folders.within(job_folder, key[len(folders.EXCLUSIVE):])
                                                            for key in retiring) else write_target)
+                            self._seen_held(kind, frozenset((key, str(holders[key])) for key in retiring))
                             hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"retiring": retiring} if retiring else {}),
                                     **({"folder": named} if named else {}),
