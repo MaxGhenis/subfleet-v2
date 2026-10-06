@@ -135,7 +135,9 @@ def test_answered_questions_show_question_and_answer_once(r2_views):
     for question in ("Which release task should go first?", "When should the notes go out?"):
         assert text.count(question) == 1
     assert text.count("Answer: Option 0") == 1 and text.count("Answer: Window 0") == 1
-    assert "input.questions" not in text and "null" not in text
+    assert "input.questions" not in text
+    # This history summary explicitly supplies a nullable scope; retain it.
+    assert "blocked_path: null" in " ".join(text.split())
 
 
 @pytest.mark.parametrize("mode", ["dark", "light"])
