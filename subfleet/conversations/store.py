@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   worktree_json     TEXT,
   request_id        TEXT UNIQUE,
   blocked_by        TEXT,
+  blocked_at        TEXT,
+  wake_streak       INTEGER NOT NULL DEFAULT 0,
+  last_wake_at      REAL,
   legacy_hold       TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
   UNIQUE (provider, native_session_id)
@@ -333,13 +336,16 @@ class ConversationStore:
             if version is not None and version < SCHEMA_VERSION:
                 self._migrate(version)
             self._db.executescript(SCHEMA)
+            from .wakes import SCHEMA as WAKE_SCHEMA
+            self._db.executescript(WAKE_SCHEMA)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
             if "worktree_json" not in columns:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN worktree_json TEXT")
             for name, kind in (("title_source", "TEXT"), ("title_message_id", "TEXT"),
-                               ("title_requested_at", "REAL")):
+                               ("title_requested_at", "REAL"), ("blocked_at", "TEXT"),
+                               ("wake_streak", "INTEGER NOT NULL DEFAULT 0"), ("last_wake_at", "REAL")):
                 if name not in columns:
                     self._db.execute(f"ALTER TABLE conversations ADD COLUMN {name} {kind}")
             # Preserve every pre-existing name; its authorship cannot be recovered.
@@ -352,6 +358,11 @@ class ConversationStore:
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
             self._add_legacy_hold()
+            # A pre-upgrade block's own settled message predates later queued input.
+            self._db.execute("UPDATE conversations SET blocked_at=COALESCE((SELECT MAX(updated_at) FROM messages "
+                             "WHERE messages.conversation_id=conversations.conversation_id AND state IN "
+                             "('failed','delivery-unknown','interrupted')),updated_at) "
+                             "WHERE blocked_by IS NOT NULL AND blocked_at IS NULL")
         self.changed = threading.Condition()
 
     def _migrate(self, version: int) -> None:
@@ -813,6 +824,9 @@ class ConversationStore:
         sets, params = [], []
         if "title" in fields:
             sets.append("title_source='person'")
+        if "blocked_by" in fields:
+            sets.append("blocked_at=?")
+            params.append(utcnow() if fields["blocked_by"] else None)
         for key, value in fields.items():
             if key == "native_session_id":
                 value = canonical_native(value)
@@ -834,6 +848,26 @@ class ConversationStore:
             tx.execute(f"UPDATE conversations SET {','.join(sets)} WHERE conversation_id=?", (*params, conversation_id))
             self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
+
+    def clear_moot_block(self, conversation_id: str, *, expected_block: str, expected_at: str, mtime: float) -> bool:
+        """Clear only the block observed by the check; preserve an import's hold."""
+        with self.transaction() as tx:
+            changed = tx.execute("UPDATE conversations SET blocked_by=NULL,blocked_at=NULL,updated_at=? "
+                                 "WHERE conversation_id=? AND blocked_by=? AND blocked_at=?",
+                                 (utcnow(), conversation_id, expected_block, expected_at)).rowcount
+            if changed:
+                unknowns = [r[0] for r in tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND state='delivery-unknown'",
+                                                   (conversation_id,))]
+                tx.execute("UPDATE messages SET state='failed',state_reason='continued-elsewhere',updated_at=? "
+                           "WHERE conversation_id=? AND state='delivery-unknown'", (utcnow(), conversation_id))
+                for message_id in unknowns:
+                    self._change(tx, conversation_id, message_id, FAILED)
+                tx.execute("INSERT INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,data_json,ts) "
+                           "VALUES(?,NULL,?,'system',?,0,'conversation.unblocked',?,?)",
+                           (conversation_id, f"system:{conversation_id}", str(uuid.uuid4()),
+                            json.dumps({"reason": "continued-elsewhere", "mtime": mtime}), utcnow()))
+                self._change(tx, conversation_id, None, None)
+        return bool(changed)
 
     def set_legacy_hold(self, conversation_id: str, reason: str | None) -> dict:
         """Set (a reason) or lift (None) the legacy import's hold (C-30.4).
@@ -904,6 +938,7 @@ class ConversationStore:
 
     def submit_message(self, *, conversation_id: str, message_id: str, after_message_id: str | None,
                        text: str, attachments: list[str], settings: dict, origin: str = "person",
+                       wake_claim: dict | None = None,
                        continues: str | None = None, state: str = QUEUED,
                        state_reason: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
@@ -940,6 +975,9 @@ class ConversationStore:
                 if again["digest"] != digest:
                     raise ConversationError("message-id-conflict", "message id already used with different content")
                 return _decode_message(dict(again)), False
+            if wake_claim is not None:
+                from .wakes import claim
+                claim(tx, conversation_id, message_id, wake_claim)
             last = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation_id,)).fetchone()
             if origin == "person" and (last["message_id"] if last else None) != after_message_id:
@@ -959,6 +997,9 @@ class ConversationStore:
                  json.dumps(list(attachments)), json.dumps(settings), state, state_reason, now, now))
             tx.execute("UPDATE conversations SET updated_at=?, settings_json=? WHERE conversation_id=?",
                        (now, json.dumps(settings), conversation_id))
+            if origin == "person":
+                tx.execute("UPDATE conversations SET wake_streak=0,last_wake_at=NULL WHERE conversation_id=?",
+                           (conversation_id,))
             if origin == "person" and last is None:
                 from .titles import fallback_title
                 tx.execute("UPDATE conversations SET title=?,title_source='fallback',title_message_id=? "
@@ -1140,7 +1181,7 @@ class ConversationStore:
             f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
             f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, "
-            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.seq LIMIT 1) "
+            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.origin='wake', q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]

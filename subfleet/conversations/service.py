@@ -63,7 +63,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1")
+                "handoff.v1", "wake.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -73,7 +73,7 @@ POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff"})
+                      "conversation.create", "conversation.handoff", "conversation.open"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
                          "message.steer"})
 MAX_WAIT_S = 50.0
@@ -121,6 +121,8 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
+        from .wakes import WakeEngine
+        self.wakes = WakeEngine(self)
         self.polls = concurrent.futures.ThreadPoolExecutor(8, thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
         self.runners: dict[str, TurnRunner] = {}
@@ -407,7 +409,8 @@ class ConversationService:
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
         return {"conversation": self._view_live(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
                 "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
-                                                               self.store.approvals(conversation_id=cid)]}
+                                                               self.store.approvals(conversation_id=cid)],
+                "history": self.op_conversation_history({"conversation_id": cid}, peer)}
 
     def _open_native(self, native: dict) -> dict:
         from .catalog import native_session
@@ -588,8 +591,10 @@ class ConversationService:
     def op_conversation_history(self, args, peer) -> dict:
         from .history import page
         conversation = self.store.conversation(args["conversation_id"])
+        messages = self.store.query("SELECT message_id,turn_ref FROM messages WHERE conversation_id=?", (conversation["conversation_id"],))
         return page(conversation, root=self.root, before=args.get("before"), limit=int(args.get("limit") or 50),
-                    lanes=self.daemon.store.lane_rows())
+                    lanes=self.daemon.store.lane_rows(), resolved_only=True,
+                    owned={m["message_id"] for m in messages}, owned_turns={m["turn_ref"] for m in messages if m["turn_ref"]})
 
     # --- ops: events -----------------------------------------------------------
 
@@ -664,8 +669,39 @@ class ConversationService:
             after_message_id=args.get("after_message_id"), text=str(args.get("text") or ""),
             attachments=attachments, settings=settings)
         if created:
+            self._yield_wakes(conversation["conversation_id"])
             self.daemon._notify()
         return self._receipt(message, created=created)
+
+    def _yield_wakes(self, cid: str) -> None:
+        """A queued wake yields to newly accepted person input, even at capacity.
+        The ordinary guarded cancellation refuses once an attempt has started.
+        """
+        for m in self.store.query("SELECT * FROM messages WHERE conversation_id=? AND origin='wake' "
+                                  "AND state IN ('queued','waiting')", (cid,)):
+            job = self._turn_job(m)
+            if job and not self._cancel_job_without_attempt(job["job_id"]):
+                continue
+            self.store.set_state(m["message_id"], QUEUED, reason="person-message-priority", expect=(QUEUED, WAITING),
+                                 turn_seq=m["turn_seq"] + 1, job_id=None)
+
+    def op_conversation_wake(self, args, peer) -> dict:
+        from .wakes import normalize
+        session = args.get("session_id")
+        conversation = self.bound_session(session) if isinstance(session, str) else None
+        if conversation is None and args.get("calling_job"):
+            job = self.daemon.store.one("SELECT name FROM jobs WHERE job_id=? AND kind='turn'", (args["calling_job"],))
+            if job and job["name"].startswith("turn-"):
+                conversation = self.store.conversation(job["name"][5:])
+        if conversation is None:
+            raise ConversationError("no-conversation", "wake needs a calling session bound to a conversation")
+        request_id = canonical_uuid(args["request_id"])
+        accepted = self.store.one("SELECT created_at FROM wake_requests WHERE conversation_id=? AND request_id=?",
+                                  (conversation["conversation_id"], request_id))
+        validation_time = datetime.fromisoformat(accepted["created_at"].replace("Z", "+00:00")).timestamp() if accepted else self.wakes.now()
+        spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
+                         now=validation_time)
+        return self.wakes.register(conversation["conversation_id"], request_id, spec)
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -929,7 +965,7 @@ class ConversationService:
 
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
-                                           "state_reason", "settings", "served", "turn_ref", "updated_at")}
+                                           "state_reason", "settings", "served", "turn_ref", "created_at", "updated_at")}
         out["steered_into"] = steered_into(message.get("state_reason"))
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:
@@ -1490,7 +1526,7 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
+        for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self.wakes.tick, self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._reap_runners, self._compact):
             if self._closed:
                 return                          # a tick close() overtook: its store is gone
@@ -1505,6 +1541,27 @@ class ConversationService:
                 self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
+
+    def _moot_blocks(self) -> None:
+        from .catalog import external_writers, transcript_record
+        for c in self.store.query("SELECT * FROM conversations WHERE blocked_by IN "
+                                 "('unfinished-turn','delivery-unknown','quarantined-turn') AND native_session_id IS NOT NULL"):
+            if c["provider"] != "claude" or not c["blocked_at"]:
+                continue
+            record = transcript_record(self.root, c["provider"], c["native_session_id"])
+            if not record or record.get("mtime", 0) <= datetime.fromisoformat(c["blocked_at"].replace("Z", "+00:00")).timestamp():
+                continue
+            # Reuse admission's fresh C-26.3 check, never a stale catalog live flag.
+            if external_writers(c["native_session_id"]):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM leases WHERE lease_key IN (?,?)",
+                                     (f"conversation:{c['conversation_id']}", f"native:claude:{c['native_session_id']}")):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM jobs WHERE kind='turn' AND name=? AND state NOT IN "
+                                     "('succeeded','failed','cancelled','lost')", (f"turn-{c['conversation_id']}",)):
+                continue
+            self.store.clear_moot_block(c["conversation_id"], expected_block=c["blocked_by"],
+                                       expected_at=c["blocked_at"], mtime=record["mtime"])
 
     def _catalog_tick(self) -> None:
         """Start a catalog run every `catalog_interval_s`. Never waits for one: the
@@ -2262,6 +2319,8 @@ class ConversationService:
                 fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
+        if settlement.state == COMPLETE and turn.get("final_text"):
+            self.wakes.from_final(runner.conversation_id, runner.message_id, turn["final_text"])
         self.daemon._notify()
 
     def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:

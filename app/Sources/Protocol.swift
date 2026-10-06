@@ -123,6 +123,7 @@ enum Ops {
     /// file pool, so it gets the diff ops' longer floor.
     static let conversationHandoff = DaemonOperation<ConversationHandoffArgs, ConversationHandoffResult>(
         name: "conversation.handoff", minimumTimeout: 120)
+    static let conversationWake = DaemonOperation<ConversationWakeArgs, ConversationWakeResult>(name: "conversation.wake")
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -132,7 +133,7 @@ enum Ops {
         messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
         approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name,
+        conversationHandoff.name, conversationWake.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -307,6 +308,7 @@ struct Receipt: Codable, Equatable {
     var text_truncated: Bool?
     /// C-24.9: the running turn's message this one was steered into, or null.
     var steered_into: String?
+    var created_at: String? = nil
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -481,6 +483,22 @@ struct ConversationOpenResult: Codable, Equatable {
     var messages: [Receipt]
     var events_cursor: Int
     var pending_approvals: [ApprovalView]
+    var history: HistoryPage? = nil
+}
+
+struct ConversationWakeArgs: Codable, Equatable {
+    var request_id: String
+    var session_id: String?
+    var calling_job: String?
+    var runs: [String]?
+    var prs: [String]?
+    var at: String?
+    var note: String = ""
+}
+
+struct ConversationWakeResult: Codable, Equatable {
+    var request_id: String
+    var kinds: [String]
 }
 
 struct ConversationCreateArgs: Codable, Equatable {
@@ -711,6 +729,7 @@ struct HistoryItem: Codable, Equatable {
     var hidden: Bool?
     var preview: String?
     var is_error: Bool?
+    var source: String? = nil
 }
 
 // MARK: - conversation.events, conversation.watch

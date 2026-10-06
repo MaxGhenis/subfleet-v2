@@ -6,6 +6,9 @@ specification those clauses cite. Transition plan: `~/subfleet-desktop-transitio
 Code maps of the base revision (`3f155e5`) are in `docs/desktop/maps/`;
 citations of the form `file.py:N` refer to that revision.
 
+Continuation amendment, 2026-10-04: C-24.10–12 add durable unattended wakes,
+clear blocks superseded outside Subfleet, and show native turns after binding.
+
 Revision 2 folds in an adversarial review of revision 1 by five independent
 lenses (durability, v2 integration, security, provider protocol, product),
 recorded in `docs/desktop/reviews/2026-09-24-contract-review.md` with each
@@ -1294,3 +1297,74 @@ labelled handoff, whose brief now reads Codex rollouts too:
   the app asks once per conversation.
 - Codex-app threads in `~/.codex` continue by labelled handoff unless the
   relocation test passes.
+
+## Continuation amendment (2026-10-04)
+
+**D-28. A conversation can arrange its next turn.** Detached runs submitted
+inside a turn carry that turn's job as their parent. The daemon collects their
+terminal outcomes and sends one Subfleet message when the conversation is idle.
+The message carries every new completion; consumed job ids survive restarts.
+It waits for the running turn to end because the steer interface intentionally
+accepts only person messages, binds each steer to its host, and requires a
+person's peer check. A service wake has its own visible origin and the same
+durable message/turn dispatch path. Hooks do not repeat notices it carries.
+
+An agent can call:
+
+```sh
+subfleet wake --runs JOB1 JOB2 --pr owner/repo#12 --at 2026-10-04T12:00:00Z --note 'Inspect progress'
+```
+
+`conversation.wake` resolves the calling session or the calling turn job (a
+new session may not be bound yet), and returns a request id. Supply
+`--request-id UUID` for retry across CLI invocations. Runs wait for all listed
+jobs; PRs wait for any named event; kinds in one request are alternatives.
+The final-text compatibility grammar is consecutive trailing lines:
+
+```text
+WAKE-ME: runs=JOB1,JOB2 prs=owner/repo#12,owner/repo#13 at=2026-10-04T12:00:00Z note="Inspect the results"
+```
+
+Fields are optional and unique, separated by whitespace with shell quoting;
+one trigger is required. Each line registers independently and replay uses its
+message id, so it does not register twice. Each conversation has at most one
+pending wake per kind; replacement consumes the older kind. A trigger kind
+lists at most 16 targets and a note has at most 4,000 characters. Times must
+have a timezone and be at least five minutes away on first acceptance.
+
+PR state is read by one batched `gh api graphql --input -` invocation across
+conversations per cycle, at least 60 seconds apart (persisted even across
+restart), with a 20-second timeout. Head checks, PR state and submitted review
+ids form a durable baseline. Merge/close, completed check transitions and new
+submitted reviews latch readiness even when a conversation cannot wake yet.
+Failed queries and incomplete check sets prove no event.
+
+Wakes wait behind blocks, legacy holds, archives, personal input, turns and
+leases. The same transaction rechecks these guards when it accepts a wake and
+consumes its triggers. Eight consecutive unattended wakes impose a 30-minute
+cooldown before each later wake: several build/review rounds can finish before
+a self-sustaining loop is slowed. A person message resets the counter. If it
+arrives while a wake awaits capacity, the guarded no-attempt cancellation
+withdraws that wake's job and keeps the wake message queued behind personal
+input. Person predecessors and person FIFO are unchanged.
+
+**D-29. A block protects an execution boundary, not an obsolete timestamp.**
+The store keeps `blocked_at` separately from `updated_at`, so sending into a
+blocked conversation does not move the boundary. A catalog transcript mtime
+strictly after it proves the session continued elsewhere. Clear only after
+the fresh C-26.3 live-writer check passes and Subfleet has no live/queued turn
+or lease. Record `conversation.unblocked: continued-elsewhere` atomically with
+clearing the observed block. Preserve handoff and import holds. Historical
+unknown messages become failed as superseded, with no inferred delivery or
+automatic resend. Pre-upgrade blocks use the last settled blocked-turn time.
+
+**D-30. Binding does not freeze native history.** The catalog keeps exact paths
+and file metadata for bound sessions too, including sessions hidden as known
+attempts. `conversation.open` returns one bounded history page on the file pool;
+history reads use these paths, never a native-tree scan. Prompt UUIDs (Claude)
+and turn-context ids (Codex) classify ownership. Subfleet-owned native rows are
+deduplicated against its event stream. Outside rows survive the first-event
+boundary, read "Made in another app", and merge in timestamp order. If a group
+is larger than the read cap and ownership is unavailable, the older conservative
+filter applies until an earlier page identifies it. Reopening refreshes the
+tail and changing conversations scrolls to the newest row at the bottom.

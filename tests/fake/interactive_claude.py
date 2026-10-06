@@ -577,9 +577,12 @@ class Fake:
             {"type": "tool_result", "tool_use_id": tool_id, "content": stdout or stderr,
              "is_error": rc != 0}]}})
         self.tool_boundary(model)
-        self.say(model, "The command ran." if rc == 0 else f"The command failed (rc={rc}).")
+        final = "The command ran." if rc == 0 else f"The command failed (rc={rc})."
+        if os.environ.get("SUBFLEET_FAKE_BASH_WAKE") and rc == 0:
+            final += "\nWAKE-ME: runs=" + stdout.strip() + ' note="Inspect the finished run"'
+        self.say(model, final)
         return self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
-                           text="The command ran.")
+                           text=final)
 
 
     def scenario_stubborn_result(self, model: str, reply: str):

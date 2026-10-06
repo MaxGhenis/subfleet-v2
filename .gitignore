@@ -9,3 +9,4 @@ build/
 .uv-cache/
 # A symlinked virtualenv too (`.venv/` matches only a directory).
 .venv
+.git-local/
