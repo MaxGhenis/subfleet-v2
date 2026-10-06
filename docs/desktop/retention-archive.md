@@ -1,5 +1,10 @@
 # Job retention by archive
 
+Revision 6, 2026-10-03: finish note 2's sweep protection. Presence alone did
+not detect a tree moved away during its registration lookup and back before
+quarantine. Record its identity, check that identity after quarantine and
+before committing, and keep a registration any live tree still names before
+reclaiming it (sections 2 and 4).
 Revision 5, 2026-10-01: the four notes the parallel effort (#81) left on
 #76, each reproduced against real repositories and fixed (section 2;
 `docs/reports/2026-10-01-retention-81-notes.md`).
@@ -51,6 +56,41 @@ it somewhere else, or proves by its structure that the project's own tools
 make it again.
 
 ## 2. What changed
+
+### Revision 6 (the sweep race remaining in 43f09ea4)
+
+The revision-5 presence checks were insufficient: a tree present before its
+registration lookup and again before quarantine could have been away during
+the lookup. Retention then archived its files without its admin directory or
+the private commits that directory reached. Its registration remained naming
+the removed tree, ready for a prune and gc to discard its private history.
+
+`begin` now reads the gitfile once, uses those bytes to look up the
+registration, and journals the worktree's device and inode, the gitfile's
+sha256 (or its absence), and the admin directory's device and inode.
+`quarantine` and `final_check` verify those identities and the admin's
+`gitdir` backlink. A mismatch keeps the job for a later pass, after putting
+its trees back and releasing retention's lock. A tree gone at `begin` must
+still be gone and absent from a sibling quarantine. Immediately before the
+admin directory's deletion, a live checkout naming it at the original path,
+a sibling quarantine, or the backlink's path keeps the registration.
+Pre-commit journals without identity are rolled back and read again.
+If gone-tree discovery misses both the registration and a moved checkout,
+an admin id allocated for that tree still keeps the job: git moves rewrite
+the backlink but never move that id. This prevents successive moves from
+making two path checks falsely prove that neither checkout exists. An
+unreadable admin listing cannot establish absence and keeps the job too.
+An older already-committed archive that missed its live registration keeps
+its remaining quarantine and journal for recovery; its deleted rows cannot
+be rolled back. Valid older committed archives can finish reclaiming.
+
+The design verifies the registration read at `begin` against the quarantined
+tree. It keeps the existing anchor/bundle and archive cache machinery while
+closing the lookup's missing-gitfile window independently of move timing.
+The reproduction and generated schedules use real git moves and assert both
+private-history preservation and a usable registration for every retained
+tree (`tests/unit/test_retention_sweep_race.py`). The classification and
+evidence are in `docs/reports/2026-10-01-retention-81-notes.md`.
 
 ### Revision 5 (#81's notes on #76)
 
@@ -187,7 +227,11 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    (`rev-parse --git-common-dir` in its workdir). Resolve every salvage ref;
    check the trees are on the state root's volume. A backlink that names
    another tree, an unresolvable salvage ref or another volume defers the job.
-   The journal records whether the tree was there (revision 5).
+   The journal records whether the tree was there (revision 5), its device
+   and inode, the sha256 of the gitfile read for this registration (or its
+   absence), and the admin directory's device and inode (revision 6). The
+   registration lookup consumes that same gitfile read, so the journal's
+   digest cannot describe a different lookup.
    - A tree that is gone while an entry named `<anything>.<its name>` is
      beside it is held aside by another tool: `disk-guard` and
      `worktree-archive-sweep` `git worktree move` a tree to
@@ -260,8 +304,17 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    that left since `begin` read its registration (another tool's `git
    worktree move`), or came back, puts the job back: its registration would
    otherwise be archived and removed while the tree is elsewhere, or the tree
-   archived without it. After the lock, `git worktree move` refuses the tree
-   (the sweep never forces).
+   archived without it. A disappearance between the presence check and the
+   rename also defers, rather than silently skipping the worktree. After the
+   renames, check the directory's device and inode and its gitfile digest
+   against `begin`, and the admin directory's identity and `gitdir` backlink
+   against the original path. The backlink remains at that original path
+   because retention uses `rename`, not `git worktree move`. A missing or
+   different identity puts everything back and retries later. A pre-commit
+   journal from before the identity check has no such proof and is also put
+   back. A gone tree must still be absent, including from a sibling
+   quarantine. `git worktree move` refuses a locked tree (the sweep never
+   forces); these checks also cover a move already in flight before the lock.
 5. **Holder check 1** (one `lsof` for the whole batch, section 8).
 6. **Archive**, within the job's time slice (default 120 s): list, with git,
    the worktree's tracked and untracked-unignored paths (again after the
@@ -278,7 +331,11 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
 8. **Final check**: walk every tree again; every entry must still be there with
    its archived signature (a file that had other links and whose ctime alone
    moved: with its archived bytes, section 9), and nothing may have been
-   added. A worktree that was gone must still be gone.
+   added. As its last operation, repeat the tree, gitfile, admin and backlink
+   identity check from quarantine. A worktree that was gone must still be
+   gone, including from a sibling quarantine. This catches a gitfile rewritten
+   before the archive read it, which the archive's byte comparison alone
+   would accept.
 9. **Commit**, in one transaction: write `rows.json` and read it back first;
    inside, compare the rows with it, ask every pin again (the conversation
    service's included, and salvage released only for the commits the verified
@@ -291,7 +348,25 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
 11. **Reclaim**: verified deletion (section 9) of the worktree, the job
     directory and the admin directory, which removes the registration. If
     anything in the admin directory changed after the final check, it is kept
-    (locked), and what it names is anchored under a `late-` ref.
+    (locked), and what it names is anchored under a `late-` ref. Immediately
+    before considering deletion of the admin directory, check whether a
+    checkout outside retention's quarantine names it: at the original path,
+    beside it under another tool's quarantine name, or where the admin's
+    current backlink points. If so, keep the registration and release only
+    retention's own lock so that checkout stays usable.
+
+**The external sweep**: `disk-guard` and `worktree-archive-sweep` hold the
+guard's own `state/disk-guard.lock`; retention does not share it. Both move
+with `git worktree move` to `<parent>/.disk-guard-removing.<name>`, write
+their recovery record before moving, recheck there, and move back if a check
+fails. Either tool can recover a leftover quarantine on a later pass. The
+archive sweep's `removing` stage is instead completed from its verified
+snapshot and is not moved back. None of these moves uses `--force`. A full
+away/back round trip can restore both path presence and backlink text, so
+the safety decision uses the gitfile read for the registration and the
+identity of the directory actually quarantined. Merely testing whether the
+original path exists, or relying on the guard's lock, cannot prove that the
+private history being bundled belongs to that tree.
 
 **Rollback** (any step before commit): rename the trees back (an occupied
 original path sends ours to conflicts and keeps the lock), remove the lock if
@@ -689,11 +764,13 @@ Each is tested (section 16).
 - **I13, a hosted job keeps its own anchor.** A job registered in a
   repository inside another job's tree is never retired in the same pass as
   that job, nor without its registration.
-- **I14, never around a tree that is away** (revision 5). A job is not
-  retired while another tool holds its tree aside, nor when its tree left or
-  came back while it was being retired: a registration is archived and removed
-  only with its tree, and a tree is archived only with the registration that
-  names it.
+- **I14, every removed tree's registration is proved** (revisions 5 and 6).
+  A job is kept while another tool holds its tree aside. A quarantined tree
+  must have the directory identity and gitfile read for its registration;
+  the admin directory and backlink must still agree. A round trip that
+  preserves this proof is safe; one that made the lookup miss the gitfile
+  defers. A registration claimed by a live checkout is kept, so retention
+  never leaves a tree's gitfile naming a deleted admin directory.
 - **I15, every allocated tree has an owner** (revision 5). The tree admission
   allocated for a job is retired with that job, recorded in `jobs.worktree` or
   not. A writable git job keeps the expected daemon path while it is absent,
@@ -823,6 +900,24 @@ are in `docs/reports/2026-10-01-retention-81-notes/`. A regenerable file with mu
 links records sha256 without storing its bytes, so a sibling unlink can be told
 from a write that invalidated its proof. `_digest` checks the walk's content
 signature before hashing, as well as checking it afterwards.
+
+Revision 6's `tests/unit/test_retention_sweep_race.py` covers moves during the
+gitfile lookup, moves between the quarantine presence check and rename,
+registration changes before archiving, a moved gone tree's backlink, a copy
+replacing the original directory, a checkout returned after the final check,
+and recovery of a journal without identity. Its Hypothesis property generates
+away/back moves at 16 retention boundaries, including lookup and identity
+absence-check boundaries;
+an away without a later back represents away-and-stay. The oracle verifies a
+kept tree's files and git registration, or the removed tree's private HEAD
+and reflog commit in a bundle imported into a fresh remote clone, along with
+its untracked and ignored file bytes in the archive. It also checks that the
+shared stash list and a retained tree's HEAD reflog survive, and that a later
+quiet pass can retire a kept job. Legacy committed-journal tests distinguish
+safe completion from preserving an incomplete archive for recovery.
+The older late-return regressions bypass the initial discovery guards so
+they continue to exercise the quarantine and final presence checks
+independently of the earlier persistent-id deferral.
 The final fallback tests also cover an existing lane with a dangling `.git`
 file, both with and without salvage, and a replaced salvage ref in that source.
 
