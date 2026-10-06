@@ -231,11 +231,13 @@ ORG_BLOCK_RE = re.compile(
 #: The `error` kind Claude Code stamps on that refusal (`claude_stream.ERROR_KINDS`).
 ORG_BLOCK_ERROR_KIND = "oauth_org_not_allowed"
 
-#: Both known causes of the refusal, neither asserted, and what ends it.
+#: Both known causes of the refusal, neither asserted, and what to do after. It
+#: promises no outcome: re-enrolment still has its own checks, such as the
+#: identity one in `Daemon._enroll_lane`.
 ORG_BLOCK_CAUSES = (
     "Either the account's subscription lapsed or was cancelled, or an org admin "
-    "disabled Claude Code; `subfleet lanes enroll` succeeds once the account is "
-    "subscribed with Claude Code allowed."
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
 )
 
 # Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
@@ -1640,7 +1642,8 @@ class ClaudeAdapter(Adapter):
                 OutcomeClass.AUTH_DEAD,
                 f"auth-dead: {refusal.statement()}. {ORG_BLOCK_CAUSES}",
                 answered={"auth": f"subscription access refused ({refusal.source})"},
-                refusal={"verbatim": refusal.line, "source": refusal.source},
+                refusal={"verbatim": refusal.line, "source": refusal.source,
+                         "quoted_from": refusal.quoted_from},
             )
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
@@ -2033,21 +2036,27 @@ def _first_auth_phrase(corpus: str) -> str | None:
 class SubscriptionRefusal:
     """Claude Code refusing subscription access, as its own evidence (C-9.3).
 
-    `line` is the refusal line verbatim, `error_kinds` every distinct `error` kind
-    the stream carried. Neither names a cause: `ORG_BLOCK_CAUSES` lists the known
-    ones without choosing.
+    `line` is Claude Code's words verbatim, `error_kinds` every distinct `error`
+    kind the stream carried, in the parser's order. `source` is what made it a
+    refusal: "error-kind" when Claude Code stamped `oauth_org_not_allowed`, else
+    "text" (ORG_BLOCK_RE alone). `quoted_from` is where `line` came from. None of
+    it names a cause: `ORG_BLOCK_CAUSES` lists the known ones without choosing.
     """
 
     line: str | None
     error_kinds: tuple[str, ...]
-    source: str          # "text" (ORG_BLOCK_RE) or "error-kind" (ORG_BLOCK_ERROR_KIND)
+    source: str
+    quoted_from: str | None      # "refusal-frame", "provider-error", "output"
 
     def statement(self) -> str:
         evidence = []
         if self.line:
             evidence.append(f'verbatim: "{self.line}"')
         else:
-            evidence.append("no refusal text in the stream")
+            evidence.append(
+                f"no words: the frame carrying {ORG_BLOCK_ERROR_KIND} has none, "
+                "and neither has the provider's error text"
+            )
         if self.error_kinds:
             evidence.append(f"error_kinds: {', '.join(self.error_kinds)}")
         return (
@@ -2056,28 +2065,61 @@ class SubscriptionRefusal:
         )
 
 
-def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRefusal | None:
-    """The refusal when Claude Code's text or its error kind says so, else None.
+def _provider_error_texts(summary: StreamSummary) -> tuple[str, ...]:
+    """The words Claude Code marked as an error: the result's `errors`, an error
+    result's text, and the text of every assistant frame stamped with an `error`
+    kind. Never ordinary assistant prose."""
+    texts: list[str] = []
+    if summary.result is not None:
+        texts.extend(summary.result.errors)
+        if summary.result.is_error and summary.result.text:
+            texts.append(summary.result.text)
+    texts.extend(m.text for m in summary.assistants if m.error and m.text)
+    return tuple(dict.fromkeys(t for t in texts if t))
 
-    The text wins when present, because it is what Claude Code actually said; a
-    refusal carried only by `oauth_org_not_allowed` quotes the first line of the
-    message that carried it, so a reworded refusal is still quoted, not paraphrased.
+
+def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRefusal | None:
+    """The refusal when Claude Code's error kind or its text says so, else None.
+
+    It is a refusal when the stream carries `oauth_org_not_allowed` or the corpus
+    matches ORG_BLOCK_RE. The words quoted are the most specific Claude Code gave,
+    first found wins, so unrelated text that happens to match is never quoted in
+    place of the refusal itself:
+
+    1. the frame stamped `oauth_org_not_allowed`: its line ORG_BLOCK_RE matches,
+       else its first line (a reworded refusal is still quoted, not paraphrased);
+    2. the provider's error text (`_provider_error_texts`): a line it matches;
+    3. the rest of the corpus (stderr, ordinary text): the first line it matches;
+    4. a stamped refusal with no words of its own: the provider's error text's
+       first line, else nothing, and the statement says so.
     """
     kinds = tuple(dict.fromkeys(summary.error_kinds))
-    match = ORG_BLOCK_RE.search(corpus)
-    if match:
-        return SubscriptionRefusal(_first_line_containing(corpus, match), kinds, "text")
-    if ORG_BLOCK_ERROR_KIND not in kinds:
+    stamped = ORG_BLOCK_ERROR_KIND in kinds
+    in_corpus = ORG_BLOCK_RE.search(corpus)
+    if not stamped and in_corpus is None:
         return None
+    source = "error-kind" if stamped else "text"
+
+    def quote(text: str, found: re.Match[str], where: str) -> SubscriptionRefusal:
+        return SubscriptionRefusal(_first_line_containing(text, found), kinds, source, where)
+
     for message in summary.assistants:
-        if message.error != ORG_BLOCK_ERROR_KIND:
-            continue
-        found = re.search(r"\S", message.text)
+        if message.error == ORG_BLOCK_ERROR_KIND:
+            found = ORG_BLOCK_RE.search(message.text) or re.search(r"\S", message.text)
+            if found:
+                return quote(message.text, found, "refusal-frame")
+    errors = _provider_error_texts(summary)
+    for text in errors:
+        found = ORG_BLOCK_RE.search(text)
         if found:
-            return SubscriptionRefusal(
-                _first_line_containing(message.text, found), kinds, "error-kind",
-            )
-    return SubscriptionRefusal(None, kinds, "error-kind")
+            return quote(text, found, "provider-error")
+    if in_corpus is not None:
+        return quote(corpus, in_corpus, "output")
+    for text in errors:
+        found = re.search(r"\S", text)
+        if found:
+            return quote(text, found, "provider-error")
+    return SubscriptionRefusal(None, kinds, source, None)
 
 
 def _closure_clock(

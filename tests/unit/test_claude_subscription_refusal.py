@@ -25,8 +25,9 @@ from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet.adapters.base import AdapterError
 from subfleet.adapters.claude import (
-    LINE_EXCERPT_MAX, ORG_BLOCK_CAUSES, ORG_BLOCK_RE, AUTH_SIGNATURE_RE, LIMIT_RE,
-    ClaudeAdapter, _first_line_containing, _subscription_refusal,
+    AUTH_SIGNATURE_RE, CLI_TOO_OLD_RE, CREDITS_RE, LIMIT_RE, LINE_EXCERPT_MAX,
+    ORG_BLOCK_CAUSES, ORG_BLOCK_RE, TRANSIENT_RE, ClaudeAdapter, _first_line_containing,
+    _subscription_refusal,
 )
 from subfleet.adapters.claude_stream import parse_stream
 from subfleet.contracts import Credential, OutcomeClass
@@ -43,6 +44,14 @@ REFUSAL = (
 )
 CREDENTIAL = Credential(provider="claude", ref="claude-quota-max@policybench.org",
                         kind="keychain-token")
+
+#: The cause line, written out here rather than imported, so any change to the
+#: shipped words (an admin-only hint, a promise that enrolment will succeed) fails.
+CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
 
 #: Subfleet's own words from before this fix: each asserted one cause.
 OLD_ASSERTIONS = (
@@ -101,10 +110,8 @@ def test_enroll_quotes_the_recorded_refusal_and_its_error_kind(tmp_path):
     assert error.code == 5
     assert f'verbatim: "{REFUSAL}"' in message
     assert "error_kinds: oauth_org_not_allowed" in message
-    assert error.fix == ORG_BLOCK_CAUSES
-    assert "subscription lapsed or was cancelled" in error.fix
-    assert "an org admin disabled Claude Code" in error.fix
-    assert "`subfleet lanes enroll` succeeds" in error.fix
+    assert error.fix == CAUSES
+    assert "succeed" not in error.fix      # re-enrolment has checks of its own
     for claim in OLD_ASSERTIONS:
         assert claim not in _ours(message, REFUSAL)
         assert claim not in _ours(error.fix, None)
@@ -119,7 +126,7 @@ def test_enroll_quotes_the_refusal_without_system_init(tmp_path):
     assert error.code == 5
     assert f'verbatim: "{REFUSAL}"' in str(error)
     assert "did not authenticate" not in str(error)
-    assert error.fix == ORG_BLOCK_CAUSES
+    assert error.fix == CAUSES
 
 
 def test_enroll_quotes_the_refusal_from_stderr(tmp_path):
@@ -147,7 +154,7 @@ def test_enroll_quotes_a_reworded_refusal_carried_only_by_its_error_kind(tmp_pat
     assert f'verbatim: "{reworded}"' in str(error)
     assert "second line" not in str(error)
     assert "error_kinds: oauth_org_not_allowed" in str(error)
-    assert error.fix == ORG_BLOCK_CAUSES
+    assert error.fix == CAUSES
 
 
 def test_enroll_says_so_when_the_error_kind_came_without_words(tmp_path):
@@ -155,10 +162,13 @@ def test_enroll_says_so_when_the_error_kind_came_without_words(tmp_path):
                             "error": "oauth_org_not_allowed",
                             "message": {"model": "<synthetic>", "content": []}})
     error = _enroll_error(stdout, tmp=tmp_path)
-    assert "no refusal text in the stream; error_kinds: oauth_org_not_allowed" in str(error)
+    assert ("no words: the frame carrying oauth_org_not_allowed has none, and neither "
+            "has the provider's error text; error_kinds: oauth_org_not_allowed") in str(error)
 
 
 def test_enroll_lists_every_distinct_error_kind_once(tmp_path):
+    """Once each, in the parser's order: assistant frames' kinds, then api_retry's
+    (`StreamSummary.error_kinds`), not the order they arrived in."""
     stdout = _stream(
         INIT,
         {"type": "system", "subtype": "api_retry", "session_id": "s", "attempt": 1,
@@ -190,20 +200,26 @@ def test_classify_quotes_the_recorded_refusal_with_its_error_kind(adapter, tmp_p
     assert outcome.detail.startswith("auth-dead: ")
     assert f'verbatim: "{REFUSAL}"' in outcome.detail
     assert "error_kinds: oauth_org_not_allowed" in outcome.detail
-    assert outcome.detail.endswith(ORG_BLOCK_CAUSES)
-    assert outcome.evidence["refusal"] == {"verbatim": REFUSAL, "source": "text"}
+    assert outcome.detail.endswith(CAUSES)
+    assert outcome.evidence["refusal"] == {
+        "verbatim": REFUSAL, "source": "error-kind", "quoted_from": "refusal-frame"}
     assert outcome.evidence["error_kinds"] == ["oauth_org_not_allowed"]
-    assert outcome.evidence["answered"]["auth"] == "subscription access refused (text)"
+    assert outcome.evidence["answered"]["auth"] == "subscription access refused (error-kind)"
     for claim in OLD_ASSERTIONS:
         assert claim not in _ours(outcome.detail, REFUSAL)
 
 
 def test_the_refusal_detail_never_reads_as_a_revoked_token(adapter, tmp_path):
-    """`Timers` treats a heal turn whose detail says 'revoked' as a revoked token;
-    the words Subfleet adds to a refusal must not trip that."""
+    """A detail that says 'revoked' reads as a revoked token: today only the Codex
+    heal in `Timers` acts on it, and this keeps the words Subfleet adds to a Claude
+    refusal from ever saying so."""
     outcome = _classify_recorded(adapter, tmp_path)
     assert "revoked" not in outcome.detail.lower()
     assert "revoked" not in ORG_BLOCK_CAUSES.lower()
+
+
+def test_the_shipped_cause_line_is_the_neutral_one():
+    assert ORG_BLOCK_CAUSES == CAUSES
 
 
 def test_classify_quotes_a_reworded_refusal_carried_only_by_its_error_kind(adapter, tmp_path):
@@ -225,7 +241,8 @@ def test_classify_quotes_a_reworded_refusal_carried_only_by_its_error_kind(adapt
     assert outcome.cls is OutcomeClass.AUTH_DEAD
     assert f'verbatim: "{reworded}"' in outcome.detail
     assert "error_kinds: oauth_org_not_allowed" in outcome.detail
-    assert outcome.evidence["refusal"] == {"verbatim": reworded, "source": "error-kind"}
+    assert outcome.evidence["refusal"] == {
+        "verbatim": reworded, "source": "error-kind", "quoted_from": "refusal-frame"}
 
 
 def test_other_auth_error_kinds_keep_their_own_detail(adapter, tmp_path):
@@ -258,7 +275,123 @@ def test_probe_outcome_quotes_the_recorded_refusal(tmp_path):
     assert outcome.cls is OutcomeClass.AUTH_DEAD
     assert f'verbatim: "{REFUSAL}"' in outcome.detail
     assert "error_kinds: oauth_org_not_allowed" in outcome.detail
-    assert outcome.detail.endswith(ORG_BLOCK_CAUSES)
+    assert outcome.detail.endswith(CAUSES)
+
+
+# --- which words are quoted: the refusal itself, never a bystander ------------
+
+TELEMETRY = "The organization has disabled unrelated telemetry."
+PROSE_FRAME = {"type": "assistant", "session_id": RECORDED, "message": {
+    "model": "claude-opus-5-5", "content": [{"type": "text", "text": TELEMETRY}]}}
+
+
+def _recorded_rows() -> list[dict]:
+    return [json.loads(line) for line in _recorded_stdout().splitlines() if line.strip()]
+
+
+def _with_bystander(where: str) -> tuple[str, str]:
+    """The recorded stream with unrelated text that ORG_BLOCK_RE also matches, either
+    as an ordinary assistant frame ahead of the refusal or on stderr."""
+    rows = _recorded_rows()
+    if where == "prose":
+        refusal_at = next(i for i, row in enumerate(rows) if row.get("error"))
+        rows.insert(refusal_at, PROSE_FRAME)
+        return _stream(*rows), ""
+    return _stream(*rows), TELEMETRY + "\n"
+
+
+def _outcome(stdout: str, stderr: str, entry: str, tmp_path: Path) -> str:
+    """What each entry point says about one turn's output."""
+    if entry == "enroll":
+        return str(_enroll_error(stdout, stderr=stderr, tmp=tmp_path))
+    adapter = ClaudeAdapter(runner=_Runner(stdout=stdout, stderr=stderr, rc=1),
+                            now=lambda: NOW, projects_dir=tmp_path)
+    if entry == "probe_outcome":
+        outcome = adapter.probe_outcome(make_lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "x"},
+                                        "claude-opus-5-5")
+    else:
+        attempt_dir = tmp_path / "a1"
+        attempt_dir.mkdir()
+        (attempt_dir / "stream.jsonl").write_text(stdout, encoding="utf-8")
+        (attempt_dir / "stderr").write_text(stderr, encoding="utf-8")
+        launch = make_launch(attempt_dir, session_id="s", model_id="claude-opus-5-5",
+                             projects_dir=tmp_path)
+        outcome = adapter.classify(attempt_dir, launch, exit_info(1))
+    assert outcome.cls is OutcomeClass.AUTH_DEAD
+    return outcome.detail
+
+
+@pytest.mark.parametrize("entry", ["enroll", "classify", "probe_outcome"])
+@pytest.mark.parametrize("where", ["prose", "stderr"])
+def test_unrelated_matching_text_is_never_quoted_as_the_refusal(entry, where, tmp_path):
+    """Review r1 finding 1: an earlier line ORG_BLOCK_RE happens to match must not
+    replace the refusal Claude Code stamped `oauth_org_not_allowed`."""
+    stdout, stderr = _with_bystander(where)
+    said = _outcome(stdout, stderr, entry, tmp_path)
+    assert f'verbatim: "{REFUSAL}"' in said
+    assert "telemetry" not in said
+
+
+def test_the_provider_error_text_outranks_ordinary_text(adapter, tmp_path):
+    """With no stamped frame, the provider's own error text is quoted before any
+    ordinary assistant text that happens to match."""
+    stream = _stream(
+        INIT,
+        {"type": "assistant", "session_id": "s", "message": {
+            "model": "claude-opus-5-5", "content": [{"type": "text", "text": TELEMETRY}]}},
+        {"type": "result", "subtype": "error_during_execution", "is_error": True,
+         "session_id": "s", "errors": [REFUSAL]},
+    )
+    refusal = _subscription_refusal(f"\n{TELEMETRY}\n{REFUSAL}", parse_stream(stream))
+    assert refusal is not None
+    assert (refusal.line, refusal.source, refusal.quoted_from) == (
+        REFUSAL, "text", "provider-error")
+
+
+def test_a_progress_frame_is_not_quoted_for_a_kind_only_refusal(tmp_path):
+    """Review r1 mutation A: only the frame stamped with the kind is the refusal; an
+    ordinary frame before it is the model's own words."""
+    reworded = "Claude subscriptions are not available for this account"
+    stdout = _stream(
+        INIT,
+        {"type": "assistant", "session_id": "s", "message": {
+            "model": "claude-opus-5-5",
+            "content": [{"type": "text", "text": "Checking the repository layout first."}]}},
+        {"type": "assistant", "session_id": "s", "error": "oauth_org_not_allowed",
+         "message": {"model": "<synthetic>", "content": [{"type": "text", "text": reworded}]}},
+    )
+    message = str(_enroll_error(stdout, tmp=tmp_path))
+    assert f'verbatim: "{reworded}"' in message
+    assert "repository layout" not in message
+
+
+def test_a_wordless_stamped_frame_quotes_the_provider_error_text(tmp_path):
+    """Review r1 finding 2: the kind's own frame is empty, but the result carries the
+    provider's words; those are quoted rather than declared absent."""
+    reworded = "Claude subscriptions are not available for this account"
+    stdout = _stream(
+        INIT,
+        {"type": "assistant", "session_id": "s", "error": "oauth_org_not_allowed",
+         "message": {"model": "<synthetic>", "content": []}},
+        {"type": "result", "subtype": "error_during_execution", "is_error": True,
+         "session_id": "s", "errors": [reworded]},
+    )
+    message = str(_enroll_error(stdout, tmp=tmp_path))
+    assert f'verbatim: "{reworded}"' in message
+    assert "no words" not in message
+
+
+def test_a_kind_on_an_api_retry_alone_says_exactly_what_is_missing(tmp_path):
+    """The kind arrived on an api_retry frame, which has no text, and nothing the
+    provider marked as an error has words either. Stderr is not the provider's error
+    text and is not quoted as the refusal; the statement says what was looked at."""
+    stdout = _stream(INIT, {"type": "system", "subtype": "api_retry", "session_id": "s",
+                            "attempt": 1, "error": "oauth_org_not_allowed"})
+    message = str(_enroll_error(stdout, stderr="Background tasks still running\n",
+                                tmp=tmp_path))
+    assert ("no words: the frame carrying oauth_org_not_allowed has none, and neither "
+            "has the provider's error text") in message
+    assert "Background tasks" not in message
 
 
 # --- properties ---------------------------------------------------------------
@@ -304,13 +437,17 @@ def refusal_corpora(draw):
     return _around(draw, _any_case(draw, draw(st.sampled_from(PHRASES))))
 
 
-#: A phrase each classifying pattern knows, so every pattern's excerpt is exercised.
+#: A phrase for every pattern whose match the classifier quotes through
+#: `_first_line_containing` (cli-too-old, org block, auth, credits, limit, transient).
 CLASSIFIERS = (
     *((ORG_BLOCK_RE, phrase) for phrase in PHRASES),
+    (CLI_TOO_OLD_RE, "does not support this model"),
     (AUTH_SIGNATURE_RE, "401"),
     (AUTH_SIGNATURE_RE, "refresh token was revoked"),
+    (CREDITS_RE, "out of usage credits"),
     (LIMIT_RE, "usage limit"),
     (LIMIT_RE, "hit your limit"),
+    (TRANSIENT_RE, "overloaded"),
     # No real pattern matches this much, but the helper must still hold a match
     # longer than the limit whole.
     (re.compile(r"z{350}", re.IGNORECASE), "z" * 350),
@@ -360,7 +497,7 @@ def test_any_matching_corpus_is_quoted_by_enroll(corpus):
     stdout = _stream(INIT, {"type": "result", "subtype": "success", "is_error": False,
                             "result": "ok", "session_id": "s"})
     error = _enroll_error(stdout, stderr=corpus, rc=1)
-    assert error.code == 5 and error.fix == ORG_BLOCK_CAUSES
+    assert error.code == 5 and error.fix == CAUSES
     _assert_quotes(str(error), corpus)
 
 
@@ -384,7 +521,7 @@ def test_any_matching_corpus_is_quoted_by_the_classifier(corpus, in_stream):
                              identity=None, label=None, projects_dir=attempt_dir)
         outcome = adapter.classify(attempt_dir, launch, exit_info(1))
     assert outcome.cls is OutcomeClass.AUTH_DEAD
-    assert outcome.detail.endswith(ORG_BLOCK_CAUSES)
+    assert outcome.detail.endswith(CAUSES)
     _assert_quotes(outcome.detail, corpus)
 
 
