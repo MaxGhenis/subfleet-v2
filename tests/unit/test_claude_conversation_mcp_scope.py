@@ -63,6 +63,7 @@ def test_d714_keeps_every_conversation_permission_mode_argv_unchanged(tmp_path, 
     assert launch.argv == tuple(expected)
     assert launch.env_add == {
         "CLAUDE_CODE_OAUTH_TOKEN": "REDACTED", "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "120000",
+        "SUBFLEET_TURN_JOB": "turn-job", "SUBFLEET_SESSION_ID": SESSION,
     }
     expected_remove = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
     if permission == "read-only":

@@ -360,6 +360,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var steerOffers: [String: Any] = [:]
     var steerHints: [String: Any] = [:]
     var items: [String: Any] = [:]
+    var projected: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
@@ -391,6 +392,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
                     ?? NSNull()
                 steerOffers[messageID] = state.offersSteer(conversationID: id, messageID: messageID)
             }
+            projected[id] = timeline.items.map { (item: TimelineItem) -> [String: Any] in project(item) }
             items[id] = timeline.items.map { item -> String in
                 if case .person = item.content { return item.id }
                 return item.id.hasPrefix("steer:") ? item.id : "item"
@@ -407,6 +409,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["steer_offers"] = steerOffers
     out["steer_hints"] = steerHints
     out["items"] = items
+    out["timeline"] = projected
     return out
 }
 
