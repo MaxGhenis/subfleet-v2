@@ -42,7 +42,7 @@ def test_open_keeps_catalog_activity_until_next_list_and_uses_newer_row_activity
     native = conversation("native", "2026-09-28T10:00:00Z", last_activity="2026-10-03T12:45:00Z")
     recent = conversation("recent", "2026-10-03T11:00:00Z")
     opened = {"conversation": {k: v for k, v in native.items() if k != "last_activity"},
-              "messages": [], "pending_approvals": []}
+              "messages": [], "events_cursor": 0, "pending_approvals": []}
     out = store(core_probe, tmp_path, [{"list": {"conversations": [recent, native]}}, {"open": opened}])
     assert [entry["title"] for entry in out["sidebar"][0]["entries"]] == ["native", "recent"]
     # A native timestamp can never mask a more recent Subfleet update.
@@ -59,7 +59,7 @@ def test_blocked_rows_need_you_and_open_with_the_correct_choices(core_probe, tmp
     if reason == "delivery-unknown":
         blocked["last_message"] = {"message_id": "uncertain", "state": reason}
     out = store(core_probe, tmp_path, [{"list": {"conversations": [blocked]}},
-                                     {"open": {"conversation": blocked, "messages": [], "pending_approvals": []}}])
+                                     {"open": {"conversation": blocked, "messages": [], "events_cursor": 0, "pending_approvals": []}}])
     assert out["sidebar"][0]["entries"][0].get("needs_you") == "Needs you"
     actions = [choice["action"] for choice in out["banners"]["blocked"]["choices"]]
     expected = ([{"unblock": "continue"}, {"unblock": "leave"}] if reason == "unfinished-turn" else

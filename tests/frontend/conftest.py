@@ -29,6 +29,19 @@ def core_probe(tmp_path_factory) -> Path:
     return compile_probe(tmp_path_factory.mktemp("subfleet-core") / "probe", CORE_PROBE, "SUBFLEET_MODEL_TEST")
 
 
+@pytest.fixture(scope="session")
+def conversation_view_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-conversation-view") / "probe",
+                         ROOT / "tests/frontend/ConversationViewProbe.swift", "SUBFLEET_VIEW_TEST")
+
+
+@pytest.fixture(scope="session")
+def cutover_model_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-cutover-model") / "probe",
+                         [ROOT / "tests/frontend/CutoverModelProbe.swift",
+                          ROOT / "tests/frontend/CutoverViewScenarios.swift"], "SUBFLEET_UI_MODEL_TEST")
+
+
 def run_probe(probe: Path, *args, env: dict | None = None, timeout: float = 60, raw: bool = False):
     environment = {key: value for key, value in os.environ.items() if not key.startswith("SUBFLEET_")}
     environment.update(env or {})

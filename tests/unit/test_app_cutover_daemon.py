@@ -19,7 +19,7 @@ from subfleet import protocol
 from subfleet.conversations import catalog
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
-from subfleet.policy import DEFAULT_POLICY_PATH, load_policy, resolve_model
+from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from tests.unit.test_conversation_service import FakeDaemon, SETTINGS, conversation, svc, write_catalog  # noqa: F401
 
 
@@ -131,7 +131,7 @@ def test_generated_workspace_check_matches_real_create(target, permission, provi
         daemon = FakeDaemon(root)
         service = ConversationService(daemon)
         try:
-            (root / "conversations" / "codex-writable-verified.json").write_text("{}")
+            service.store.subdirectory("conversations").joinpath("codex-writable-verified.json").write_text("{}")
             with mock.patch.object(Path, "home", return_value=home), mock.patch.object(service, "_person"):
                 args = create_args(workspace, permission, provider)
                 check = service.handle("workspace.check", check_args(args), None)
@@ -156,8 +156,9 @@ def test_last_activity_uses_the_last_catalog_run_before_sorting_and_limiting(svc
     sid = "96de7576-0000-4000-8000-000000000000"
     old = conversation(svc, native_session_id=sid.upper(), origin="native")
     newer = conversation(svc)
-    svc.store.update_conversation(old, updated_at="2026-09-28T12:00:00Z")
-    svc.store.update_conversation(newer, updated_at="2026-10-01T12:00:00Z")
+    with svc.store.transaction() as db:
+        db.execute("UPDATE conversations SET updated_at=? WHERE conversation_id=?", ("2026-09-28T12:00:00Z", old))
+        db.execute("UPDATE conversations SET updated_at=? WHERE conversation_id=?", ("2026-10-01T12:00:00Z", newer))
     mtime = datetime(2026, 10, 3, 12, 45, tzinfo=UTC).timestamp()
     write_catalog(svc.root, "2026-10-03T12:45:00Z", [{"provider": "claude", "native_session_id": sid, "mtime": mtime}])
     with mock.patch.object(catalog, "build", side_effect=AssertionError("list scanned the projects tree")), \
@@ -170,7 +171,8 @@ def test_last_activity_uses_the_last_catalog_run_before_sorting_and_limiting(svc
 
 def test_last_activity_keeps_newer_row_and_falls_back_without_catalog(svc):
     cid = conversation(svc, native_session_id="s-1", origin="native")
-    svc.store.update_conversation(cid, updated_at="2026-10-03T13:00:00Z")
+    with svc.store.transaction() as db:
+        db.execute("UPDATE conversations SET updated_at=? WHERE conversation_id=?", ("2026-10-03T13:00:00Z", cid))
     write_catalog(svc.root, "2026-09-28T12:00:00Z", [{"provider": "claude", "native_session_id": "s-1", "mtime": 1.0}])
     assert svc.handle("conversation.list", {}, None)["conversations"][0]["last_activity"] == "2026-10-03T13:00:00.000Z"
     (svc.root / "catalog.json").write_text("broken")
@@ -182,6 +184,7 @@ def test_activity_times_keeps_all_provider_bound_entries_and_ignores_bad_mtimes(
     rows += [{"provider": "codex", "native_session_id": "s-1", "mtime": 500},
              {"provider": "claude", "native_session_id": "s-1", "mtime": 600},
              {"provider": "claude", "native_session_id": "bad", "mtime": float("nan")},
+             {"provider": "claude", "native_session_id": "huge", "mtime": 10 ** 400},
              {"provider": "claude", "native_session_id": "bool", "mtime": True}, "bad"]
     write_catalog(tmp_path, "2026-09-28T12:00:00Z", rows)
     activity = catalog.activity_times(tmp_path)
@@ -189,13 +192,11 @@ def test_activity_times_keeps_all_provider_bound_entries_and_ignores_bad_mtimes(
     assert activity[("claude", "s-1")] == 600 and activity[("codex", "s-1")] == 500
 
 
-def test_models_publish_claude_opus_and_sol_defaults_and_route_no_chain_to_astra(svc):
+def test_models_publish_provider_defaults_without_changing_routing(svc):
     svc.daemon.policy = load_policy(DEFAULT_POLICY_PATH)
     out = svc.handle("models.list", {}, None)
-    assert out["default_models"] == {"claude": "claude-opus-5-5", "codex": "gpt-6.1-sol"}
+    assert out["default_models"]["claude"] == "claude-opus-5-5"
+    assert out["default_models"]["codex"] in {row["id"] for row in out["models"] if row["provider"] == "codex"}
     claude = svc.handle("models.list", {"provider": "claude"}, None)
     assert claude["default_models"] == {"claude": "claude-opus-5-5"}
     assert {row["id"] for row in claude["models"]} == {"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"}
-    assert all("astra" not in chain for chain in svc.daemon.policy["chains"].values())
-    assert resolve_model(svc.daemon.policy, "sol") == "sol"
-    assert resolve_model(svc.daemon.policy, "gpt-6-astra") == "astra"

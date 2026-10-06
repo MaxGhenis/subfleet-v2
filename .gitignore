@@ -9,3 +9,7 @@ build/
 .uv-cache/
 # A symlinked virtualenv too (`.venv/` matches only a directory).
 .venv
+# Local commit metadata when a worktree's shared metadata is read-only.
+.git-local/
+# Delivery bundle is a separate artifact, not repository history.
+docs/reports/2026-10-03-app-cutover.bundle

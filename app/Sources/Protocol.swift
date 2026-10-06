@@ -132,7 +132,7 @@ enum Ops {
         messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
         approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name,
+        conversationHandoff.name, workspaceCheck.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
