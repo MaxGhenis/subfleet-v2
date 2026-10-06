@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,24 @@ from .lockwatch import WatchedLock, thread_name
 
 SCHEMA_VERSION = 6
 Row = dict[str, Any]
+
+# Canonical observations use the partial time index; offset/fractional clocks
+# use the parsed-time expression index. Both UNION branches search time bounds.
+WEEKLY_HISTORY_SQL = (
+    "SELECT * FROM readings WHERE window='seven_day' AND label IN ('provider','stale-provider') "
+    "AND observed_at BETWEEN ? AND ? AND observed_at GLOB ? "
+    "UNION ALL SELECT * FROM readings WHERE window='seven_day' "
+    "AND label IN ('provider','stale-provider') AND NOT observed_at GLOB ? "
+    "AND julianday(observed_at) BETWEEN julianday(?) AND julianday(?)"
+)
+
+
+def weekly_history_params(now: str | datetime | None = None) -> tuple[str, ...]:
+    from .quota_projection import instant
+    at = instant(now) if now is not None else datetime.now(timezone.utc)
+    end = at.isoformat(timespec="seconds").replace("+00:00", "Z")
+    start = (at - timedelta(hours=24)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return start, end, Store.CANONICAL_TS, Store.CANONICAL_TS, start, at.isoformat()
 
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
 STATEMENT_RESERVE = 2
@@ -814,6 +832,10 @@ class Store:
 
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
+
+    def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:
+        """Read only 24 hours of weekly provider history, apart from newest evidence."""
+        return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
 
     def put_closure(self, closure: Closure) -> int:
         """One open closure per lane and scope: a later end extends the row in place.
