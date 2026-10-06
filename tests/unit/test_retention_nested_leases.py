@@ -110,6 +110,29 @@ def test_a_writer_between_selection_and_transaction_stops_retirement(world, monk
     assert {r["holder"] for r in world.store.list_leases()} == {"writer"}
 
 
+def test_a_recorded_alias_is_kept_by_the_selection_range(world):
+    """The selecting transaction reads the leases on the canonical spelling: with
+    `jobs.worktree` recorded in another case, the census (recorded spellings)
+    misses a writer's lease inside the tree, and the selecting transaction
+    alone refuses the job, before any of it is archived. Nothing is blinded
+    (review of c3cf6a55, F2: a selection on the recorded spelling let the
+    retirement begin, and only the commit rolled it back)."""
+    wt = world.job("Job")
+    alias = wt.with_name(wt.name.swapcase())
+    if not alias.exists() or not alias.samefile(wt):
+        pytest.skip("case-insensitive filesystem required")
+    world.store.update_job("Job", worktree=str(alias))
+    writer(world, nested_repository(wt))
+    before = snapshot(wt)
+    assert "Job" not in retention._pin_reasons(world.store, set(), None)
+    result = run(world)
+    assert result["pruned"] == [] and "Job" in result["protected"], result
+    assert "Job" not in result["deferred"] and rarch.load_journal(world.root, "Job") is None, result
+    assert snapshot(wt) == before and world.admin("Job").is_dir() and world.store.get_job("Job")
+    world.store.release_leases("writer")
+    assert run(world)["pruned"] == ["Job"] and not wt.exists()
+
+
 @pytest.mark.parametrize("recorded", ["census", "alias", "unrecorded"])
 def test_the_commit_recheck_sees_a_writer_inside_the_tree(world, monkeypatch, recorded):
     """The commit alone: the lease appears after verification (admission fences
