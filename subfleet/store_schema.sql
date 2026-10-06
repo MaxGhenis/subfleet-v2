@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   evidence_json TEXT,
   killed_by TEXT,
   quarantine_reason TEXT,
+  quarantine_recheck_at TEXT NOT NULL DEFAULT '',
+  quarantine_notice_pending INTEGER NOT NULL DEFAULT 0,
   reserved_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT,
@@ -143,6 +145,8 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_live ON attempts(state) WHERE state IN ('reserved','starting','running','finalizing');
 CREATE INDEX IF NOT EXISTS attempts_lane ON attempts(lane_id, state);
+CREATE INDEX IF NOT EXISTS attempts_quarantine_due ON attempts(quarantine_recheck_at,attempt_id) WHERE state='quarantined';
+CREATE INDEX IF NOT EXISTS attempts_quarantine_notice ON attempts(quarantine_recheck_at,attempt_id) WHERE quarantine_notice_pending=1;
 
 -- C-8.2, C-13.1
 CREATE TABLE IF NOT EXISTS artifacts (

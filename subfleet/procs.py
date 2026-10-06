@@ -337,7 +337,7 @@ class Containment:
 
     @property
     def verified_empty(self) -> bool:
-        return not self.unverifiable and not self.live_pids
+        return not self.unverifiable and not self.errors and not self.live_pids
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -382,7 +382,8 @@ def group_members(pgid: int) -> dict[int, str]:
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str, root: str | None = None) -> Containment:
+                attempt_id: str, root: str | None = None, *,
+                recorded: dict[int, ProcessIdentity] | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -413,16 +414,40 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return pid in table and not table[pid][2].startswith("Z")
 
     if seen is not None:
+        # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
+        # Read all recorded writers from this same snapshot, including escaped
+        # writers whose parent links and markers no longer identify them.
+        gone, owned = set(), set()
+        for pid, known in (recorded or {}).items():
+            try:
+                if not live(pid):
+                    gone.add(pid)
+                elif not table[pid][3]:
+                    raise InspectionError("missing process start identity")
+                elif table[pid][3] != known.proc_start:
+                    gone.add(pid)
+                else:
+                    match = boot_identity.matches(known.boot_id, seen.boot(), seen.legacy_seconds)
+                    if match is None:
+                        raise InspectionError("unknown boot identity")
+                    (owned if match else gone).add(pid)
+            except InspectionError:
+                errors.append(f"recorded identity inspection unavailable for pid {pid}")
         groups = set(seen.group(pgid))
+        # A live reused group leader heads an unrelated group; an absent leader
+        # can still leave its original group members behind.
+        if pgid in gone and live(pgid):
+            groups.clear()
+        groups.difference_update(gone)
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0 and pid not in gone} | owned
         found = set(roots)
         frontier = roots
         while frontier:
             frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
-        descendants = {pid for pid in found if live(pid)}
+        descendants = {pid for pid in found if live(pid) and pid not in gone}
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")

@@ -124,6 +124,50 @@ def test_containment_empty_all_sources_proves_release(monkeypatch):
     assert procs.containment(42, 42, None, "job/a1").verified_empty
 
 
+@pytest.mark.parametrize("started,expected", [("old", False), ("new", True), (None, True)])
+def test_recorded_writer_identity_controls_pid_reuse(monkeypatch, started, expected):
+    """C-5.7: reuse of the group leader never roots unrelated descendants."""
+    rows = {42: (1, 42, "S", started), 43: (42, 42, "S", "unrelated")} if started else {}
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, boot_id="100"))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    held = procs.ProcessIdentity(42, "100", "old")
+    assert procs.containment(42, 42, None, "job/a1", recorded={42: held}).verified_empty is expected
+
+
+def test_a_live_recorded_escape_without_markers_keeps_quarantine(monkeypatch):
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({99: (1, 99, "S", "old")}, boot_id="100"))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    result = procs.containment(None, None, None, "job/a1", recorded={99: procs.ProcessIdentity(99, "100", "old")})
+    assert result.descendant_pids == {99} and not result.verified_empty
+
+
+def test_recorded_writer_with_unavailable_start_identity_is_unverifiable(monkeypatch):
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({99: (1, 99, "S", "")}, boot_id="100"))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    result = procs.containment(None, None, None, "job/a1", recorded={99: procs.ProcessIdentity(99, "100", "old")})
+    assert result.unverifiable and not result.verified_empty
+
+
+def test_recorded_writer_from_another_boot_is_gone(monkeypatch):
+    old_boot = "11111111-1111-4111-8111-111111111111"
+    new_boot = "22222222-2222-4222-8222-222222222222"
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({42: (1, 42, "S", "same-start")}, boot_id=new_boot))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    result = procs.containment(42, 42, None, "job/a1", recorded={42: procs.ProcessIdentity(42, old_boot, "same-start")})
+    assert result.verified_empty
+
+
+def test_a_marker_on_a_reused_pid_still_holds_quarantine(monkeypatch):
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({42: (1, 42, "S", "new")}, boot_id="100"))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "42 python SUBFLEET_ATTEMPT=job/a1\n")
+    result = procs.containment(42, 42, None, "job/a1", recorded={42: procs.ProcessIdentity(42, "100", "old")})
+    assert result.marker_pids == {42} and not result.verified_empty
+
+
+def test_errors_alone_prevent_a_verified_empty_census():
+    assert not procs.Containment(errors=("marker enumeration unavailable",)).verified_empty
+
+
 def test_containment_descends_from_recorded_child_after_guardian_exit(monkeypatch):
     """C-5.5 recorded child roots preserve a descendant census after reparenting."""
     census(monkeypatch, parents="43 1 43 S\n44 43 43 S\n45 44 43 S\n")
