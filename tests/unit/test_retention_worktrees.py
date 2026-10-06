@@ -213,12 +213,13 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
     (a person continued the job's session in the app) holds a row of its own on the folder,
     writable or read-only, not `worktree:<folder>`. Retention keeps the job and its worktree
     while the row exists, whether only its pins see the row (`_pins`) or only the selection
-    fence does (a recorded path spelled otherwise), never begins its retirement, starts no
-    git (nor any other process) there, and reclaims both once it is gone. Each layer is tested
-    alone, the other one blinded: review of 5e9f2fbd (P3-3) found the pins' check survived
-    being emptied, since the fence alone kept this green. Review of 52f6e654: the guard
-    patched `subprocess.run`, which archive git never calls, and the commit's own turn check
-    kept the tree, so the fence cases passed with the selecting transaction's check removed."""
+    fence does (as when the recorded path is spelled otherwise), never begins its retirement,
+    starts no git (nor any other process) there, and reclaims both once it is gone. Each layer
+    is tested alone, the other one blinded: review of 5e9f2fbd (P3-3) found the pins' check
+    survived being emptied, since the fence alone kept this green. Review of 52f6e654: the
+    guard patched `subprocess.run`, which archive git never calls, and the commit's own turn
+    check kept the tree, so the fence cases passed with the selecting transaction's check
+    removed."""
     from subfleet import folders
     store, root, repository, worktree = owned
     key = folders.turn_key(str(worktree.resolve()), "20260929-120000-turn", writable=writable)
@@ -234,8 +235,9 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
         pytest.fail(f"retention started {argv} while a turn works in the worktree")
 
     with monkeypatch.context() as scoped:
-        # Archive git (`retention_git.run` and the `cat-file --batch` readers) and the
-        # holder scan all start through `subprocess.Popen`; `subprocess.run` does too.
+        # Archive git (`retention_git.run` and the `cat-file --batch` readers) starts
+        # through `subprocess.Popen`, as `subprocess.run` does; the holder scan is
+        # stubbed for every test (tests/conftest.py).
         scoped.setattr(rgit.subprocess, "Popen", no_process)
         result = retention.maintenance(store, root, max_jobs=0)
     assert started == []
