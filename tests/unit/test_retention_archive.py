@@ -857,9 +857,9 @@ def test_a_crash_at_any_step_is_recovered_by_the_next_pass(world, monkeypatch, s
 
 
 def test_a_published_archive_keeps_no_progress_log(world, monkeypatch):
-    """N6 (final review of e50716e8): the progress log only makes a build
-    resumable, and a published archive never resumes; it goes at publish, also
-    when a crash came between the rename and its removal."""
+    """N6: published archives keep no progress log. Publish moves it beside
+    the journal for per-file reclamation checks, including after a crash
+    between the archive rename and the progress-log move."""
     w = world
     make_dirty_detached(w, "job-log")
     w.job("job-log-2")

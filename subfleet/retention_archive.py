@@ -105,8 +105,9 @@ def _require_file_bytes(entry: dict[str, Any], label: str) -> None:
 def _copy_sig(files_fd: int, name: str) -> str | None:
     """The stat identity of one stored copy (any write or replacement changes it)."""
     try:
-        return rfs.sig_key(os.stat(name, dir_fd=files_fd, follow_symlinks=False))
-    except FileNotFoundError:
+        st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
+        return rfs.sig_key(st) if stat.S_ISREG(st.st_mode) else None
+    except OSError:
         return None
 
 
@@ -114,18 +115,93 @@ def _read_back(files_fd: int, name: str, entry: dict[str, Any], check: rfs.Check
     """A stored copy's sha256 (None if it is gone, the wrong size or unreadable) and its identity."""
     try:
         handle = os.open(name, rfs.O_FILE, dir_fd=files_fd)
-    except FileNotFoundError:
+    except OSError:
         return None, None
     try:
         st = os.fstat(handle)
         digest = None
-        if st.st_size == entry["size"]:
+        if stat.S_ISREG(st.st_mode) and st.st_size == entry["size"]:
             digest, _ = rfs.read_hashes(handle, st.st_size, None, check)
-    except rfs.TreeError:
-        digest = None
+            if not rfs.same_content_signature(st, os.fstat(handle)):
+                digest = None
+    except (rfs.TreeError, OSError):
+        return None, None
     finally:
         os.close(handle)
     return digest, rfs.sig_key(st)
+
+
+class _Copies:
+    """Revalidate named copies, durably recording every successful new readback.
+
+    The identity shortcut is used only for the current pathname, including
+    each source hard link. No result is memoized across source unlinks.
+    """
+
+    def __init__(self, files: Path, progress: Path, check: rfs.Check):
+        self.files, self.progress, self.check = files, progress, check
+        self.verified: dict[str, dict[str, Any]] = {}
+        try:
+            text = rfs.read_regular(progress, limit=4 << 30).decode()
+        except FileNotFoundError:
+            text = ""
+        for line in text.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and str(record.get("k", "")).startswith("v:"):
+                self.verified.setdefault(record["k"][2:], {}).update(record)
+
+    def __enter__(self) -> _Copies:
+        try:
+            self.fd = rfs.open_dir(self.files)
+        except OSError:
+            self.fd = None
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+
+    def _current_directory(self) -> bool:
+        if self.fd is None:
+            return False
+        try:
+            named = os.stat(self.files, follow_symlinks=False)
+        except OSError:
+            return False
+        opened = os.fstat(self.fd)
+        return (named.st_dev, named.st_ino) == (opened.st_dev, opened.st_ino)
+
+    def holds(self, entry: dict[str, Any]) -> bool:
+        self.check()
+        name = entry.get("store")
+        if not name:
+            return entry["sig"]["t"] != "f" or bool(entry.get("blob") or entry.get("regen"))
+        if not self._current_directory():
+            return False
+        seen = self.verified.get(name, {})
+        if seen.get("sig") is not None and seen.get("sha256") == entry["sha256"] \
+                and seen["sig"] == _copy_sig(self.fd, name):
+            return True
+        digest, sig = _read_back(self.fd, name, entry, self.check)
+        if digest != entry["sha256"] or sig is None:
+            return False
+        record = {"k": "v:" + name, "sha256": digest, "sig": sig}
+        # A leading newline isolates a torn last record. Finish and sync this
+        # record before the next cancellation check, so a resume advances.
+        fd = os.open(self.progress, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            data = memoryview(b"\n" + _canonical(record) + b"\n")
+            while data:
+                data = data[os.write(fd, data):]
+            rfs.fullsync(fd)
+        finally:
+            os.close(fd)
+        self.verified[name] = record
+        # Persistence can take time; make the pathname check the last action.
+        return self._current_directory() and sig == _copy_sig(self.fd, name)
 
 
 @dataclass
@@ -758,20 +834,7 @@ class Retirement:
         retirement skips the builder, so a copy lost or rewritten since its
         readback is caught here, before the rows go: one whose identity moved
         is read again, and one that does not read back keeps the job."""
-        verified: dict[str, dict[str, Any]] = {}
-        try:
-            text = rfs.read_regular(self.building / PROGRESS, limit=4 << 30).decode()
-        except FileNotFoundError:
-            text = ""
-        for line in text.splitlines():
-            try:
-                record = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(record, dict) and str(record.get("k", "")).startswith("v:"):
-                verified.setdefault(record["k"][2:], {}).update(record)
-        fd = rfs.open_dir(self.building / "files")
-        try:
+        with _Copies(self.building / "files", self.building / PROGRESS, self.ctx.check) as copies:
             checked: set[str] = set()
             for label, tree in manifest["trees"].items():
                 for entry in tree["entries"]:
@@ -779,16 +842,8 @@ class Retirement:
                     if not name or name in checked:
                         continue
                     checked.add(name)
-                    seen = verified.get(name, {})
-                    if seen.get("sig") is not None and seen.get("sha256") == entry["sha256"] \
-                            and seen["sig"] == _copy_sig(fd, name):
-                        continue
-                    self.ctx.check()
-                    digest, _ = _read_back(fd, name, entry, self.ctx.check)
-                    if digest != entry["sha256"]:
+                    if not copies.holds(entry):
                         raise Defer("archive did not read back", DEFER_ERROR_S, f"{label}/{entry['p']}")
-        finally:
-            os.close(fd)
 
     # --- step 6: commit ------------------------------------------------------------------
 
@@ -860,9 +915,8 @@ class Retirement:
     # --- step 7: publish ---------------------------------------------------------------
 
     def publish(self) -> None:
-        """Move the verified archive into place. Its progress log goes: a
-        published archive never resumes, and the manifest says everything the
-        log did (final review of e50716e8, N6: about 357 bytes per stored file)."""
+        """Publish the archive; keep verification progress beside the journal
+        until reclamation finishes, never in a completed published archive."""
         j = self.journal
         assert j is not None and j.get("archive")
         target = self.root / "archive" / j["archive"]
@@ -872,7 +926,8 @@ class Retirement:
             rfs.sync_path(self.root / "archive")
             rfs.sync_path(self.work)
         try:
-            (target / PROGRESS).unlink()
+            os.replace(target / PROGRESS, self.work / PROGRESS)
+            rfs.sync_path(self.work)
             rfs.sync_path(target)
         except FileNotFoundError:
             pass
@@ -917,8 +972,9 @@ class Retirement:
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
-            deleter = rfs.Reclaim(entries, self.conflicts, label, check=self.ctx.check)
-            deleter.run(path)
+            with _Copies(self.published_dir() / "files", self.work / PROGRESS, self.ctx.check) as copies:
+                deleter = rfs.Reclaim(entries, self.conflicts, label, check=self.ctx.check, preserved=copies.holds)
+                deleter.run(path)
             report["deleted"] += deleter.deleted
             report["bytes"] += deleter.bytes
             report["kept"].extend({**k, "tree": label} for k in deleter.kept)
@@ -954,6 +1010,10 @@ class Retirement:
             return report
         for extra in ("verify.git", "archive"):
             rfs.remove_own_tree(self.work / extra)
+        try:
+            (self.work / PROGRESS).unlink()
+        except FileNotFoundError:
+            pass
         self._drop_journal()
         try:
             os.rmdir(self.work)
@@ -1667,10 +1727,7 @@ class _Builder:
 
     def _store(self, entry: dict[str, Any], fd: int, before: os.stat_result, key: str, files_fd: int,
                links: dict[tuple[int, int], str], totals: dict[str, int]) -> None:
-        try:
-            os.unlink(key, dir_fd=files_fd)       # a clone of a crashed attempt, unrecorded
-        except FileNotFoundError:
-            pass
+        self._discard_store(files_fd, key)       # a clone of a crashed attempt, unrecorded
         method = rfs.clone_or_copy(fd, files_fd, key, self.ctx.check)
         digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
         after = os.fstat(fd)
@@ -1695,9 +1752,19 @@ class _Builder:
     def _stored_ok(self, files_fd: int, name: str, size: int) -> bool:
         try:
             st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
-        except FileNotFoundError:
+        except OSError:
             return False
         return stat.S_ISREG(st.st_mode) and st.st_size == size
+
+    def _discard_store(self, files_fd: int, name: str) -> None:
+        try:
+            st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                rfs.remove_own_tree(self.files / name)
+            else:
+                os.unlink(name, dir_fd=files_fd)
+        except FileNotFoundError:
+            pass
 
     def _verify_omissions(self, trees: dict[str, dict[str, Any]], common: Path | None, fmt: str | None,
                           files_fd: int, totals: dict[str, int]) -> None:
@@ -1857,8 +1924,7 @@ class _Builder:
                     self._tick()
                     digest, sig = _read_back(fd, name, entry, self.ctx.check)
                     if digest != entry["sha256"]:
-                        if sig is not None:
-                            os.unlink(name, dir_fd=fd)
+                        self._discard_store(fd, name)
                         bad.append(entry["p"])
                         continue
                     self._note({"k": "v:" + name, "sha256": digest, "sig": sig})
