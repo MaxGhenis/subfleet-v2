@@ -417,7 +417,9 @@ def test_real_detached_writers_hold_then_release(state_daemon, monkeypatch, tmp_
               f"p=subprocess.Popen({argv!r}, cwd={str(writer_cwd)!r}, "
               + ("preexec_fn=os.setsid" if kind == "setsid-shell" else "start_new_session=True")
               + ", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-              f"Path({str(pidfile)!r}).write_text(str(p.pid))\nsys.stdin.read()\n")
+              # Written whole, then renamed: a reader never sees an empty pid file.
+              f"t=Path({str(pidfile) + '.tmp'!r}); t.write_text(str(p.pid)); os.replace(t, {str(pidfile)!r})\n"
+              "sys.stdin.read()\n")
     parent = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE,
                               env=marker_env(daemon, a), start_new_session=True, cwd=tmp_path)
     writer = None
@@ -454,6 +456,8 @@ def test_real_detached_writers_hold_then_release(state_daemon, monkeypatch, tmp_
         if parent.poll() is None:
             parent.kill()
             parent.wait(timeout=10)
+        if writer is None and pidfile.exists():
+            writer = int(pidfile.read_text())   # never leave the writer running after a failure
         if writer is not None:
             try:
                 os.killpg(writer, signal.SIGKILL)
